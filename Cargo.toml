@@ -1,0 +1,24 @@
+[workspace]
+members = [
+    "supernova",
+    "btclib",
+    "node",
+    "miner",
+    "wallet"
+]
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+tracing = "0.1"
+sled = "0.34"
+sha2 = "0.10"
+secp256k1 = "0.24"
+rand = "0.8"
+libp2p = { version = "0.50", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
+dashmap = "5.4"
+toml = "0.7"
+clap = { version = "4.0", features = ["derive"] }
