@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::util::merkle::MerkleTree;
+use crate::types::transaction::Transaction;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockHeader {
@@ -23,7 +25,7 @@ pub struct Block {
     /// Block header containing metadata
     header: BlockHeader,
     /// List of transactions included in this block
-    transactions: Vec<Transaction>,  // We'll implement Transaction next
+    transactions: Vec<Transaction>,
 }
 
 impl BlockHeader {
@@ -76,17 +78,15 @@ impl Block {
 
     /// Calculate the merkle root of the transactions
     fn calculate_merkle_root(transactions: &[Transaction]) -> [u8; 32] {
-        // TODO: Implement proper merkle tree
-        // For now, just hash all transactions together
-        let mut hasher = Sha256::new();
-        for tx in transactions {
-            let tx_bytes = bincode::serialize(&tx).unwrap();
-            hasher.update(&tx_bytes);
-        }
-        let result = hasher.finalize();
-        let mut root = [0u8; 32];
-        root.copy_from_slice(&result);
-        root
+        // Serialize transactions for merkle tree
+        let tx_bytes: Vec<Vec<u8>> = transactions
+            .iter()
+            .map(|tx| bincode::serialize(&tx).unwrap())
+            .collect();
+
+        // Create merkle tree and get root hash
+        let tree = MerkleTree::new(&tx_bytes);
+        tree.root_hash().unwrap_or([0u8; 32])
     }
 
     /// Validate basic block properties
@@ -111,6 +111,22 @@ impl Block {
 
         true
     }
+
+    /// Verify that a transaction is included in this block
+    pub fn verify_transaction(&self, transaction: &Transaction) -> bool {
+        // Serialize transactions for merkle tree
+        let tx_bytes: Vec<Vec<u8>> = self.transactions
+            .iter()
+            .map(|tx| bincode::serialize(&tx).unwrap())
+            .collect();
+
+        // Create merkle tree
+        let tree = MerkleTree::new(&tx_bytes);
+        
+        // Verify the specific transaction
+        let tx_bytes = bincode::serialize(&transaction).unwrap();
+        tree.verify(&tx_bytes)
+    }
 }
 
 #[cfg(test)]
@@ -134,5 +150,53 @@ mod tests {
         let initial_nonce = header.nonce;
         header.increment_nonce();
         assert_eq!(header.nonce, initial_nonce + 1);
+    }
+
+    #[test]
+    fn test_transaction_verification() {
+        use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+
+        // Create a test transaction
+        let tx = Transaction::new(
+            1,
+            vec![TransactionInput {
+                prev_tx_hash: [0u8; 32],
+                prev_output_index: 0,
+                signature_script: vec![],
+                sequence: 0xffffffff,
+            }],
+            vec![TransactionOutput {
+                amount: 50_000_000,
+                pub_key_script: vec![],
+            }],
+            0,
+        );
+
+        // Create a block with the transaction
+        let prev_hash = [0u8; 32];
+        let transactions = vec![tx.clone()];
+        let block = Block::new(1, prev_hash, transactions, u32::MAX);
+
+        // Verify the transaction is in the block
+        assert!(block.verify_transaction(&tx));
+
+        // Create a different transaction that shouldn't be in the block
+        let different_tx = Transaction::new(
+            1,
+            vec![TransactionInput {
+                prev_tx_hash: [1u8; 32], // Different previous hash
+                prev_output_index: 0,
+                signature_script: vec![],
+                sequence: 0xffffffff,
+            }],
+            vec![TransactionOutput {
+                amount: 50_000_000,
+                pub_key_script: vec![],
+            }],
+            0,
+        );
+
+        // Verify the different transaction is not in the block
+        assert!(!block.verify_transaction(&different_tx));
     }
 }
