@@ -149,10 +149,10 @@ mod tests {
     #[test]
     fn test_merkle_tree_multiple_transactions() {
         let transactions = vec![
-            b"transaction1",
-            b"transaction2",
-            b"transaction3",
-            b"transaction4",
+            b"transaction1".as_slice(),
+            b"transaction2".as_slice(),
+            b"transaction3".as_slice(),
+            b"transaction4".as_slice(),
         ];
         let tree = MerkleTree::new(&transactions);
         
@@ -165,9 +165,9 @@ mod tests {
     #[test]
     fn test_merkle_tree_odd_transactions() {
         let transactions = vec![
-            b"transaction1",
-            b"transaction2",
-            b"transaction3",
+            b"transaction1".as_slice(),
+            b"transaction2".as_slice(),
+            b"transaction3".as_slice(),
         ];
         let tree = MerkleTree::new(&transactions);
         

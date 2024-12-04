@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::util::merkle::MerkleTree;
-use crate::types::transaction::Transaction;
+use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockHeader {
@@ -89,6 +89,17 @@ impl Block {
         tree.root_hash().unwrap_or([0u8; 32])
     }
 
+    /// Get reference to transactions
+    pub fn transactions(&self) -> &[Transaction] {
+        &self.transactions
+    }
+
+    /// Get block height (to be implemented with chain context)
+    pub fn height(&self) -> u64 {
+        // TODO: Implement proper height tracking
+        0
+    }
+
     /// Validate basic block properties
     pub fn validate(&self) -> bool {
         // Verify proof of work
@@ -154,21 +165,19 @@ mod tests {
 
     #[test]
     fn test_transaction_verification() {
-        use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
-
         // Create a test transaction
         let tx = Transaction::new(
             1,
-            vec![TransactionInput {
-                prev_tx_hash: [0u8; 32],
-                prev_output_index: 0,
-                signature_script: vec![],
-                sequence: 0xffffffff,
-            }],
-            vec![TransactionOutput {
-                amount: 50_000_000,
-                pub_key_script: vec![],
-            }],
+            vec![TransactionInput::new(
+                [0u8; 32],
+                0,
+                vec![],
+                0xffffffff,
+            )],
+            vec![TransactionOutput::new(
+                50_000_000,
+                vec![],
+            )],
             0,
         );
 
@@ -183,16 +192,16 @@ mod tests {
         // Create a different transaction that shouldn't be in the block
         let different_tx = Transaction::new(
             1,
-            vec![TransactionInput {
-                prev_tx_hash: [1u8; 32], // Different previous hash
-                prev_output_index: 0,
-                signature_script: vec![],
-                sequence: 0xffffffff,
-            }],
-            vec![TransactionOutput {
-                amount: 50_000_000,
-                pub_key_script: vec![],
-            }],
+            vec![TransactionInput::new(
+                [1u8; 32], // Different previous hash
+                0,
+                vec![],
+                0xffffffff,
+            )],
+            vec![TransactionOutput::new(
+                50_000_000,
+                vec![],
+            )],
             0,
         );
 
