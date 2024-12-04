@@ -36,6 +36,38 @@ pub struct Transaction {
     lock_time: u32,
 }
 
+impl TransactionInput {
+    pub fn new(prev_tx_hash: [u8; 32], prev_output_index: u32, signature_script: Vec<u8>, sequence: u32) -> Self {
+        Self {
+            prev_tx_hash,
+            prev_output_index,
+            signature_script,
+            sequence,
+        }
+    }
+
+    pub fn prev_tx_hash(&self) -> [u8; 32] {
+        self.prev_tx_hash
+    }
+
+    pub fn prev_output_index(&self) -> u32 {
+        self.prev_output_index
+    }
+}
+
+impl TransactionOutput {
+    pub fn new(amount: u64, pub_key_script: Vec<u8>) -> Self {
+        Self {
+            amount,
+            pub_key_script,
+        }
+    }
+
+    pub fn amount(&self) -> u64 {
+        self.amount
+    }
+}
+
 impl Transaction {
     /// Create a new transaction
     pub fn new(version: u32, inputs: Vec<TransactionInput>, outputs: Vec<TransactionOutput>, lock_time: u32) -> Self {
@@ -56,6 +88,16 @@ impl Transaction {
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
         hash
+    }
+
+    /// Get reference to inputs
+    pub fn inputs(&self) -> &[TransactionInput] {
+        &self.inputs
+    }
+
+    /// Get reference to outputs
+    pub fn outputs(&self) -> &[TransactionOutput] {
+        &self.outputs
     }
 
     /// Calculate the total input amount (requires access to previous transactions)
@@ -108,17 +150,17 @@ mod tests {
 
     #[test]
     fn test_transaction_creation() {
-        let inputs = vec![TransactionInput {
-            prev_tx_hash: [0u8; 32],
-            prev_output_index: 0,
-            signature_script: vec![],
-            sequence: 0xffffffff,
-        }];
+        let inputs = vec![TransactionInput::new(
+            [0u8; 32],
+            0,
+            vec![],
+            0xffffffff,
+        )];
 
-        let outputs = vec![TransactionOutput {
-            amount: 50_000_000, // 0.5 BTC
-            pub_key_script: vec![],
-        }];
+        let outputs = vec![TransactionOutput::new(
+            50_000_000, // 0.5 BTC
+            vec![],
+        )];
 
         let tx = Transaction::new(1, inputs, outputs, 0);
         assert_eq!(tx.version, 1);
@@ -127,26 +169,26 @@ mod tests {
 
     #[test]
     fn test_transaction_validation() {
-        let inputs = vec![TransactionInput {
-            prev_tx_hash: [0u8; 32],
-            prev_output_index: 0,
-            signature_script: vec![],
-            sequence: 0xffffffff,
-        }];
+        let inputs = vec![TransactionInput::new(
+            [0u8; 32],
+            0,
+            vec![],
+            0xffffffff,
+        )];
 
-        let outputs = vec![TransactionOutput {
-            amount: 50_000_000,
-            pub_key_script: vec![],
-        }];
+        let outputs = vec![TransactionOutput::new(
+            50_000_000,
+            vec![],
+        )];
 
         let tx = Transaction::new(1, inputs, outputs, 0);
 
         // Mock function to provide previous output
         let get_output = |_hash: &[u8; 32], _index: u32| {
-            Some(TransactionOutput {
-                amount: 60_000_000, // Previous output has more value than current output
-                pub_key_script: vec![],
-            })
+            Some(TransactionOutput::new(
+                60_000_000, // Previous output has more value than current output
+                vec![],
+            ))
         };
 
         assert!(tx.validate(&get_output));
