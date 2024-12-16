@@ -4,6 +4,7 @@ use libp2p::gossipsub::{
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::time::Duration;
+use btclib::types::Transaction;
 
 const BLOCKS_TOPIC: &str = "supernova/blocks/1.0.0";
 const TXS_TOPIC: &str = "supernova/transactions/1.0.0";
@@ -16,6 +17,8 @@ pub enum Message {
         total_difficulty: u64,
     },
     NewTransaction(Vec<u8>),
+    BroadcastTransaction(Transaction),
+    TransactionAnnouncement(Vec<u8>), // Transaction hash
     GetBlocks {
         start_height: u64,
         end_height: u64,
@@ -78,6 +81,18 @@ impl Protocol {
 
     pub fn publish_transaction(&mut self, tx_data: Vec<u8>) -> Result<MessageId, PublishError> {
         let message = Message::NewTransaction(tx_data);
+        let encoded = bincode::serialize(&message)?;
+        self.gossipsub.publish(Topic::new(TXS_TOPIC), encoded)
+    }
+
+    pub fn broadcast_transaction(&mut self, transaction: Transaction) -> Result<MessageId, PublishError> {
+        let message = Message::BroadcastTransaction(transaction);
+        let encoded = bincode::serialize(&message)?;
+        self.gossipsub.publish(Topic::new(TXS_TOPIC), encoded)
+    }
+
+    pub fn announce_transaction(&mut self, tx_hash: Vec<u8>) -> Result<MessageId, PublishError> {
+        let message = Message::TransactionAnnouncement(tx_hash);
         let encoded = bincode::serialize(&message)?;
         self.gossipsub.publish(Topic::new(TXS_TOPIC), encoded)
     }
@@ -165,5 +180,15 @@ mod tests {
             }
             _ => panic!("Wrong message type after deserialization"),
         }
+    }
+
+    #[test]
+    fn test_transaction_broadcast() {
+        let keypair = identity::Keypair::generate_ed25519();
+        let mut protocol = Protocol::new(keypair).unwrap();
+        
+        let transaction = Transaction::new(1, vec![], vec![], 0); // Empty test transaction
+        let result = protocol.broadcast_transaction(transaction);
+        assert!(result.is_ok());
     }
 }
