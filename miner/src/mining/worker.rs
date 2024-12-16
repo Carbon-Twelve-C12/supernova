@@ -1,4 +1,5 @@
 use btclib::types::{Block, Transaction, TransactionInput, TransactionOutput};
+use crate::mining::template::{BlockTemplate, BLOCK_MAX_SIZE};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -10,6 +11,7 @@ pub struct MiningWorker {
     pub(crate) block_sender: mpsc::Sender<Block>,
     pub(crate) target: u32,
     pub(crate) worker_id: usize,
+    pub(crate) mempool: Arc<dyn MempoolInterface + Send + Sync>,
 }
 
 impl MiningWorker {
@@ -18,12 +20,14 @@ impl MiningWorker {
         block_sender: mpsc::Sender<Block>,
         target: u32,
         worker_id: usize,
+        mempool: Arc<dyn MempoolInterface + Send + Sync>,
     ) -> Self {
         Self {
             stop_signal,
             block_sender,
             target,
             worker_id,
+            mempool,
         }
     }
 
@@ -31,14 +35,18 @@ impl MiningWorker {
         &self,
         version: u32,
         prev_block_hash: [u8; 32],
-        transactions: Vec<Transaction>,
+        reward_address: Vec<u8>,
     ) -> Result<(), String> {
-        let mut block = Block::new(
+        // Create block template
+        let template = BlockTemplate::new(
             version,
             prev_block_hash,
-            transactions,
             self.target,
-        );
+            reward_address,
+            self.mempool.as_ref(),
+        ).await;
+
+        let mut block = template.create_block();
 
         let mut attempts = 0;
         while !self.stop_signal.load(Ordering::Relaxed) {
@@ -65,6 +73,19 @@ impl MiningWorker {
             // Increment nonce and try again
             block.increment_nonce();
             attempts += 1;
+
+            // Periodically update block template
+            if attempts % 100_000 == 0 {
+                // Update template with new transactions from mempool
+                let new_template = BlockTemplate::new(
+                    version,
+                    prev_block_hash,
+                    self.target,
+                    reward_address.clone(),
+                    self.mempool.as_ref(),
+                ).await;
+                block = new_template.create_block();
+            }
         }
 
         Ok(())
@@ -75,48 +96,40 @@ impl MiningWorker {
         let hash_value = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]);
         hash_value <= self.target
     }
-
-    fn create_coinbase_transaction(&self, reward: u64) -> Transaction {
-        let coinbase_input = TransactionInput::new(
-            [0u8; 32],  // Previous transaction hash is zero for coinbase
-            0xffffffff, // Previous output index is max value for coinbase
-            vec![],     // No signature script needed for coinbase
-            0,          // Sequence
-        );
-
-        let reward_output = TransactionOutput::new(
-            reward,
-            vec![], // TODO: Add proper public key script
-        );
-
-        Transaction::new(
-            1,  // Version
-            vec![coinbase_input],
-            vec![reward_output],
-            0,  // Lock time
-        )
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tokio::sync::mpsc;
+    use std::sync::Arc;
+
+    struct MockMempool;
+    
+    #[async_trait::async_trait]
+    impl MempoolInterface for MockMempool {
+        async fn get_transactions(&self, max_size: usize) -> Vec<Transaction> {
+            Vec::new()
+        }
+    }
 
     #[tokio::test]
     async fn test_mining_worker() {
         let (tx, mut rx) = mpsc::channel(1);
         let stop_signal = Arc::new(AtomicBool::new(false));
+        let mempool = Arc::new(MockMempool);
+        
         let worker = MiningWorker::new(
             Arc::clone(&stop_signal),
             tx,
             u32::MAX, // Use maximum target for quick testing
             0,
+            mempool,
         );
 
         // Start mining
         let mining_handle = tokio::spawn(async move {
-            worker.mine_block(1, [0u8; 32], Vec::new()).await.unwrap();
+            worker.mine_block(1, [0u8; 32], vec![1,2,3,4]).await.unwrap();
         });
 
         // Wait for a block or timeout

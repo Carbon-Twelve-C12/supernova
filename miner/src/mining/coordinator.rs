@@ -1,11 +1,13 @@
 use btclib::types::Block;
 use btclib::types::Transaction;
 use super::worker::MiningWorker;
+use super::template::{BlockTemplate, MempoolInterface, BLOCK_MAX_SIZE};
 use crate::difficulty::DifficultyAdjuster;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{info, error};
+use async_trait::async_trait;
 
 pub struct Miner {
     workers: Vec<MiningWorker>,
@@ -13,10 +15,17 @@ pub struct Miner {
     stop_signal: Arc<AtomicBool>,
     block_sender: mpsc::Sender<Block>,
     num_threads: usize,
+    mempool: Arc<dyn MempoolInterface + Send + Sync>,
+    reward_address: Vec<u8>,
 }
 
 impl Miner {
-    pub fn new(num_threads: usize, initial_target: u32) -> (Self, mpsc::Receiver<Block>) {
+    pub fn new(
+        num_threads: usize,
+        initial_target: u32,
+        mempool: Arc<dyn MempoolInterface + Send + Sync>,
+        reward_address: Vec<u8>,
+    ) -> (Self, mpsc::Receiver<Block>) {
         let (tx, rx) = mpsc::channel(100);
         let stop_signal = Arc::new(AtomicBool::new(false));
 
@@ -27,6 +36,7 @@ impl Miner {
                 tx.clone(),
                 initial_target,
                 i,
+                Arc::clone(&mempool),
             ));
         }
 
@@ -36,6 +46,8 @@ impl Miner {
             stop_signal,
             block_sender: tx,
             num_threads,
+            mempool,
+            reward_address,
         }, rx)
     }
 
@@ -43,7 +55,6 @@ impl Miner {
         &mut self,
         version: u32,
         prev_block_hash: [u8; 32],
-        transactions: Vec<Transaction>,
         current_height: u64,
     ) -> Result<(), String> {
         info!("Starting mining with {} workers", self.num_threads);
@@ -52,9 +63,13 @@ impl Miner {
         
         // Start all mining workers
         for worker in &self.workers {
-            let transactions = transactions.clone();
+            let reward_address = self.reward_address.clone();
             handles.push(tokio::spawn(async move {
-                worker.mine_block(version, prev_block_hash, transactions).await
+                worker.mine_block(
+                    version,
+                    prev_block_hash,
+                    reward_address,
+                ).await
             }));
         }
 
@@ -94,6 +109,7 @@ impl Miner {
                 self.block_sender.clone(),
                 new_target,
                 i,
+                Arc::clone(&self.mempool),
             );
         }
     }
@@ -101,28 +117,45 @@ impl Miner {
     pub fn get_current_target(&self) -> u32 {
         self.difficulty_adjuster.get_current_target()
     }
+
+    pub fn set_reward_address(&mut self, address: Vec<u8>) {
+        self.reward_address = address;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio;
+    use std::sync::Arc;
+
+    struct MockMempool;
+    
+    #[async_trait]
+    impl MempoolInterface for MockMempool {
+        async fn get_transactions(&self, _max_size: usize) -> Vec<Transaction> {
+            Vec::new()
+        }
+    }
 
     #[tokio::test]
     async fn test_miner_creation() {
-        let (miner, _rx) = Miner::new(4, 0x1d00ffff);
+        let mempool = Arc::new(MockMempool);
+        let reward_address = vec![1, 2, 3, 4];
+        let (miner, _rx) = Miner::new(4, 0x1d00ffff, mempool, reward_address);
         assert_eq!(miner.num_threads, 4);
         assert_eq!(miner.get_current_target(), 0x1d00ffff);
     }
 
     #[tokio::test]
     async fn test_mining_start_stop() {
-        let (miner, mut rx) = Miner::new(1, u32::MAX); // Use maximum target for quick mining
+        let mempool = Arc::new(MockMempool);
+        let reward_address = vec![1, 2, 3, 4];
+        let (miner, mut rx) = Miner::new(1, u32::MAX, mempool, reward_address); // Use maximum target for quick mining
         
         // Start mining in a separate task
         let mut miner = miner;
         let mining_handle = tokio::spawn(async move {
-            miner.start_mining(1, [0u8; 32], Vec::new(), 0).await.unwrap();
+            miner.start_mining(1, [0u8; 32], 0).await.unwrap();
         });
 
         // Wait for a block or timeout
@@ -140,7 +173,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_difficulty_adjustment() {
-        let (mut miner, _rx) = Miner::new(1, 0x1d00ffff);
+        let mempool = Arc::new(MockMempool);
+        let reward_address = vec![1, 2, 3, 4];
+        let (mut miner, _rx) = Miner::new(1, 0x1d00ffff, mempool, reward_address);
         let initial_target = miner.get_current_target();
 
         miner.adjust_difficulty(2016, 60 * 1008, 2016); // Half the expected time
