@@ -1,0 +1,40 @@
+# SuperNova Node Configuration
+
+[node]
+chain_id = "supernova-dev"
+environment = "Development"
+metrics_enabled = true
+metrics_port = 9000
+log_level = "info"
+
+[network]
+listen_addr = "/ip4/0.0.0.0/tcp/8000"
+max_peers = 50
+bootstrap_nodes = []
+peer_ping_interval = 30  # seconds
+max_outbound_connections = 8
+max_inbound_connections = 32
+ban_threshold = 100
+ban_duration = 86400  # 24 hours in seconds
+
+[storage]
+db_path = "./data"
+enable_compression = true
+cache_size = 536870912  # 512 MB
+max_open_files = 1000
+block_cache_size = 33554432  # 32 MB
+
+[mempool]
+max_size = 5000
+transaction_timeout = 7200  # 2 hours in seconds
+min_fee_rate = 1.0
+max_per_address = 100
+max_orphan_transactions = 100
+
+[backup]
+backup_dir = "./backups"
+max_backups = 5
+backup_interval = 3600  # 1 hour in seconds
+enable_automated_backups = true
+compress_backups = true
+verify_on_startup = true
