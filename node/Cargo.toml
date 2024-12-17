@@ -33,4 +33,3 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "node"
-path = "src/main.rs

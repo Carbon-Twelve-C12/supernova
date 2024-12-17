@@ -3,15 +3,34 @@ use super::persistence::ChainState;
 use crate::metrics::BackupMetrics;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::collections::{HashMap, HashSet};
 use tokio::fs;
+use tokio::sync::mpsc;
 use tracing::{info, warn, error};
 use std::sync::Arc;
+use futures::future::join_all;
+use sha2::{Sha256, Digest};
+
+const CHECKPOINT_INTERVAL: u64 = 10000;
+const PARALLEL_VERIFICATION_CHUNKS: usize = 4;
+const MAX_RECOVERY_ATTEMPTS: usize = 3;
+const INCREMENTAL_REBUILD_BATCH: usize = 1000;
+
+#[derive(Debug, Clone)]
+pub struct RecoveryCheckpoint {
+    pub height: u64,
+    pub block_hash: [u8; 32],
+    pub utxo_hash: [u8; 32],
+    pub timestamp: u64,
+}
 
 pub struct RecoveryManager {
     db: Arc<BlockchainDB>,
     backup_dir: PathBuf,
     chain_state: ChainState,
     metrics: BackupMetrics,
+    checkpoints: HashMap<u64, RecoveryCheckpoint>,
+    last_checkpoint: Option<RecoveryCheckpoint>,
 }
 
 pub struct BackupManager {
@@ -200,6 +219,8 @@ impl RecoveryManager {
             backup_dir,
             chain_state,
             metrics: BackupMetrics::new(),
+            checkpoints: HashMap::new(),
+            last_checkpoint: None,
         }
     }
 
@@ -213,12 +234,99 @@ impl RecoveryManager {
         if !integrity_result {
             warn!("Database integrity check failed. Starting recovery process.");
             self.metrics.record_verification_failure();
-            self.perform_recovery().await?;
+            
+            for attempt in 1..=MAX_RECOVERY_ATTEMPTS {
+                info!("Recovery attempt {} of {}", attempt, MAX_RECOVERY_ATTEMPTS);
+                match self.perform_recovery().await {
+                    Ok(()) => {
+                        info!("Recovery successful on attempt {}", attempt);
+                        self.create_checkpoint().await?;
+                        return Ok(());
+                    }
+                    Err(e) if attempt == MAX_RECOVERY_ATTEMPTS => {
+                        error!("All recovery attempts failed: {}", e);
+                        return Err(e);
+                    }
+                    Err(e) => {
+                        warn!("Recovery attempt {} failed: {}. Retrying...", attempt, e);
+                        continue;
+                    }
+                }
+            }
         } else {
             self.metrics.record_verification_success();
+            self.create_checkpoint().await?;
         }
 
         Ok(())
+    }
+
+    async fn create_checkpoint(&mut self) -> Result<(), StorageError> {
+        let height = self.chain_state.get_height();
+        if self.last_checkpoint.as_ref().map_or(true, |cp| height - cp.height >= CHECKPOINT_INTERVAL) {
+            let block_hash = self.chain_state.get_best_block_hash();
+            let utxo_hash = self.calculate_utxo_hash().await?;
+            
+            let checkpoint = RecoveryCheckpoint {
+                height,
+                block_hash,
+                utxo_hash,
+                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            };
+
+            self.checkpoints.insert(height, checkpoint.clone());
+            self.last_checkpoint = Some(checkpoint);
+            self.save_checkpoints().await?;
+        }
+        Ok(())
+    }
+
+    async fn calculate_utxo_hash(&self) -> Result<[u8; 32], StorageError> {
+        let mut hasher = Sha256::new();
+        let mut utxos = Vec::new();
+        
+        let mut current_hash = self.chain_state.get_best_block_hash();
+        let mut height = self.chain_state.get_height();
+
+        while height > 0 {
+            let block = self.db.get_block(&current_hash)?.unwrap();
+            for tx in block.transactions() {
+                let tx_hash = tx.hash();
+                for (index, output) in tx.outputs().iter().enumerate() {
+                    utxos.push((tx_hash, index as u32, output));
+                }
+            }
+            current_hash = block.prev_block_hash();
+            height -= 1;
+        }
+
+        utxos.sort_by_key(|&(hash, index, _)| (hash, index));
+
+        for (hash, index, output) in utxos {
+            hasher.update(&hash);
+            hasher.update(&index.to_le_bytes());
+            hasher.update(&bincode::serialize(output)?);
+        }
+
+        Ok(hasher.finalize().into())
+    }
+
+    async fn save_checkpoints(&self) -> Result<(), StorageError> {
+        let checkpoint_data = bincode::serialize(&self.checkpoints)?;
+        self.db.store_metadata(b"checkpoints", &checkpoint_data)?;
+        Ok(())
+    }
+
+    async fn verify_checkpoint(&self, checkpoint: &RecoveryCheckpoint) -> Result<bool, StorageError> {
+        let block = self.db.get_block(&checkpoint.block_hash)?
+            .ok_or_else(|| StorageError::DatabaseError("Checkpoint block not found".to_string()))?;
+
+        if block.height() != checkpoint.height {
+            return Ok(false);
+        }
+
+        let current_utxo_hash = self.calculate_utxo_hash().await?;
+        Ok(current_utxo_hash == checkpoint.utxo_hash)
     }
 
     pub async fn verify_database_integrity(&self) -> Result<bool, StorageError> {
@@ -226,42 +334,38 @@ impl RecoveryManager {
             return Ok(false);
         }
 
-        if !self.verify_blockchain().await? {
-            return Ok(false);
-        }
+        let (blockchain_valid, utxo_valid) = tokio::join!(
+            self.verify_blockchain_parallel(),
+            self.verify_utxo_set()
+        );
 
-        if !self.verify_utxo_set().await? {
-            return Ok(false);
-        }
-
-        Ok(true)
+        Ok(blockchain_valid? && utxo_valid?)
     }
 
-    async fn verify_blockchain(&self) -> Result<bool, StorageError> {
-        let mut current_hash = self.chain_state.get_best_block_hash();
-        let mut height = self.chain_state.get_height();
+    async fn verify_blockchain_parallel(&self) -> Result<bool, StorageError> {
+        let height = self.chain_state.get_height();
+        let chunk_size = height / PARALLEL_VERIFICATION_CHUNKS as u64;
+        let mut tasks = Vec::new();
 
-        while height > 0 {
-            let block = match self.db.get_block(&current_hash)? {
-                Some(b) => b,
-                None => {
-                    error!("Missing block at height {}", height);
-                    return Ok(false);
-                }
+        for i in 0..PARALLEL_VERIFICATION_CHUNKS {
+            let start = i as u64 * chunk_size;
+            let end = if i == PARALLEL_VERIFICATION_CHUNKS - 1 {
+                height
+            } else {
+                (i as u64 + 1) * chunk_size
             };
 
-            if !block.validate() {
-                error!("Invalid block at height {}", height);
+            let db = Arc::clone(&self.db);
+            let chain_state = self.chain_state.clone();
+            tasks.push(tokio::spawn(async move {
+                verify_blockchain_range(db, chain_state, start, end).await
+            }));
+        }
+
+        for result in join_all(tasks).await {
+            if !result.unwrap()? {
                 return Ok(false);
             }
-
-            if block.height() != height {
-                error!("Height mismatch at block {}", height);
-                return Ok(false);
-            }
-
-            current_hash = block.prev_block_hash();
-            height -= 1;
         }
 
         Ok(true)
@@ -300,6 +404,17 @@ impl RecoveryManager {
 
     async fn perform_recovery(&mut self) -> Result<(), StorageError> {
         info!("Starting database recovery process");
+
+        self.load_checkpoints().await?;
+
+        if let Some(checkpoint) = self.last_checkpoint.as_ref() {
+            info!("Found checkpoint at height {}", checkpoint.height);
+            if self.verify_checkpoint(checkpoint).await? {
+                info!("Checkpoint verified, recovering from checkpoint");
+                self.recover_from_checkpoint(checkpoint).await?;
+                return Ok(());
+            }
+        }
 
         if let Some(backup_path) = self.find_latest_backup().await? {
             info!("Found backup at {:?}", backup_path);
