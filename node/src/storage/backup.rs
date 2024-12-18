@@ -563,4 +563,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_backup_rotation() -> Result
+    async fn test_backup_rotation() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let backup_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
+        
+        let backup_manager = BackupManager::new(
+            Arc::clone(&db),
+            backup_dir.path().to_path_buf(),
+            2, // Only keep 2 backups
+            Duration::from_secs(3600),
+        );
+
+        // Create several backups
+        for _ in 0..4 {
+            backup_manager.create_backup().await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        backup_manager.cleanup_old_backups().await?;
+
+        // Verify only 2 backups remain
+        let count = fs::read_dir(backup_dir.path())
+            .await?
+            .count()
+            .await;
+        assert_eq!(count, 2);
+
+        Ok(())
+    }
