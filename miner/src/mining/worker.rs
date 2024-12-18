@@ -1,10 +1,12 @@
-use btclib::types::{Block, Transaction, TransactionInput, TransactionOutput};
+use btclib::types::block::Block;
+use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use crate::mining::template::{BlockTemplate, BLOCK_MAX_SIZE};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use sha2::{Sha256, Digest};
 use tracing;
+use crate::mining::MempoolInterface;
 
 pub struct MiningWorker {
     pub(crate) stop_signal: Arc<AtomicBool>,

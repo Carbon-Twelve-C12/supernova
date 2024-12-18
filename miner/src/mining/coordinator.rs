@@ -1,5 +1,5 @@
-use btclib::types::Block;
-use btclib::types::Transaction;
+use btclib::types::block::Block;
+use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use super::worker::MiningWorker;
 use super::template::{BlockTemplate, MempoolInterface, BLOCK_MAX_SIZE};
 use crate::difficulty::DifficultyAdjuster;
@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{info, error};
 use async_trait::async_trait;
+
 
 pub struct Miner {
     workers: Vec<MiningWorker>,

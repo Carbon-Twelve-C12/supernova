@@ -1,4 +1,5 @@
-use btclib::types::{Block, Transaction, TransactionInput, TransactionOutput};
+use btclib::types::block::Block;
+use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use async_trait::async_trait;
 
 pub const BLOCK_MAX_SIZE: usize = 1_000_000; // 1MB
