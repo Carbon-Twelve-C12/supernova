@@ -100,11 +100,12 @@ cargo test
 
 ### Technical Details
 
-Written in Rust
-Uses libp2p for P2P networking
-Uses sled for database storage
-Uses secp256k1 for cryptographic operations
-Implements SHA-256 for proof-of-work
+- Written in Rust
+- Uses libp2p for P2P networking
+- Uses sled for database storage
+- Uses secp256k1 for cryptographic operations
+- Implements SHA-256 for proof-of-work
+- For more information review the [Overview doc](https://docs.google.com/document/d/1o_Zl8ll89dutoAXROCLoNEYxYpolfiefZmNDw2KhAH4/edit?usp=sharing)
 
 ### License
 
