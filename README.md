@@ -90,8 +90,11 @@ cargo run -- send --to 0123456789abcdef... --amount 100 --fee 1
 
 # Use a custom wallet file
 cargo run -- --wallet my_wallet.json balance
-Building
-bashCopy# Build all components
+```
+
+### Building
+```bash
+# Build all components
 cargo build
 
 # Run tests
