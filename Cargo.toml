@@ -4,7 +4,8 @@ members = [
     "btclib",
     "node",
     "miner",
-    "wallet"
+    "wallet",
+    "tests"
 ]
 
 [workspace.dependencies]
