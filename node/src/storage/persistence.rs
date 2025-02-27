@@ -62,6 +62,45 @@ impl ChainState {
         self.best_block_hash
     }
 
+    /// Get the genesis block hash
+    pub fn get_genesis_hash(&self) -> [u8; 32] {
+        // Fetch the genesis block hash from database or use a cached value
+        if let Ok(Some(hash)) = self.db.get_metadata(b"genesis_hash") {
+            let mut result = [0u8; 32];
+            if hash.len() == 32 {
+                result.copy_from_slice(&hash);
+                return result;
+            }
+        }
+        
+        // Fallback to zeros if not found
+        [0u8; 32]
+    }
+
+    /// Get total difficulty of the current chain tip
+    pub fn get_total_difficulty(&self) -> u64 {
+        if let Ok(Some(difficulty_bytes)) = self.db.get_metadata(b"total_difficulty") {
+            if let Ok(difficulty) = bincode::deserialize::<u64>(&difficulty_bytes) {
+                return difficulty;
+            }
+        }
+        
+        // Default value if not found
+        0
+    }
+
+    /// Update total difficulty when adding a new block
+    fn update_total_difficulty(&mut self, new_block_difficulty: u64) -> Result<(), StorageError> {
+        let current_difficulty = self.get_total_difficulty();
+        let new_total = current_difficulty.saturating_add(new_block_difficulty);
+        
+        let difficulty_bytes = bincode::serialize(&new_total)
+            .map_err(|e| StorageError::Serialization(e))?;
+            
+        self.db.store_metadata(b"total_difficulty", &difficulty_bytes)?;
+        Ok(())
+    }
+
     pub async fn process_block(&mut self, block: Block) -> Result<bool, StorageError> {
         let block_hash = block.hash();
         let prev_hash = block.prev_block_hash();
@@ -95,8 +134,14 @@ impl ChainState {
             }
         }
 
+        // Get the block's difficulty to update total difficulty
+        let block_difficulty = calculate_block_work(block.target()) as u64;
+        
         self.store_block(block)?;
         self.chain_work.insert(block_hash, new_chain_work);
+        
+        // Update the total difficulty
+        self.update_total_difficulty(block_difficulty)?;
 
         Ok(true)
     }
@@ -219,6 +264,14 @@ impl ChainState {
             }
         }
 
+        // Adjust total difficulty when disconnecting a block
+        let block_difficulty = calculate_block_work(block.target()) as u64;
+        let current_difficulty = self.get_total_difficulty();
+        let new_total = current_difficulty.saturating_sub(block_difficulty);
+        
+        let difficulty_bytes = bincode::serialize(&new_total)?;
+        self.db.store_metadata(b"total_difficulty", &difficulty_bytes)?;
+
         self.current_height -= 1;
         self.best_block_hash = block.prev_block_hash();
         
@@ -229,16 +282,28 @@ impl ChainState {
     }
 
     fn connect_block(&mut self, block: &Block) -> Result<(), StorageError> {
-        self.store_block(block.clone())?;
+        let block_data = bincode::serialize(block)?;
+        let block_hash = block.hash();
+        
+        self.db.store_block(&block_hash, &block_data)?;
+        
+        // Update total difficulty when connecting a block
+        let block_difficulty = calculate_block_work(block.target()) as u64;
+        self.update_total_difficulty(block_difficulty)?;
+        
         Ok(())
     }
 
     fn store_block(&mut self, block: Block) -> Result<(), StorageError> {
         let block_hash = block.hash();
-        self.db.store_block(&block_hash, &bincode::serialize(&block)?)?;
+        let block_data = bincode::serialize(&block)?;
+        
+        self.db.store_block(&block_hash, &block_data)?;
         
         for tx in block.transactions() {
-            self.db.store_transaction(&tx.hash(), &bincode::serialize(tx)?)?;
+            let tx_hash = tx.hash();
+            let tx_data = bincode::serialize(tx)?;
+            self.db.store_transaction(&tx_hash, &tx_data)?;
         }
         
         self.current_height = block.height();
@@ -378,6 +443,24 @@ mod tests {
             );
         }
         assert!(!chain_state.validate_block(&invalid_fork).await?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_total_difficulty() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
+        let mut chain_state = ChainState::new(db)?;
+
+        assert_eq!(chain_state.get_total_difficulty(), 0);
+
+        // Create and add a block
+        let genesis = Block::new(1, [0u8; 32], Vec::new(), u32::MAX);
+        chain_state.process_block(genesis.clone()).await?;
+
+        // Total difficulty should be increased
+        assert!(chain_state.get_total_difficulty() > 0);
 
         Ok(())
     }

@@ -2,12 +2,13 @@ use crate::network::{P2PNetwork, NetworkCommand, NetworkEvent};
 use crate::storage::{ChainState, BlockchainDB, BackupManager, RecoveryManager};
 use crate::mempool::{TransactionPool, TransactionPrioritizer};
 use crate::config::NodeConfig;
-use tracing::{info, error, warn};
+use tracing::{info, error, warn, debug};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use std::path::PathBuf;
 use std::time::Duration;
-use bincode;
+use btclib::types::{Block, Transaction};
+use crate::network::sync::{ChainSync, DefaultSyncMetrics};
 
 struct Node {
     config: Arc<Mutex<NodeConfig>>,
@@ -54,7 +55,12 @@ impl Node {
             }
         }
 
-        let (network, _, _) = P2PNetwork::new().await?;
+        // Initialize network with genesis hash and network ID
+        let (network, _, _) = P2PNetwork::new(
+            None,
+            chain_state.get_genesis_hash(),
+            &config.lock().await.node.chain_id
+        ).await?;
 
         Ok(Self {
             config,
@@ -102,11 +108,14 @@ impl Node {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
     tracing_subscriber::fmt::init();
 
+    // Create node instance
     let node = Arc::new(Node::new().await?);
     let node_clone = Arc::clone(&node);
 
+    // Watch for configuration changes
     let config_rx = NodeConfig::watch_config().await?;
     let config_node = Arc::clone(&node);
     let config_handle = tokio::spawn(async move {
@@ -119,9 +128,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let (mut network, command_tx, mut event_rx) = P2PNetwork::new().await?;
-    let mut sync = network::ChainSync::new(node.chain_state.clone(), command_tx.clone());
+    // Set up network and sync components
+    let (mut network, command_tx, mut event_rx) = P2PNetwork::new(
+        None,
+        node.chain_state.get_genesis_hash(),
+        &node.config.lock().await.node.chain_id
+    ).await?;
 
+    // Initialize the enhanced sync system
+    let db = Arc::clone(&node.chain_state.db);
+    let mut sync = ChainSync::new(
+        node.chain_state.clone(),
+        db,
+        command_tx.clone()
+    );
+
+    // Load checkpoints at startup
+    if let Err(e) = sync.load_checkpoints().await {
+        error!("Failed to load checkpoints: {}", e);
+    }
+
+    // Set up metrics for the sync system
+    let metrics = Arc::new(DefaultSyncMetrics);
+    sync = sync.with_metrics(metrics);
+
+    // Set up periodic sync timeout handler
+    let sync_clone = sync.clone();
+    let sync_timeout_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            if let Err(e) = sync_clone.process_timeouts().await {
+                error!("Error processing sync timeouts: {}", e);
+            }
+        }
+    });
+
+    // Start automated backups if enabled
     let backup_handle = if node.config.lock().await.backup.enable_automated_backups {
         let backup_manager = Arc::clone(&node.backup_manager);
         Some(tokio::spawn(async move {
@@ -134,70 +177,174 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // Handle network events
     let event_handle = tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
             match event {
+                // Handle new peer connected
                 NetworkEvent::NewPeer(peer_id) => {
                     info!("New peer connected: {}", peer_id);
-                }
+                },
+                
+                // Handle peer disconnected
                 NetworkEvent::PeerLeft(peer_id) => {
                     info!("Peer disconnected: {}", peer_id);
-                }
-                NetworkEvent::NewBlock(block_data) => {
-                    match bincode::deserialize(&block_data) {
-                        Ok((block, height, total_difficulty)) => {
-                            if let Err(e) = sync.handle_new_block(block, height, total_difficulty).await {
-                                error!("Failed to process new block: {}", e);
-                            }
+                },
+                
+                // Handle new block received
+                NetworkEvent::NewBlock { block, height, total_difficulty, from_peer } => {
+                    info!("Received new block at height {} from {:?}", height, from_peer);
+                    
+                    if let Err(e) = sync.handle_new_block(block, height, total_difficulty, from_peer.as_ref()).await {
+                        error!("Failed to process new block: {}", e);
+                        
+                        // Penalize peer if the block was invalid
+                        if let Some(peer_id) = from_peer {
+                            command_tx.send(NetworkCommand::BanPeer {
+                                peer_id,
+                                reason: format!("Invalid block: {}", e),
+                                duration: Some(Duration::from_secs(1800)),
+                            }).await.ok();
                         }
-                        Err(e) => error!("Failed to deserialize block: {}", e),
                     }
-                }
-                NetworkEvent::NewTransaction(tx_data) => {
-                    match bincode::deserialize(&tx_data) {
-                        Ok(transaction) => {
-                            if let Err(e) = node_clone.handle_new_transaction(transaction).await {
-                                error!("Failed to process transaction: {}", e);
-                            }
+                },
+                
+                // Handle new transaction received
+                NetworkEvent::NewTransaction { transaction, fee_rate, from_peer } => {
+                    debug!("Received new transaction from {:?}", from_peer);
+                    
+                    if let Err(e) = node_clone.handle_new_transaction(transaction).await {
+                        error!("Failed to process transaction: {}", e);
+                    }
+                },
+                
+                // Handle block headers received
+                NetworkEvent::BlockHeaders { headers, total_difficulty, from_peer } => {
+                    info!("Received {} headers from {:?}", headers.len(), from_peer);
+                    
+                    if let Err(e) = sync.handle_headers(headers, from_peer.as_ref()).await {
+                        error!("Failed to process headers: {}", e);
+                        
+                        if let Some(peer_id) = from_peer {
+                            command_tx.send(NetworkCommand::BanPeer {
+                                peer_id,
+                                reason: format!("Invalid headers: {}", e),
+                                duration: Some(Duration::from_secs(1800)),
+                            }).await.ok();
                         }
-                        Err(e) => error!("Failed to deserialize transaction: {}", e),
                     }
-                }
+                },
+                
+                // Handle blocks received
+                NetworkEvent::BlocksReceived { blocks, total_difficulty, from_peer } => {
+                    info!("Received {} blocks in response from {:?}", blocks.len(), from_peer);
+                    
+                    // Process each block
+                    for block in blocks {
+                        let height = block.height();
+                        
+                        if let Err(e) = sync.handle_new_block(block, height, total_difficulty, from_peer.as_ref()).await {
+                            error!("Failed to process block from batch: {}", e);
+                            break;
+                        }
+                    }
+                },
+                
+                // Handle peer status update
+                NetworkEvent::PeerStatus { peer_id, version, height, best_hash, total_difficulty } => {
+                    debug!("Peer {} status: height={}, td={}", peer_id, height, total_difficulty);
+                    
+                    // Check if we need to sync
+                    let current_height = node_clone.chain_state.get_height();
+                    if height > current_height + 1 {
+                        info!("Detected we're behind peer {} by {} blocks", peer_id, height - current_height);
+                        
+                        if let Err(e) = sync.start_sync(height, total_difficulty).await {
+                            error!("Failed to start sync: {}", e);
+                        }
+                    }
+                },
+                
+                // Handle checkpoint information
+                NetworkEvent::CheckpointsReceived { checkpoints, from_peer } => {
+                    info!("Received {} checkpoints from {:?}", checkpoints.len(), from_peer);
+                    // Process checkpoints if needed
+                },
             }
         }
     });
 
+    // Start the network
     let network_handle = tokio::spawn(async move {
         if let Err(e) = network.run().await {
             error!("Network error: {}", e);
         }
     });
 
+    // Start listening for connections
     let config_lock = node.config.lock().await;
     command_tx.send(NetworkCommand::StartListening(
         config_lock.network.listen_addr.clone()
     )).await?;
     drop(config_lock);
 
-    let node_clone = Arc::clone(&node);
-    let maintenance_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(node_clone.config.lock().await.mempool.transaction_timeout);
-        loop {
-            interval.tick().await;
-            let removed = node_clone.mempool.clear_expired();
-            if removed > 0 {
-                info!("Cleared {} expired transactions from mempool", removed);
+    // Announce initial status
+    command_tx.send(NetworkCommand::AnnounceStatus {
+        version: 1,
+        height: node.chain_state.get_height(),
+        best_hash: node.chain_state.get_best_block_hash(),
+        total_difficulty: node.chain_state.get_total_difficulty(),
+    }).await?;
+
+    // Set up periodic tasks
+    let mut mempool_cleanup_interval = tokio::time::interval(node.config.lock().await.mempool.transaction_timeout);
+    let mut status_announcement_interval = tokio::time::interval(Duration::from_secs(120));
+    
+    // Main event loop
+    loop {
+        tokio::select! {
+            // Periodic mempool cleanup
+            _ = mempool_cleanup_interval.tick() => {
+                let removed = node.mempool.clear_expired();
+                if removed > 0 {
+                    info!("Cleared {} expired transactions from mempool", removed);
+                }
+            },
+            
+            // Periodic status announcement
+            _ = status_announcement_interval.tick() => {
+                // Announce our current status to the network
+                let current_height = node.chain_state.get_height();
+                let best_hash = node.chain_state.get_best_block_hash();
+                let total_difficulty = node.chain_state.get_total_difficulty();
+                
+                command_tx.send(NetworkCommand::AnnounceStatus {
+                    version: 1,
+                    height: current_height,
+                    best_hash,
+                    total_difficulty,
+                }).await.ok();
+                
+                // Log sync status
+                let sync_stats = sync.get_stats();
+                info!("Sync status: {}. Current height: {}, Target height: {}", 
+                     sync_stats.state, sync_stats.current_height, sync_stats.target_height);
+            },
+            
+            // Handle shutdown signal
+            _ = tokio::signal::ctrl_c() => {
+                info!("Shutting down...");
+                break;
             }
         }
-    });
+    }
 
-    tokio::signal::ctrl_c().await?;
-    info!("Shutting down...");
-
+    // Clean shutdown
+    sync_timeout_handle.abort();
     event_handle.abort();
     network_handle.abort();
-    maintenance_handle.abort();
     config_handle.abort();
+    
     if let Some(handle) = backup_handle {
         handle.abort();
     }
@@ -210,5 +357,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    info!("Shutdown complete");
     Ok(())
 }
