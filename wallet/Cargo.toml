@@ -11,6 +11,13 @@ btclib = { path = "../btclib" }
 secp256k1 = { version = "0.24", features = ["rand"] }
 sha2 = "0.10"
 rand = "0.8"
+hmac = "0.12.1"
+pbkdf2 = "0.11.0"
+
+# HD wallet dependencies
+bip39 = "1.0.1"  
+tiny-bip32 = "0.3.0"  
+slip0044 = "0.1.1"  
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -20,9 +27,9 @@ hex = "0.4"
 
 # CLI and TUI
 clap = { version = "4.0", features = ["derive"] }
-rpassword = "7.0"     # For secure password input
-dialoguer = "0.11"    # For interactive prompts
-indicatif = "0.17"    # For progress bars
+rpassword = "7.0"     
+dialoguer = "0.11"    
+indicatif = "0.17"    
 ratatui = "0.24"
 crossterm = "0.27"
 
