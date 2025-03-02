@@ -1,4 +1,4 @@
-use sled::{self, Db, IVec};
+use sled::{self, Db, Tree, IVec};
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
@@ -232,6 +232,197 @@ impl BlockchainDB {
         self.db.flush()?;
         Ok(())
     }
+
+    // NEW METHODS BELOW THIS LINE - Added for CorruptionHandler support
+
+    /// List all trees (collections) in the database
+    pub fn list_trees(&self) -> Result<Vec<String>, StorageError> {
+        // Since sled doesn't have a direct method to list all trees, 
+        // we maintain a registry of known trees
+        let tree_names = match self.get_metadata(b"tree_registry") {
+            Ok(Some(data)) => {
+                bincode::deserialize::<Vec<String>>(&data)
+                    .map_err(|e| StorageError::Serialization(e))?
+            },
+            _ => {
+                // If no registry exists, return the known default trees
+                vec![
+                    BLOCKS_TREE.to_string(),
+                    TXNS_TREE.to_string(),
+                    HEADERS_TREE.to_string(),
+                    UTXO_TREE.to_string(),
+                    METADATA_TREE.to_string(),
+                    BLOCK_HEIGHT_INDEX_TREE.to_string(),
+                    TX_INDEX_TREE.to_string(),
+                    PENDING_BLOCKS_TREE.to_string(),
+                ]
+            }
+        };
+        
+        Ok(tree_names)
+    }
+
+    /// Open a specific tree by name
+    pub fn open_tree(&self, name: &str) -> Result<sled::Tree, StorageError> {
+        let tree = self.db.open_tree(name)
+            .map_err(|e| StorageError::Database(e))?;
+        
+        // Register the tree if it's new
+        self.register_tree(name)?;
+        
+        Ok(tree)
+    }
+
+    /// Register a tree in the tree registry
+    fn register_tree(&self, name: &str) -> Result<(), StorageError> {
+        let mut trees = match self.get_metadata(b"tree_registry") {
+            Ok(Some(data)) => {
+                bincode::deserialize::<Vec<String>>(&data)
+                    .map_err(|e| StorageError::Serialization(e))?
+            },
+            _ => Vec::new(),
+        };
+        
+        // Add the tree if it's not already registered
+        if !trees.contains(&name.to_string()) {
+            trees.push(name.to_string());
+            let serialized = bincode::serialize(&trees)
+                .map_err(|e| StorageError::Serialization(e))?;
+            self.store_metadata(b"tree_registry", &serialized)?;
+        }
+        
+        Ok(())
+    }
+
+    /// Get a reference to the underlying sled database
+    pub fn db(&self) -> &sled::Db {
+        &self.db
+    }
+    
+    /// Check if a specific tree contains a key
+    pub fn tree_contains_key(&self, tree_name: &str, key: &[u8]) -> Result<bool, StorageError> {
+        let tree = self.open_tree(tree_name)?;
+        tree.contains_key(key)
+            .map_err(|e| StorageError::Database(e))
+    }
+    
+    /// Get raw data from a tree by key
+    pub fn get_raw_data(&self, tree_name: &str, key: &[u8]) -> Result<Option<IVec>, StorageError> {
+        let tree = self.open_tree(tree_name)?;
+        tree.get(key).map_err(|e| StorageError::Database(e))
+    }
+    
+    /// Store raw data in a tree
+    pub fn store_raw_data(&self, tree_name: &str, key: &[u8], value: &[u8]) -> Result<(), StorageError> {
+        let tree = self.open_tree(tree_name)?;
+        tree.insert(key, value).map(|_| ()).map_err(|e| StorageError::Database(e))
+    }
+    
+    /// Remove a key from a specific tree
+    pub fn remove_from_tree(&self, tree_name: &str, key: &[u8]) -> Result<(), StorageError> {
+        let tree = self.open_tree(tree_name)?;
+        tree.remove(key).map(|_| ()).map_err(|e| StorageError::Database(e))
+    }
+    
+    /// Perform a database backup to a specific directory
+    pub async fn backup_to(&self, backup_path: &Path) -> Result<(), StorageError> {
+        use tokio::fs;
+        
+        // Ensure backup directory exists
+        if let Some(parent) = backup_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        
+        // Flush database to ensure all changes are written
+        self.flush()?;
+        
+        // Copy database files
+        let db_path = self.path();
+        
+        // Get list of database files
+        let db_dir = db_path.parent().unwrap_or(Path::new("."));
+        let mut entries = fs::read_dir(db_dir).await?;
+        
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |ext| ext == "sst") {
+                let file_name = path.file_name().unwrap();
+                let target_path = backup_path.join(file_name);
+                fs::copy(&path, &target_path).await?;
+            }
+        }
+        
+        tracing::info!("Database backup created at {:?}", backup_path);
+        Ok(())
+    }
+    
+    /// Repair a corrupted tree by rebuilding it
+    pub fn repair_tree(&self, tree_name: &str) -> Result<(), StorageError> {
+        // Create a new temporary tree
+        let temp_tree_name = format!("{}_repair", tree_name);
+        let temp_tree = self.open_tree(&temp_tree_name)?;
+        
+        // Get the original tree
+        let orig_tree = self.open_tree(tree_name)?;
+        
+        // Copy all valid data to the new tree
+        for result in orig_tree.iter() {
+            match result {
+                Ok((key, value)) => {
+                    // Only copy data that can be validated
+                    if self.is_valid_record(tree_name, &key, &value)? {
+                        temp_tree.insert(key, value)?;
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("Error reading tree {}: {}", tree_name, e);
+                    // Continue with other records
+                }
+            }
+        }
+        
+        // Clear the original tree
+        orig_tree.clear()?;
+        
+        // Copy data back from temp tree
+        for result in temp_tree.iter() {
+            if let Ok((key, value)) = result {
+                orig_tree.insert(key, value)?;
+            }
+        }
+        
+        // Remove the temporary tree
+        self.db.drop_tree(temp_tree_name.as_bytes())?;
+        
+        tracing::info!("Successfully repaired tree: {}", tree_name);
+        Ok(())
+    }
+    
+    /// Check if a record is valid based on its tree type
+    fn is_valid_record(&self, tree_name: &str, key: &[u8], value: &[u8]) -> Result<bool, StorageError> {
+        // Empty values are always invalid
+        if value.is_empty() {
+            return Ok(false);
+        }
+        
+        match tree_name {
+            BLOCKS_TREE => {
+                match bincode::deserialize::<Block>(value) {
+                    Ok(block) => Ok(block.validate()),
+                    Err(_) => Ok(false),
+                }
+            },
+            TXNS_TREE => {
+                bincode::deserialize::<Transaction>(value).map(|_| true).or(Ok(false))
+            },
+            HEADERS_TREE => {
+                bincode::deserialize::<BlockHeader>(value).map(|_| true).or(Ok(false))
+            },
+            // For other trees like UTXO or metadata, we can't easily validate without context
+            // so we just check if it's not empty
+            _ => Ok(true),
+        }
+    }
 }
 
 fn create_utxo_key(tx_hash: &[u8; 32], index: u32) -> Vec<u8> {
@@ -351,6 +542,72 @@ mod tests {
         let retrieved = db.get_metadata(key)?.unwrap();
         
         assert_eq!(retrieved.as_ref(), value);
+        
+        Ok(())
+    }
+    
+    // Additional tests for new methods
+    
+    #[test]
+    fn test_list_trees() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let db = BlockchainDB::new(temp_dir.path())?;
+        
+        let trees = db.list_trees()?;
+        assert!(trees.contains(&BLOCKS_TREE.to_string()));
+        assert!(trees.contains(&TXNS_TREE.to_string()));
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_open_tree() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let db = BlockchainDB::new(temp_dir.path())?;
+        
+        let custom_tree = db.open_tree("custom_tree")?;
+        custom_tree.insert(b"test_key", b"test_value")?;
+        
+        let value = custom_tree.get(b"test_key")?.unwrap();
+        assert_eq!(value.as_ref(), b"test_value");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_tree_contains_key() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let db = BlockchainDB::new(temp_dir.path())?;
+        
+        // Store a test value
+        db.store_metadata(b"test_key", b"test_value")?;
+        
+        assert!(db.tree_contains_key(METADATA_TREE, b"test_key")?);
+        assert!(!db.tree_contains_key(METADATA_TREE, b"non_existent_key")?);
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_repair_tree() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let db = BlockchainDB::new(temp_dir.path())?;
+        
+        // Create a test tree with some valid and some "invalid" data
+        let tree_name = "test_repair_tree";
+        db.store_raw_data(tree_name, b"valid_key", b"valid_value")?;
+        db.store_raw_data(tree_name, b"empty_value_key", b"")?; // This would be considered invalid
+        
+        // Repair the tree
+        db.repair_tree(tree_name)?;
+        
+        // Check that the valid data is still there
+        let valid_data = db.get_raw_data(tree_name, b"valid_key")?;
+        assert_eq!(valid_data.unwrap().as_ref(), b"valid_value");
+        
+        // The invalid data should be gone
+        let invalid_data = db.get_raw_data(tree_name, b"empty_value_key")?;
+        assert!(invalid_data.is_none());
         
         Ok(())
     }
