@@ -1,117 +1,256 @@
-# supernova
+# Supernova
 
-SuperNova is a proof-of-work blockchain implementation written in Rust, designed to demonstrate modern blockchain architecture while leveraging Rust's safety features and performance characteristics. The system will allow for creating and validating transactions, mining new blocks, and maintaining a secure, decentralized ledger across multiple nodes. This document provides technical specifications and implementation guidelines for the project.
+<div align="center">
 
-## Features
+  <p>
+    <h2><strong>A production-grade PoW blockchain implementation writtien in Rust</strong></h2>
+  </p>
+</div>
 
-- Proof-of-work consensus mechanism
-- UTXO-based transaction model
-- Multi-threaded mining
-- P2P networking with libp2p
-- CLI wallet interface
+## Overview
 
-## Components
+Supernova is a production-grade proof-of-work blockchain implementation written in Rust. It leverages Rust's safety features and performance characteristics to provide a secure, efficient, and modular blockchain platform. Supernova demonstrates modern blockchain architecture and best practices while offering a complete set of features needed for a fully functional blockchain network.
 
-### Core Library (btclib)
-- Block and transaction structures
-- Merkle tree implementation
-- Cryptographic primitives
-- UTXO model implementation
+### Key Features
 
-### Node
-- P2P network communication
-- Block and transaction propagation
-- Chain synchronization
-- Mempool management
-- Storage and persistence
+- **Robust Consensus**: Proof-of-work consensus mechanism with advanced difficulty adjustment
+- **Efficient Data Model**: UTXO-based transaction model with comprehensive validation
+- **High Performance**: Multi-threaded mining and parallel block validation
+- **Advanced Networking**: P2P communication built on libp2p with optimized block synchronization
+- **Data Security**: Multiple layers of data integrity verification and automated recovery
+- **Modern Architecture**: Modular, component-based design with clear separation of concerns
+- **Production Ready**: Comprehensive monitoring, backup systems, and disaster recovery
 
-### Miner
-- Multi-threaded mining
-- Block template creation
-- Dynamic difficulty adjustment
-- Mining reward management
+## Architecture
 
-### Wallet CLI
-The SuperNova wallet provides a command-line interface for managing NOVA tokens and creating transactions.
+Supernova follows a modular architecture with several key components:
 
-#### Installation
+### Core Components
+
+1. **Core Library (btclib)**
+   - Foundational data structures (blocks, transactions)
+   - Cryptographic primitives and validation
+   - Merkle tree implementation
+   - UTXO model
+
+2. **Node**
+   - P2P network communication
+   - Block and transaction propagation
+   - Chain synchronization
+   - Mempool management
+   - Storage and persistence
+   - Advanced disaster recovery
+
+3. **Miner**
+   - Multi-threaded mining framework
+   - Block template creation
+   - Dynamic difficulty adjustment
+   - Mining reward distribution
+
+4. **Wallet**
+   - Key management and address generation
+   - Transaction creation and signing
+   - UTXO tracking and management
+   - Transaction history and labeling
+   - Multi-address support with HD wallet functionality
+
+## Getting Started
+
+### Prerequisites
+
+- Rust 1.70.0 or higher
+- OpenSSL development libraries
+- A Unix-like operating system (Linux, macOS)
+
 ```bash
-cargo build
+# Install required dependencies on Ubuntu/Debian
+sudo apt update
+sudo apt install -y build-essential pkg-config libssl-dev
+
+# On macOS with Homebrew
+brew install openssl pkg-config
 ```
 
-#### Usage
-The wallet binary provides several commands for managing your NOVA tokens:
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/username/supernova.git
+cd supernova
+
+# Build all components
+cargo build --release
+
+# Run tests
+cargo test --all
+```
+
+### Running a Node
+
+```bash
+# Create a configuration file (if not using the default)
+cp config/node.example.toml config/node.toml
+
+# Start a node
+./target/release/node
+```
+
+### Configuration
+
+Supernova uses TOML for configuration. A basic `node.toml` looks like:
+
+```toml
+[node]
+chain_id = "supernova-mainnet"
+environment = "Production"
+metrics_enabled = true
+metrics_port = 9000
+
+[network]
+listen_addr = "/ip4/0.0.0.0/tcp/8000"
+max_peers = 50
+bootstrap_nodes = [
+  "/ip4/203.0.113.1/tcp/8000/p2p/QmRZf8wnY2HbQP4h6jtKnHBuEF3V59uCnYx9winHcwUwNX",
+  "/ip4/203.0.113.2/tcp/8000/p2p/QmP7HvWHJwJmPWGHH1XtKuKCrFCbjCSRHZ6bA8n5QkRfzC"
+]
+
+[storage]
+db_path = "./data"
+backup_dir = "./backups"
+
+[mempool]
+max_size = 5000
+max_per_address = 100
+```
+
+## Wallet CLI Usage
+
+The Supernova wallet provides a command-line interface for managing NOVA tokens and creating transactions.
 
 ```bash
 # Create a new wallet
-cargo run -- new
+./target/release/wallet new
 
 # Get wallet address
-cargo run -- address
+./target/release/wallet address
 
 # Check wallet balance
-cargo run -- balance
+./target/release/wallet balance
 
 # Send NOVA tokens
-cargo run -- send --to <RECIPIENT_ADDRESS> --amount <AMOUNT> --fee <FEE>
+./target/release/wallet send --to <RECIPIENT_ADDRESS> --amount <AMOUNT> --fee <FEE>
 
 # List Unspent Transaction Outputs (UTXOs)
-cargo run -- list-utxos
-Optional Parameters
+./target/release/wallet list-utxos
 
---wallet <PATH>: Specify custom wallet file path (default: wallet.json)
+# View transaction history
+./target/release/wallet history
+
+# Create a new address (HD wallet)
+./target/release/wallet new-address
+
+# List all addresses
+./target/release/wallet list-addresses
+
+# Label a transaction
+./target/release/wallet label-tx --txid <TRANSACTION_ID> --label "Grocery payment"
 ```
 
-### Commands
+### Available Commands
 
 | Command | Description |
 |---------|-------------|
 | `new` | Creates a new wallet and generates a key pair |
-| `address` | Displays the wallet's public address |
+| `address` | Displays the wallet's current public address |
+| `new-address` | Generates a new address for the wallet |
+| `list-addresses` | Shows all addresses in the wallet |
 | `balance` | Shows current wallet balance in NOVA |
 | `send` | Creates and signs a new transaction |
 | `list-utxos` | Shows all unspent transaction outputs owned by the wallet |
+| `history` | Displays transaction history |
+| `label-tx` | Add or update a label for a transaction |
+| `export` | Export wallet (encrypted) |
+| `import` | Import wallet from file |
 
-#### Send Command Options
-| Option | Description | Required |
-|--------|-------------|----------|
-| `--to` | Recipient's address | Yes |
-| `--amount` | Amount of NOVA to send | Yes |
-| `--fee` | Transaction fee in NOVA | No (default: 1) |
+## Mining
 
-### Examples
+The Supernova miner can be run as a standalone process or integrated with a node.
 
 ```bash
-#Create a new wallet
-cargo run -- new
+# Start mining with default settings
+./target/release/miner --threads 4 --address <YOUR_WALLET_ADDRESS>
 
-# Send 100 NOVA with a 1 NOVA fee
-cargo run -- send --to 0123456789abcdef... --amount 100 --fee 1
-
-# Use a custom wallet file
-cargo run -- --wallet my_wallet.json balance
+# Advanced options
+./target/release/miner --threads 8 --address <YOUR_WALLET_ADDRESS> --node-url http://localhost:9000 --intensity high
 ```
 
-### Building
+## Advanced Features
+
+### Disaster Recovery
+
+Supernova includes a comprehensive disaster recovery system:
+
 ```bash
-# Build all components
-cargo build
+# Verify database integrity
+./target/release/node verify-integrity
 
-# Run tests
-cargo test
+# Create a manual backup
+./target/release/node create-backup
+
+# Restore from backup
+./target/release/node restore --backup-file ./backups/supernova_backup_1678912345.db
+
+# Check repair status
+./target/release/node repair-status
 ```
 
-### Technical Details
+### Monitoring
 
-- Written in Rust
-- Uses libp2p for P2P networking
-- Uses sled for database storage
-- Uses secp256k1 for cryptographic operations
-- Implements SHA-256 for proof-of-work
-- For more information review the [Overview doc](https://docs.google.com/document/d/1o_Zl8ll89dutoAXROCLoNEYxYpolfiefZmNDw2KhAH4/edit?usp=sharing)
+Supernova exports Prometheus metrics on the configured metrics port:
 
-### License
+```bash
+# Check basic node status
+./target/release/node status
 
-MIT License
+# View detailed metrics (if you have Prometheus/Grafana setup)
+open http://localhost:9000/metrics
+```
 
-Copyright (c) 2024 Marc Johnson
+## Documentation
+
+Comprehensive documentation is still a work-in-progres. I will update this section with more information soon. In the meantime, please refer to this overview document: [SuperNova Overview](https://docs.google.com/document/d/1o_Zl8ll89dutoAXROCLoNEYxYpolfiefZmNDw2KhAH4/edit?usp=sharing)
+
+## Project Status
+
+Supernova is currently at version 0.9.0 and is 99% complete. The remaining work focuses on mining performance optimizations:
+
+- ASIC-resistant algorithm modifications
+- Advanced difficulty adjustment enhancements
+- Optimized block template creation
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -am 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- [Bitcoin whitepaper](https://bitcoin.org/bitcoin.pdf) for the foundational concepts
+- [Building Bitcoin in Rust](https://braiins.com/books/building-bitcoin-in-rust) book by Braiins
+- [Rust](https://www.rust-lang.org/) programming language and community
+- [libp2p](https://libp2p.io/) for the P2P networking stack
+- [sled](https://github.com/spacejam/sled) for the embedded database
+
+
+Copyright (c) 2025 Marc Johnson
