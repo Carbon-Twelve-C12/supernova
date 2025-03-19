@@ -9,6 +9,7 @@ pub const DIFFICULTY_ADJUSTMENT_FACTOR: u32 = 4; // Maximum adjustment factor
 pub const MOVING_AVERAGE_WINDOW: usize = 144; // 144 blocks (24 hours with 10 min blocks)
 pub const TIMESTAMP_MEDIAN_TIMESPAN: usize = 11; // Median timespan for timestamp validation
 
+#[derive(Clone)]
 pub struct DifficultyAdjuster {
     last_adjustment_time: u64,
     last_adjustment_height: u64,

@@ -219,7 +219,7 @@ impl MiningWorker {
         let mut current_hash: [u8; 32] = seed.into();
         
         // Perform memory-hard mixing operations
-        for i in 0..MEMORY_ITERATIONS {
+        for _iteration in 0..MEMORY_ITERATIONS {
             // Use current hash to determine memory access pattern
             let index = u64::from_be_bytes(current_hash[0..8].try_into().unwrap()) as usize % (MEMORY_SIZE - 64);
             
