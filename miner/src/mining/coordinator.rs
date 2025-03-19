@@ -67,6 +67,8 @@ pub struct Miner {
     mempool: Arc<dyn MempoolInterface + Send + Sync>,
     reward_address: Vec<u8>,
     metrics: Arc<MiningMetrics>,
+    shared_template: Option<Arc<tokio::sync::Mutex<BlockTemplate>>>,
+    template_refresh_signal: Arc<AtomicBool>,
 }
 
 impl Miner {
@@ -79,6 +81,7 @@ impl Miner {
         let (tx, rx) = mpsc::channel(100);
         let stop_signal = Arc::new(AtomicBool::new(false));
         let metrics = Arc::new(MiningMetrics::new());
+        let template_refresh_signal = Arc::new(AtomicBool::new(false));
 
         let mut workers = Vec::with_capacity(num_threads);
         for i in 0..num_threads {
@@ -100,6 +103,8 @@ impl Miner {
             mempool,
             reward_address,
             metrics,
+            shared_template: None,
+            template_refresh_signal,
         }, rx)
     }
 
@@ -111,6 +116,21 @@ impl Miner {
     ) -> Result<(), String> {
         info!("Starting mining with {} workers", self.num_threads);
         self.metrics.active_workers.store(self.num_threads as u64, Ordering::Relaxed);
+
+        let template = BlockTemplate::new(
+            version,
+            prev_block_hash,
+            self.difficulty_adjuster.get_current_target(),
+            self.reward_address.clone(),
+            self.mempool.as_ref(),
+        ).await;
+        let shared_template = Arc::new(tokio::sync::Mutex::new(template));
+        
+        let template_refresh_handle = self.start_template_refresh_task(
+            Arc::clone(&shared_template),
+            version,
+            prev_block_hash,
+        );
 
         let mut handles = Vec::new();
         let metrics = Arc::clone(&self.metrics);
@@ -127,12 +147,14 @@ impl Miner {
         for worker in &self.workers {
             let worker = Arc::clone(worker);
             let reward_address = self.reward_address.clone();
+            let template = Arc::clone(&shared_template);
             
             handles.push(tokio::spawn(async move {
-                worker.mine_block(
+                worker.mine_block_with_template(
                     version,
                     prev_block_hash,
                     reward_address,
+                    template,
                 ).await
             }));
         }
@@ -145,58 +167,118 @@ impl Miner {
         }
 
         metrics_handle.abort();
+        template_refresh_handle.abort();
         Ok(())
+    }
+    
+    fn start_template_refresh_task(
+        &self,
+        shared_template: Arc<tokio::sync::Mutex<BlockTemplate>>,
+        version: u32,
+        prev_block_hash: [u8; 32],
+    ) -> tokio::task::JoinHandle<()> {
+        let mempool = Arc::clone(&self.mempool);
+        let reward_address = self.reward_address.clone();
+        let template_refresh_signal = Arc::clone(&self.template_refresh_signal);
+        
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            
+            loop {
+                interval.tick().await;
+                
+                let needs_refresh = {
+                    let template = shared_template.lock().await;
+                    template.needs_refresh() || template_refresh_signal.load(Ordering::Relaxed)
+                };
+                
+                if needs_refresh {
+                    let mut template = shared_template.lock().await;
+                    template.update_transactions(&*mempool).await;
+                    template_refresh_signal.store(false, Ordering::Relaxed);
+                    info!("Block template refreshed with new transactions");
+                }
+            }
+        })
     }
 
     pub fn stop_mining(&self) {
         self.stop_signal.store(true, Ordering::Relaxed);
         info!("Mining stopped");
     }
-
-    pub fn adjust_difficulty(
-        &mut self,
-        current_height: u64,
-        current_time: u64,
-        blocks_since_adjustment: u64,
-    ) {
-        let new_target = self.difficulty_adjuster.adjust_difficulty(
-            current_height,
-            current_time,
-            blocks_since_adjustment,
-        );
-
-        info!("Adjusting mining difficulty. New target: {:#x}", new_target);
+    
+    pub fn request_template_refresh(&self) {
+        self.template_refresh_signal.store(true, Ordering::Relaxed);
+    }
+    
+    pub fn adjust_difficulty(&mut self, height: u64, timestamp: u64, blocks_since_adjustment: u64) -> u32 {
+        let new_target = self.difficulty_adjuster.adjust_difficulty(height, timestamp, blocks_since_adjustment);
         
         for worker in &self.workers {
-            let worker_ptr = Arc::as_ptr(worker) as *mut MiningWorker;
-            unsafe {
-                (*worker_ptr).target = new_target;
+            worker.update_target(new_target);
+        }
+        
+        new_target
+    }
+}
+
+impl MiningWorker {
+    pub fn update_target(&self, new_target: u32) {
+        std::sync::atomic::AtomicU32::new(new_target).store(new_target, Ordering::Relaxed);
+    }
+    
+    pub async fn mine_block_with_template(
+        &self,
+        version: u32,
+        prev_block_hash: [u8; 32],
+        reward_address: Vec<u8>,
+        shared_template: Arc<tokio::sync::Mutex<BlockTemplate>>,
+    ) -> Result<(), String> {
+        let mut attempts = 0;
+        let update_interval = 100_000;
+        let metrics_interval = 1_000_000;
+        let start_time = Instant::now();
+        let mut current_nonce = self.worker_id as u32 * 1_000_000;
+
+        while !self.stop_signal.load(Ordering::Relaxed) {
+            while self.pause_signal.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+
+            if attempts % metrics_interval == 0 {
+                self.metrics.update_hash_rate(attempts as u64, start_time.elapsed());
+                tracing::info!(
+                    "Worker {} - Mining stats: {:?}", 
+                    self.worker_id,
+                    self.metrics.get_stats()
+                );
+            }
+
+            let mut block = {
+                let template = shared_template.lock().await;
+                let mut block = template.create_block();
+                block.set_nonce(current_nonce);
+                block
+            };
+
+            for _ in 0..update_interval {
+                if self.check_proof_of_work(&block) {
+                    self.metrics.record_block_found();
+                    tracing::info!(
+                        "Worker {} - Found valid block after {} attempts!", 
+                        self.worker_id, 
+                        attempts
+                    );
+                    self.block_sender.send(block).await.map_err(|e| e.to_string())?;
+                    return Ok(());
+                }
+                block.increment_nonce();
+                current_nonce = block.nonce();
+                attempts += 1;
             }
         }
-    }
 
-    pub fn get_current_target(&self) -> u32 {
-        self.difficulty_adjuster.get_current_target()
-    }
-
-    pub fn set_reward_address(&mut self, address: Vec<u8>) {
-        self.reward_address = address;
-    }
-
-    pub fn get_metrics(&self) -> Arc<MiningMetrics> {
-        Arc::clone(&self.metrics)
-    }
-
-    pub fn pause_all_workers(&self) {
-        for worker in &self.workers {
-            worker.pause();
-        }
-    }
-
-    pub fn resume_all_workers(&self) {
-        for worker in &self.workers {
-            worker.resume();
-        }
+        Ok(())
     }
 }
 

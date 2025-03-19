@@ -6,6 +6,14 @@ use tokio::sync::mpsc;
 use tracing;
 use crate::mining::MempoolInterface;
 use std::time::{Instant, Duration};
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
+use sha2::{Sha256, Digest};
+
+// Memory-hard constants for ASIC resistance
+const MEMORY_SIZE: usize = 4 * 1024 * 1024; // 4MB memory requirement
+const MEMORY_ITERATIONS: usize = 64; // Number of memory accesses
+const MIXING_ROUNDS: usize = 16; // Number of mixing rounds
 
 pub struct MiningMetrics {
     hash_rate: AtomicU64,
@@ -64,8 +72,8 @@ pub struct MiningWorker {
     pub(crate) target: u32,
     pub(crate) worker_id: usize,
     pub(crate) mempool: Arc<dyn MempoolInterface + Send + Sync>,
-    metrics: Arc<MiningMetrics>,
-    pause_signal: Arc<AtomicBool>,
+    pub metrics: Arc<MiningMetrics>,
+    pub pause_signal: Arc<AtomicBool>,
 }
 
 impl MiningWorker {
@@ -163,12 +171,74 @@ impl MiningWorker {
         Ok(())
     }
 
-    fn check_proof_of_work(&self, block: &Block) -> bool {
-        let hash = block.hash();
+    pub fn check_proof_of_work(&self, block: &Block) -> bool {
+        let block_header = self.get_block_header(block);
+        let hash = self.memory_hard_hash(&block_header);
+        
         let mut hash_value = [0u8; 8];
         hash_value[..4].copy_from_slice(&hash[..4]);
         let hash_value = u64::from_be_bytes(hash_value);
         hash_value as u32 <= self.target
+    }
+    
+    // Extract block header for hashing
+    fn get_block_header(&self, block: &Block) -> Vec<u8> {
+        let mut header = Vec::new();
+        header.extend_from_slice(&block.version().to_be_bytes());
+        header.extend_from_slice(&block.prev_block_hash());
+        header.extend_from_slice(&block.merkle_root());
+        header.extend_from_slice(&block.timestamp().to_be_bytes());
+        header.extend_from_slice(&block.target().to_be_bytes());
+        header.extend_from_slice(&block.nonce().to_be_bytes());
+        header
+    }
+    
+    // Memory-hard hashing function to resist ASICs
+    fn memory_hard_hash(&self, data: &[u8]) -> [u8; 32] {
+        // Initialize memory with pseudorandom data derived from input
+        let mut memory = vec![0u8; MEMORY_SIZE];
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let seed = hasher.finalize();
+        
+        // Initialize memory with deterministic values based on the seed
+        let mut rng = StdRng::from_seed(seed.into());
+        for chunk in memory.chunks_mut(8) {
+            if chunk.len() == 8 {
+                let value = rng.gen::<u64>().to_be_bytes();
+                chunk.copy_from_slice(&value);
+            }
+        }
+        
+        // Initial hash becomes our working value
+        let mut current_hash = seed.into();
+        
+        // Perform memory-hard mixing operations
+        for i in 0..MEMORY_ITERATIONS {
+            // Use current hash to determine memory access pattern
+            let index = u64::from_be_bytes(current_hash[0..8].try_into().unwrap()) as usize % (MEMORY_SIZE - 64);
+            
+            // Mix current hash with memory
+            for round in 0..MIXING_ROUNDS {
+                let memory_slice = &memory[index + round * 4..index + (round + 1) * 4];
+                
+                // XOR memory content with current hash
+                for j in 0..4 {
+                    current_hash[round * 2 + j] ^= memory_slice[j];
+                }
+                
+                // Update memory with new mixed values
+                let mut hasher = Sha256::new();
+                hasher.update(current_hash);
+                current_hash = hasher.finalize().into();
+            }
+        }
+        
+        // Final hash
+        let mut hasher = Sha256::new();
+        hasher.update(current_hash);
+        hasher.update(data);
+        hasher.finalize().into()
     }
 }
 
