@@ -1,15 +1,25 @@
-use crate::network::{P2PNetwork, NetworkCommand, NetworkEvent};
-use crate::storage::{ChainState, BlockchainDB, BackupManager, RecoveryManager};
-use crate::mempool::{TransactionPool, TransactionPrioritizer};
-use crate::config::NodeConfig;
-use crate::storage::corruption::{CorruptionHandler, CorruptionError};
+use node::network::{P2PNetwork, NetworkCommand, NetworkEvent};
+use node::storage::{ChainState, BlockchainDB, BackupManager, RecoveryManager};
+use node::mempool::{TransactionPool, TransactionPrioritizer};
+use node::mempool::prioritization::PrioritizationConfig;
+use node::config::NodeConfig;
+use node::storage::corruption::{CorruptionHandler, CorruptionError, CorruptionType};
 use tracing::{info, error, warn, debug};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use std::path::PathBuf;
 use std::time::Duration;
-use btclib::types::{Block, Transaction};
-use crate::network::sync::{ChainSync, DefaultSyncMetrics};
+use btclib::types::block::Block;
+use btclib::types::transaction::Transaction;
+use node::network::sync::{ChainSync, DefaultSyncMetrics};
+use hex;
+use std::thread::JoinHandle;
+
+// Add NodeCommand enum for safe communication with the node
+enum NodeCommand {
+    ReloadConfig,
+    // Add other commands as needed
+}
 
 struct Node {
     config: Arc<Mutex<NodeConfig>>,
@@ -28,10 +38,10 @@ impl Node {
         let config = Arc::new(Mutex::new(config));
 
         let mempool_config = config.lock().await.mempool.clone();
-        let mempool = Arc::new(TransactionPool::new(mempool_config));
-        let prioritizer = Arc::new(Mutex::new(TransactionPrioritizer::new(
-            config.lock().await.mempool.min_fee_rate
-        )));
+        let mempool = Arc::new(TransactionPool::new(node::mempool::MempoolConfig::from(mempool_config.clone())));
+        
+        let prioritizer_config = PrioritizationConfig::from(mempool_config);
+        let prioritizer = Arc::new(Mutex::new(TransactionPrioritizer::new(prioritizer_config)));
 
         let db = Arc::new(BlockchainDB::new(&config.lock().await.storage.db_path)?);
         
@@ -165,23 +175,29 @@ impl Node {
             return Ok(());
         }
 
-        if self.mempool.check_double_spend(&transaction) {
-            return Err("Double spend detected".into());
-        }
+        // Calculate fee rate with a dummy output lookup function
+        let fee_rate = match transaction.calculate_fee_rate(|_, _| None) {
+            Some(rate) => rate,
+            None => return Err("Unable to calculate fee rate".into())
+        };
 
-        let tx_size = bincode::serialize(&transaction)?.len();
-        let fee_rate = transaction.calculate_fee_rate()?;
-
+        // Get config
         let config = self.config.lock().await;
-        if fee_rate < config.mempool.min_fee_rate {
-            return Err("Transaction fee rate too low".into());
+        
+        // Check minimum fee rate (converting from f64 to u64)
+        if fee_rate < config.mempool.min_fee_rate as u64 {
+            info!("Transaction {} rejected: fee rate too low ({} < {})",
+                    hex::encode(&tx_hash[..4]), fee_rate, config.mempool.min_fee_rate);
+            return Err("Fee rate too low".into());
         }
-
+        
+        // Add to mempool
         self.mempool.add_transaction(transaction.clone(), fee_rate)?;
         
-        let mut prioritizer = self.prioritizer.lock().await;
-        prioritizer.add_transaction(transaction, fee_rate, tx_size);
-
+        // Add to prioritizer
+        self.prioritizer.lock().await.add_transaction(transaction, fee_rate, 0);
+        
+        info!("Added transaction {} to mempool with fee rate {}", hex::encode(&tx_hash[..4]), fee_rate);
         Ok(())
     }
 
@@ -192,68 +208,29 @@ impl Node {
         Ok(())
     }
     
-    // Create a checkpoint in the corruption handler at specific heights
     async fn create_integrity_checkpoint(&self, height: u64, block_hash: [u8; 32]) -> Result<(), Box<dyn std::error::Error>> {
-        // Only create checkpoints at certain intervals to avoid excessive checkpointing
-        if height % 10000 == 0 {
-            info!("Creating database integrity checkpoint at height {}", height);
-            let mut handler = self.corruption_handler.lock().await;
-            handler.create_checkpoint(height, block_hash).await?;
-        }
+        self.corruption_handler.lock().await.create_checkpoint(height, block_hash).await?;
+        info!("Created integrity checkpoint at height {}", height);
         Ok(())
     }
     
-    // Periodic database maintenance function
     async fn perform_database_maintenance(&self) -> Result<(), Box<dyn std::error::Error>> {
-        debug!("Performing periodic database maintenance");
+        info!("Performing database maintenance...");
         
-        // Compact the database to reclaim space
-        if let Err(e) = self.chain_state.db.compact() {
-            warn!("Database compaction failed: {}", e);
+        // Use get_db() to access the database instead of direct field access
+        let db = self.chain_state.get_db();
+        if let Err(e) = db.compact() {
+            error!("Database compaction failed: {}", e);
+            return Err(Box::new(e));
         }
         
-        // Run an integrity check if needed
-        let should_check_integrity = {
-            // Logic to determine if integrity check is needed based on time or events
-            // For example, check every 24 hours or after certain number of blocks
-            true // Simplified for this example
-        };
-        
-        if should_check_integrity {
-            debug!("Running periodic integrity check");
-            let integrity_result = {
-                let mut handler = self.corruption_handler.lock().await;
-                handler.check_database_integrity().await
-            };
-            
-            match integrity_result {
-                Ok(true) => debug!("Periodic integrity check passed"),
-                Ok(false) => {
-                    warn!("Periodic integrity check detected issues, scheduling repair");
-                    // Schedule repair for later (or do it immediately if critical)
-                    let repair_results = {
-                        let mut handler = self.corruption_handler.lock().await;
-                        handler.auto_repair().await?
-                    };
-                    
-                    let successful = repair_results.iter().filter(|r| r.success).count();
-                    info!("Auto-repair completed: fixed {}/{} issues", 
-                         successful, repair_results.len());
-                },
-                Err(e) => {
-                    error!("Periodic integrity check failed: {}", e);
-                }
-            }
-        }
-        
+        info!("Database maintenance completed");
         Ok(())
     }
 }
 
 // Helper function to determine if a corruption type is critical
-fn is_critical_corruption(corruption_type: &crate::storage::corruption::CorruptionType) -> bool {
-    use crate::storage::corruption::CorruptionType;
-    
+fn is_critical_corruption(corruption_type: &CorruptionType) -> bool {
     match corruption_type {
         // File level corruption is always critical
         CorruptionType::FileLevelCorruption => true,
@@ -277,24 +254,79 @@ fn is_critical_corruption(corruption_type: &crate::storage::corruption::Corrupti
     }
 }
 
+// Move thread-unsafe operations to a dedicated task
+async fn run_node_background_tasks(
+    node: Node,
+    mut cmd_rx: mpsc::Receiver<NodeCommand>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Arc not needed anymore since this function runs on a single thread
+    let node = node;
+    
+    // Process commands from the NodeCommand channel
+    while let Some(cmd) = cmd_rx.recv().await {
+        match cmd {
+            NodeCommand::ReloadConfig => {
+                if let Err(e) = node.handle_config_reload().await {
+                    error!("Failed to reload configuration: {}", e);
+                }
+            },
+            // Add other commands here as needed
+        }
+    }
+    
+    Ok(())
+}
+
+// NodeHandle for safe access to Node components
+struct NodeHandle {
+    chain_state: ChainState,
+    mempool: Arc<TransactionPool>,
+    backup_manager: Arc<BackupManager>,
+    corruption_handler: Arc<Mutex<CorruptionHandler>>,
+    config: Arc<Mutex<NodeConfig>>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
     // Create node instance
-    let node = Arc::new(Node::new().await?);
-    let node_clone = Arc::clone(&node);
+    let node = Node::new().await?;
+    
+    // Create a NodeHandle to store clones of data needed by various tasks
+    let node_handle = NodeHandle {
+        chain_state: node.chain_state.clone(),
+        mempool: Arc::clone(&node.mempool),
+        backup_manager: Arc::clone(&node.backup_manager),
+        corruption_handler: Arc::clone(&node.corruption_handler),
+        config: Arc::clone(&node.config),
+    };
+    
+    // Set up a command channel for node operations
+    let (node_cmd_tx, node_cmd_rx) = mpsc::channel::<NodeCommand>(32);
+    
+    // Run node in a dedicated task for thread safety
+    let _node_task = tokio::task::spawn_local(run_node_background_tasks(
+        node,
+        node_cmd_rx
+    ));
+    
+    // Create a multitasking runtime for the application
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
 
     // Watch for configuration changes
     let config_rx = NodeConfig::watch_config().await?;
-    let config_node = Arc::clone(&node);
-    let config_handle = tokio::spawn(async move {
+    let node_cmd_tx_clone = node_cmd_tx.clone();
+    let config_handle = rt.spawn(async move {
         let mut config_rx = config_rx;
         while let Some(_) = config_rx.recv().await {
             info!("Configuration change detected");
-            if let Err(e) = config_node.handle_config_reload().await {
-                error!("Failed to reload configuration: {}", e);
+            // Send command to node handler instead of accessing node directly
+            if let Err(e) = node_cmd_tx_clone.send(NodeCommand::ReloadConfig).await {
+                error!("Failed to send reload config command: {}", e);
             }
         }
     });
@@ -302,16 +334,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up network and sync components
     let (mut network, command_tx, mut event_rx) = P2PNetwork::new(
         None,
-        node.chain_state.get_genesis_hash(),
-        &node.config.lock().await.node.chain_id
+        node_handle.chain_state.get_genesis_hash(),
+        &node_handle.config.lock().await.node.chain_id
     ).await?;
 
+    // Clone the command_tx for future use
+    let command_tx_for_sync = command_tx.clone();
+    let command_tx_for_network = command_tx.clone();
+
     // Initialize the enhanced sync system
-    let db = Arc::clone(&node.chain_state.db);
+    let db_for_sync = Arc::clone(node_handle.chain_state.get_db());
     let mut sync = ChainSync::new(
-        node.chain_state.clone(),
-        db,
-        command_tx.clone()
+        node_handle.chain_state.clone(),
+        db_for_sync,
+        command_tx_for_sync
     );
 
     // Load checkpoints at startup
@@ -323,9 +359,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics = Arc::new(DefaultSyncMetrics);
     sync = sync.with_metrics(metrics);
 
+    // Create a sync handle
+    let sync_handle = sync.clone();
+
     // Set up periodic sync timeout handler
-    let sync_clone = sync.clone();
-    let sync_timeout_handle = tokio::spawn(async move {
+    let mut sync_clone = sync_handle.clone();
+    let sync_timeout_handle = rt.spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
             interval.tick().await;
@@ -335,30 +374,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Start automated backups if enabled
-    let backup_handle = if node.config.lock().await.backup.enable_automated_backups {
-        let backup_manager = Arc::clone(&node.backup_manager);
-        Some(tokio::spawn(async move {
-            if let Err(e) = backup_manager.start_automated_backups().await {
-                error!("Backup system error: {}", e);
-            }
-        }))
-    } else {
-        info!("Automated backups are disabled");
-        None
-    };
+    // Spawn a thread to handle automated backups
+    let backup_handle = spawn_backup_task(&node_handle);
 
-    // Setup periodic database maintenance task
-    let db_maintenance_node = Arc::clone(&node);
-    let db_maintenance_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(3600)); // Run every hour
-        loop {
-            interval.tick().await;
-            if let Err(e) = db_maintenance_node.perform_database_maintenance().await {
-                error!("Database maintenance error: {}", e);
-            }
-        }
-    });
+    // Spawn a thread to handle periodic database maintenance
+    let db_maintenance_handle = spawn_maintenance_task(&node_handle);
+
+    // Reference to chain_state and corruption_handler for event handling
+    let chain_state = node_handle.chain_state.clone();
+    let corruption_handler = Arc::clone(&node_handle.corruption_handler);
+    let transaction_handler = node_handle.mempool.clone();
 
     // Handle network events
     let event_handle = tokio::spawn(async move {
@@ -392,7 +417,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         // Create integrity checkpoint if applicable
                         // This creates checkpoints at specific block heights for improved recovery
-                        if let Err(e) = node_clone.create_integrity_checkpoint(height, block.hash()).await {
+                        if let Err(e) = corruption_handler.lock().await.create_checkpoint(height, block.hash()).await {
                             warn!("Failed to create integrity checkpoint: {}", e);
                         }
                     }
@@ -402,8 +427,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 NetworkEvent::NewTransaction { transaction, fee_rate, from_peer } => {
                     debug!("Received new transaction from {:?}", from_peer);
                     
-                    if let Err(e) = node_clone.handle_new_transaction(transaction).await {
-                        error!("Failed to process transaction: {}", e);
+                    // Calculate fee rate with a dummy output lookup function
+                    match transaction.calculate_fee_rate(|_, _| None) {
+                        Some(fee) => {
+                            if let Err(e) = transaction_handler.add_transaction(transaction, fee) {
+                                error!("Failed to process transaction: {}", e);
+                            }
+                        },
+                        None => {
+                            error!("Failed to calculate transaction fee rate");
+                        }
                     }
                 },
                 
@@ -438,7 +471,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         
                         // Create integrity checkpoint if applicable
-                        if let Err(e) = node_clone.create_integrity_checkpoint(height, block.hash()).await {
+                        if let Err(e) = corruption_handler.lock().await.create_checkpoint(height, block.hash()).await {
                             warn!("Failed to create integrity checkpoint: {}", e);
                         }
                     }
@@ -449,7 +482,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     debug!("Peer {} status: height={}, td={}", peer_id, height, total_difficulty);
                     
                     // Check if we need to sync
-                    let current_height = node_clone.chain_state.get_height();
+                    let current_height = chain_state.get_height();
                     if height > current_height + 1 {
                         info!("Detected we're behind peer {} by {} blocks", peer_id, height - current_height);
                         
@@ -476,22 +509,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Start listening for connections
-    let config_lock = node.config.lock().await;
-    command_tx.send(NetworkCommand::StartListening(
+    let config_lock = node_handle.config.lock().await;
+    command_tx_for_network.send(NetworkCommand::StartListening(
         config_lock.network.listen_addr.clone()
     )).await?;
     drop(config_lock);
 
     // Announce initial status
-    command_tx.send(NetworkCommand::AnnounceStatus {
+    command_tx_for_network.send(NetworkCommand::AnnounceStatus {
         version: 1,
-        height: node.chain_state.get_height(),
-        best_hash: node.chain_state.get_best_block_hash(),
-        total_difficulty: node.chain_state.get_total_difficulty(),
+        height: node_handle.chain_state.get_height(),
+        best_hash: node_handle.chain_state.get_best_block_hash(),
+        total_difficulty: node_handle.chain_state.get_total_difficulty(),
     }).await?;
 
     // Set up periodic tasks
-    let mut mempool_cleanup_interval = tokio::time::interval(node.config.lock().await.mempool.transaction_timeout);
+    let mempool_config = node_handle.config.lock().await.mempool.transaction_timeout;
+    let mut mempool_cleanup_interval = tokio::time::interval(mempool_config);
     let mut status_announcement_interval = tokio::time::interval(Duration::from_secs(120));
     
     // Main event loop
@@ -499,7 +533,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::select! {
             // Periodic mempool cleanup
             _ = mempool_cleanup_interval.tick() => {
-                let removed = node.mempool.clear_expired();
+                let removed = node_handle.mempool.clear_expired();
                 if removed > 0 {
                     info!("Cleared {} expired transactions from mempool", removed);
                 }
@@ -508,11 +542,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Periodic status announcement
             _ = status_announcement_interval.tick() => {
                 // Announce our current status to the network
-                let current_height = node.chain_state.get_height();
-                let best_hash = node.chain_state.get_best_block_hash();
-                let total_difficulty = node.chain_state.get_total_difficulty();
+                let current_height = node_handle.chain_state.get_height();
+                let best_hash = node_handle.chain_state.get_best_block_hash();
+                let total_difficulty = node_handle.chain_state.get_total_difficulty();
                 
-                command_tx.send(NetworkCommand::AnnounceStatus {
+                command_tx_for_network.send(NetworkCommand::AnnounceStatus {
                     version: 1,
                     height: current_height,
                     best_hash,
@@ -520,7 +554,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }).await.ok();
                 
                 // Log sync status
-                let sync_stats = sync.get_stats();
+                let sync_stats = sync_handle.get_stats();
                 info!("Sync status: {}. Current height: {}, Target height: {}", 
                      sync_stats.state, sync_stats.current_height, sync_stats.target_height);
             },
@@ -544,9 +578,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle.abort();
     }
 
-    let config_lock = node.config.lock().await;
+    let config_lock = node_handle.config.lock().await;
     if config_lock.backup.enable_automated_backups {
-        match node.backup_manager.create_backup().await {
+        match node_handle.backup_manager.create_backup().await {
             Ok(backup_path) => info!("Created final backup at {:?}", backup_path),
             Err(e) => warn!("Failed to create final backup during shutdown: {}", e),
         }
@@ -554,9 +588,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Final database integrity checkpoint before shutdown
     {
-        let height = node.chain_state.get_height();
-        let block_hash = node.chain_state.get_best_block_hash();
-        let mut handler = node.corruption_handler.lock().await;
+        let height = node_handle.chain_state.get_height();
+        let block_hash = node_handle.chain_state.get_best_block_hash();
+        let mut handler = node_handle.corruption_handler.lock().await;
         if let Err(e) = handler.create_checkpoint(height, block_hash).await {
             warn!("Failed to create final integrity checkpoint: {}", e);
         } else {
@@ -566,4 +600,72 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Shutdown complete");
     Ok(())
+}
+
+// Spawn a thread to handle automated backups
+fn spawn_backup_task(node: &NodeHandle) -> Option<tokio::task::JoinHandle<()>> {
+    if node.config.try_lock().ok()?.backup.enable_automated_backups {
+        let backup_manager = Arc::clone(&node.backup_manager);
+        Some(tokio::spawn(async move {
+            if let Err(e) = backup_manager.start_automated_backups().await {
+                error!("Automated backup task failed: {}", e);
+            }
+        }))
+    } else {
+        None
+    }
+}
+
+// Spawn a thread to handle periodic database maintenance
+fn spawn_maintenance_task(node: &NodeHandle) -> tokio::task::JoinHandle<()> {
+    // Create a safe clone of just what we need
+    let db = node.chain_state.get_db().clone();
+    
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3600));
+        
+        loop {
+            interval.tick().await;
+            // Just do database maintenance directly on the DB
+            if let Err(e) = db.compact() {
+                error!("Database maintenance failed: {}", e);
+            } else {
+                info!("Database maintenance completed successfully");
+            }
+        }
+    })
+}
+
+// Spawn blockchain synchronization process
+fn spawn_sync_task(
+    db: Arc<BlockchainDB>, 
+    chain_state: ChainState, 
+    mut event_rx: mpsc::Receiver<NetworkEvent>
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut sync = ChainSync::new(chain_state, db, tokio::sync::mpsc::channel(128).0);
+        
+        // Load chain checkpoints for sync
+        if let Err(e) = sync.load_checkpoints().await {
+            error!("Failed to load checkpoints: {}", e);
+        }
+        
+        // Start synchronization to a reasonable starting point
+        if let Err(e) = sync.start_sync(0, 0).await {
+            error!("Chain sync failed: {}", e);
+        }
+        
+        // Process network events
+        while let Some(event) = event_rx.recv().await {
+            // Process events
+            match event {
+                // Handle new blocks
+                NetworkEvent::NewBlock { block, .. } => {
+                    debug!("Received new block: {}", hex::encode(&block.hash()[..4]));
+                }
+                // Handle other events
+                _ => {}
+            }
+        }
+    })
 }

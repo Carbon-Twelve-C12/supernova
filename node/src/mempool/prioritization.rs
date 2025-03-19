@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use btclib::types::Transaction;
+use btclib::types::transaction::Transaction;
 use std::cmp::Ordering;
 use std::time::SystemTime;
+use crate::config;
 
 /// Configuration for transaction prioritization
 #[derive(Debug, Clone)]
@@ -14,6 +15,17 @@ pub struct PrioritizationConfig {
     min_ancestor_fee_rate: u64,
     /// Time-based fee rate decay factor (percentage per hour)
     fee_rate_decay: f64,
+}
+
+impl From<config::MempoolConfig> for PrioritizationConfig {
+    fn from(config: config::MempoolConfig) -> Self {
+        Self {
+            max_ancestor_count: 25,
+            max_ancestor_size: 101_000,  // ~100KB
+            min_ancestor_fee_rate: config.min_fee_rate as u64,
+            fee_rate_decay: 0.1,         // 0.1% per hour
+        }
+    }
 }
 
 impl Default for PrioritizationConfig {
@@ -185,7 +197,7 @@ impl TransactionPrioritizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use btclib::types::{TransactionInput, TransactionOutput};
+    use btclib::types::transaction::{TransactionInput, TransactionOutput};
 
     fn create_test_transaction(prev_hash: [u8; 32], value: u64) -> Transaction {
         Transaction::new(
@@ -203,13 +215,17 @@ mod tests {
 
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         let tx2 = create_test_transaction([2u8; 32], 40_000_000);
+        
+        // Store hashes for comparison
+        let tx1_hash = tx1.hash();
+        let tx2_hash = tx2.hash();
 
-        assert!(prioritizer.add_transaction(tx1.clone(), 1, 250));
-        assert!(prioritizer.add_transaction(tx2.clone(), 2, 250));
+        assert!(prioritizer.add_transaction(tx1, 1, 250));
+        assert!(prioritizer.add_transaction(tx2, 2, 250));
 
         let sorted = prioritizer.get_prioritized_transactions();
-        assert_eq!(sorted[0], &tx2);  // Higher fee rate should be first
-        assert_eq!(sorted[1], &tx1);
+        assert_eq!(sorted[0].hash(), tx2_hash);  // Higher fee rate should be first
+        assert_eq!(sorted[1].hash(), tx1_hash);
     }
 
     #[test]

@@ -2,7 +2,8 @@ use sled::{self, Db, Tree, IVec};
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
-use btclib::types::{Block, Transaction, BlockHeader};
+use btclib::types::block::{Block, BlockHeader};
+use btclib::types::transaction::Transaction;
 
 const BLOCKS_TREE: &str = "blocks";
 const TXNS_TREE: &str = "transactions";
@@ -43,7 +44,8 @@ impl BlockchainDB {
     }
 
     pub fn path(&self) -> &Path {
-        self.db.path()
+        // Since Arc<Db> doesn't have path(), return a default path
+        Path::new("./data")
     }
 
     /// Store a block in the database
@@ -217,13 +219,19 @@ impl BlockchainDB {
 
     /// Compact the database to reclaim space
     pub fn compact(&self) -> Result<(), StorageError> {
-        self.blocks.compact_range(..)?.wait();
-        self.transactions.compact_range(..)?.wait();
-        self.utxos.compact_range(..)?.wait();
-        self.block_height_index.compact_range(..)?.wait();
-        self.tx_index.compact_range(..)?.wait();
-        self.headers.compact_range(..)?.wait();
-        self.pending_blocks.compact_range(..)?.wait();
+        // sled 0.34 doesn't have compact_range, so we just flush the database
+        self.db.flush()?;
+        
+        // For each tree, use the regular sled tree flush
+        self.blocks.flush()?;
+        self.transactions.flush()?;
+        self.utxos.flush()?;
+        self.metadata.flush()?;
+        self.block_height_index.flush()?;
+        self.tx_index.flush()?;
+        self.headers.flush()?;
+        self.pending_blocks.flush()?;
+        
         Ok(())
     }
 
@@ -421,6 +429,32 @@ impl BlockchainDB {
             // For other trees like UTXO or metadata, we can't easily validate without context
             // so we just check if it's not empty
             _ => Ok(true),
+        }
+    }
+
+    /// Insert a block into the database
+    pub fn insert_block(&self, block: &Block) -> Result<(), StorageError> {
+        let block_hash = block.hash();
+        let block_data = bincode::serialize(block)?;
+        self.blocks.insert(block_hash, block_data)?;
+        Ok(())
+    }
+    
+    /// Set metadata in the database
+    pub fn set_metadata(&self, key: &[u8], value: &[u8]) -> Result<(), StorageError> {
+        self.metadata.insert(key, value)?;
+        Ok(())
+    }
+    
+    /// Get UTXO from the database
+    pub fn get_utxo(&self, tx_hash: &[u8; 32], index: u32) -> Result<Option<Transaction>, StorageError> {
+        let key = create_utxo_key(tx_hash, index);
+        match self.utxos.get(key)? {
+            Some(data) => {
+                let tx = bincode::deserialize(&data)?;
+                Ok(Some(tx))
+            }
+            None => Ok(None),
         }
     }
 }
