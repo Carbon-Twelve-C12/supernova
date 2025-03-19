@@ -1,0 +1,50 @@
+# SuperNova Node Configuration Example
+# Copy this file to node.toml to use as your configuration
+
+[node]
+chain_id = "supernova-dev"            # Network identifier
+environment = "Development"           # Development, Testnet, or Production
+metrics_enabled = true                # Enable Prometheus metrics
+metrics_port = 9000                   # Metrics endpoint port
+log_level = "info"                    # debug, info, warn, error
+
+[network]
+listen_addr = "/ip4/0.0.0.0/tcp/8000" # Local address to listen on
+max_peers = 50                        # Maximum number of peer connections
+# List of bootstrap nodes for initial connection
+bootstrap_nodes = [
+    # "/ip4/203.0.113.1/tcp/8000/p2p/QmRZf8wnY2HbQP4h6jtKnHBuEF3V59uCnYx9winHcwUwNX",
+    # "/ip4/203.0.113.2/tcp/8000/p2p/QmP7HvWHJwJmPWGHH1XtKuKCrFCbjCSRHZ6bA8n5QkRfzC"
+]
+peer_ping_interval = 30               # Interval for peer heartbeats in seconds
+max_outbound_connections = 8          # Maximum outgoing connections
+max_inbound_connections = 32          # Maximum incoming connections
+ban_threshold = 100                   # Score threshold for banning a peer
+ban_duration = 86400                  # Ban duration in seconds (24 hours)
+
+[storage]
+db_path = "./data"                    # Blockchain database location
+enable_compression = true             # Enable database compression
+cache_size = 536870912                # Database cache size (512 MB)
+max_open_files = 1000                 # Maximum number of open files
+block_cache_size = 33554432           # Block cache size (32 MB)
+
+[mempool]
+max_size = 5000                       # Maximum number of transactions in the mempool
+transaction_timeout = 7200            # Time before transactions expire (2 hours)
+min_fee_rate = 1                      # Minimum fee rate for transactions (sats/byte)
+max_per_address = 100                 # Maximum transactions per address
+max_orphan_transactions = 100         # Maximum orphan transactions to keep
+
+[backup]
+backup_dir = "./backups"              # Directory for storing backups
+max_backups = 5                       # Maximum number of backups to keep
+backup_interval = 3600                # Automatic backup interval (1 hour)
+enable_automated_backups = true       # Enable automated backups
+compress_backups = true               # Compress backup files
+verify_on_startup = true              # Verify database integrity on startup
+
+[mining]
+enable = false                        # Enable built-in mining (false = use separate miner)
+threads = 4                           # Mining threads (if enabled)
+reward_address = ""                   # Address to receive mining rewards 
