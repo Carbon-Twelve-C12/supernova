@@ -1,12 +1,12 @@
 use btclib::types::block::Block;
-use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+use btclib::types::transaction::Transaction;
 use super::worker::MiningWorker;
-use super::template::{BlockTemplate, MempoolInterface, BLOCK_MAX_SIZE};
+use super::template::{BlockTemplate, MempoolInterface};
 use crate::difficulty::DifficultyAdjuster;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::mpsc;
-use tracing::{info, error, warn};
+use tracing::{info, error};
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 
@@ -29,7 +29,7 @@ impl MiningMetrics {
         }
     }
 
-    pub fn record_hash(&self, worker_id: usize, hashes: u64) {
+    pub fn record_hash(&self, _worker_id: usize, hashes: u64) {
         let current_rate = self.total_hash_rate.load(Ordering::Relaxed);
         self.total_hash_rate.store(current_rate + hashes, Ordering::Relaxed);
         *self.last_hash_time.lock().unwrap() = Some(Instant::now());
@@ -59,6 +59,7 @@ pub struct MiningStats {
     pub last_hash: Option<Instant>,
 }
 
+#[derive(Clone)]
 pub struct Miner {
     workers: Vec<Arc<MiningWorker>>,
     difficulty_adjuster: DifficultyAdjuster,
@@ -111,16 +112,16 @@ impl Miner {
 
     pub async fn start_mining(
         &self,
-        version: u32,
-        prev_block_hash: [u8; 32],
-        current_height: u64,
+        _version: u32,
+        _prev_block_hash: [u8; 32],
+        _current_height: u64,
     ) -> Result<(), String> {
         info!("Starting mining with {} workers", self.num_threads);
         self.metrics.active_workers.store(self.num_threads as u64, Ordering::Relaxed);
 
         let template = BlockTemplate::new(
-            version,
-            prev_block_hash,
+            _version,
+            _prev_block_hash,
             self.difficulty_adjuster.get_current_target(),
             self.reward_address.clone(),
             self.mempool.as_ref(),
@@ -129,8 +130,8 @@ impl Miner {
         
         let template_refresh_handle = self.start_template_refresh_task(
             Arc::clone(&shared_template),
-            version,
-            prev_block_hash,
+            _version,
+            _prev_block_hash,
         );
 
         let mut handles = Vec::new();
@@ -152,8 +153,8 @@ impl Miner {
             
             handles.push(tokio::spawn(async move {
                 worker.mine_block_with_template(
-                    version,
-                    prev_block_hash,
+                    _version,
+                    _prev_block_hash,
                     reward_address,
                     template,
                 ).await
@@ -175,11 +176,11 @@ impl Miner {
     fn start_template_refresh_task(
         &self,
         shared_template: Arc<tokio::sync::Mutex<BlockTemplate>>,
-        version: u32,
-        prev_block_hash: [u8; 32],
+        _version: u32,
+        _prev_block_hash: [u8; 32],
     ) -> tokio::task::JoinHandle<()> {
         let mempool = Arc::clone(&self.mempool);
-        let reward_address = self.reward_address.clone();
+        let _reward_address = self.reward_address.clone();
         let template_refresh_signal = Arc::clone(&self.template_refresh_signal);
         
         tokio::spawn(async move {
@@ -221,6 +222,16 @@ impl Miner {
         
         new_target
     }
+
+    // Helper method to get current target
+    pub fn get_current_target(&self) -> u32 {
+        self.difficulty_adjuster.get_current_target()
+    }
+
+    // Helper method to get metrics
+    pub fn get_metrics(&self) -> Arc<MiningMetrics> {
+        Arc::clone(&self.metrics)
+    }
 }
 
 impl MiningWorker {
@@ -230,9 +241,9 @@ impl MiningWorker {
     
     pub async fn mine_block_with_template(
         &self,
-        version: u32,
-        prev_block_hash: [u8; 32],
-        reward_address: Vec<u8>,
+        _version: u32,
+        _prev_block_hash: [u8; 32],
+        _reward_address: Vec<u8>,
         shared_template: Arc<tokio::sync::Mutex<BlockTemplate>>,
     ) -> Result<(), String> {
         let mut attempts = 0;
@@ -315,8 +326,10 @@ mod tests {
         let reward_address = vec![1, 2, 3, 4];
         let (miner, mut rx) = Miner::new(1, u32::MAX, mempool, reward_address);
         
+        // Clone miner for the spawned task
+        let mining_miner = miner.clone();
         let mining_handle = tokio::spawn(async move {
-            miner.start_mining(1, [0u8; 32], 0).await.unwrap();
+            mining_miner.start_mining(1, [0u8; 32], 0).await.unwrap();
         });
 
         tokio::select! {

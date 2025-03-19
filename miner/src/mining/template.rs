@@ -67,7 +67,7 @@ impl BlockTemplate {
         available_size: usize
     ) -> Vec<Transaction> {
         // Get prioritized transactions
-        let mut transactions = mempool.get_prioritized_transactions(available_size * 2).await;
+        let transactions = mempool.get_prioritized_transactions(available_size * 2).await;
         
         // Sort by fee per byte (fee density) if not already sorted
         let txids: Vec<Vec<u8>> = transactions.iter().map(|tx| tx.hash().to_vec()).collect();
