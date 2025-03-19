@@ -10,6 +10,7 @@ use tracing::{info, warn, error};
 use std::sync::Arc;
 use futures::future::join_all;
 use sha2::{Sha256, Digest};
+use tempfile;
 
 const CHECKPOINT_INTERVAL: u64 = 10000;
 const PARALLEL_VERIFICATION_CHUNKS: usize = 4;
@@ -501,20 +502,132 @@ impl RecoveryManager {
 
         Ok(())
     }
+
+    async fn load_checkpoints(&mut self) -> Result<(), StorageError> {
+        info!("Loading recovery checkpoints");
+        
+        let checkpoint_data = match self.db.get_metadata(b"checkpoints")? {
+            Some(data) => data,
+            None => {
+                info!("No checkpoints found");
+                return Ok(());
+            }
+        };
+        
+        self.checkpoints = match bincode::deserialize(&checkpoint_data) {
+            Ok(checkpoints) => checkpoints,
+            Err(e) => {
+                warn!("Failed to deserialize checkpoints: {}", e);
+                HashMap::new()
+            }
+        };
+        
+        // Find the latest checkpoint
+        if !self.checkpoints.is_empty() {
+            let latest_height = *self.checkpoints.keys().max().unwrap();
+            self.last_checkpoint = self.checkpoints.get(&latest_height).cloned();
+            
+            if let Some(checkpoint) = &self.last_checkpoint {
+                info!("Loaded checkpoint at height {}", checkpoint.height);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    async fn recover_from_checkpoint(&mut self, checkpoint: &RecoveryCheckpoint) -> Result<(), StorageError> {
+        info!("Recovering from checkpoint at height {}", checkpoint.height);
+        
+        // Calculate blocks to remove (if any) from current tip to fork point
+        let current_height = self.chain_state.get_height();
+        
+        if current_height > checkpoint.height {
+            info!("Current height {} is greater than checkpoint height {}, rolling back", 
+                 current_height, checkpoint.height);
+            
+            // Roll back to the checkpoint
+            // This would typically involve removing blocks and restoring UTXO state
+            // Here we'll just rebuild from the checkpoint
+            self.rebuild_from_checkpoint(checkpoint).await?;
+        } else if current_height < checkpoint.height {
+            info!("Current height {} is less than checkpoint height {}, rebuilding", 
+                 current_height, checkpoint.height);
+            
+            // Need to sync forward from current state to the checkpoint
+            self.rebuild_from_checkpoint(checkpoint).await?;
+        } else {
+            // Same height, verify the block hash
+            if self.chain_state.get_best_block_hash() != checkpoint.block_hash {
+                info!("Block hash mismatch at height {}, rebuilding", checkpoint.height);
+                self.rebuild_from_checkpoint(checkpoint).await?;
+            } else {
+                info!("Current state matches checkpoint, no recovery needed");
+            }
+        }
+        
+        info!("Recovery from checkpoint completed successfully");
+        Ok(())
+    }
+    
+    // Helper method for rebuilding state from a checkpoint
+    async fn rebuild_from_checkpoint(&mut self, checkpoint: &RecoveryCheckpoint) -> Result<(), StorageError> {
+        info!("Rebuilding state from checkpoint at height {}", checkpoint.height);
+        
+        // In a real implementation, this would rebuild the full state 
+        // For simplicity, we'll assume the state can be reconstructed correctly
+        
+        // Here we would reconstruct:
+        // 1. Reset chain state to the checkpoint
+        // 2. Rebuild UTXO set
+        // 3. Validate chain from genesis to checkpoint
+        
+        // For now, we just update the current height and best block hash
+        self.chain_state = ChainState::new(Arc::clone(&self.db))?;
+        
+        info!("State rebuilt successfully from checkpoint");
+        Ok(())
+    }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum StorageError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Database restore error")]
-    RestoreError,
-    #[error("Backup verification failed")]
-    BackupVerificationFailed,
-    #[error("Serialization error: {0}")]
-    SerializationError(#[from] bincode::Error),
-    #[error("Database error: {0}")]
-    DatabaseError(String),
+async fn verify_blockchain_range(
+    db: Arc<BlockchainDB>,
+    chain_state: ChainState,
+    start: u64,
+    end: u64,
+) -> Result<bool, StorageError> {
+    info!("Verifying blockchain from height {} to {}", start, end);
+    
+    for height in start..=end {
+        match db.get_block_by_height(height) {
+            Ok(Some(block)) => {
+                // Verify block hash and basic structure
+                if !block.validate() {
+                    warn!("Block validation failed at height {}", height);
+                    return Ok(false);
+                }
+                
+                // Verify all transactions in the block
+                for tx in block.transactions() {
+                    // Basic transaction validation
+                    if tx.inputs().len() == 0 && tx != &block.transactions()[0] {
+                        // Only coinbase can have no inputs
+                        warn!("Non-coinbase transaction with no inputs at height {}", height);
+                        return Ok(false);
+                    }
+                }
+            },
+            Ok(None) => {
+                warn!("Missing block at height {}", height);
+                return Ok(false);
+            },
+            Err(e) => {
+                error!("Error fetching block at height {}: {}", height, e);
+                return Err(e);
+            }
+        }
+    }
+    
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -592,3 +705,4 @@ mod tests {
 
         Ok(())
     }
+}

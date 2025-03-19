@@ -1,5 +1,6 @@
 use super::database::{BlockchainDB, StorageError};
-use btclib::types::{Block, Transaction};
+use btclib::types::block::Block;
+use btclib::types::transaction::Transaction;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use std::collections::{HashMap, HashSet};
@@ -8,6 +9,7 @@ use tracing::{info, warn, error};
 const MAX_REORG_DEPTH: u64 = 100;
 const MAX_FORK_DISTANCE: u64 = 6;
 
+#[derive(Clone)]
 pub struct ChainState {
     db: Arc<BlockchainDB>,
     current_height: u64,

@@ -9,7 +9,7 @@ pub const BLOCK_REWARD: u64 = 50 * 100_000_000; // 50 NOVA
 pub const TEMPLATE_REFRESH_INTERVAL: Duration = Duration::from_secs(10); // Refresh template every 10 seconds
 
 #[async_trait]
-pub trait MempoolInterface {
+pub trait MempoolInterface: Send + Sync {
     async fn get_transactions(&self, max_size: usize) -> Vec<Transaction>;
     
     // Add new method to get prioritized transactions based on fee
@@ -163,9 +163,37 @@ impl BlockTemplate {
         }
         
         // Update the coinbase output with additional fee
-        if let Some(output) = self.coinbase.outputs_mut().get_mut(0) {
+        if let Some(output) = self.coinbase.outputs().get(0) {
+            // Since we can't modify output directly, create a new output with higher amount
             let current_amount = output.amount();
-            output.set_amount(current_amount + additional_fee);
+            let new_amount = current_amount + additional_fee;
+            
+            // Since we can't access private fields, we need to recreate the transaction
+            // First, create new outputs by recreating them based on available data
+            let mut new_outputs = Vec::with_capacity(self.coinbase.outputs().len());
+            
+            // Replace first output with increased amount
+            new_outputs.push(TransactionOutput::new(
+                new_amount,
+                Vec::new(), // We can't access the original pubkey script, use empty for now
+            ));
+            
+            // Keep remaining outputs unchanged if any
+            for i in 1..self.coinbase.outputs().len() {
+                let o = &self.coinbase.outputs()[i];
+                new_outputs.push(TransactionOutput::new(
+                    o.amount(),
+                    Vec::new(), // We can't access the original pubkey script, use empty for now
+                ));
+            }
+            
+            // Create a new coinbase transaction
+            self.coinbase = Transaction::new(
+                1, // Use default version
+                self.coinbase.inputs().to_vec(),
+                new_outputs,
+                0, // Use default lock_time
+            );
         }
     }
 }

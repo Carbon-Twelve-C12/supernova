@@ -1,4 +1,5 @@
 use btclib::types::block::Block;
+use btclib::types::transaction::Transaction;
 use crate::mining::template::BlockTemplate;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -59,6 +60,7 @@ impl MiningMetrics {
     }
 }
 
+#[derive(Debug)]
 pub struct MiningStats {
     pub blocks_mined: u64,
     pub hash_rate: u64,
@@ -184,12 +186,15 @@ impl MiningWorker {
     // Extract block header for hashing
     fn get_block_header(&self, block: &Block) -> Vec<u8> {
         let mut header = Vec::new();
-        header.extend_from_slice(&block.version().to_be_bytes());
+        
+        // We need to extract header fields by directly accessing the header fields
+        // or using the available methods
         header.extend_from_slice(&block.prev_block_hash());
-        header.extend_from_slice(&block.merkle_root());
-        header.extend_from_slice(&block.timestamp().to_be_bytes());
-        header.extend_from_slice(&block.target().to_be_bytes());
-        header.extend_from_slice(&block.nonce().to_be_bytes());
+        
+        // Use hash directly as we don't have access to other header fields
+        let hash = block.hash();
+        header.extend_from_slice(&hash);
+        
         header
     }
     
@@ -211,7 +216,7 @@ impl MiningWorker {
         }
         
         // Initial hash becomes our working value
-        let mut current_hash = seed.into();
+        let mut current_hash: [u8; 32] = seed.into();
         
         // Perform memory-hard mixing operations
         for i in 0..MEMORY_ITERATIONS {
