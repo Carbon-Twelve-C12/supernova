@@ -218,7 +218,7 @@ open http://localhost:9000/metrics
 
 ## Documentation
 
-Comprehensive documentation is still a work-in-progres. I will update this section with more information soon. In the meantime, please refer to this overview document: [SuperNova Overview](https://docs.google.com/document/d/1o_Zl8ll89dutoAXROCLoNEYxYpolfiefZmNDw2KhAH4/edit?usp=sharing)
+Comprehensive documentation is still a work-in-progres. I will update this section with more information soon. In the meantime, please refer to this overview document: [SuperNova Overview](https://github.com/mjohnson518/supernova/blob/main/SuperNova%20Overview.md)
 
 ## Project Status
 
