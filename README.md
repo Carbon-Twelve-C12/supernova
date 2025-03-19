@@ -3,7 +3,7 @@
 <div align="center">
 
   <p>
-    <h2><strong>A production-grade PoW blockchain implementation writtien in Rust</strong></h2>
+    <h2><strong>A production-grade PoW blockchain implementation written in Rust</strong></h2>
   </p>
 </div>
 
@@ -53,6 +53,19 @@ Supernova follows a modular architecture with several key components:
    - UTXO tracking and management
    - Transaction history and labeling
    - Multi-address support with HD wallet functionality
+
+## Current Status
+
+This project is currently in an **ALPHA** state. Core functionality is implemented and operational, but some components need refinement:
+
+- **✅ Core libraries (btclib)**: Fully operational with stable APIs
+- **✅ Storage layer**: Working with proper persistence, backup and integrity checks
+- **✅ Network layer**: Basic P2P networking and block propagation is functional
+- **✅ Mempool**: Transaction storage and prioritization is working
+- **✅ Chain sync**: Block synchronization protocol operational
+- **⚠️ Mining**: Partially operational, some test failures in difficulty adjustment
+- **⚠️ Wallet**: Basic functionality works but needs integration testing
+- **⚠️ API services**: Limited implementation, needs expansion
 
 ## Getting Started
 
@@ -218,15 +231,37 @@ open http://localhost:9000/metrics
 
 ## Documentation
 
-Comprehensive documentation is still a work-in-progres. I will update this section with more information soon. In the meantime, please refer to this overview document: [SuperNova Overview](https://github.com/mjohnson518/supernova/blob/main/SuperNova%20Overview.md)
+Comprehensive documentation is still a work-in-progress. Please refer to this overview document for more details: [SuperNova Overview](SuperNova%20Overview.md)
+
+## Known Issues
+
+The current implementation has several known issues:
+
+1. **Mining Tests**: Some tests in the mining module fail due to issues with difficulty adjustment and block template creation.
+2. **Thread Safety**: The main node binary has improved thread safety but may still have some edge-case issues when handling a high number of concurrent requests.
+3. **Warnings**: The codebase contains numerous unused import and field warnings that need cleanup.
 
 ## Project Status
 
-Supernova is currently at version 0.9.0 and is 99% complete. The remaining work focuses on mining performance optimizations:
+Supernova is currently at version 0.1.0 (alpha). The core libraries are functional but additional work is needed on:
 
-- ASIC-resistant algorithm modifications
-- Advanced difficulty adjustment enhancements
-- Optimized block template creation
+- Mining test stabilization
+- API development
+- Advanced network features
+- Comprehensive integration testing
+- Performance optimization
+
+### Recent Refactoring (May 2023)
+
+The project has recently undergone significant refactoring to improve stability and maintainability:
+
+- **Thread Safety**: Fixed critical thread synchronization issues using command channels and proper mutex guards
+- **Type System**: Corrected trait implementations and accessors for key components
+- **Testing**: Simplified integration tests to run reliably and independently
+- **APIs**: Made key functionality properly accessible through public interfaces
+- **Error Handling**: Enhanced error propagation throughout the codebase
+
+These changes have addressed several architectural issues while revealing areas that need further refinement. The current version is stable for development use but requires additional enhancements before production deployment.
 
 ## Contributing
 
@@ -237,8 +272,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3. Commit your changes (`git commit -am 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-I will soon add a [CONTRIBUTING.md](CONTRIBUTING.md) file with detailed guidelines.
 
 ## License
 
