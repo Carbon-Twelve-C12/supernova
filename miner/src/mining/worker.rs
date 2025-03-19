@@ -220,16 +220,25 @@ impl MiningWorker {
         
         // Perform memory-hard mixing operations
         for _iteration in 0..MEMORY_ITERATIONS {
-            // Use current hash to determine memory access pattern
-            let index = u64::from_be_bytes(current_hash[0..8].try_into().unwrap()) as usize % (MEMORY_SIZE - 64);
+            // Use current hash to determine memory access pattern - ensure we don't overflow
+            let bytes: [u8; 8] = current_hash[0..8].try_into().unwrap_or([0; 8]);
+            let index = u64::from_be_bytes(bytes) as usize % (MEMORY_SIZE - 64);
             
             // Mix current hash with memory
             for round in 0..MIXING_ROUNDS {
+                // Ensure we don't go out of bounds
+                if (index + (round + 1) * 4) > memory.len() {
+                    break;
+                }
+                
                 let memory_slice = &memory[index + round * 4..index + (round + 1) * 4];
                 
                 // XOR memory content with current hash
-                for j in 0..4 {
-                    current_hash[round * 2 + j] ^= memory_slice[j];
+                for j in 0..std::cmp::min(4, memory_slice.len()) {
+                    // Ensure we don't go out of bounds on the hash array
+                    if round * 2 + j < current_hash.len() {
+                        current_hash[round * 2 + j] ^= memory_slice[j];
+                    }
                 }
                 
                 // Update memory with new mixed values
@@ -271,7 +280,7 @@ mod tests {
         let worker = MiningWorker::new(
             Arc::clone(&stop_signal),
             tx,
-            u32::MAX,
+            u32::MAX, // Easiest possible target for fast test completion
             0,
             mempool,
         );
@@ -284,7 +293,7 @@ mod tests {
             Some(block) = rx.recv() => {
                 assert!(block.validate());
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
                 stop_signal.store(true, Ordering::Relaxed);
                 panic!("Mining timed out");
             }

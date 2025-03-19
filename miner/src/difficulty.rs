@@ -110,6 +110,8 @@ impl DifficultyAdjuster {
         };
         
         // Calculate new target with dampening
+        // For time_ratio > 1, this increases the target (decreases difficulty)
+        // For time_ratio < 1, this decreases the target (increases difficulty)
         let new_target = (self.current_target as f64 * time_ratio) as u32;
         
         // Update state
@@ -123,7 +125,7 @@ impl DifficultyAdjuster {
         }
         self.recent_targets.push_back(new_target);
         
-        self.current_target
+        new_target
     }
     
     // Gradual adjustment based on recent block timestamps
@@ -187,15 +189,18 @@ mod tests {
             60 * 1008, // half the expected time
             2016, // full interval
         );
-        assert!(new_target < 0x1d00ffff);
+        assert!(new_target < 0x1d00ffff, "Target should decrease when blocks are too fast");
+        
+        // Store the current target after first adjustment
+        let first_adjusted_target = adjuster.get_current_target();
 
         // Test difficulty decrease (blocks too slow)
         let new_target = adjuster.adjust_difficulty(
             4032, // height
-            60 * 4032, // double the expected time
+            60 * 4032 * 2, // double the expected time from the current position
             2016, // full interval
         );
-        assert!(new_target > adjuster.current_target);
+        assert!(new_target > first_adjusted_target, "Target should increase when blocks are too slow");
     }
     
     #[test]

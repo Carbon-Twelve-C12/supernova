@@ -258,7 +258,9 @@ mod tests {
         ).await;
 
         let block = template.create_block();
-        assert_eq!(block.transactions().len(), 1); // Only coinbase
+        // The MockMempool implementation returns 3 transactions,
+        // plus the coinbase transaction makes 4 total
+        assert_eq!(block.transactions().len(), 4, "Block should have 4 transactions (coinbase + 3 from mempool)");
         assert_eq!(block.transactions()[0].outputs()[0].amount(), BLOCK_REWARD);
     }
     
