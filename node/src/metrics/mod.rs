@@ -1,25 +1,38 @@
-use metrics::{Counter, Gauge, Histogram, Key, KeyName, Unit};
+use metrics::{Counter, Gauge, Histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use once_cell::sync::Lazy;
 use std::time::Instant;
+use tokio::time::Duration;
 use tracing::error;
 
-/// Global metrics registry
-static METRICS: Lazy<MetricsRegistry> = Lazy::new(|| {
-    MetricsRegistry::new().expect("Failed to initialize metrics registry")
-});
-
-pub struct MetricsRegistry {
-    _builder: metrics_exporter_prometheus::PrometheusBuilder,
+// Macro definitions moved to the top
+macro_rules! register_counter {
+    ($name:expr, $help:expr) => {
+        metrics::register_counter!($name)
+    };
 }
+
+macro_rules! register_gauge {
+    ($name:expr, $help:expr) => {
+        metrics::register_gauge!($name)
+    };
+}
+
+macro_rules! register_histogram {
+    ($name:expr, $help:expr) => {
+        metrics::register_histogram!($name)
+    };
+}
+
+/// Global metrics registry
+pub struct MetricsRegistry {}
 
 impl MetricsRegistry {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let builder = PrometheusBuilder::new()
-            .with_http_listener(([127, 0, 0, 1], 9000))
-            .install()?;
-
-        Ok(Self { _builder: builder })
+        let builder = PrometheusBuilder::new();
+        let _ = builder.install_recorder()?;
+        
+        Ok(Self {})
     }
 }
 
@@ -107,23 +120,4 @@ impl<'a> VerificationOperation<'a> {
         let duration = self.start_time.elapsed().as_secs_f64();
         self.metrics.verification_duration.record(duration);
     }
-}
-
-// Register metrics macros
-macro_rules! register_counter {
-    ($name:expr, $help:expr) => {
-        metrics::counter!($name, $help)
-    };
-}
-
-macro_rules! register_gauge {
-    ($name:expr, $help:expr) => {
-        metrics::gauge!($name, $help)
-    };
-}
-
-macro_rules! register_histogram {
-    ($name:expr, $help:expr) => {
-        metrics::histogram!($name, $help)
-    };
 }

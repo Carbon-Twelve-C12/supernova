@@ -1,5 +1,5 @@
 mod pool;
-mod prioritization;
+pub mod prioritization;
 
 pub use pool::{TransactionPool, MempoolConfig, MempoolError};
 pub use prioritization::{

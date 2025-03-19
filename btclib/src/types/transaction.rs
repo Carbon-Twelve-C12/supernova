@@ -142,6 +142,61 @@ impl Transaction {
 
         true
     }
+
+    /// Calculate the fee rate in satoshis per byte
+    pub fn calculate_fee_rate(&self, get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>) -> Option<u64> {
+        // Calculate the transaction size
+        let tx_size = self.calculate_size();
+        
+        // Calculate fee (inputs - outputs)
+        if let Some(total_input) = self.total_input(get_output) {
+            let total_output = self.total_output();
+            
+            if total_input > total_output && tx_size > 0 {
+                let fee = total_input - total_output;
+                return Some(fee / tx_size as u64);
+            }
+        }
+        
+        None
+    }
+    
+    /// Calculate the transaction size in bytes
+    pub fn calculate_size(&self) -> usize {
+        // Version (4 bytes) + locktime (4 bytes)
+        let mut size = 8;
+        
+        // Add input sizes
+        for input in &self.inputs {
+            // Previous tx hash (32) + output index (4) + sequence (4) + script length (1-9)
+            size += 40 + input.signature_script.len();
+        }
+        
+        // Add output sizes
+        for output in &self.outputs {
+            // Amount (8) + script length (1-9)
+            size += 9 + output.pub_key_script.len();
+        }
+        
+        // Add variable length encoding for input and output counts
+        size += varint_size(self.inputs.len() as u64);
+        size += varint_size(self.outputs.len() as u64);
+        
+        size
+    }
+}
+
+// Helper function to calculate variable integer size
+fn varint_size(value: u64) -> usize {
+    if value < 0xfd {
+        1
+    } else if value <= 0xffff {
+        3
+    } else if value <= 0xffffffff {
+        5
+    } else {
+        9
+    }
 }
 
 #[cfg(test)]

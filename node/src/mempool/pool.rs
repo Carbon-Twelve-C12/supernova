@@ -2,16 +2,29 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use btclib::types::transaction::Transaction;
 use std::time::{Duration, SystemTime};
+use std::collections::HashMap;
+use thiserror::Error;
+use crate::config;
 
-/// Configuration for the mempool
+/// Configuration for the transaction memory pool
 #[derive(Debug, Clone)]
 pub struct MempoolConfig {
     /// Maximum number of transactions in the pool
-    max_size: usize,
+    pub max_size: usize,
     /// Maximum age of a transaction before expiry (in seconds)
-    max_age: u64,
+    pub max_age: u64,
     /// Minimum fee rate (satoshis per byte) for acceptance
-    min_fee_rate: u64,
+    pub min_fee_rate: u64,
+}
+
+impl From<config::MempoolConfig> for MempoolConfig {
+    fn from(config: config::MempoolConfig) -> Self {
+        Self {
+            max_size: config.max_size,
+            max_age: config.transaction_timeout.as_secs(),
+            min_fee_rate: config.min_fee_rate as u64,
+        }
+    }
 }
 
 impl Default for MempoolConfig {
@@ -88,12 +101,18 @@ impl TransactionPool {
 
     /// Remove a transaction from the pool
     pub fn remove_transaction(&self, tx_hash: &[u8; 32]) -> Option<Transaction> {
-        self.transactions.remove(tx_hash).map(|(_, entry)| entry.transaction)
+        match self.transactions.remove(tx_hash) {
+            Some((_, entry)) => Some(entry.transaction),
+            None => None
+        }
     }
 
     /// Get a transaction by its hash
     pub fn get_transaction(&self, tx_hash: &[u8; 32]) -> Option<Transaction> {
-        self.transactions.get(tx_hash).map(|entry| entry.transaction.clone())
+        match self.transactions.get(tx_hash) {
+            Some(entry) => Some(entry.transaction.clone()),
+            None => None
+        }
     }
 
     /// Clear expired transactions from the pool
@@ -155,6 +174,12 @@ impl TransactionPool {
         
         entries.into_iter().map(|(tx, _)| tx).collect()
     }
+
+    /// Clear all transactions from the pool
+    pub fn clear_all(&self) -> Result<(), MempoolError> {
+        self.transactions.clear();
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -194,7 +219,10 @@ mod tests {
         let tx_hash = tx.hash();
         
         assert!(pool.add_transaction(tx.clone(), 2).is_ok());
-        assert_eq!(pool.get_transaction(&tx_hash).unwrap(), tx);
+        
+        // Compare transaction hashes instead of transactions directly
+        let tx_from_pool = pool.get_transaction(&tx_hash).unwrap();
+        assert_eq!(tx_from_pool.hash(), tx.hash());
     }
 
     #[test]
@@ -219,11 +247,17 @@ mod tests {
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         let tx2 = create_test_transaction([2u8; 32], 40_000_000);
         
+        // Store hashes for comparison
+        let tx1_hash = tx1.hash();
+        let tx2_hash = tx2.hash();
+        
         pool.add_transaction(tx1.clone(), 1).unwrap();
         pool.add_transaction(tx2.clone(), 2).unwrap();
         
         let sorted = pool.get_sorted_transactions();
-        assert_eq!(sorted[0], tx2); // Higher fee rate should be first
-        assert_eq!(sorted[1], tx1);
+        
+        // Compare transaction hashes instead of transactions directly
+        assert_eq!(sorted[0].hash(), tx2_hash); // Higher fee rate should be first
+        assert_eq!(sorted[1].hash(), tx1_hash);
     }
 }

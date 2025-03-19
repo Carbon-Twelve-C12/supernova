@@ -5,29 +5,37 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::{info, warn, error, debug};
 use thiserror::Error;
-use btclib::types::{Block, Transaction, BlockHeader};
-use crate::storage::{BlockchainDB, StorageError};
+use super::database::{BlockchainDB, StorageError};
+use super::persistence::ChainState;
+use btclib::types::block::{Block, BlockHeader};
+use btclib::types::transaction::Transaction;
 use sha2::{Sha256, Digest};
 use tokio::fs;
 use serde::{Serialize, Deserialize};
 
 /// Errors related to database corruption handling
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum CorruptionError {
-    #[error("Database corruption detected: {0}")]
+    #[error("Logical corruption: {0}")]
+    LogicalCorruption(String),
+    
+    #[error("Index corruption: {0}")]
+    IndexCorruption(String),
+    
+    #[error("Database corruption: {0}")]
+    DatabaseCorruption(String),
+    
+    #[error("Corruption detected: {0}")]
     CorruptionDetected(String),
     
     #[error("Storage error: {0}")]
-    StorageError(#[from] StorageError),
+    Storage(#[from] StorageError),
     
     #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
     
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] bincode::Error),
-    
-    #[error("Logical corruption: {0}")]
-    LogicalCorruption { description: String, affected_range: Option<(u64, u64)> },
+    Serialization(#[from] Box<bincode::ErrorKind>),
 }
 
 /// Type of corruption detected
@@ -266,10 +274,10 @@ impl CorruptionHandler {
         // Check blockchain logical consistency
         if let Err(e) = self.check_blockchain_logical_consistency().await {
             error!("Logical consistency check failed: {}", e);
-            if let CorruptionError::LogicalCorruption { description, affected_range } = e {
+            if let CorruptionError::LogicalCorruption(description) = e {
                 self.corruption_log.push(CorruptionType::LogicalCorruption {
                     description,
-                    affected_range,
+                    affected_range: None,
                 });
             } else {
                 self.corruption_log.push(CorruptionType::LogicalCorruption {
@@ -299,7 +307,7 @@ impl CorruptionHandler {
                 
                 // Check for truncated or corrupted files
                 if metadata.len() == 0 {
-                    return Err(CorruptionError::CorruptionDetected(
+                    return Err(CorruptionError::DatabaseCorruption(
                         format!("Empty database file: {:?}", path)
                     ));
                 }
@@ -311,7 +319,7 @@ impl CorruptionHandler {
                 // Check for excessive zero bytes (potential corruption)
                 let zero_count = header.iter().filter(|&&b| b == 0).count();
                 if zero_count > header.len() * 3 / 4 {
-                    return Err(CorruptionError::CorruptionDetected(
+                    return Err(CorruptionError::DatabaseCorruption(
                         format!("File contains excessive zero bytes: {:?}", path)
                     ));
                 }
@@ -354,7 +362,7 @@ impl CorruptionHandler {
                 },
                 Err(e) => {
                     warn!("Error iterating tree {}: {}", tree_name, e);
-                    return Err(CorruptionError::CorruptionDetected(
+                    return Err(CorruptionError::DatabaseCorruption(
                         format!("Error scanning tree {}: {}", tree_name, e)
                     ));
                 }
@@ -421,18 +429,16 @@ impl CorruptionHandler {
         // Get current height and best hash
         let height_bytes = match self.db.get_metadata(b"height")? {
             Some(h) => h,
-            None => return Err(CorruptionError::LogicalCorruption {
-                description: "Missing height metadata".to_string(),
-                affected_range: None,
-            }),
+            None => return Err(CorruptionError::LogicalCorruption(
+                "Missing height metadata".to_string()
+            )),
         };
         
         let best_hash_bytes = match self.db.get_metadata(b"best_hash")? {
             Some(h) => h,
-            None => return Err(CorruptionError::LogicalCorruption {
-                description: "Missing best_hash metadata".to_string(),
-                affected_range: None,
-            }),
+            None => return Err(CorruptionError::LogicalCorruption(
+                "Missing best_hash metadata".to_string()
+            )),
         };
         
         let height: u64 = bincode::deserialize(&height_bytes)?;
@@ -450,10 +456,9 @@ impl CorruptionHandler {
         for _ in 0..blocks_to_check {
             let block = match self.db.get_block(&current_hash)? {
                 Some(b) => b,
-                None => return Err(CorruptionError::LogicalCorruption {
-                    description: format!("Missing block at height {}", current_height),
-                    affected_range: Some((current_height, current_height)),
-                }),
+                None => return Err(CorruptionError::LogicalCorruption(
+                    format!("Missing block at height {}", current_height)
+                )),
             };
             
             current_hash = block.prev_block_hash();
@@ -663,5 +668,12 @@ impl CorruptionHandler {
         info!("Rebuilding chain state from height {}", start_height);
         // Actual implementation would rebuild chain state
         Ok((true, 1, 1, None))
+    }
+}
+
+/// Implement From for sled::Error to allow ? operator
+impl From<sled::Error> for CorruptionError {
+    fn from(err: sled::Error) -> Self {
+        CorruptionError::DatabaseCorruption(format!("Sled database error: {}", err))
     }
 }

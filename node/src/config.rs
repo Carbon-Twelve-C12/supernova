@@ -4,7 +4,7 @@ use std::time::Duration;
 use std::fs;
 use tracing::{info, warn, error};
 use config::{Config, ConfigError, Environment, File};
-use notify::{self, Event, EventKind};
+use notify::{self, Event, EventKind, Watcher, RecommendedWatcher, RecursiveMode};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NodeConfig {
@@ -62,14 +62,14 @@ pub struct BackupConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GeneralConfig {
     pub chain_id: String,
-    pub environment: Environment,
+    pub environment: NetworkEnvironment,
     pub metrics_enabled: bool,
     pub metrics_port: u16,
     pub log_level: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Environment {
+pub enum NetworkEnvironment {
     Development,
     Testnet,
     Production,
@@ -163,7 +163,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             chain_id: "supernova-dev".to_string(),
-            environment: Environment::Development,
+            environment: NetworkEnvironment::Development,
             metrics_enabled: true,
             metrics_port: 9000,
             log_level: "info".to_string(),
@@ -217,24 +217,42 @@ impl NodeConfig {
         }
     }
 
-    pub async fn watch_config() -> Result<tokio::sync::mpsc::Receiver<()>, std::io::Error> {
+    pub async fn watch_config() -> Result<tokio::sync::mpsc::Receiver<()>, ConfigError> {
+        let config_path = Self::config_path();
         let (tx, rx) = tokio::sync::mpsc::channel(1);
-        let config_path = PathBuf::from("config/node.toml");
-        
-        let mut watcher = notify::recommended_watcher(move |res| {
-            match res {
-                Ok(event) => {
-                    if let Event { kind: EventKind::Modify(_), .. } = event {
-                        if let Err(e) = tx.blocking_send(()) {
-                            error!("Failed to send config reload notification: {}", e);
+
+        let watcher_result = RecommendedWatcher::new(
+            move |res: Result<notify::Event, notify::Error>| {
+                match res {
+                    Ok(event) => {
+                        if event.kind.is_modify() {
+                            if let Err(e) = tx.try_send(()) {
+                                match e {
+                                    tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                                        error!("Config reload channel full");
+                                    }
+                                    tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                                        error!("Config reload channel closed");
+                                    }
+                                }
+                            }
                         }
                     }
+                    Err(e) => error!("Config watch error: {}", e),
                 }
-                Err(e) => error!("Config watch error: {}", e),
-            }
-        })?;
+            },
+            notify::Config::default(),
+        );
+        
+        let mut watcher = match watcher_result {
+            Ok(w) => w,
+            Err(e) => return Err(ConfigError::Foreign(Box::new(NotifyError(e)))),
+        };
 
-        watcher.watch(&config_path, notify::RecursiveMode::NonRecursive)?;
+        let watch_result = watcher.watch(&config_path, RecursiveMode::NonRecursive);
+        if let Err(e) = watch_result {
+            return Err(ConfigError::Foreign(Box::new(NotifyError(e))));
+        }
         
         Ok(rx)
     }
@@ -253,12 +271,18 @@ impl NodeConfig {
         Ok(())
     }
 
-    fn ensure_directories(&self) -> std::io::Result<()> {
-        fs::create_dir_all(&self.storage.db_path)?;
-        info!("Ensured storage directory exists at {:?}", self.storage.db_path);
+    fn ensure_directories(config: &NodeConfig) -> Result<(), ConfigError> {
+        // Create storage directory
+        if let Err(e) = fs::create_dir_all(&config.storage.db_path) {
+            return Err(ConfigError::Foreign(Box::new(IoError(e))));
+        }
+        info!("Ensured storage directory exists at {:?}", config.storage.db_path);
 
-        fs::create_dir_all(&self.backup.backup_dir)?;
-        info!("Ensured backup directory exists at {:?}", self.backup.backup_dir);
+        // Create backup directory
+        if let Err(e) = fs::create_dir_all(&config.backup.backup_dir) {
+            return Err(ConfigError::Foreign(Box::new(IoError(e))));
+        }
+        info!("Ensured backup directory exists at {:?}", config.backup.backup_dir);
 
         Ok(())
     }
@@ -302,5 +326,66 @@ impl NodeConfig {
         }
 
         Ok(())
+    }
+
+    /// Get the path to the configuration file
+    fn config_path() -> PathBuf {
+        PathBuf::from("config/node.toml")
+    }
+}
+
+/// Custom error wrapper that converts to ConfigError
+#[derive(Debug)]
+pub struct IoError(std::io::Error);
+
+impl From<std::io::Error> for IoError {
+    fn from(err: std::io::Error) -> Self {
+        IoError(err)
+    }
+}
+
+impl From<IoError> for ConfigError {
+    fn from(err: IoError) -> Self {
+        ConfigError::NotFound(err.0.to_string())
+    }
+}
+
+impl std::fmt::Display for IoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IO Error: {}", self.0)
+    }
+}
+
+impl std::error::Error for IoError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+/// Custom error wrapper that converts to ConfigError
+#[derive(Debug)]
+pub struct NotifyError(notify::Error);
+
+impl From<notify::Error> for NotifyError {
+    fn from(err: notify::Error) -> Self {
+        NotifyError(err)
+    }
+}
+
+impl From<NotifyError> for ConfigError {
+    fn from(err: NotifyError) -> Self {
+        ConfigError::Foreign(Box::new(err.0))
+    }
+}
+
+impl std::fmt::Display for NotifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Notify Error: {}", self.0)
+    }
+}
+
+impl std::error::Error for NotifyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
     }
 }
