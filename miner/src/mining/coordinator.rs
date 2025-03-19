@@ -50,6 +50,7 @@ impl MiningMetrics {
     }
 }
 
+#[derive(Debug)]
 pub struct MiningStats {
     pub hash_rate: u64,
     pub blocks_found: u64,
@@ -257,7 +258,10 @@ impl MiningWorker {
             let mut block = {
                 let template = shared_template.lock().await;
                 let mut block = template.create_block();
-                block.set_nonce(current_nonce);
+                
+                for _ in 0..current_nonce {
+                    block.increment_nonce();
+                }
                 block
             };
 
@@ -273,8 +277,8 @@ impl MiningWorker {
                     return Ok(());
                 }
                 block.increment_nonce();
-                current_nonce = block.nonce();
                 attempts += 1;
+                current_nonce += 1;
             }
         }
 
