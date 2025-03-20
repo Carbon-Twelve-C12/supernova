@@ -11,6 +11,7 @@ use dashmap::DashMap;
 use std::cmp::Ordering;
 use serde;
 use std::clone::Clone;
+use std::error::Error;
 
 // Constants for sync configuration
 const MAX_HEADERS_PER_REQUEST: u64 = 2000;
@@ -20,12 +21,30 @@ const BLOCK_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const SYNC_STATUS_UPDATE_INTERVAL: Duration = Duration::from_secs(10);
 const MAX_PARALLEL_BLOCK_DOWNLOADS: usize = 8;
 const CHECKPOINT_INTERVAL: u64 = 10000;
+
+// Peer scoring constants
 const MIN_PEER_SCORE: i32 = -100;
 const MAX_PEER_SCORE: i32 = 100;
 const DEFAULT_PEER_SCORE: i32 = 0;
+
+// Positive score adjustments
 const PEER_SCORE_GOOD_RESPONSE: i32 = 1;
+const PEER_SCORE_BLOCK_PROVIDED: i32 = 2;
+const PEER_SCORE_HEADER_PROVIDED: i32 = 1;
+const PEER_SCORE_CONSISTENT_UPTIME: i32 = 5;
+const PEER_SCORE_FAST_RESPONSE: i32 = 2;
+
+// Negative score adjustments
 const PEER_SCORE_INVALID_DATA: i32 = -10;
 const PEER_SCORE_TIMEOUT: i32 = -5;
+const PEER_SCORE_INVALID_BLOCK: i32 = -15;
+const PEER_SCORE_INVALID_TX: i32 = -8;
+const PEER_SCORE_STALE_INFO: i32 = -3;
+
+// Scoring thresholds
+const PEER_DISCONNECT_THRESHOLD: i32 = -75;
+const PEER_PROBATION_THRESHOLD: i32 = -40;
+const PEER_PREFERRED_THRESHOLD: i32 = 30;
 
 /// Trait to abstract sync metrics for better testing
 #[async_trait]
@@ -93,14 +112,39 @@ pub struct Checkpoint {
 /// Data maintained for each peer
 #[derive(Debug, Clone)]
 struct PeerData {
+    // Base metrics
     score: i32,
     first_seen: Instant,
     last_active: Instant,
+    
+    // Performance metrics
     blocks_provided: u64,
     headers_provided: u64,
     timeouts: u64,
     invalid_data: u64,
+    
+    // Response time tracking (in milliseconds)
+    avg_response_time: u64,
+    response_time_samples: u64,
+    
+    // Chain state
     reported_height: u64,
+    reported_difficulty: u64,
+    
+    // Advanced metrics for quality assessment
+    consecutive_timeouts: u8,
+    consecutive_successes: u8,
+    invalid_blocks: u64,
+    invalid_transactions: u64,
+    stale_info_count: u64,
+    
+    // Connection quality
+    connection_drops: u8,
+    last_scoring_adjustment: Instant,
+    
+    // Status flags
+    is_on_probation: bool,
+    is_preferred: bool,
 }
 
 impl PeerData {
@@ -114,13 +158,96 @@ impl PeerData {
             headers_provided: 0,
             timeouts: 0,
             invalid_data: 0,
+            avg_response_time: 0,
+            response_time_samples: 0,
             reported_height: 0,
+            reported_difficulty: 0,
+            consecutive_timeouts: 0,
+            consecutive_successes: 0,
+            invalid_blocks: 0,
+            invalid_transactions: 0,
+            stale_info_count: 0,
+            connection_drops: 0,
+            last_scoring_adjustment: now,
+            is_on_probation: false,
+            is_preferred: false,
         }
     }
 
     fn update_score(&mut self, delta: i32) {
         self.score = (self.score + delta).clamp(MIN_PEER_SCORE, MAX_PEER_SCORE);
         self.last_active = Instant::now();
+        
+        // Update status flags based on new score
+        self.is_on_probation = self.score <= PEER_PROBATION_THRESHOLD;
+        self.is_preferred = self.score >= PEER_PREFERRED_THRESHOLD;
+        
+        // Reset consecutive counters on score changes
+        if delta > 0 {
+            self.consecutive_timeouts = 0;
+            self.consecutive_successes += 1;
+            self.consecutive_successes = self.consecutive_successes.min(10); // cap at 10
+        } else if delta < 0 {
+            self.consecutive_successes = 0;
+            if delta <= PEER_SCORE_TIMEOUT {
+                self.consecutive_timeouts += 1;
+            }
+        }
+    }
+    
+    fn record_response_time(&mut self, response_time_ms: u64) {
+        // Update moving average of response time
+        if self.response_time_samples == 0 {
+            self.avg_response_time = response_time_ms;
+        } else {
+            // Simple moving average
+            self.avg_response_time = (self.avg_response_time * self.response_time_samples + response_time_ms) / 
+                                     (self.response_time_samples + 1);
+        }
+        self.response_time_samples += 1;
+        
+        // Reward fast responses
+        if response_time_ms < 500 && self.response_time_samples > 5 {
+            self.update_score(PEER_SCORE_FAST_RESPONSE);
+        }
+    }
+    
+    fn record_block_provided(&mut self, is_valid: bool) {
+        if is_valid {
+            self.blocks_provided += 1;
+            self.update_score(PEER_SCORE_BLOCK_PROVIDED);
+        } else {
+            self.invalid_blocks += 1;
+            self.update_score(PEER_SCORE_INVALID_BLOCK);
+        }
+    }
+    
+    fn record_headers_provided(&mut self, count: u64, is_valid: bool) {
+        if is_valid {
+            self.headers_provided += count;
+            self.update_score(PEER_SCORE_HEADER_PROVIDED);
+        } else {
+            self.invalid_data += 1;
+            self.update_score(PEER_SCORE_INVALID_DATA);
+        }
+    }
+    
+    fn check_for_uptime_bonus(&mut self) {
+        // Give bonus points for peers that stay connected for a long time
+        let uptime = self.last_active.duration_since(self.first_seen);
+        if uptime.as_secs() > 3600 && // 1 hour
+           self.last_scoring_adjustment.elapsed().as_secs() > 3600 { // Don't give bonus more than once per hour
+            self.update_score(PEER_SCORE_CONSISTENT_UPTIME);
+            self.last_scoring_adjustment = Instant::now();
+        }
+    }
+    
+    fn should_disconnect(&self) -> bool {
+        self.score <= PEER_DISCONNECT_THRESHOLD || self.consecutive_timeouts >= 5
+    }
+    
+    fn is_reliable(&self) -> bool {
+        self.consecutive_successes >= 3 && self.invalid_data < 3 && !self.is_on_probation
     }
 }
 
@@ -324,63 +451,256 @@ impl ChainSync {
         Ok(())
     }
 
-    /// Handle headers received from the network
-    pub async fn handle_headers(&mut self, headers: Vec<BlockHeader>, from_peer: Option<&PeerId>) -> Result<(), String> {
+    /// Handle received block headers
+    pub async fn handle_block_headers(
+        &mut self,
+        headers: Vec<BlockHeader>,
+        total_difficulty: u64,
+        from_peer: Option<PeerId>,
+    ) -> Result<(), Box<dyn Error>> {
+        let headers_count = headers.len();
+        
         if headers.is_empty() {
             return Ok(());
         }
-
-        // Update peer data if applicable
+        
+        // Validate headers first
+        let headers_valid = self.validate_headers(&headers)?;
+        
         if let Some(peer_id) = from_peer {
-            if let Some(mut peer_data) = self.peer_data.get_mut(peer_id) {
-                peer_data.headers_provided += headers.len() as u64;
-                peer_data.update_score(PEER_SCORE_GOOD_RESPONSE);
-            }
-        }
-
-        // Validate headers are sequential
-        for i in 1..headers.len() {
-            if headers[i].prev_block_hash() != headers[i-1].hash() {
-                warn!("Received non-sequential headers");
-                
-                if let Some(peer_id) = from_peer {
-                    self.penalize_peer(peer_id, PEER_SCORE_INVALID_DATA).await;
+            // Record the start time for this response
+            let start_time = Instant::now();
+            
+            // Update peer state with headers
+            if let Some(mut peer_data) = self.peer_data.get_mut(&peer_id) {
+                // Update headers metrics and chain state
+                let old_height = peer_data.reported_height;
+                if headers_count > 0 {
+                    let last_header_height = peer_data.reported_height + headers_count as u64;
+                    peer_data.reported_height = last_header_height;
+                    peer_data.reported_difficulty = total_difficulty;
                 }
                 
-                return Err("Non-sequential headers received".to_string());
+                // Record response time
+                let response_time = start_time.elapsed().as_millis() as u64;
+                self.record_peer_response_time(&peer_id, response_time).await;
+                
+                // Record headers provided by this peer
+                self.record_peer_headers(&peer_id, headers_count as u64, headers_valid).await;
+                
+                // Additional debugging and metrics
+                debug!("Updated peer {} height from {} to {}", 
+                      peer_id, old_height, peer_data.reported_height);
+            }
+            
+            if !headers_valid {
+                warn!("Received invalid headers from peer {}", peer_id);
+                self.penalize_peer(&peer_id, PEER_SCORE_INVALID_DATA).await;
+                return Err("Invalid headers received".into());
+            }
+        } else if !headers_valid {
+            warn!("Received invalid headers from unknown peer");
+            return Err("Invalid headers received".into());
+        }
+        
+        // Store headers in the database
+        for header in &headers {
+            let header_hash = header.hash();
+            let serialized = match bincode::serialize(header) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!("Failed to serialize header: {}", e);
+                    continue;
+                }
+            };
+            
+            match self.db.store_block_header(&header_hash, &serialized) {
+                Ok(_) => {
+                    debug!("Stored header at hash {}", hex::encode(&header_hash[0..8]));
+                }
+                Err(e) => {
+                    warn!("Failed to store header: {}", e);
+                    // Not returning error here as some headers might already be stored
+                }
             }
         }
-
-        // Process based on current state
-        match &mut self.sync_state {
-            SyncState::SyncingHeaders { requesting_peer, .. } => {
-                // Check if these headers are from the peer we requested from
-                if let Some(requested_peer) = requesting_peer {
-                    if from_peer.map_or(false, |p| p != requested_peer) {
-                        debug!("Ignoring headers from non-requested peer");
-                        return Ok(());
+        
+        // If there's a peer specified, it means we likely requested these headers
+        if let Some(peer_id) = from_peer {
+            // Reward peer for good data
+            self.reward_peer(&peer_id, PEER_SCORE_GOOD_RESPONSE).await;
+            
+            // Check if we're in header sync mode and need to request more
+            match &self.sync_state {
+                SyncState::SyncingHeaders { start_height, end_height, .. } => {
+                    let next_start = *start_height + headers_count as u64;
+                    if next_start < *end_height {
+                        // Request next batch of headers
+                        let next_end = (*end_height).min(next_start + MAX_HEADERS_PER_REQUEST);
+                        debug!("Requesting more headers: {}-{}", next_start, next_end);
+                        
+                        let request = NetworkCommand::RequestHeaders {
+                            start_height: next_start,
+                            end_height: next_end,
+                            preferred_peer: Some(peer_id.clone()),
+                        };
+                        
+                        let _ = self.command_sender.send(request).await;
+                        
+                        // Update sync state
+                        self.sync_state = SyncState::SyncingHeaders {
+                            start_height: next_start,
+                            end_height: *end_height,
+                            request_time: Instant::now(),
+                            requesting_peer: Some(peer_id),
+                        };
+                    } else {
+                        // We've received all headers, now we need to sync blocks
+                        debug!("Received all headers, transitioning to block download");
+                        
+                        // Transition to block downloading state
+                        self.sync_state = SyncState::SyncingBlocks {
+                            headers: headers.clone(),
+                            blocks_requested: HashSet::new(),
+                            blocks_received: HashMap::new(),
+                            last_request_time: Instant::now(),
+                        };
+                        
+                        // Start block download
+                        self.start_block_download().await?;
                     }
+                },
+                _ => {
+                    // We're not in header syncing mode, just store the headers
+                    debug!("Received {} headers while not in header sync mode", headers_count);
                 }
-
-                // Validate headers
-                if !self.validate_headers(&headers)? {
-                    warn!("Received invalid headers");
-                    
-                    if let Some(peer_id) = from_peer {
-                        self.penalize_peer(peer_id, PEER_SCORE_INVALID_DATA).await;
-                    }
-                    
-                    return Err("Invalid headers received".to_string());
-                }
-
-                // Process the headers - this will transition to block downloading
-                self.process_headers(headers).await?;
-            },
-            _ => {
-                debug!("Received {} headers while not in header sync mode", headers.len());
             }
         }
+        
+        Ok(())
+    }
 
+    /// Handle received blocks
+    pub async fn handle_blocks(
+        &mut self,
+        blocks: Vec<Block>,
+        total_difficulty: u64,
+        from_peer: Option<PeerId>,
+    ) -> Result<(), Box<dyn Error>> {
+        let blocks_count = blocks.len();
+        
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        
+        if let Some(peer_id) = from_peer {
+            // Record the start time for this response
+            let start_time = Instant::now();
+            
+            // Record response time
+            let response_time = start_time.elapsed().as_millis() as u64;
+            self.record_peer_response_time(&peer_id, response_time).await;
+            
+            // Verify blocks before processing them
+            let mut all_valid = true;
+            
+            for block in &blocks {
+                // Quick validation of block structure
+                if !block.validate() {
+                    warn!("Received invalid block from peer {}", peer_id);
+                    self.record_peer_block(&peer_id, false).await;
+                    self.penalize_peer(&peer_id, PEER_SCORE_INVALID_BLOCK).await;
+                    all_valid = false;
+                    break;
+                }
+            }
+            
+            // Only process if all blocks are valid
+            if all_valid {
+                for block in blocks {
+                    self.record_peer_block(&peer_id, true).await;
+                    
+                    // Process the block through the chain state
+                    let process_start = Instant::now();
+                    match self.chain_state.process_block(block.clone()).await {
+                        Ok(true) => {
+                            // Block was accepted and is now the best block
+                            let duration_ms = process_start.elapsed().as_millis() as u64;
+                            self.metrics.record_block_validation(true, duration_ms).await;
+                            
+                            debug!("Added block {} at height {}", 
+                                   hex::encode(&block.hash()[0..8]), 
+                                   self.chain_state.get_height());
+                        },
+                        Ok(false) => {
+                            // Block was valid but not the best chain
+                            let duration_ms = process_start.elapsed().as_millis() as u64;
+                            self.metrics.record_block_validation(true, duration_ms).await;
+                            
+                            debug!("Added side chain block {}", hex::encode(&block.hash()[0..8]));
+                        },
+                        Err(e) => {
+                            // Block validation failed
+                            let duration_ms = process_start.elapsed().as_millis() as u64;
+                            self.metrics.record_block_validation(false, duration_ms).await;
+                            
+                            warn!("Failed to process block {}: {}", 
+                                  hex::encode(&block.hash()[0..8]), e);
+                                  
+                            self.record_peer_block(&peer_id, false).await;
+                            self.penalize_peer(&peer_id, PEER_SCORE_INVALID_BLOCK).await;
+                        }
+                    }
+                }
+                
+                // Reward peer for providing good blocks
+                self.reward_peer(&peer_id, PEER_SCORE_GOOD_RESPONSE).await;
+            }
+        } else {
+            // If no peer specified, just process the blocks after basic validation
+            for block in blocks {
+                if block.validate() {
+                    let process_start = Instant::now();
+                    match self.chain_state.process_block(block.clone()).await {
+                        Ok(true) => {
+                            let duration_ms = process_start.elapsed().as_millis() as u64;
+                            self.metrics.record_block_validation(true, duration_ms).await;
+                            debug!("Added block {} at height {}", 
+                                   hex::encode(&block.hash()[0..8]), 
+                                   self.chain_state.get_height());
+                        },
+                        Ok(false) => {
+                            let duration_ms = process_start.elapsed().as_millis() as u64;
+                            self.metrics.record_block_validation(true, duration_ms).await;
+                            debug!("Added side chain block {}", hex::encode(&block.hash()[0..8]));
+                        },
+                        Err(e) => {
+                            let duration_ms = process_start.elapsed().as_millis() as u64;
+                            self.metrics.record_block_validation(false, duration_ms).await;
+                            warn!("Failed to process block {}: {}", 
+                                  hex::encode(&block.hash()[0..8]), e);
+                        }
+                    }
+                } else {
+                    warn!("Received invalid block from unknown peer");
+                }
+            }
+        }
+        
+        debug!("Processed {} blocks", blocks_count);
+        
+        // Update sync progress based on current height and highest known peer height
+        let current_height = self.chain_state.get_height();
+        let mut highest_peer_height = current_height;
+        for entry in self.peer_data.iter() {
+            let peer_height = entry.value().reported_height;
+            if peer_height > highest_peer_height {
+                highest_peer_height = peer_height;
+            }
+        }
+        
+        self.metrics.record_sync_progress(current_height, highest_peer_height).await;
+        
         Ok(())
     }
 
@@ -473,7 +793,7 @@ impl ChainSync {
     }
 
     /// Process headers received from the network
-    async fn process_headers(&mut self, headers: Vec<BlockHeader>) -> Result<(), String> {
+    async fn process_headers(&mut self, headers: Vec<BlockHeader>, total_difficulty: u64) -> Result<(), String> {
         if headers.is_empty() {
             return Ok(());
         }
@@ -828,12 +1148,30 @@ impl ChainSync {
 
     /// Find the best peer for requesting blocks at a specific height
     fn find_best_peer_for_height(&self, height: u64) -> Option<PeerId> {
+        // First try to find a preferred peer that has the required height
+        let preferred_peers = self.get_preferred_peers(3);
+        
+        // Check preferred peers first
+        for peer_id in &preferred_peers {
+            if let Some(peer_data) = self.peer_data.get(peer_id) {
+                if peer_data.reported_height >= height && peer_data.is_reliable() {
+                    return Some(peer_id.clone());
+                }
+            }
+        }
+        
+        // Fall back to best scoring peer if no preferred peer is available
         let mut best_peer = None;
         let mut best_score = MIN_PEER_SCORE - 1;
         
         for entry in self.peer_data.iter() {
             let peer_id = entry.key();
             let peer_data = entry.value();
+            
+            // Skip peers that are on probation
+            if peer_data.is_on_probation {
+                continue;
+            }
             
             if peer_data.reported_height >= height && peer_data.score > best_score {
                 best_score = peer_data.score;
@@ -846,18 +1184,42 @@ impl ChainSync {
 
     /// Get a list of peers for block requests
     fn get_peers_for_block_requests(&self, count: usize) -> Vec<PeerId> {
-        let mut peers: Vec<(PeerId, i32)> = self.peer_data.iter()
-            .map(|entry| (entry.key().clone(), entry.value().score))
-            .collect();
+        // Start with preferred peers
+        let mut peers = self.get_preferred_peers(count / 2);
         
-        // Sort peers by score (descending)
-        peers.sort_by(|a, b| b.1.cmp(&a.1));
+        // If we need more peers, add additional ones based on scores and reliability
+        if peers.len() < count {
+            let mut additional_candidates: Vec<(PeerId, i32, bool)> = self.peer_data.iter()
+                .filter(|entry| !peers.contains(entry.key()) && 
+                                !entry.value().is_on_probation)
+                .map(|entry| {
+                    let peer_data = entry.value();
+                    // Calculate an effective score that rewards reliable peers
+                    let effective_score = peer_data.score + 
+                                         (if peer_data.is_reliable() { 20 } else { 0 });
+                    (entry.key().clone(), effective_score, peer_data.is_reliable())
+                })
+                .collect();
+            
+            // Sort by effective score (descending) with preference for reliable peers
+            additional_candidates.sort_by(|a, b| {
+                if a.2 && !b.2 {
+                    std::cmp::Ordering::Less  // a is reliable, b is not
+                } else if !a.2 && b.2 {
+                    std::cmp::Ordering::Greater  // b is reliable, a is not
+                } else {
+                    b.1.cmp(&a.1)  // Compare scores
+                }
+            });
+            
+            // Add additional peers up to requested count
+            let needed = count - peers.len();
+            for (peer_id, _, _) in additional_candidates.iter().take(needed) {
+                peers.push(peer_id.clone());
+            }
+        }
         
-        // Take top N peers
-        peers.into_iter()
-            .take(count)
-            .map(|(peer_id, _)| peer_id)
-            .collect()
+        peers
     }
 
     /// Penalize a peer for bad behavior
@@ -866,25 +1228,86 @@ impl ChainSync {
             peer_data.update_score(penalty);
             
             if penalty < 0 {
-                if penalty <= PEER_SCORE_INVALID_DATA {
+                if penalty <= PEER_SCORE_INVALID_BLOCK {
+                    peer_data.invalid_blocks += 1;
+                } else if penalty <= PEER_SCORE_INVALID_DATA {
                     peer_data.invalid_data += 1;
                 } else if penalty <= PEER_SCORE_TIMEOUT {
                     peer_data.timeouts += 1;
+                } else if penalty <= PEER_SCORE_STALE_INFO {
+                    peer_data.stale_info_count += 1;
                 }
             }
             
             debug!("Penalized peer {} with {} points, new score: {}", 
                   peer_id, penalty, peer_data.score);
             
-            // Disconnect if score is too low
-            if peer_data.score <= MIN_PEER_SCORE {
-                warn!("Disconnecting peer {} due to low score", peer_id);
+            // Disconnect if score is too low or other conditions warrant it
+            if peer_data.should_disconnect() {
+                warn!("Disconnecting peer {} due to low score or excessive timeouts", peer_id);
                 
                 let _ = self.command_sender
                     .send(NetworkCommand::DisconnectPeer(peer_id.clone()))
                     .await;
             }
         }
+    }
+
+    /// Reward a peer for good behavior
+    async fn reward_peer(&self, peer_id: &PeerId, points: i32) {
+        if let Some(mut peer_data) = self.peer_data.get_mut(peer_id) {
+            peer_data.update_score(points);
+            peer_data.check_for_uptime_bonus();
+            
+            debug!("Rewarded peer {} with {} points, new score: {}", 
+                  peer_id, points, peer_data.score);
+        }
+    }
+    
+    /// Record response time from a peer
+    async fn record_peer_response_time(&self, peer_id: &PeerId, response_time_ms: u64) {
+        if let Some(mut peer_data) = self.peer_data.get_mut(peer_id) {
+            peer_data.record_response_time(response_time_ms);
+        }
+    }
+    
+    /// Record successful block provided by peer
+    async fn record_peer_block(&self, peer_id: &PeerId, is_valid: bool) {
+        if let Some(mut peer_data) = self.peer_data.get_mut(peer_id) {
+            peer_data.record_block_provided(is_valid);
+        }
+    }
+    
+    /// Record headers provided by peer
+    async fn record_peer_headers(&self, peer_id: &PeerId, count: u64, is_valid: bool) {
+        if let Some(mut peer_data) = self.peer_data.get_mut(peer_id) {
+            peer_data.record_headers_provided(count, is_valid);
+        }
+    }
+    
+    /// Get preferred peers for important requests
+    fn get_preferred_peers(&self, min_count: usize) -> Vec<PeerId> {
+        let mut preferred_peers: Vec<PeerId> = self.peer_data.iter()
+            .filter(|entry| entry.value().is_preferred)
+            .map(|entry| entry.key().clone())
+            .collect();
+            
+        // If we don't have enough preferred peers, add the highest scoring non-preferred peers
+        if preferred_peers.len() < min_count {
+            let mut additional_peers: Vec<(PeerId, i32)> = self.peer_data.iter()
+                .filter(|entry| !entry.value().is_preferred)
+                .map(|entry| (entry.key().clone(), entry.value().score))
+                .collect();
+                
+            additional_peers.sort_by(|a, b| b.1.cmp(&a.1));
+            
+            let needed = min_count - preferred_peers.len();
+            for (peer_id, _) in additional_peers.iter().take(needed) {
+                preferred_peers.push(peer_id.clone());
+            }
+        }
+        
+        preferred_peers
     }
 
     /// Process sync timeouts
@@ -1033,6 +1456,70 @@ impl ChainSync {
             checkpoints: self.checkpoints.len(),
             sync_duration: self.sync_start_time.map(|t| t.elapsed().as_secs()),
         }
+    }
+
+    /// Start downloading blocks based on headers
+    async fn start_block_download(&mut self) -> Result<(), Box<dyn Error>> {
+        // Get headers from the sync state
+        let headers = match &self.sync_state {
+            SyncState::SyncingBlocks { headers, .. } => headers.clone(),
+            _ => {
+                warn!("Cannot start block download - not in SyncingBlocks state");
+                return Err("Invalid sync state for block download".into());
+            }
+        };
+        
+        if headers.is_empty() {
+            warn!("No headers available for block download");
+            return Err("No headers available".into());
+        }
+        
+        // Get peers for block download
+        let peers = self.get_peers_for_block_requests(MAX_PARALLEL_BLOCK_DOWNLOADS);
+        if peers.is_empty() {
+            warn!("No peers available for block download");
+            return Err("No peers available".into());
+        }
+        
+        // Request blocks in batches from different peers
+        let max_blocks_per_peer = (headers.len() / peers.len()).max(1);
+        let mut start_idx = 0;
+        
+        for peer_id in peers {
+            let end_idx = (start_idx + max_blocks_per_peer).min(headers.len());
+            let peer_headers = &headers[start_idx..end_idx];
+            
+            // Extract block hashes from headers
+            let block_hashes: Vec<[u8; 32]> = peer_headers.iter()
+                .map(|h| h.hash())
+                .collect();
+                
+            if !block_hashes.is_empty() {
+                debug!("Requesting {} blocks from peer {}", block_hashes.len(), peer_id);
+                
+                // Send request to the peer
+                let request = NetworkCommand::RequestBlocks {
+                    block_hashes: block_hashes.clone(),
+                    preferred_peer: Some(peer_id.clone()),
+                };
+                
+                let _ = self.command_sender.send(request).await;
+                
+                // Update requested blocks in the sync state
+                if let SyncState::SyncingBlocks { blocks_requested, .. } = &mut self.sync_state {
+                    for hash in block_hashes {
+                        blocks_requested.insert(hash);
+                    }
+                }
+            }
+            
+            start_idx = end_idx;
+            if start_idx >= headers.len() {
+                break;
+            }
+        }
+        
+        Ok(())
     }
 }
 

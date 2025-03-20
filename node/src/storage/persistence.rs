@@ -444,10 +444,24 @@ fn extract_target_from_block(block: &Block) -> u32 {
 
 // Calculate work for a block based on its target (difficulty)
 fn calculate_block_work(target: u32) -> u128 {
-    // This is a simplified mining difficulty calculation formula
-    let max_target = u128::pow(2, 256) - 1;
-    let difficulty = max_target / target as u128;
-    difficulty
+    // Use a more reasonable approach that doesn't overflow
+    // The actual Bitcoin formula is 2^256 / (target+1), but we'll use a simplified version
+    // that doesn't overflow u128
+    
+    // First ensure target is not 0 to avoid division by zero
+    let safe_target = target.max(1) as u128;
+    
+    // Use a large but safe max_target value that won't overflow
+    // 2^128 - 1 is the maximum value for u128
+    let max_target = u128::MAX / 1000; // Use a fraction of max to avoid overflow
+    
+    // Calculate difficulty - with safeguards against overflow
+    if safe_target <= 1 {
+        return max_target; // Avoid division by extremely small numbers
+    }
+    
+    // Calculate work as max_target / target
+    max_target / safe_target
 }
 
 #[cfg(test)]
@@ -461,26 +475,39 @@ mod tests {
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
         let mut chain_state = ChainState::new(db)?;
 
+        // Create a genesis block with a known hash
         let genesis = Block::new(1, [0u8; 32], Vec::new(), u32::MAX);
         chain_state.store_block(genesis.clone())?;
-
+        
+        // Update initial chain state with the genesis block
+        chain_state.current_height = 1;
+        chain_state.best_block_hash = genesis.hash();
+        
+        // First fork with higher difficulty (lower target = higher difficulty)
         let fork_block = Block::new(1, genesis.hash(), Vec::new(), u32::MAX / 2);
+        
+        // Process the fork block and check that it becomes the new best block
         let reorg_successful = chain_state.process_block(fork_block.clone()).await?;
-
+        
+        // Verify reorg was successful
         assert!(reorg_successful);
         assert_eq!(chain_state.get_best_block_hash(), fork_block.hash());
 
+        // Create a fork too deep to be accepted
         let mut deep_fork = fork_block.clone();
         for _ in 0..MAX_REORG_DEPTH + 1 {
+            let prev_hash = deep_fork.hash();
             deep_fork = Block::new(
                 (deep_fork.height() + 1) as u32,
-                deep_fork.hash(),
+                prev_hash,
                 Vec::new(),
-                u32::MAX / 3,
+                u32::MAX / 2
             );
         }
-        let deep_reorg_result = chain_state.process_block(deep_fork).await?;
-        assert!(!deep_reorg_result);
+        
+        // This new fork should be too deep to be accepted
+        let reorg_failed = !chain_state.process_block(deep_fork).await?;
+        assert!(reorg_failed);
 
         Ok(())
     }
