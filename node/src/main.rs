@@ -442,38 +442,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 
                 // Handle block headers received
                 NetworkEvent::BlockHeaders { headers, total_difficulty, from_peer } => {
-                    info!("Received {} headers from {:?}", headers.len(), from_peer);
-                    
-                    if let Err(e) = sync.handle_headers(headers, from_peer.as_ref()).await {
-                        error!("Failed to process headers: {}", e);
-                        
-                        if let Some(peer_id) = from_peer {
-                            command_tx.send(NetworkCommand::BanPeer {
-                                peer_id,
-                                reason: format!("Invalid headers: {}", e),
-                                duration: Some(Duration::from_secs(1800)),
-                            }).await.ok();
-                        }
+                    debug!("Received {} headers", headers.len());
+                    if let Err(e) = sync.handle_block_headers(headers, total_difficulty, from_peer.clone()).await {
+                        warn!("Failed to handle headers: {}", e);
                     }
                 },
                 
                 // Handle blocks received
                 NetworkEvent::BlocksReceived { blocks, total_difficulty, from_peer } => {
-                    info!("Received {} blocks in response from {:?}", blocks.len(), from_peer);
-                    
-                    // Process each block
-                    for block in blocks {
-                        let height = block.height();
-                        
-                        if let Err(e) = sync.handle_new_block(block.clone(), height, total_difficulty, from_peer.as_ref()).await {
-                            error!("Failed to process block from batch: {}", e);
-                            break;
-                        }
-                        
-                        // Create integrity checkpoint if applicable
-                        if let Err(e) = corruption_handler.lock().await.create_checkpoint(height, block.hash()).await {
-                            warn!("Failed to create integrity checkpoint: {}", e);
-                        }
+                    debug!("Received {} blocks", blocks.len());
+                    if let Err(e) = sync.handle_blocks(blocks, total_difficulty, from_peer.clone()).await {
+                        warn!("Failed to handle blocks: {}", e);
                     }
                 },
                 

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use btclib::types::block::{Block, BlockHeader};
 use btclib::types::transaction::Transaction;
+use std::path::PathBuf;
 
 const BLOCKS_TREE: &str = "blocks";
 const TXNS_TREE: &str = "transactions";
@@ -16,6 +17,7 @@ const PENDING_BLOCKS_TREE: &str = "pending_blocks";
 
 pub struct BlockchainDB {
     db: Arc<Db>,
+    db_path: PathBuf,
     blocks: sled::Tree,
     transactions: sled::Tree,
     utxos: sled::Tree,
@@ -28,7 +30,8 @@ pub struct BlockchainDB {
 
 impl BlockchainDB {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
-        let db = sled::open(path)?;
+        let path_buf = path.as_ref().to_path_buf();
+        let db = sled::open(&path_buf)?;
         
         Ok(Self {
             blocks: db.open_tree(BLOCKS_TREE)?,
@@ -39,13 +42,13 @@ impl BlockchainDB {
             tx_index: db.open_tree(TX_INDEX_TREE)?,
             headers: db.open_tree(HEADERS_TREE)?,
             pending_blocks: db.open_tree(PENDING_BLOCKS_TREE)?,
+            db_path: path_buf,
             db: Arc::new(db),
         })
     }
 
     pub fn path(&self) -> &Path {
-        // Since Arc<Db> doesn't have path(), return a default path
-        Path::new("./data")
+        &self.db_path
     }
 
     /// Store a block in the database
