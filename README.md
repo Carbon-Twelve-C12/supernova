@@ -237,9 +237,9 @@ Comprehensive documentation is still a work-in-progress. Please refer to this ov
 
 The current implementation has several known issues:
 
-1. **Mining Tests**: Some tests in the mining module fail due to issues with difficulty adjustment and block template creation.
-2. **Thread Safety**: The main node binary has improved thread safety but may still have some edge-case issues when handling a high number of concurrent requests.
-3. **Warnings**: The codebase contains numerous unused import and field warnings that need cleanup.
+1. **Thread Safety**: The main node binary has improved thread safety but may still have some edge-case issues when handling a high number of concurrent requests.
+2. **Warnings**: The codebase contains numerous unused import and field warnings that need cleanup.
+3. **Network Synchronization**: Some complex network tests need refinement for better reliability.
 
 ## Project Status
 
@@ -255,6 +255,7 @@ Supernova is currently at version 0.1.0 (alpha). The core libraries are function
 The project has recently undergone significant improvements:
 
 - **Mining System**: Fixed critical issues in the difficulty adjustment algorithm and mining tests
+- **Block Header Implementation**: Added proper accessors for block header fields
 - **Thread Safety**: Fixed thread synchronization issues using proper command channels and mutex guards
 - **Type System**: Enhanced trait implementations and accessors for key components
 - **Testing**: Comprehensive test suite with reliable integration tests

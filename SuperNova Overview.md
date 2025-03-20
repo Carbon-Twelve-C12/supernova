@@ -483,22 +483,17 @@ impl ChainState {
 
 The current implementation has several known issues that need to be addressed:
 
-1. **Mining Subsystem**
-   - Difficulty adjustment algorithm has test failures
-   - Block template creation needs optimization for performance
-   - Mine coordination needs improvement for better resource utilization
-
-2. **Network Layer**
+1. **Network Layer**
    - Advanced peer scoring system is only partially implemented
    - Fork handling needs more robust logic
    - Sync metrics need expansion
 
-3. **Storage Subsystem**
+2. **Storage Subsystem**
    - Database performance can be improved
    - Incremental backup system needs enhancement
    - Data integrity verification system needs completion
 
-4. **Wallet Implementation**
+3. **Wallet Implementation**
    - CLI interface needs improvement
    - HD wallet implementation needs completion
    - Account management features need implementation
@@ -508,10 +503,10 @@ The current implementation has several known issues that need to be addressed:
 Future development will focus on resolving the known issues and implementing the following enhancements:
 
 1. **Short-term Roadmap (0-3 months)**
-   - Fix mining test failures
-   - Complete incremental backup system
-   - Enhance peer scoring system
+   - Complete peer scoring system
+   - Enhance incremental backup system
    - Improve wallet CLI interface
+   - Complete network thread safety improvements
 
 2. **Medium-term Roadmap (3-6 months)**
    - Implement advanced fork handling logic

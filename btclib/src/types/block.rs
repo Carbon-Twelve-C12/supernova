@@ -48,6 +48,10 @@ impl BlockHeader {
         hash.copy_from_slice(&result);
         hash
     }
+
+    pub fn prev_block_hash(&self) -> [u8; 32] {
+        self.prev_block_hash
+    }
 }
 
 impl Block {
