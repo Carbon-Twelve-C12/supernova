@@ -13,9 +13,9 @@ use crate::network::protocol::{Message, Protocol};
 use btclib::types::block::{Block, BlockHeader};
 use btclib::types::transaction::Transaction;
 use std::error::Error;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tracing::{info, warn, error, debug};
+use tracing::{info, debug};
 use dashmap::DashMap;
 
 // Constants for network behavior
@@ -264,7 +264,7 @@ impl P2PNetwork {
         
         // Create protocol handler
         let protocol = Protocol::new(id_keys.clone())?;
-        
+
         // Create dummy gossipsub
         let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
             .validation_mode(gossipsub::ValidationMode::Strict)
@@ -310,15 +310,15 @@ impl P2PNetwork {
         
         // Just process commands from the channel
         while let Some(command) = self.command_receiver.recv().await {
-            match command {
-                NetworkCommand::AnnounceBlock { block, height, total_difficulty } => {
+        match command {
+            NetworkCommand::AnnounceBlock { block, height, total_difficulty } => {
                     debug!("Simulated block announcement at height {}", height);
-                    self.stats.blocks_announced += 1;
-                },
-                NetworkCommand::AnnounceTransaction { transaction, .. } => {
+                        self.stats.blocks_announced += 1;
+                    },
+                NetworkCommand::AnnounceTransaction {  .. } => {
                     debug!("Simulated transaction announcement");
-                    self.stats.transactions_announced += 1;
-                },
+                        self.stats.transactions_announced += 1;
+                    },
                 _ => {} // Ignore other commands in simplified mode
             }
         }

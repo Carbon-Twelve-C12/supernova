@@ -64,7 +64,7 @@ mod tests {
         assert!(true);
     }
     
-    #[tokio::test]
+#[tokio::test]
     async fn test_blockchain_basics() {
         // Set up test environment
         let temp_dir = tempdir().unwrap();
@@ -110,7 +110,7 @@ mod tests {
         assert!(true);
     }
     
-    #[tokio::test]
+#[tokio::test]
     async fn test_mempool_performance() {
         // Create test environment
         let temp_dir = tempdir().unwrap();

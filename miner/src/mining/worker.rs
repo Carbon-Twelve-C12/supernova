@@ -1,5 +1,4 @@
 use btclib::types::block::Block;
-use btclib::types::transaction::Transaction;
 use crate::mining::template::BlockTemplate;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -10,6 +9,7 @@ use std::time::{Instant, Duration};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use sha2::{Sha256, Digest};
+use btclib::types::transaction::Transaction;
 
 // Memory-hard constants for ASIC resistance
 const MEMORY_SIZE: usize = 4 * 1024 * 1024; // 4MB memory requirement
@@ -266,7 +266,7 @@ mod tests {
     
     #[async_trait::async_trait]
     impl MempoolInterface for MockMempool {
-        async fn get_transactions(&self, max_size: usize) -> Vec<Transaction> {
+        async fn get_transactions(&self, _max_size: usize) -> Vec<Transaction> {
             Vec::new()
         }
     }

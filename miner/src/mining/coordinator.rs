@@ -1,5 +1,4 @@
 use btclib::types::block::Block;
-use btclib::types::transaction::Transaction;
 use super::worker::MiningWorker;
 use super::template::{BlockTemplate, MempoolInterface};
 use crate::difficulty::DifficultyAdjuster;
@@ -7,8 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tracing::{info, error};
-use async_trait::async_trait;
 use std::time::{Duration, Instant};
+use async_trait::async_trait;
+use btclib::types::transaction::Transaction;
 
 pub struct MiningMetrics {
     total_hash_rate: AtomicU64,
@@ -301,6 +301,8 @@ impl MiningWorker {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use async_trait::async_trait;
+    use btclib::types::transaction::Transaction;
 
     struct MockMempool;
     

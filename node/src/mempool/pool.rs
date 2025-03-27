@@ -1,9 +1,6 @@
-use std::sync::Arc;
 use dashmap::DashMap;
 use btclib::types::transaction::Transaction;
 use std::time::{Duration, SystemTime};
-use std::collections::HashMap;
-use thiserror::Error;
 use crate::config;
 
 /// Configuration for the transaction memory pool

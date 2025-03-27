@@ -201,7 +201,7 @@ impl BlockTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::SystemTime;
+    use std::time::Duration;
 
     struct MockMempool;
     
@@ -211,26 +211,13 @@ mod tests {
             Vec::new()
         }
         
-        async fn get_prioritized_transactions(&self, max_size: usize) -> Vec<Transaction> {
-            // Create some test transactions with different sizes
-            let mut txs = Vec::new();
+        async fn get_prioritized_transactions(&self, _max_size: usize) -> Vec<Transaction> {
+            // Create three transactions with different fees for testing
+            let tx1 = Transaction::new(1, vec![], vec![], 0);
+            let tx2 = Transaction::new(1, vec![], vec![], 0);
+            let tx3 = Transaction::new(1, vec![], vec![], 0);
             
-            // Small high-fee transaction
-            let input1 = TransactionInput::new([1u8; 32], 0, vec![1, 2, 3], 0);
-            let output1 = TransactionOutput::new(100, vec![4, 5, 6]);
-            txs.push(Transaction::new(1, vec![input1], vec![output1], 0));
-            
-            // Medium fee transaction
-            let input2 = TransactionInput::new([2u8; 32], 0, vec![1, 2, 3, 4, 5], 0);
-            let output2 = TransactionOutput::new(200, vec![6, 7, 8, 9, 10]);
-            txs.push(Transaction::new(1, vec![input2], vec![output2], 0));
-            
-            // Larger low-fee transaction
-            let input3 = TransactionInput::new([3u8; 32], 0, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0);
-            let output3 = TransactionOutput::new(300, vec![11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
-            txs.push(Transaction::new(1, vec![input3], vec![output3], 0));
-            
-            txs
+            vec![tx1, tx2, tx3]
         }
         
         async fn get_transaction_fees(&self, txids: &[Vec<u8>]) -> Vec<u64> {

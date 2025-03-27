@@ -25,3 +25,20 @@ tracing-subscriber = "0.3"
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
+
+# Bitcoin and HD wallet
+bitcoin = { version = "0.31.0", features = ["rand", "serde"] }
+bip39 = "2.0.0"
+chrono = { version = "0.4.31", features = ["serde"] }
+
+# UI and CLI
+ratatui = "0.25.0"
+crossterm = "0.27.0"
+clap = { version = "4.4", features = ["derive"] }
+shellexpand = "3.1.0"
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.10.1"
+
+# Testing
+tempfile = "3.8"

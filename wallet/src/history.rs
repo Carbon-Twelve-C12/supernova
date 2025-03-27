@@ -1,242 +1,258 @@
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
-use btclib::types::Transaction;
-use crate::hdwallet::HDWallet;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum HistoryError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    #[error("Transaction not found")]
+    TransactionNotFound,
+    #[error("Invalid transaction data")]
+    InvalidTransactionData,
+}
 
 /// Transaction direction
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransactionDirection {
-    Incoming,
-    Outgoing,
-    SelfTransfer,
+    Sent,
+    Received,
 }
 
 /// Transaction status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransactionStatus {
     Pending,
-    Confirmed(u64), // Confirmations
+    Confirmed(u32),  // Number of confirmations
     Failed,
 }
 
 /// Transaction record with metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionRecord {
-    pub tx_hash: String,
-    pub timestamp: u64,
+    pub hash: String,
+    pub timestamp: DateTime<Utc>,
     pub direction: TransactionDirection,
     pub amount: u64,
     pub fee: u64,
     pub status: TransactionStatus,
-    pub block_height: Option<u64>,
-    pub addresses: Vec<String>, // Involved addresses
     pub label: Option<String>,
+    pub category: Option<String>,
+    pub tags: Vec<String>,
 }
 
 /// Transaction history manager
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct TransactionHistory {
     transactions: HashMap<String, TransactionRecord>,
-    address_transactions: HashMap<String, Vec<String>>, // Map from address to tx hashes
+    history_path: PathBuf,
 }
 
 impl TransactionHistory {
     /// Create a new transaction history tracker
-    pub fn new() -> Self {
-        Self {
+    pub fn new(history_path: PathBuf) -> Result<Self, HistoryError> {
+        let mut history = Self {
             transactions: HashMap::new(),
-            address_transactions: HashMap::new(),
-        }
+            history_path,
+        };
+
+        history.load()?;
+        Ok(history)
     }
     
     /// Add a transaction to history
-    pub fn add_transaction(&mut self, 
-                          tx: &Transaction, 
-                          direction: TransactionDirection,
-                          amount: u64,
-                          fee: u64,
-                          wallet: &HDWallet) -> TransactionRecord {
-        let tx_hash = hex::encode(tx.hash());
-        
-        // Check if we already have this transaction
-        if let Some(record) = self.transactions.get(&tx_hash) {
-            return record.clone();
-        }
-        
-        // Determine involved addresses
-        let mut addresses = Vec::new();
-        
-        // For outputs, we can determine our addresses
-        for (i, output) in tx.outputs().iter().enumerate() {
-            let script_pubkey = output.pub_key_script();
-            
-            // Check if this output belongs to our wallet
-            if let Some(addr) = wallet.find_address_by_pubkey(&script_pubkey) {
-                addresses.push(addr.clone());
-            }
-        }
-        
-        // Create transaction record
-        let record = TransactionRecord {
-            tx_hash: tx_hash.clone(),
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-            direction,
-            amount,
-            fee,
-            status: TransactionStatus::Pending,
-            block_height: None,
-            addresses: addresses.clone(),
-            label: wallet.get_transaction_label(&tx_hash).cloned(),
-        };
-        
-        // Add to main transactions map
-        self.transactions.insert(tx_hash.clone(), record.clone());
-        
-        // Add to address index
-        for address in addresses {
-            self.address_transactions.entry(address)
-                .or_insert_with(Vec::new)
-                .push(tx_hash.clone());
-        }
-        
-        record
+    pub fn add_transaction(&mut self, record: TransactionRecord) -> Result<(), HistoryError> {
+        self.transactions.insert(record.hash.clone(), record);
+        self.save()?;
+        Ok(())
     }
     
     /// Update transaction status
-    pub fn update_status(&mut self, tx_hash: &str, status: TransactionStatus, block_height: Option<u64>) {
-        if let Some(record) = self.transactions.get_mut(tx_hash) {
+    pub fn update_transaction_status(&mut self, hash: &str, status: TransactionStatus) -> Result<(), HistoryError> {
+        if let Some(record) = self.transactions.get_mut(hash) {
             record.status = status;
-            record.block_height = block_height;
+            self.save()?;
+            Ok(())
+        } else {
+            Err(HistoryError::TransactionNotFound)
         }
     }
     
     /// Update transaction label
-    pub fn update_label(&mut self, tx_hash: &str, label: Option<String>) {
-        if let Some(record) = self.transactions.get_mut(tx_hash) {
-            record.label = label;
+    pub fn add_transaction_label(&mut self, hash: &str, label: String) -> Result<(), HistoryError> {
+        if let Some(record) = self.transactions.get_mut(hash) {
+            record.label = Some(label);
+            self.save()?;
+            Ok(())
+        } else {
+            Err(HistoryError::TransactionNotFound)
+        }
+    }
+    
+    /// Update transaction category
+    pub fn add_transaction_category(&mut self, hash: &str, category: String) -> Result<(), HistoryError> {
+        if let Some(record) = self.transactions.get_mut(hash) {
+            record.category = Some(category);
+            self.save()?;
+            Ok(())
+        } else {
+            Err(HistoryError::TransactionNotFound)
+        }
+    }
+    
+    /// Update transaction tag
+    pub fn add_transaction_tag(&mut self, hash: &str, tag: String) -> Result<(), HistoryError> {
+        if let Some(record) = self.transactions.get_mut(hash) {
+            record.tags.push(tag);
+            self.save()?;
+            Ok(())
+        } else {
+            Err(HistoryError::TransactionNotFound)
         }
     }
     
     /// Get transaction by hash
-    pub fn get_transaction(&self, tx_hash: &str) -> Option<&TransactionRecord> {
-        self.transactions.get(tx_hash)
+    pub fn get_transaction(&self, hash: &str) -> Option<&TransactionRecord> {
+        self.transactions.get(hash)
     }
     
     /// Get all transactions
     pub fn get_all_transactions(&self) -> Vec<&TransactionRecord> {
-        let mut records: Vec<_> = self.transactions.values().collect();
-        records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp)); // Sort by time, newest first
-        records
+        let mut transactions: Vec<_> = self.transactions.values().collect();
+        transactions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        transactions
     }
     
-    /// Get transactions for a specific address
-    pub fn get_address_transactions(&self, address: &str) -> Vec<&TransactionRecord> {
-        match self.address_transactions.get(address) {
-            Some(tx_hashes) => {
-                let mut records = Vec::new();
-                for hash in tx_hashes {
-                    if let Some(record) = self.transactions.get(hash) {
-                        records.push(record);
-                    }
-                }
-                records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-                records
-            }
-            None => Vec::new(),
-        }
+    /// Get recent transactions
+    pub fn get_recent_transactions(&self, count: usize) -> Vec<&TransactionRecord> {
+        let mut transactions = self.get_all_transactions();
+        transactions.truncate(count);
+        transactions
     }
     
-    /// Get transactions by type (incoming/outgoing)
-    pub fn get_transactions_by_direction(&self, direction: TransactionDirection) -> Vec<&TransactionRecord> {
-        let mut records: Vec<_> = self.transactions.values()
-            .filter(|r| r.direction == direction)
-            .collect();
-        records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        records
+    /// Get transactions by category
+    pub fn get_transactions_by_category(&self, category: &str) -> Vec<&TransactionRecord> {
+        self.transactions.values()
+            .filter(|tx| tx.category.as_deref() == Some(category))
+            .collect()
     }
     
-    /// Get transactions by status
-    pub fn get_transactions_by_status(&self, status_filter: fn(&TransactionStatus) -> bool) -> Vec<&TransactionRecord> {
-        let mut records: Vec<_> = self.transactions.values()
-            .filter(|r| status_filter(&r.status))
-            .collect();
-        records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        records
-    }
-    
-    /// Search transactions by label
-    pub fn search_by_label(&self, query: &str) -> Vec<&TransactionRecord> {
-        let query = query.to_lowercase();
-        let mut records: Vec<_> = self.transactions.values()
-            .filter(|r| {
-                r.label.as_ref()
-                    .map(|label| label.to_lowercase().contains(&query))
-                    .unwrap_or(false)
-            })
-            .collect();
-        records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        records
+    /// Get transactions by tag
+    pub fn get_transactions_by_tag(&self, tag: &str) -> Vec<&TransactionRecord> {
+        self.transactions.values()
+            .filter(|tx| tx.tags.contains(&tag.to_string()))
+            .collect()
     }
     
     /// Get total sent amount
     pub fn get_total_sent(&self) -> u64 {
         self.transactions.values()
-            .filter(|r| r.direction == TransactionDirection::Outgoing)
-            .map(|r| r.amount)
+            .filter(|tx| matches!(tx.direction, TransactionDirection::Sent))
+            .map(|tx| tx.amount)
             .sum()
     }
     
     /// Get total received amount
     pub fn get_total_received(&self) -> u64 {
         self.transactions.values()
-            .filter(|r| r.direction == TransactionDirection::Incoming)
-            .map(|r| r.amount)
+            .filter(|tx| matches!(tx.direction, TransactionDirection::Received))
+            .map(|tx| tx.amount)
             .sum()
     }
     
     /// Get total fees paid
     pub fn get_total_fees(&self) -> u64 {
         self.transactions.values()
-            .filter(|r| r.direction == TransactionDirection::Outgoing)
-            .map(|r| r.fee)
+            .map(|tx| tx.fee)
             .sum()
     }
     
     /// Calculate net flow (received - sent - fees)
     pub fn get_net_flow(&self) -> i64 {
-        let received = self.get_total_received() as i64;
         let sent = self.get_total_sent() as i64;
-        let fees = self.get_total_fees() as i64;
-        
-        received - sent - fees
+        let received = self.get_total_received() as i64;
+        received - sent
+    }
+
+    fn load(&mut self) -> Result<(), HistoryError> {
+        if self.history_path.exists() {
+            let data = std::fs::read_to_string(&self.history_path)?;
+            self.transactions = serde_json::from_str(&data)?;
+        }
+        Ok(())
+    }
+
+    fn save(&self) -> Result<(), HistoryError> {
+        let data = serde_json::to_string_pretty(&self.transactions)?;
+        std::fs::write(&self.history_path, data)?;
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for TransactionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransactionStatus::Pending => write!(f, "Pending"),
+            TransactionStatus::Confirmed(confirmations) => write!(f, "Confirmed ({})", confirmations),
+            TransactionStatus::Failed => write!(f, "Failed"),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use btclib::types::{TransactionInput, TransactionOutput};
-    use crate::hdwallet::HDWallet;
-    
-    // Create test transaction
-    fn create_test_transaction(inputs: Vec<TransactionInput>, outputs: Vec<TransactionOutput>) -> Transaction {
-        Transaction::new(1, inputs, outputs, 0)
-    }
-    
-    // This test requires setup with an HDWallet, which we'll skip for simplicity
+    use tempfile::tempdir;
+
     #[test]
-    fn test_transaction_history_basic() {
-        let mut history = TransactionHistory::new();
-        
-        // These assertions don't require an HDWallet
-        assert_eq!(history.get_all_transactions().len(), 0);
-        assert_eq!(history.get_total_sent(), 0);
+    fn test_transaction_history() {
+        let dir = tempdir().unwrap();
+        let history_path = dir.path().join("history.json");
+        let mut history = TransactionHistory::new(history_path).unwrap();
+
+        // Create a test transaction
+        let tx = TransactionRecord {
+            hash: "test_hash".to_string(),
+            timestamp: Utc::now(),
+            direction: TransactionDirection::Sent,
+            amount: 1000,
+            fee: 10,
+            status: TransactionStatus::Pending,
+            label: None,
+            category: None,
+            tags: vec![],
+        };
+
+        // Add transaction
+        history.add_transaction(tx.clone()).unwrap();
+
+        // Verify transaction was added
+        assert_eq!(history.get_transaction("test_hash").unwrap().amount, 1000);
+
+        // Update status
+        history.update_transaction_status("test_hash", TransactionStatus::Confirmed(1)).unwrap();
+        assert!(matches!(history.get_transaction("test_hash").unwrap().status, TransactionStatus::Confirmed(1)));
+
+        // Add label
+        history.add_transaction_label("test_hash", "Test Transaction".to_string()).unwrap();
+        assert_eq!(history.get_transaction("test_hash").unwrap().label.as_deref(), Some("Test Transaction"));
+
+        // Add category
+        history.add_transaction_category("test_hash", "Test Category".to_string()).unwrap();
+        assert_eq!(history.get_transaction("test_hash").unwrap().category.as_deref(), Some("Test Category"));
+
+        // Add tag
+        history.add_transaction_tag("test_hash", "test".to_string()).unwrap();
+        assert!(history.get_transaction("test_hash").unwrap().tags.contains(&"test".to_string()));
+
+        // Test totals
+        assert_eq!(history.get_total_sent(), 1000);
         assert_eq!(history.get_total_received(), 0);
-        assert_eq!(history.get_total_fees(), 0);
-        assert_eq!(history.get_net_flow(), 0);
+        assert_eq!(history.get_total_fees(), 10);
+        assert_eq!(history.get_net_flow(), -1000);
     }
 }

@@ -1,9 +1,6 @@
 use metrics::{Counter, Gauge, Histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use once_cell::sync::Lazy;
 use std::time::Instant;
-use tokio::time::Duration;
-use tracing::error;
 
 // Macro definitions moved to the top
 macro_rules! register_counter {
