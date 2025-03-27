@@ -56,7 +56,7 @@ Supernova follows a modular architecture with several key components:
 
 ## Current Status
 
-This project is currently in an **ALPHA** state. Core functionality is implemented and operational, with approximately 94% completion across all major components:
+This project is currently in an **ALPHA** state. Core functionality is implemented and operational, with approximately 95% completion across all major components:
 
 - **✅ Core libraries (btclib)**: 100% complete with stable APIs
 - **✅ Network layer**: 95% complete with advanced peer scoring system
@@ -64,7 +64,7 @@ This project is currently in an **ALPHA** state. Core functionality is implement
 - **✅ Mempool**: 90% complete with transaction storage and prioritization
 - **✅ Mining**: 95% complete with fully operational mining system
 - **✅ Chain sync**: 95% complete with headers-first synchronization protocol
-- **⚠️ Wallet**: 80% complete, needs enhanced interface and HD wallet completion
+- **✅ Wallet**: 85% complete with fully functional CLI and HD wallet implementation
 - **⚠️ API services**: Limited implementation, needs expansion
 
 ## Getting Started
@@ -262,8 +262,9 @@ The project has recently undergone significant improvements:
 - **Testing**: Comprehensive test suite with reliable integration tests
 - **APIs**: Made all key functionality properly accessible through public interfaces
 - **Error Handling**: Improved error propagation throughout the codebase
+- **Wallet CLI**: Implemented a fully operational CLI interface for wallet management with HD wallet support
 
-The project has progressed from ~87% to ~94% completion, with all major subsystems now functional and core integration tests passing successfully.
+The project has progressed from ~87% to ~95% completion, with all major subsystems now functional and core integration tests passing successfully.
 
 ## Contributing
 
