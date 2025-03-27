@@ -1,9 +1,14 @@
-use wallet::{Wallet, stub_function};
+mod core;
+mod hdwallet;
+mod history;
+mod ui;
+mod cli;
 
 fn main() {
-    println!("Wallet stub implementation");
-    println!("Message: {}", stub_function());
+    env_logger::init();
     
-    let wallet = Wallet::new();
-    println!("Created wallet instance: {:?}", wallet);
+    if let Err(e) = cli::run_cli() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
 }
