@@ -1,12 +1,12 @@
 use libp2p::{
-    gossipsub::{self, MessageId, Gossipsub, GossipsubEvent, GossipsubMessage, MessageAuthenticity, ValidationMode, GossipsubConfigBuilder, IdentTopic, error},
-    identity::Keypair, identity::PublicKey,
+    gossipsub::{self, MessageId, IdentTopic},
+    identity::Keypair,
     PeerId,
 };
 use serde::{Serialize, Deserialize};
 use std::error::Error;
 use sha2::{Sha256, Digest};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use bincode;
 use std::fmt;
 use std::error::Error as StdError;
@@ -395,7 +395,7 @@ fn message_to_topic(message: &Message) -> &'static str {
 mod tests {
     use super::*;
     use libp2p::identity;
-    use libp2p::gossipsub::MessageAuthenticity;
+    
     
     // Create a test protocol with mocked gossipsub behavior
     struct TestProtocol {

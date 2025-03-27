@@ -4,7 +4,7 @@ use std::time::Duration;
 use std::fs;
 use tracing::{info, warn, error};
 use config::{Config, ConfigError, Environment, File};
-use notify::{self, Event, EventKind, Watcher, RecommendedWatcher, RecursiveMode};
+use notify::{self, Watcher, RecommendedWatcher, RecursiveMode};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NodeConfig {

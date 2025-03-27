@@ -6,7 +6,6 @@ use std::time::{Duration, SystemTime};
 use tracing::{info, warn, error, debug};
 use thiserror::Error;
 use super::database::{BlockchainDB, StorageError};
-use super::persistence::ChainState;
 use btclib::types::block::{Block, BlockHeader};
 use btclib::types::transaction::Transaction;
 use sha2::{Sha256, Digest};

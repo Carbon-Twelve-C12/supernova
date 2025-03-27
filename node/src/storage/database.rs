@@ -1,4 +1,4 @@
-use sled::{self, Db, Tree, IVec};
+use sled::{self, Db, IVec};
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;

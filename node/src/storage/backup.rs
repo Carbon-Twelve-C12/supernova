@@ -3,16 +3,13 @@ use super::persistence::ChainState;
 use crate::metrics::BackupMetrics;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use tokio::fs;
-use tokio::sync::mpsc;
 use tracing::{info, warn, error};
 use std::sync::Arc;
 use futures::future::join_all;
 use sha2::{Sha256, Digest};
-use tempfile;
 use serde::{Serialize, Deserialize};
-use sled;
 
 const CHECKPOINT_INTERVAL: u64 = 10000;
 const PARALLEL_VERIFICATION_CHUNKS: usize = 4;
@@ -711,14 +708,14 @@ mod tests {
         let db = Arc::new(BlockchainDB::new(db_path)?);
         
         // Initialize chain state with default values that won't throw validation errors
-        let mut chain_state = ChainState::new(Arc::clone(&db))?;
+        let chain_state = ChainState::new(Arc::clone(&db))?;
         
         // Add metadata to satisfy integrity checks in the recovery manager
         db.store_metadata(b"best_block_hash", &[0u8; 32])?;
         db.store_metadata(b"chain_height", &0u64.to_le_bytes())?;
         
         // Create the recovery manager
-        let mut recovery_manager = RecoveryManager::new(
+        let recovery_manager = RecoveryManager::new(
             Arc::clone(&db),
             backup_dir.path().to_path_buf(),
             chain_state,
