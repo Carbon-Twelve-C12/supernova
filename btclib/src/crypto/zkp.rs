@@ -12,9 +12,10 @@ use curve25519_dalek::{
 };
 use merlin::Transcript;
 use thiserror::Error;
+use serde::{Serialize, Deserialize};
 
 /// Type of zero-knowledge proof
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ZkpType {
     /// Range proof for hidden values
     RangeProof,
@@ -27,7 +28,7 @@ pub enum ZkpType {
 }
 
 /// A commitment to a value that can be revealed later
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Commitment {
     /// The commitment value
     pub value: Vec<u8>,
@@ -45,7 +46,7 @@ impl fmt::Debug for Commitment {
 }
 
 /// Types of commitments
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommitmentType {
     /// Pedersen commitment for values
     Pedersen,
@@ -54,7 +55,7 @@ pub enum CommitmentType {
 }
 
 /// A zero-knowledge proof
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ZeroKnowledgeProof {
     /// Type of the proof
     pub proof_type: ZkpType,

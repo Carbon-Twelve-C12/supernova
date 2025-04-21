@@ -111,6 +111,37 @@ pub struct Emissions {
     pub renewable_percentage: Option<f64>,
 }
 
+/// Configuration for emissions tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmissionsConfig {
+    /// Whether emissions tracking is enabled
+    pub enabled: bool,
+    
+    /// Base energy consumption per hash (J/H)
+    pub base_energy_per_hash: f64,
+    
+    /// Default emission factor for unknown regions (gCO2e/kWh)
+    pub default_emission_factor: f64,
+    
+    /// Update frequency for emission factors (in days)
+    pub emission_factor_update_days: u32,
+    
+    /// Whether to include transaction-level emissions calculations
+    pub track_transaction_emissions: bool,
+}
+
+impl Default for EmissionsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_energy_per_hash: 0.0000001, // 100 nJ/hash (example value)
+            default_emission_factor: 450.0,  // 450 gCO2e/kWh (global average)
+            emission_factor_update_days: 30, // Update monthly
+            track_transaction_emissions: false,
+        }
+    }
+}
+
 /// Emissions tracker for the SuperNova network
 pub struct EmissionsTracker {
     /// Network hashrate by geographic region
@@ -123,33 +154,6 @@ pub struct EmissionsTracker {
     pool_energy_info: HashMap<PoolId, PoolEnergyInfo>,
     /// Global configuration for the emissions tracker
     config: EmissionsConfig,
-}
-
-/// Configuration for emissions tracking
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmissionsConfig {
-    /// Whether emissions tracking is enabled
-    pub enabled: bool,
-    /// Default emissions factor to use when region is unknown
-    pub default_emission_factor: f64,
-    /// API endpoint for emissions factor data
-    pub emissions_api_endpoint: Option<String>,
-    /// Default network efficiency (J/TH)
-    pub default_network_efficiency: f64,
-    /// Percentage of hashrate for which location is known
-    pub known_hashrate_percentage: f64,
-}
-
-impl Default for EmissionsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            default_emission_factor: 475.0, // Global average grid emission factor in gCO2e/kWh
-            emissions_api_endpoint: None,
-            default_network_efficiency: 50.0, // J/TH, modern ASIC average
-            known_hashrate_percentage: 30.0, // Assume 30% of hashrate has known location
-        }
-    }
 }
 
 impl EmissionsTracker {

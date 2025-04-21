@@ -1,5 +1,6 @@
 use btclib::api::{create_environmental_api, ApiError};
 use btclib::environmental::dashboard::EmissionsTimePeriod;
+use btclib::environmental::treasury::EnvironmentalAssetType;
 use chrono::{Utc, Duration};
 use rand::rngs::OsRng;
 use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
@@ -91,7 +92,7 @@ fn main() -> Result<(), ApiError> {
     for purchase in &purchases {
         println!("     - {} {} of {:?} for {} satoshis (impact score: {:.2})", 
                 purchase.amount, 
-                if purchase.asset_type == btclib::environmental::treasury::EnvironmentalAssetType::RenewableEnergyCertificate {
+                if purchase.asset_type == EnvironmentalAssetType::RenewableEnergyCertificate {
                     "MWh"
                 } else {
                     "tonnes"
@@ -116,7 +117,7 @@ fn main() -> Result<(), ApiError> {
     for purchase in &purchases {
         println!("     - {} {} of {:?} for {} satoshis (impact score: {:.2})", 
                 purchase.amount, 
-                if purchase.asset_type == btclib::environmental::treasury::EnvironmentalAssetType::RenewableEnergyCertificate {
+                if purchase.asset_type == EnvironmentalAssetType::RenewableEnergyCertificate {
                     "MWh"
                 } else {
                     "tonnes"
@@ -128,8 +129,6 @@ fn main() -> Result<(), ApiError> {
     
     println!("\n7. Creating a transaction and estimating its emissions...");
     // Create a sample transaction
-    let mut rng = OsRng;
-    
     let tx = Transaction::new(
         1, // version
         vec![

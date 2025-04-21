@@ -1,6 +1,6 @@
 use prometheus::{
     Registry, IntGauge, IntGaugeVec, IntCounter, IntCounterVec, 
-    Gauge, GaugeVec, Histogram, HistogramVec, Opts
+    Gauge, GaugeVec, Histogram, HistogramVec, Opts, HistogramOpts
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,37 +41,37 @@ impl MempoolMetrics {
     /// Create a new mempool metrics collector
     pub fn new(registry: &Registry, namespace: &str) -> Result<Self, MetricsError> {
         // Mempool size
-        let mempool_size = IntGauge::new(
+        let mempool_size = IntGauge::with_opts(
             Opts::new("mempool_size", "Number of transactions in the mempool")
                 .namespace(namespace.to_string())
-                .subsystem("mempool"),
+                .subsystem("mempool")
         )?;
         registry.register(Box::new(mempool_size.clone()))?;
         
         // Memory usage
-        let memory_usage = IntGauge::new(
+        let memory_usage = IntGauge::with_opts(
             Opts::new("memory_usage_bytes", "Total memory usage in bytes")
                 .namespace(namespace.to_string())
-                .subsystem("mempool"),
+                .subsystem("mempool")
         )?;
         registry.register(Box::new(memory_usage.clone()))?;
         
         // Fee rates
         let fee_rates = HistogramVec::new(
-            Opts::new("fee_rates_sat_per_byte", "Transaction fee rates (satoshis per byte)")
+            HistogramOpts::new("fee_rates_sat_per_byte", "Transaction fee rates (satoshis per byte)")
                 .namespace(namespace.to_string())
-                .subsystem("mempool"),
+                .subsystem("mempool")
+                .buckets(vec![1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0]),
             &["type"],
-            vec![1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0],
         )?;
         registry.register(Box::new(fee_rates.clone()))?;
         
         // Transaction age
-        let transaction_age = Histogram::new(
-            Opts::new("transaction_age_seconds", "Transaction age in seconds")
+        let transaction_age = Histogram::with_opts(
+            HistogramOpts::new("transaction_age_minutes", "Transaction age in minutes")
                 .namespace(namespace.to_string())
-                .subsystem("mempool"),
-            vec![60.0, 300.0, 600.0, 1800.0, 3600.0, 10800.0, 21600.0, 43200.0, 86400.0],
+                .subsystem("mempool")
+                .buckets(vec![1.0, 5.0, 10.0, 30.0, 60.0, 180.0, 360.0, 720.0, 1440.0, 2880.0])
         )?;
         registry.register(Box::new(transaction_age.clone()))?;
         
@@ -103,18 +103,18 @@ impl MempoolMetrics {
         registry.register(Box::new(transactions_rejected.clone()))?;
         
         // Transactions expired
-        let transactions_expired = IntCounter::new(
+        let transactions_expired = IntCounter::with_opts(
             Opts::new("transactions_expired", "Transactions expired")
                 .namespace(namespace.to_string())
-                .subsystem("mempool"),
+                .subsystem("mempool")
         )?;
         registry.register(Box::new(transactions_expired.clone()))?;
         
         // Transactions replaced
-        let transactions_replaced = IntCounter::new(
+        let transactions_replaced = IntCounter::with_opts(
             Opts::new("transactions_replaced", "Transactions replaced (RBF)")
                 .namespace(namespace.to_string())
-                .subsystem("mempool"),
+                .subsystem("mempool")
         )?;
         registry.register(Box::new(transactions_replaced.clone()))?;
         
@@ -128,18 +128,18 @@ impl MempoolMetrics {
         registry.register(Box::new(mempool_limiting_events.clone()))?;
         
         // Minimum fee rate
-        let minimum_fee_rate = Gauge::new(
+        let minimum_fee_rate = Gauge::with_opts(
             Opts::new("minimum_fee_rate", "Minimum fee rate required")
                 .namespace(namespace.to_string())
-                .subsystem("mempool"),
+                .subsystem("mempool")
         )?;
         registry.register(Box::new(minimum_fee_rate.clone()))?;
         
         // Conflicting transactions
-        let conflicting_transactions = IntGauge::new(
+        let conflicting_transactions = IntGauge::with_opts(
             Opts::new("conflicting_transactions", "Conflicting transaction count")
                 .namespace(namespace.to_string())
-                .subsystem("mempool"),
+                .subsystem("mempool")
         )?;
         registry.register(Box::new(conflicting_transactions.clone()))?;
         

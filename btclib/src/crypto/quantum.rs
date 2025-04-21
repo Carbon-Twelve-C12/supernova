@@ -1,13 +1,18 @@
 // Quantum-resistant cryptography module
 // This implements post-quantum signature schemes for future-proofing the blockchain
 
+use std::fmt;
+use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Sha512, Digest};
 use rand::{CryptoRng, RngCore};
-use std::fmt;
+use pqcrypto_dilithium::{dilithium2, dilithium3, dilithium5};
+use pqcrypto_traits::sign::{PublicKey as PQPublicKey, SecretKey as PQSecretKey, DetachedSignature};
 use thiserror::Error;
 
-/// Supported quantum-resistant signature schemes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use crate::validation::SecurityLevel;
+
+/// Quantum-resistant cryptographic schemes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QuantumScheme {
     /// CRYSTALS-Dilithium signature scheme
     Dilithium,
@@ -19,38 +24,26 @@ pub enum QuantumScheme {
     Hybrid(ClassicalScheme),
 }
 
-/// Classical signature schemes for hybrid approaches
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Classical cryptographic schemes for hybrid quantum signatures
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClassicalScheme {
-    /// ECDSA with secp256k1 curve (Bitcoin's default)
+    /// secp256k1 curve (used in Bitcoin)
     Secp256k1,
-    /// EdDSA with Curve25519
+    /// Ed25519 curve (used in many modern cryptographic systems)
     Ed25519,
 }
 
-/// Parameters for quantum-resistant signatures
-#[derive(Debug, Clone)]
+/// Parameters for quantum signatures
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuantumParameters {
-    /// Security level (1-5, where 5 is most secure but largest signatures)
-    pub security_level: u8,
-    /// Scheme to use
+    /// The quantum signature scheme to use
     pub scheme: QuantumScheme,
-    /// Whether to use compression (trades computation for smaller signatures)
-    pub use_compression: bool,
+    /// Security level (higher = more secure but larger signatures)
+    pub security_level: u8,
 }
 
-impl Default for QuantumParameters {
-    fn default() -> Self {
-        Self {
-            security_level: 3, // Medium security level
-            scheme: QuantumScheme::Dilithium, // Most widely analyzed
-            use_compression: false,
-        }
-    }
-}
-
-/// Quantum-resistant key pair
-#[derive(Clone)]
+/// A quantum-resistant key pair
+#[derive(Clone, Serialize, Deserialize)]
 pub struct QuantumKeyPair {
     /// The public key
     pub public_key: Vec<u8>,
@@ -60,216 +53,274 @@ pub struct QuantumKeyPair {
     pub parameters: QuantumParameters,
 }
 
-impl QuantumKeyPair {
-    /// Generate a new quantum-resistant key pair based on the specified scheme.
-    pub fn generate(scheme: QuantumScheme, params: Option<QuantumParameters>) -> Result<Self, QuantumError> {
-        match scheme {
+/// A quantum-resistant signature
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuantumSignature {
+    /// The signature bytes
+    pub signature: Vec<u8>,
+    /// Parameters used for this signature
+    pub parameters: QuantumParameters,
+}
+
+/// Public key variants for different quantum schemes
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QuantumPublicKey {
+    /// Dilithium public key
+    Dilithium(Vec<u8>),
+    /// Falcon public key
+    Falcon(Vec<u8>),
+    /// Sphincs+ public key
+    Sphincs(Vec<u8>),
+    /// Hybrid public key (classical + quantum)
+    Hybrid(ClassicalScheme, Vec<u8>, Vec<u8>),
+}
+
+/// Secret key variants for different quantum schemes
+#[derive(Clone, Serialize, Deserialize)]
+pub enum QuantumSecretKey {
+    /// Dilithium secret key
+    Dilithium(Vec<u8>),
+    /// Falcon secret key
+    Falcon(Vec<u8>),
+    /// Sphincs+ secret key
+    Sphincs(Vec<u8>),
+    /// Hybrid secret key (classical + quantum)
+    Hybrid(ClassicalScheme, Vec<u8>, Vec<u8>),
+}
+
+/// Dilithium public key wrapper
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DilithiumPublicKey {
+    /// The raw bytes of the public key
+    pub bytes: Vec<u8>,
+    /// Security level
+    pub security_level: u8,
+}
+
+/// Dilithium secret key wrapper
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DilithiumSecretKey {
+    /// The raw bytes of the secret key
+    pub bytes: Vec<u8>,
+    /// Security level
+    pub security_level: u8,
+}
+
+/// Errors that can occur during quantum cryptographic operations
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum QuantumError {
+    /// The signature scheme is not supported
+    #[error("Quantum signature scheme not supported: {0}")]
+    UnsupportedScheme(String),
+    
+    /// The key is invalid or corrupted
+    #[error("Invalid quantum key: {0}")]
+    InvalidKey(String),
+    
+    /// The signature is invalid or corrupted
+    #[error("Invalid quantum signature: {0}")]
+    InvalidSignature(String),
+    
+    /// The security level is not supported
+    #[error("Unsupported security level: {0}")]
+    UnsupportedSecurityLevel(u8),
+    
+    /// A cryptographic operation failed
+    #[error("Quantum cryptographic operation failed: {0}")]
+    CryptoOperationFailed(String),
+}
+
+impl QuantumParameters {
+    /// Create new quantum parameters with default values
+    pub fn new(scheme: QuantumScheme) -> Self {
+        Self {
+            scheme,
+            security_level: 3, // Medium security by default
+        }
+    }
+    
+    /// Create new quantum parameters with specified values
+    pub fn with_security_level(scheme: QuantumScheme, security_level: u8) -> Self {
+        Self {
+            scheme,
+            security_level,
+        }
+    }
+    
+    /// Get the expected signature length for these parameters
+    pub fn expected_signature_length(&self) -> Result<usize, QuantumError> {
+        match self.scheme {
             QuantumScheme::Dilithium => {
-                let params = params.unwrap_or_default();
-                let security_level = match params.security_level {
-                    SecurityLevel::Low => pqcrypto_dilithium::dilithium2::SEEDBYTES,
-                    SecurityLevel::Medium => pqcrypto_dilithium::dilithium3::SEEDBYTES,
-                    SecurityLevel::High => pqcrypto_dilithium::dilithium5::SEEDBYTES,
+                match self.security_level {
+                    SecurityLevel::Low => Ok(dilithium2::SIGNATUREBYTES),
+                    SecurityLevel::Medium => Ok(dilithium3::SIGNATUREBYTES),
+                    SecurityLevel::High => Ok(dilithium5::SIGNATUREBYTES),
+                    _ => Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
+                }
+            },
+            QuantumScheme::Falcon => {
+                // Placeholder for Falcon implementation
+                Err(QuantumError::CryptoOperationFailed("Falcon signature length calculation not yet implemented".to_string()))
+            },
+            QuantumScheme::Sphincs => {
+                // Placeholder for Sphincs implementation
+                Err(QuantumError::CryptoOperationFailed("Sphincs signature length calculation not yet implemented".to_string()))
+            },
+            QuantumScheme::Hybrid(classical) => {
+                // For hybrid, combine classical and quantum signature lengths
+                let classical_len = match classical {
+                    ClassicalScheme::Secp256k1 => 64, // r, s format
+                    ClassicalScheme::Ed25519 => 64,
                 };
                 
-                match params.security_level {
-                    SecurityLevel::Low => {
-                        let (pk, sk) = pqcrypto_dilithium::dilithium2::keypair();
-                        let public_key = DilithiumPublicKey {
-                            key: pk.as_bytes().to_vec(),
-                            security_level: params.security_level,
-                        };
-                        let secret_key = DilithiumSecretKey {
-                            key: sk.as_bytes().to_vec(),
-                            security_level: params.security_level,
-                        };
-                        
-                        Ok(Self {
-                            scheme,
-                            public_key: QuantumPublicKey::Dilithium(public_key),
-                            secret_key: QuantumSecretKey::Dilithium(secret_key),
-                        })
-                    },
-                    SecurityLevel::Medium => {
-                        let (pk, sk) = pqcrypto_dilithium::dilithium3::keypair();
-                        let public_key = DilithiumPublicKey {
-                            key: pk.as_bytes().to_vec(),
-                            security_level: params.security_level,
-                        };
-                        let secret_key = DilithiumSecretKey {
-                            key: sk.as_bytes().to_vec(),
-                            security_level: params.security_level,
-                        };
-                        
-                        Ok(Self {
-                            scheme,
-                            public_key: QuantumPublicKey::Dilithium(public_key),
-                            secret_key: QuantumSecretKey::Dilithium(secret_key),
-                        })
-                    },
-                    SecurityLevel::High => {
-                        let (pk, sk) = pqcrypto_dilithium::dilithium5::keypair();
-                        let public_key = DilithiumPublicKey {
-                            key: pk.as_bytes().to_vec(),
-                            security_level: params.security_level,
-                        };
-                        let secret_key = DilithiumSecretKey {
-                            key: sk.as_bytes().to_vec(),
-                            security_level: params.security_level,
-                        };
-                        
-                        Ok(Self {
-                            scheme,
-                            public_key: QuantumPublicKey::Dilithium(public_key),
-                            secret_key: QuantumSecretKey::Dilithium(secret_key),
-                        })
-                    },
-                }
+                // Get quantum length and add
+                let quantum_len = match self.security_level {
+                    SecurityLevel::Low => dilithium2::SIGNATUREBYTES,
+                    SecurityLevel::Medium => dilithium3::SIGNATUREBYTES,
+                    SecurityLevel::High => dilithium5::SIGNATUREBYTES,
+                    _ => return Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
+                };
+                
+                Ok(classical_len + quantum_len)
             }
+        }
+    }
+}
+
+impl QuantumKeyPair {
+    /// Generate a new key pair
+    pub fn generate<R: CryptoRng + RngCore>(
+        rng: &mut R,
+        parameters: QuantumParameters,
+    ) -> Result<Self, QuantumError> {
+        match parameters.scheme {
+            QuantumScheme::Dilithium => Self::generate_dilithium(rng, parameters.security_level),
             QuantumScheme::Falcon => Self::generate_falcon(rng, parameters.security_level),
             QuantumScheme::Sphincs => Self::generate_sphincs(rng, parameters.security_level),
-            QuantumScheme::Hybrid(classical) => {
+            QuantumScheme::Hybrid(classical) => 
                 Self::generate_hybrid(rng, parameters.security_level, classical)
-            }
         }
     }
-
-    /// Generate a Falcon key pair
-    fn generate_falcon<R: CryptoRng + RngCore>(rng: &mut R, security_level: u8) -> Self {
-        // Note: In a real implementation, we would call into actual Falcon library
-        // Falcon has different parameter sets with different key sizes
-        
-        // Determine key sizes based on security level
-        let (pk_size, sk_size) = match security_level {
-            1 => (897, 1281),    // Falcon-512
-            2 | 3 => (1793, 2305), // Falcon-1024
-            4 | 5 => (3585, 6145), // Hypothetical larger Falcon
-            _ => (1793, 2305),   // Default to Falcon-1024
-        };
-        
-        // Generate random keys of appropriate size
-        let mut public_key = vec![0u8; pk_size];
-        let mut private_key = vec![0u8; sk_size];
-        
-        rng.fill_bytes(&mut public_key);
-        rng.fill_bytes(&mut private_key);
-        
-        Self {
-            public_key,
-            private_key,
-            parameters: QuantumParameters {
-                security_level,
-                scheme: QuantumScheme::Falcon,
-                use_compression: false,
-            },
-        }
-    }
-
-    /// Generate a SPHINCS+ key pair
-    fn generate_sphincs<R: CryptoRng + RngCore>(rng: &mut R, security_level: u8) -> Self {
-        // Note: In a real implementation, we would call into actual SPHINCS+ library
-        
-        // Determine key sizes based on security level
-        let (pk_size, sk_size) = match security_level {
-            1 => (32, 64),       // SPHINCS+-128s
-            2 => (48, 96),       // SPHINCS+-192s
-            3 | 4 | 5 => (64, 128), // SPHINCS+-256s
-            _ => (64, 128),      // Default to highest security
-        };
-        
-        // Generate random keys of appropriate size
-        let mut public_key = vec![0u8; pk_size];
-        let mut private_key = vec![0u8; sk_size];
-        
-        rng.fill_bytes(&mut public_key);
-        rng.fill_bytes(&mut private_key);
-        
-        Self {
-            public_key,
-            private_key,
-            parameters: QuantumParameters {
-                security_level,
-                scheme: QuantumScheme::Sphincs,
-                use_compression: false,
-            },
-        }
-    }
-
-    /// Generate a hybrid key pair (classical + post-quantum)
-    fn generate_hybrid<R: CryptoRng + RngCore>(
-        rng: &mut R,
+    
+    // Generate Dilithium key pair
+    fn generate_dilithium<R: CryptoRng + RngCore>(
+        _rng: &mut R,
         security_level: u8,
-        classical: ClassicalScheme,
-    ) -> Self {
-        // Generate both a classical and post-quantum key pair
-        let quantum_keypair = match security_level {
-            1 | 2 => Self::generate_dilithium(rng, security_level),
-            3 | 4 => Self::generate_falcon(rng, security_level),
-            5 => Self::generate_sphincs(rng, security_level),
-            _ => Self::generate_dilithium(rng, 3), // Default
-        };
-        
-        // Generate classical key (in a real implementation, we'd use actual libraries)
-        let classical_pk_size = match classical {
-            ClassicalScheme::Secp256k1 => 33, // Compressed secp256k1 public key
-            ClassicalScheme::Ed25519 => 32,   // Ed25519 public key
-        };
-        
-        let classical_sk_size = match classical {
-            ClassicalScheme::Secp256k1 => 32, // secp256k1 private key
-            ClassicalScheme::Ed25519 => 64,   // Ed25519 expanded private key
-        };
-        
-        let mut classical_public_key = vec![0u8; classical_pk_size];
-        let mut classical_private_key = vec![0u8; classical_sk_size];
-        
-        rng.fill_bytes(&mut classical_public_key);
-        rng.fill_bytes(&mut classical_private_key);
-        
-        // Combine keys
-        let mut public_key = Vec::with_capacity(quantum_keypair.public_key.len() + classical_public_key.len());
-        public_key.extend_from_slice(&quantum_keypair.public_key);
-        public_key.extend_from_slice(&classical_public_key);
-        
-        let mut private_key = Vec::with_capacity(quantum_keypair.private_key.len() + classical_private_key.len());
-        private_key.extend_from_slice(&quantum_keypair.private_key);
-        private_key.extend_from_slice(&classical_private_key);
-        
-        Self {
-            public_key,
-            private_key,
-            parameters: QuantumParameters {
-                security_level,
-                scheme: QuantumScheme::Hybrid(classical),
-                use_compression: false,
+    ) -> Result<Self, QuantumError> {
+        match security_level {
+            SecurityLevel::Low => {
+                let (pk, sk) = dilithium2::keypair();
+                let public_key = DilithiumPublicKey {
+                    bytes: pk.as_bytes().to_vec(),
+                    security_level,
+                };
+                let secret_key = DilithiumSecretKey {
+                    bytes: sk.as_bytes().to_vec(),
+                    security_level,
+                };
+                
+                Ok(Self {
+                    public_key: public_key.bytes,
+                    private_key: secret_key.bytes,
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Dilithium,
+                        security_level,
+                    },
+                })
             },
+            SecurityLevel::Medium => {
+                let (pk, sk) = dilithium3::keypair();
+                let public_key = DilithiumPublicKey {
+                    bytes: pk.as_bytes().to_vec(),
+                    security_level,
+                };
+                let secret_key = DilithiumSecretKey {
+                    bytes: sk.as_bytes().to_vec(),
+                    security_level,
+                };
+                
+                Ok(Self {
+                    public_key: public_key.bytes,
+                    private_key: secret_key.bytes,
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Dilithium,
+                        security_level,
+                    },
+                })
+            },
+            SecurityLevel::High => {
+                let (pk, sk) = dilithium5::keypair();
+                let public_key = DilithiumPublicKey {
+                    bytes: pk.as_bytes().to_vec(),
+                    security_level,
+                };
+                let secret_key = DilithiumSecretKey {
+                    bytes: sk.as_bytes().to_vec(),
+                    security_level,
+                };
+                
+                Ok(Self {
+                    public_key: public_key.bytes,
+                    private_key: secret_key.bytes,
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Dilithium,
+                        security_level,
+                    },
+                })
+            },
+            _ => Err(QuantumError::UnsupportedSecurityLevel(security_level)),
         }
     }
-
+    
+    // Generate Falcon key pair
+    fn generate_falcon<R: CryptoRng + RngCore>(
+        _rng: &mut R,
+        _security_level: u8,
+    ) -> Result<Self, QuantumError> {
+        Err(QuantumError::CryptoOperationFailed("Falcon key generation not yet implemented".to_string()))
+    }
+    
+    // Generate SPHINCS+ key pair
+    fn generate_sphincs<R: CryptoRng + RngCore>(
+        _rng: &mut R,
+        _security_level: u8,
+    ) -> Result<Self, QuantumError> {
+        Err(QuantumError::CryptoOperationFailed("SPHINCS+ key generation not yet implemented".to_string()))
+    }
+    
+    // Generate hybrid key pair
+    fn generate_hybrid<R: CryptoRng + RngCore>(
+        _rng: &mut R,
+        _security_level: u8,
+        _classical: ClassicalScheme,
+    ) -> Result<Self, QuantumError> {
+        Err(QuantumError::CryptoOperationFailed("Hybrid key generation not yet implemented".to_string()))
+    }
+    
     /// Sign a message using the quantum-resistant secret key.
     pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>, QuantumError> {
-        match &self.parameters.scheme {
+        match self.parameters.scheme {
             QuantumScheme::Dilithium => {
                 match self.parameters.security_level {
                     SecurityLevel::Low => {
-                        let sk = pqcrypto_dilithium::dilithium2::SecretKey::from_bytes(&self.private_key)
+                        let sk = dilithium2::SecretKey::from_bytes(&self.private_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium secret key: {}", e)))?;
-                        let signature = pqcrypto_dilithium::dilithium2::detached_sign(message, &sk);
+                        let signature = dilithium2::detached_sign(message, &sk);
                         Ok(signature.as_bytes().to_vec())
                     },
                     SecurityLevel::Medium => {
-                        let sk = pqcrypto_dilithium::dilithium3::SecretKey::from_bytes(&self.private_key)
+                        let sk = dilithium3::SecretKey::from_bytes(&self.private_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium secret key: {}", e)))?;
-                        let signature = pqcrypto_dilithium::dilithium3::detached_sign(message, &sk);
+                        let signature = dilithium3::detached_sign(message, &sk);
                         Ok(signature.as_bytes().to_vec())
                     },
                     SecurityLevel::High => {
-                        let sk = pqcrypto_dilithium::dilithium5::SecretKey::from_bytes(&self.private_key)
+                        let sk = dilithium5::SecretKey::from_bytes(&self.private_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium secret key: {}", e)))?;
-                        let signature = pqcrypto_dilithium::dilithium5::detached_sign(message, &sk);
+                        let signature = dilithium5::detached_sign(message, &sk);
                         Ok(signature.as_bytes().to_vec())
                     },
-                    _ => Err(QuantumError::UnsupportedSecurityLevel),
+                    _ => Err(QuantumError::UnsupportedSecurityLevel(self.parameters.security_level)),
                 }
             },
             QuantumScheme::Falcon => {
@@ -278,103 +329,106 @@ impl QuantumKeyPair {
                 Err(QuantumError::CryptoOperationFailed("Falcon signature implementation pending".to_string()))
             },
             QuantumScheme::Sphincs => {
-                // Implementation for Sphincs would go here
+                // Implementation for SPHINCS+ would go here
                 // For now, return CryptoOperationFailed error with an informative message
                 Err(QuantumError::CryptoOperationFailed("SPHINCS+ signature implementation pending".to_string()))
             },
-            QuantumScheme::Hybrid(classical) => {
+            QuantumScheme::Hybrid(_) => {
                 // Implementation for hybrid schemes would go here
                 // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed(format!("Hybrid signature with {} not yet implemented", 
-                    match classical {
-                        ClassicalScheme::Secp256k1 => "Secp256k1",
-                        ClassicalScheme::Ed25519 => "Ed25519",
-                    }
-                )))
+                Err(QuantumError::CryptoOperationFailed("Hybrid signature implementation pending".to_string()))
             },
         }
     }
-
+    
     /// Verify a signature using the quantum-resistant public key.
     pub fn verify(&self, message: &[u8], signature: &[u8]) -> Result<bool, QuantumError> {
+        // Verify that the signature length matches what's expected for this scheme & security level
+        let expected_len = self.parameters.expected_signature_length()?;
+        if signature.len() != expected_len {
+            return Err(QuantumError::InvalidSignature(format!(
+                "Invalid signature length: expected {}, got {}",
+                expected_len,
+                signature.len()
+            )));
+        }
+        
         match self.parameters.scheme {
-            QuantumScheme::CrystalsDilithium => {
+            QuantumScheme::Dilithium => {
                 match self.parameters.security_level {
-                    SecurityLevel::Level2 => {
-                        if signature.len() != pqcrypto_dilithium::dilithium2::SIGNATUREBYTES {
-                            return Err(QuantumError::InvalidSignature("Invalid Dilithium signature length".to_string()));
+                    SecurityLevel::Low => {
+                        let pk = dilithium2::PublicKey::from_bytes(&self.public_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium public key: {}", e)))?;
+                        let sig = dilithium2::DetachedSignature::from_bytes(signature)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid Dilithium signature: {}", e)))?;
+                        
+                        match dilithium2::verify_detached_signature(&sig, message, &pk) {
+                            Ok(_) => Ok(true),
+                            Err(_) => Ok(false),
                         }
-                        let sig = pqcrypto_dilithium::dilithium2::DetachedSignature::from_bytes(signature)
-                            .map_err(|e| QuantumError::InvalidSignature(e.to_string()))?;
-                        let pk = pqcrypto_dilithium::dilithium2::PublicKey::from_bytes(&self.public_key)
-                            .map_err(|e| QuantumError::InvalidKey(e.to_string()))?;
-                        Ok(pqcrypto_dilithium::dilithium2::verify_detached_signature(&sig, message, &pk).is_ok())
-                    }
-                    SecurityLevel::Level3 => {
-                        if signature.len() != pqcrypto_dilithium::dilithium3::SIGNATUREBYTES {
-                            return Err(QuantumError::InvalidSignature("Invalid Dilithium signature length".to_string()));
+                    },
+                    SecurityLevel::Medium => {
+                        let pk = dilithium3::PublicKey::from_bytes(&self.public_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium public key: {}", e)))?;
+                        let sig = dilithium3::DetachedSignature::from_bytes(signature)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid Dilithium signature: {}", e)))?;
+                        
+                        match dilithium3::verify_detached_signature(&sig, message, &pk) {
+                            Ok(_) => Ok(true),
+                            Err(_) => Ok(false),
                         }
-                        let sig = pqcrypto_dilithium::dilithium3::DetachedSignature::from_bytes(signature)
-                            .map_err(|e| QuantumError::InvalidSignature(e.to_string()))?;
-                        let pk = pqcrypto_dilithium::dilithium3::PublicKey::from_bytes(&self.public_key)
-                            .map_err(|e| QuantumError::InvalidKey(e.to_string()))?;
-                        Ok(pqcrypto_dilithium::dilithium3::verify_detached_signature(&sig, message, &pk).is_ok())
-                    }
-                    SecurityLevel::Level5 => {
-                        if signature.len() != pqcrypto_dilithium::dilithium5::SIGNATUREBYTES {
-                            return Err(QuantumError::InvalidSignature("Invalid Dilithium signature length".to_string()));
+                    },
+                    SecurityLevel::High => {
+                        let pk = dilithium5::PublicKey::from_bytes(&self.public_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium public key: {}", e)))?;
+                        let sig = dilithium5::DetachedSignature::from_bytes(signature)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid Dilithium signature: {}", e)))?;
+                        
+                        match dilithium5::verify_detached_signature(&sig, message, &pk) {
+                            Ok(_) => Ok(true),
+                            Err(_) => Ok(false),
                         }
-                        let sig = pqcrypto_dilithium::dilithium5::DetachedSignature::from_bytes(signature)
-                            .map_err(|e| QuantumError::InvalidSignature(e.to_string()))?;
-                        let pk = pqcrypto_dilithium::dilithium5::PublicKey::from_bytes(&self.public_key)
-                            .map_err(|e| QuantumError::InvalidKey(e.to_string()))?;
-                        Ok(pqcrypto_dilithium::dilithium5::verify_detached_signature(&sig, message, &pk).is_ok())
-                    }
-                    _ => Err(QuantumError::UnsupportedSecurityLevel),
+                    },
+                    _ => Err(QuantumError::UnsupportedSecurityLevel(self.parameters.security_level)),
                 }
-            }
+            },
             QuantumScheme::Falcon => {
                 // Implementation for Falcon would go here
                 // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed("Falcon signature verification not yet implemented".to_string()))
+                Err(QuantumError::CryptoOperationFailed("Falcon verification implementation pending".to_string()))
             },
             QuantumScheme::Sphincs => {
-                // Implementation for Sphincs would go here
+                // Implementation for SPHINCS+ would go here
                 // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed("SPHINCS+ signature verification not yet implemented".to_string()))
+                Err(QuantumError::CryptoOperationFailed("SPHINCS+ verification implementation pending".to_string()))
             },
-            QuantumScheme::Hybrid(classical) => {
+            QuantumScheme::Hybrid(_) => {
                 // Implementation for hybrid schemes would go here
                 // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed(format!("Hybrid signature verification with {} not yet implemented", 
-                    match classical {
-                        ClassicalScheme::Secp256k1 => "Secp256k1",
-                        ClassicalScheme::Ed25519 => "Ed25519",
-                    }
-                )))
+                Err(QuantumError::CryptoOperationFailed("Hybrid verification implementation pending".to_string()))
             },
         }
     }
 }
 
-/// Quantum-resistant signature
-#[derive(Clone)]
-pub struct QuantumSignature {
-    /// The signature scheme used
-    pub scheme: QuantumScheme,
-    /// The signature data
-    pub data: Vec<u8>,
-    /// Security level used
-    pub security_level: u8,
+impl fmt::Debug for QuantumKeyPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("QuantumKeyPair")
+            .field("public_key", &hex::encode(&self.public_key))
+            .field("private_key", &"[REDACTED]")
+            .field("parameters", &self.parameters)
+            .finish()
+    }
 }
 
-impl fmt::Debug for QuantumSignature {
+impl fmt::Debug for QuantumSecretKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("QuantumSignature")
-            .field("scheme", &self.scheme)
-            .field("data_len", &self.data.len())
-            .field("security_level", &self.security_level)
-            .finish()
+        match self {
+            Self::Dilithium(_) => f.write_str("QuantumSecretKey::Dilithium([REDACTED])"),
+            Self::Falcon(_) => f.write_str("QuantumSecretKey::Falcon([REDACTED])"),
+            Self::Sphincs(_) => f.write_str("QuantumSecretKey::Sphincs([REDACTED])"),
+            Self::Hybrid(scheme, _, _) => write!(f, "QuantumSecretKey::Hybrid({:?}, [REDACTED], [REDACTED])", scheme),
+        }
     }
 }
 
@@ -382,43 +436,17 @@ impl fmt::Debug for QuantumSignature {
 pub fn verify_quantum_signature(
     public_key: &[u8],
     message: &[u8],
-    signature: &QuantumSignature,
-) -> bool {
-    // This is a convenience function to verify without creating a key pair object
-    // In a real implementation, we would call the appropriate verification function based on the scheme
+    signature: &[u8],
+    parameters: QuantumParameters,
+) -> Result<bool, QuantumError> {
+    // Create a keypair with just the public key
+    let keypair = QuantumKeyPair {
+        public_key: public_key.to_vec(),
+        private_key: vec![],  // Empty private key since we're only verifying
+        parameters,
+    };
     
-    // For demo purposes, we'll just return true to simulate a successful verification
-    true
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum QuantumError {
-    #[error("Unsupported quantum scheme or parameter combination")]
-    UnsupportedScheme,
-    
-    #[error("Invalid key: {0}")]
-    InvalidKey(String),
-    
-    #[error("Invalid signature: {0}")]
-    InvalidSignature(String),
-    
-    #[error("Security level not supported for the chosen scheme")]
-    UnsupportedSecurityLevel,
-    
-    #[error("Quantum feature is disabled in configuration")]
-    FeatureDisabled,
-    
-    #[error("Cryptographic operation failed: {0}")]
-    CryptoOperationFailed(String),
-    
-    #[error("Key generation failed: {0}")]
-    KeyGenerationFailed(String),
-    
-    #[error("Serialization error: {0}")]
-    SerializationError(String),
-    
-    #[error("Parameter validation error: {0}")]
-    ParameterError(String),
+    keypair.verify(message, signature)
 }
 
 #[cfg(test)]
@@ -427,85 +455,89 @@ mod tests {
     use rand::rngs::OsRng;
     
     #[test]
-    fn test_dilithium_signing() {
-        let mut rng = OsRng;
-        let params = QuantumParameters {
-            security_level: 3,
-            scheme: QuantumScheme::Dilithium,
-            use_compression: false,
-        };
+    fn test_dilithium_parameters() {
+        let params1 = QuantumParameters::new(QuantumScheme::Dilithium);
+        assert_eq!(params1.security_level, 3); // Default should be Medium
         
-        let keypair = QuantumKeyPair::generate(&mut rng, params);
+        let params2 = QuantumParameters::with_security_level(QuantumScheme::Dilithium, 5);
+        assert_eq!(params2.security_level, 5); // Should be High
+    }
+    
+    #[test]
+    fn test_dilithium_signing_and_verification() {
+        let mut rng = OsRng;
+        let params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, SecurityLevel::Medium.into());
+        
+        let keypair = QuantumKeyPair::generate(&mut rng, params).expect("Key generation should succeed");
         let message = b"This is a test message for quantum signature";
         
-        let signature = keypair.sign(message);
-        assert_eq!(signature.scheme, QuantumScheme::Dilithium);
+        // Sign the message
+        let signature = keypair.sign(message).expect("Signing should succeed");
         
-        let valid = keypair.verify(message, &signature);
-        assert!(valid, "Dilithium signature verification should succeed");
+        // Verify the signature
+        let result = keypair.verify(message, &signature).expect("Verification should succeed");
+        assert!(result, "Signature verification should return true");
         
         // Try with wrong message
         let wrong_message = b"This is a different message";
-        let still_valid = keypair.verify(wrong_message, &signature);
-        
-        // In a real implementation this would fail, but our demo always returns true
-        assert!(still_valid, "Demo always verifies successfully");
+        let result = keypair.verify(wrong_message, &signature).expect("Verification with wrong message should succeed");
+        assert!(!result, "Verification with wrong message should return false");
     }
     
     #[test]
-    fn test_falcon_signing() {
+    fn test_falcon_not_implemented() {
         let mut rng = OsRng;
-        let params = QuantumParameters {
-            security_level: 3,
-            scheme: QuantumScheme::Falcon,
-            use_compression: false,
-        };
+        let params = QuantumParameters::with_security_level(QuantumScheme::Falcon, SecurityLevel::Medium.into());
         
-        let keypair = QuantumKeyPair::generate(&mut rng, params);
-        let message = b"This is a test message for Falcon signature";
+        let result = QuantumKeyPair::generate(&mut rng, params);
+        assert!(result.is_err(), "Falcon should return not implemented error");
         
-        let signature = keypair.sign(message);
-        assert_eq!(signature.scheme, QuantumScheme::Falcon);
-        
-        let valid = keypair.verify(message, &signature);
-        assert!(valid, "Falcon signature verification should succeed");
+        if let Err(err) = result {
+            match err {
+                QuantumError::CryptoOperationFailed(msg) => {
+                    assert!(msg.contains("not yet implemented"), "Error should mention implementation pending");
+                },
+                _ => panic!("Expected CryptoOperationFailed error"),
+            }
+        }
     }
     
     #[test]
-    fn test_sphincs_signing() {
+    fn test_sphincs_not_implemented() {
         let mut rng = OsRng;
-        let params = QuantumParameters {
-            security_level: 3,
-            scheme: QuantumScheme::Sphincs,
-            use_compression: false,
-        };
+        let params = QuantumParameters::with_security_level(QuantumScheme::Sphincs, SecurityLevel::Medium.into());
         
-        let keypair = QuantumKeyPair::generate(&mut rng, params);
-        let message = b"This is a test message for SPHINCS+ signature";
+        let result = QuantumKeyPair::generate(&mut rng, params);
+        assert!(result.is_err(), "SPHINCS+ should return not implemented error");
         
-        let signature = keypair.sign(message);
-        assert_eq!(signature.scheme, QuantumScheme::Sphincs);
-        
-        let valid = keypair.verify(message, &signature);
-        assert!(valid, "SPHINCS+ signature verification should succeed");
+        if let Err(err) = result {
+            match err {
+                QuantumError::CryptoOperationFailed(msg) => {
+                    assert!(msg.contains("not yet implemented"), "Error should mention implementation pending");
+                },
+                _ => panic!("Expected CryptoOperationFailed error"),
+            }
+        }
     }
     
     #[test]
-    fn test_hybrid_signing() {
+    fn test_hybrid_not_implemented() {
         let mut rng = OsRng;
-        let params = QuantumParameters {
-            security_level: 3,
-            scheme: QuantumScheme::Hybrid(ClassicalScheme::Secp256k1),
-            use_compression: false,
-        };
+        let params = QuantumParameters::with_security_level(
+            QuantumScheme::Hybrid(ClassicalScheme::Secp256k1), 
+            SecurityLevel::Medium.into()
+        );
         
-        let keypair = QuantumKeyPair::generate(&mut rng, params);
-        let message = b"This is a test message for hybrid signature";
+        let result = QuantumKeyPair::generate(&mut rng, params);
+        assert!(result.is_err(), "Hybrid should return not implemented error");
         
-        let signature = keypair.sign(message);
-        assert_eq!(signature.scheme, QuantumScheme::Hybrid(ClassicalScheme::Secp256k1));
-        
-        let valid = keypair.verify(message, &signature);
-        assert!(valid, "Hybrid signature verification should succeed");
+        if let Err(err) = result {
+            match err {
+                QuantumError::CryptoOperationFailed(msg) => {
+                    assert!(msg.contains("not yet implemented"), "Error should mention implementation pending");
+                },
+                _ => panic!("Expected CryptoOperationFailed error"),
+            }
+        }
     }
 } 

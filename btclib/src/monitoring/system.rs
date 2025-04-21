@@ -112,10 +112,10 @@ impl SystemMetrics {
         registry.register(Box::new(temperature.clone()))?;
         
         // Create uptime metric
-        let uptime = IntGauge::new(
+        let uptime = IntGauge::with_opts(
             Opts::new("uptime_seconds", "System uptime in seconds")
                 .namespace(namespace.to_string())
-                .subsystem("system"),
+                .subsystem("system")
         )?;
         registry.register(Box::new(uptime.clone()))?;
         

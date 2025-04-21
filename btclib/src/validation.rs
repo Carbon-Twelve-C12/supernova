@@ -1,5 +1,6 @@
 use thiserror::Error;
 use std::sync::Arc;
+use serde::{Serialize, Deserialize};
 
 use crate::types::transaction::Transaction;
 use crate::types::extended_transaction::{QuantumTransaction, ConfidentialTransaction};
@@ -26,17 +27,64 @@ pub enum ValidationError {
     InvalidTransaction(String),
 }
 
-/// Security level for transaction validation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Security level for cryptographic operations and validation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SecurityLevel {
-    /// Standard security checks
-    Standard,
+    /// Low security level (corresponds to security parameter 1)
+    Low = 1,
     
-    /// Enhanced security with additional checks
-    Enhanced,
+    /// Medium security level (corresponds to security parameter 3)
+    Medium = 3,
+    
+    /// High security level (corresponds to security parameter 5)
+    High = 5,
+    
+    /// Standard security for transaction validation
+    Standard = 10,
+    
+    /// Enhanced security with additional checks for transaction validation
+    Enhanced = 20,
     
     /// Maximum security with thorough validation
-    Maximum,
+    Maximum = 30,
+}
+
+// Allow usage as u8 for security level parameters
+impl From<SecurityLevel> for u8 {
+    fn from(level: SecurityLevel) -> Self {
+        match level {
+            SecurityLevel::Low => 1,
+            SecurityLevel::Medium => 3,
+            SecurityLevel::High => 5,
+            SecurityLevel::Standard => 10,
+            SecurityLevel::Enhanced => 20,
+            SecurityLevel::Maximum => 30,
+        }
+    }
+}
+
+// Allow conversion from u8 to SecurityLevel
+impl From<u8> for SecurityLevel {
+    fn from(value: u8) -> Self {
+        match value {
+            1 => SecurityLevel::Low,
+            3 => SecurityLevel::Medium,
+            5 => SecurityLevel::High,
+            10 => SecurityLevel::Standard,
+            20 => SecurityLevel::Enhanced,
+            30 => SecurityLevel::Maximum,
+            // Default to Medium for other values
+            _ => {
+                if value < 3 {
+                    SecurityLevel::Low
+                } else if value < 5 {
+                    SecurityLevel::Medium
+                } else {
+                    SecurityLevel::High
+                }
+            }
+        }
+    }
 }
 
 /// Result of transaction validation
@@ -115,7 +163,7 @@ impl ValidationService {
         }
         
         // Security checks based on level
-        if self.security_level != SecurityLevel::Standard {
+        if matches!(self.security_level, SecurityLevel::Enhanced | SecurityLevel::Maximum) {
             // Check for unusual transaction patterns
             if tx.outputs().len() > 100 {
                 issues.push(format!("Unusually high number of outputs: {}", tx.outputs().len()));
@@ -195,22 +243,21 @@ impl ValidationService {
         match tx.scheme() {
             crate::crypto::quantum::QuantumScheme::Dilithium => {
                 // Check security level adequacy
-                if tx.security_level() < 3 && self.security_level == SecurityLevel::Maximum {
+                if tx.security_level() < 3 && matches!(self.security_level, SecurityLevel::Maximum | SecurityLevel::High) {
                     issues.push("Dilithium security level below recommended for maximum security".to_string());
                     security_score -= 20;
                 }
             }
             crate::crypto::quantum::QuantumScheme::Sphincs => {
                 // SPHINCS+ is slower but has stronger security guarantees
-                if self.security_level == SecurityLevel::Enhanced || 
-                   self.security_level == SecurityLevel::Maximum {
+                if matches!(self.security_level, SecurityLevel::Enhanced | SecurityLevel::High | SecurityLevel::Maximum) {
                     // Bonus for using SPHINCS+
                     security_score = (security_score + 5).min(100);
                 }
             }
             crate::crypto::quantum::QuantumScheme::Hybrid(_) => {
                 // Hybrid schemes provide best security
-                if self.security_level == SecurityLevel::Maximum {
+                if matches!(self.security_level, SecurityLevel::Maximum | SecurityLevel::High) {
                     // Bonus for using hybrid scheme at maximum security
                     security_score = (security_score + 10).min(100);
                 }
@@ -312,14 +359,14 @@ impl ValidationService {
                     }
                     crate::crypto::zkp::ZkpType::RangeProof => {
                         // Simple range proofs are less efficient
-                        if self.security_level == SecurityLevel::Maximum {
+                        if matches!(self.security_level, SecurityLevel::Maximum | SecurityLevel::High) {
                             issues.push("Using simple range proofs instead of Bulletproofs".to_string());
                             security_score -= 5;
                         }
                     }
                     _ => {
                         // Other proof types might be experimental
-                        if self.security_level == SecurityLevel::Maximum {
+                        if matches!(self.security_level, SecurityLevel::Maximum | SecurityLevel::High) {
                             issues.push(format!(
                                 "Using non-standard proof type: {:?}", 
                                 output.range_proof().proof_type

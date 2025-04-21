@@ -4,9 +4,29 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 secp256k1 = { workspace = true }
-bincode = "1.3"
+bincode = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+toml = { workspace = true }
+dashmap = { workspace = true }
+tokio = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+prometheus = { version = "0.13", features = ["process"] }
+pqcrypto-dilithium = "0.4.3"
+pqcrypto-traits = "0.3.4"
+
+[features]
+default = ["quantum", "environmental", "monitoring"]
+quantum = []
+environmental = []
+monitoring = []
+
+[[example]]
+name = "environmental_demo"
+path = "examples/environmental_demo.rs"

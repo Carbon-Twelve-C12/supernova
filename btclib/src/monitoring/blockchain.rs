@@ -1,6 +1,6 @@
 use prometheus::{
     Registry, IntGauge, IntGaugeVec, IntCounter, IntCounterVec, 
-    Gauge, GaugeVec, Histogram, HistogramVec, Opts
+    Gauge, GaugeVec, Histogram, HistogramVec, Opts, HistogramOpts
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,63 +53,71 @@ pub struct EnvironmentalMetrics {
     renewable_percentage: Gauge,
     /// Environmental treasury balance
     environmental_treasury: Gauge,
+    /// REC-backed mining percentage
+    rec_backed_percentage: Gauge,
+    /// Carbon offset percentage
+    offset_percentage: Gauge,
+    /// Total RECs purchased (in MWh)
+    total_recs_purchased: Gauge,
+    /// Total carbon offsets purchased (in tons CO2e)
+    total_offsets_purchased: Gauge,
 }
 
 impl BlockchainMetrics {
     /// Create a new blockchain metrics collector
     pub fn new(registry: &Registry, namespace: &str) -> Result<Self, MetricsError> {
         // Current blockchain height
-        let height = IntGauge::new(
+        let height = IntGauge::with_opts(
             Opts::new("height", "Current blockchain height")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
+                .subsystem("blockchain")
         )?;
         registry.register(Box::new(height.clone()))?;
         
         // Transactions per block
         let transactions_per_block = HistogramVec::new(
-            Opts::new("transactions_per_block", "Transactions per block")
+            HistogramOpts::new("transactions_per_block", "Transactions per block")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
+                .subsystem("blockchain")
+                .buckets(vec![1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 2000.0, 5000.0]),
             &["type"],
-            vec![1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 2000.0, 5000.0],
         )?;
         registry.register(Box::new(transactions_per_block.clone()))?;
         
         // Block time in seconds
-        let block_time = Histogram::new(
-            Opts::new("block_time_seconds", "Block time in seconds")
+        let block_time = Histogram::with_opts(
+            HistogramOpts::new("block_time_seconds", "Block time in seconds")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
-            vec![5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0],
+                .subsystem("blockchain")
+                .buckets(vec![5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0])
         )?;
         registry.register(Box::new(block_time.clone()))?;
         
         // Block size in bytes
-        let block_size = Histogram::new(
-            Opts::new("block_size_bytes", "Block size in bytes")
+        let block_size = Histogram::with_opts(
+            HistogramOpts::new("block_size_bytes", "Block size in bytes")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
-            vec![
-                10_000.0, 50_000.0, 100_000.0, 500_000.0, 1_000_000.0, 
-                2_000_000.0, 5_000_000.0, 10_000_000.0
-            ],
+                .subsystem("blockchain")
+                .buckets(vec![
+                    10_000.0, 50_000.0, 100_000.0, 500_000.0, 1_000_000.0, 
+                    2_000_000.0, 5_000_000.0, 10_000_000.0
+                ])
         )?;
         registry.register(Box::new(block_size.clone()))?;
         
         // Difficulty
-        let difficulty = Gauge::new(
+        let difficulty = Gauge::with_opts(
             Opts::new("difficulty", "Mining difficulty")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
+                .subsystem("blockchain")
         )?;
         registry.register(Box::new(difficulty.clone()))?;
         
         // Total transactions
-        let total_transactions = IntCounter::new(
+        let total_transactions = IntCounter::with_opts(
             Opts::new("total_transactions", "Total number of transactions")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
+                .subsystem("blockchain")
         )?;
         registry.register(Box::new(total_transactions.clone()))?;
         
@@ -132,30 +140,30 @@ impl BlockchainMetrics {
         registry.register(Box::new(transaction_fees.clone()))?;
         
         // Transaction size
-        let transaction_size = Histogram::new(
-            Opts::new("transaction_size_bytes", "Transaction size in bytes")
+        let transaction_size = Histogram::with_opts(
+            HistogramOpts::new("transaction_size_bytes", "Transaction size in bytes")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
-            vec![100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 25000.0],
+                .subsystem("blockchain")
+                .buckets(vec![100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 25000.0])
         )?;
         registry.register(Box::new(transaction_size.clone()))?;
         
         // Block propagation time
-        let block_propagation_time = Histogram::new(
-            Opts::new("block_propagation_ms", "Block propagation time in milliseconds")
+        let block_propagation_time = Histogram::with_opts(
+            HistogramOpts::new("block_propagation_ms", "Block propagation time in milliseconds")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
-            vec![
-                50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0
-            ],
+                .subsystem("blockchain")
+                .buckets(vec![
+                    50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0
+                ])
         )?;
         registry.register(Box::new(block_propagation_time.clone()))?;
         
         // Orphaned blocks
-        let orphaned_blocks = IntCounter::new(
+        let orphaned_blocks = IntCounter::with_opts(
             Opts::new("orphaned_blocks", "Number of orphaned blocks")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
+                .subsystem("blockchain")
         )?;
         registry.register(Box::new(orphaned_blocks.clone()))?;
         
@@ -169,26 +177,26 @@ impl BlockchainMetrics {
         registry.register(Box::new(reorg_depths.clone()))?;
         
         // Unconfirmed transactions
-        let unconfirmed_transactions = IntGauge::new(
+        let unconfirmed_transactions = IntGauge::with_opts(
             Opts::new("unconfirmed_transactions", "Number of unconfirmed transactions")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
+                .subsystem("blockchain")
         )?;
         registry.register(Box::new(unconfirmed_transactions.clone()))?;
         
         // UTXO set size
-        let utxo_set_size = IntGauge::new(
+        let utxo_set_size = IntGauge::with_opts(
             Opts::new("utxo_set_size", "Size of the UTXO set")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
+                .subsystem("blockchain")
         )?;
         registry.register(Box::new(utxo_set_size.clone()))?;
         
         // Chain DB size
-        let chain_db_size = IntGauge::new(
+        let chain_db_size = IntGauge::with_opts(
             Opts::new("chain_db_size_bytes", "Size of the blockchain database in bytes")
                 .namespace(namespace.to_string())
-                .subsystem("blockchain"),
+                .subsystem("blockchain")
         )?;
         registry.register(Box::new(chain_db_size.clone()))?;
         
@@ -218,42 +226,78 @@ impl BlockchainMetrics {
     /// Set up environmental metrics
     fn setup_environmental_metrics(registry: &Registry, namespace: &str) -> Result<EnvironmentalMetrics, MetricsError> {
         // Energy consumption
-        let energy_consumption = Gauge::new(
+        let energy_consumption = Gauge::with_opts(
             Opts::new("energy_consumption_kwh", "Estimated energy consumption in kWh")
                 .namespace(namespace.to_string())
-                .subsystem("environmental"),
+                .subsystem("environmental")
         )?;
         registry.register(Box::new(energy_consumption.clone()))?;
         
         // Carbon emissions
-        let carbon_emissions = Gauge::new(
+        let carbon_emissions = Gauge::with_opts(
             Opts::new("carbon_emissions_kgco2e", "Estimated carbon emissions in kgCO2e")
                 .namespace(namespace.to_string())
-                .subsystem("environmental"),
+                .subsystem("environmental")
         )?;
         registry.register(Box::new(carbon_emissions.clone()))?;
         
         // Renewable percentage
-        let renewable_percentage = Gauge::new(
+        let renewable_percentage = Gauge::with_opts(
             Opts::new("renewable_percentage", "Percentage of renewable energy")
                 .namespace(namespace.to_string())
-                .subsystem("environmental"),
+                .subsystem("environmental")
         )?;
         registry.register(Box::new(renewable_percentage.clone()))?;
         
         // Environmental treasury
-        let environmental_treasury = Gauge::new(
+        let environmental_treasury = Gauge::with_opts(
             Opts::new("environmental_treasury", "Environmental treasury balance")
                 .namespace(namespace.to_string())
-                .subsystem("environmental"),
+                .subsystem("environmental")
         )?;
         registry.register(Box::new(environmental_treasury.clone()))?;
+        
+        // REC-backed mining percentage
+        let rec_backed_percentage = Gauge::with_opts(
+            Opts::new("rec_backed_percentage", "Percentage of mining backed by Renewable Energy Certificates")
+                .namespace(namespace.to_string())
+                .subsystem("environmental")
+        )?;
+        registry.register(Box::new(rec_backed_percentage.clone()))?;
+        
+        // Carbon offset percentage
+        let offset_percentage = Gauge::with_opts(
+            Opts::new("offset_percentage", "Percentage of emissions covered by carbon offsets")
+                .namespace(namespace.to_string())
+                .subsystem("environmental")
+        )?;
+        registry.register(Box::new(offset_percentage.clone()))?;
+        
+        // Total RECs purchased
+        let total_recs_purchased = Gauge::with_opts(
+            Opts::new("total_recs_purchased_mwh", "Total Renewable Energy Certificates purchased in MWh")
+                .namespace(namespace.to_string())
+                .subsystem("environmental")
+        )?;
+        registry.register(Box::new(total_recs_purchased.clone()))?;
+        
+        // Total carbon offsets purchased
+        let total_offsets_purchased = Gauge::with_opts(
+            Opts::new("total_offsets_purchased_tons", "Total carbon offsets purchased in tons CO2e")
+                .namespace(namespace.to_string())
+                .subsystem("environmental")
+        )?;
+        registry.register(Box::new(total_offsets_purchased.clone()))?;
         
         Ok(EnvironmentalMetrics {
             energy_consumption,
             carbon_emissions,
             renewable_percentage,
             environmental_treasury,
+            rec_backed_percentage,
+            offset_percentage,
+            total_recs_purchased,
+            total_offsets_purchased,
         })
     }
     
@@ -391,12 +435,20 @@ impl BlockchainMetrics {
         emissions_kgco2e: f64,
         renewable_percent: f64,
         treasury_balance: f64,
+        rec_backed_percent: f64,
+        offset_percent: f64,
+        total_recs_mwh: f64,
+        total_offsets_tons: f64,
     ) {
         if let Some(env_metrics) = &self.environmental_metrics {
             env_metrics.energy_consumption.set(energy_kwh);
             env_metrics.carbon_emissions.set(emissions_kgco2e);
             env_metrics.renewable_percentage.set(renewable_percent);
             env_metrics.environmental_treasury.set(treasury_balance);
+            env_metrics.rec_backed_percentage.set(rec_backed_percent);
+            env_metrics.offset_percentage.set(offset_percent);
+            env_metrics.total_recs_purchased.set(total_recs_mwh);
+            env_metrics.total_offsets_purchased.set(total_offsets_tons);
             
             debug!("Updated environmental metrics");
         }
@@ -422,6 +474,10 @@ impl BlockchainMetrics {
             summary.push_str(&format!("  Energy Consumption: {:.2} kWh\n", env_metrics.energy_consumption.get()));
             summary.push_str(&format!("  Carbon Emissions: {:.2} kgCO2e\n", env_metrics.carbon_emissions.get()));
             summary.push_str(&format!("  Renewable Energy: {:.1}%\n", env_metrics.renewable_percentage.get()));
+            summary.push_str(&format!("  REC-backed Mining: {:.1}%\n", env_metrics.rec_backed_percentage.get()));
+            summary.push_str(&format!("  Carbon Offset Coverage: {:.1}%\n", env_metrics.offset_percentage.get()));
+            summary.push_str(&format!("  Total RECs Purchased: {:.2} MWh\n", env_metrics.total_recs_purchased.get()));
+            summary.push_str(&format!("  Total Carbon Offsets: {:.2} tons CO2e\n", env_metrics.total_offsets_purchased.get()));
             summary.push_str(&format!("  Environmental Treasury: {:.8}\n", env_metrics.environmental_treasury.get()));
         }
         
