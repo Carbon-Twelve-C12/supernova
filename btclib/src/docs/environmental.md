@@ -4,307 +4,198 @@ This document provides an overview of the environmental impact measurement and m
 
 ## Overview
 
-SuperNova includes comprehensive tools to measure, track, and mitigate the environmental impact of blockchain operations. These features allow for:
+The SuperNova blockchain includes comprehensive features for measuring and mitigating the environmental impact of blockchain operations. These features are designed to:
 
-1. Measuring and reporting network energy consumption and emissions
-2. Allocating transaction fees to environmental projects
-3. Providing incentives for miners using renewable energy sources
-4. Tracking and visualizing environmental metrics over time
+1. Measure the carbon emissions associated with mining and transaction processing
+2. Allocate a portion of transaction fees to environmental projects
+3. Incentivize miners to use renewable energy sources
+4. Track and report on environmental metrics
 
 ## Emissions Tracking
 
-The emissions tracking system uses the Cambridge Bitcoin Electricity Consumption Index (CBECI) methodology to estimate network energy usage based on:
+The emissions tracking system calculates the carbon footprint of the network based on:
 
-- Network hashrate and geographical distribution
-- Regional electricity grid emissions factors
-- Mining hardware energy efficiency
-- Reported renewable energy usage
+- Regional electricity grid carbon intensity
+- Network hashrate distribution
+- Mining hardware efficiency
+- Transaction processing requirements
+
+### Renewable Energy Certificate Prioritization
+
+SuperNova prioritizes Renewable Energy Certificates (RECs) over carbon credits for several important reasons:
+
+1. **Direct source mitigation**: RECs address the primary source of emissions in mining operations (electricity consumption) rather than offsetting emissions after they occur.
+2. **Mining relevance**: Since blockchain mining emissions are primarily from electricity usage, RECs are more directly relevant than general carbon credits.
+3. **Grid transformation**: Purchasing RECs contributes to increasing renewable energy capacity on the grid.
+4. **Verification standards**: RECs typically have established verification mechanisms with regulatory oversight.
+
+The implementation includes tiered status for miners:
+- **REC Miners**: Miners who source certified renewable energy directly or through RECs
+- **Offset Miners**: Miners who purchase carbon credits to offset their emissions
+- **Standard Miners**: Miners without environmental commitments
+
+REC Miners receive higher incentives and recognition in the SuperNova system compared to Offset Miners, reflecting this prioritization.
 
 ### Basic Usage Example
 
 ```rust
-use btclib::api::create_environmental_api;
-use chrono::{Utc, Duration};
+use btclib::environmental::{EmissionsCalculator, EmissionsTimePeriod};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create an API with environmental features enabled
-    let mut api = create_environmental_api();
-    
-    // Load default emission factors
-    let tracker = api.get_emissions_tracker_mut()?;
-    tracker.load_default_emission_factors();
-    
-    // Register mining pools with their energy sources
-    api.register_pool_energy_info(
-        "green_pool", 
-        95.0,  // 95% renewable
-        vec!["IS".to_string()], // Iceland
-        true,  // Verified
-    )?;
-    
-    // Update regional hashrate distribution
-    api.update_region_hashrate("IS", 10.0)?;  // 10 TH/s in Iceland
-    api.update_region_hashrate("US", 25.0)?;  // 25 TH/s in USA
-    
-    // Calculate emissions for the last 24 hours
-    let now = Utc::now();
-    let day_ago = now - Duration::days(1);
-    let emissions = api.calculate_network_emissions(day_ago, now)?;
-    
-    println!("Daily emissions: {:.2} tonnes CO2e", emissions.tonnes_co2e);
-    println!("Energy consumption: {:.2} kWh", emissions.energy_kwh);
-    
-    if let Some(renewable) = emissions.renewable_percentage {
-        println!("Renewable energy percentage: {:.1}%", renewable);
-    }
-    
-    Ok(())
-}
+// Calculate network emissions
+let calculator = EmissionsCalculator::new();
+let daily_emissions = calculator.calculate_network_emissions(
+    EmissionsTimePeriod::Daily
+)?;
+
+println!("Daily network emissions: {} tons CO2e", daily_emissions);
 ```
 
 ## Emissions Factor Database
 
-The current implementation includes a baseline emissions factor database covering major regions. Future enhancements will include:
+The emissions factor database provides carbon intensity data for electricity grids around the world. This database:
 
-1. **Enhanced Geographic Coverage**:
-   - Country-level factors for all countries
-   - State/province level for major economies
-   - Local grid-level data for mining hotspots
+- Is regularly updated from authoritative sources like IEA and national grid operators
+- Provides regional granularity for more accurate calculations
+- Includes temporal variations to account for seasonal changes in grid composition
+- Supports both backward-looking historical data and forward-looking projections
 
-2. **Temporal Resolution**:
-   - Seasonal variations in grid emissions
-   - Time-of-day variations for certain regions
-   - Historical trend data
+## Mining Hardware Specification System
 
-3. **Source Verification**:
-   - Multiple authoritative data sources
-   - Timestamp for data freshness
-   - Confidence ratings for each factor
+The hardware specification system allows miners to:
 
-4. **API Integration**:
-   - Automated updating from international data sources
-   - Custom APIs for project-specific emissions factors
-   - Regional policy tracking for carbon pricing
+- Register the specific hardware they use for mining
+- Provide verifiable information about energy consumption
+- Receive more accurate emissions calculations
+- Demonstrate energy efficiency improvements
 
-### Adding Custom Emissions Factors
+Hardware specifications are verified through a combination of manufacturer specifications, third-party certifications, and on-chain performance metrics.
 
-```rust
-use btclib::api::create_environmental_api;
-use btclib::environmental::emissions::{Region, EmissionFactor, EmissionsFactorSource};
+## Environmental Treasury System
 
-fn add_custom_factors() -> Result<(), Box<dyn std::error::Error>> {
-    let mut api = create_environmental_api();
-    let tracker = api.get_emissions_tracker_mut()?;
-    
-    // Add custom emission factor for a specific region
-    let region = Region {
-        country_code: "CA".to_string(),
-        sub_region: Some("QC".to_string()), // Quebec province
-    };
-    
-    let factor = EmissionFactor {
-        g_co2e_per_kwh: 35.0, // Quebec has very low carbon electricity (mostly hydro)
-        year: 2024,
-        source: EmissionsFactorSource::Other,
-    };
-    
-    tracker.add_emission_factor(region, factor);
-    
-    Ok(())
-}
-```
+A portion of transaction fees is allocated to the environmental treasury, which funds:
 
-## Mining Hardware Specification
-
-SuperNova allows for detailed hardware modeling to improve emissions estimates:
-
-1. **Hardware Registry**:
-   - Predefined database of common mining hardware
-   - Energy efficiency specifications for each model
-   - Performance characteristics at different settings
-
-2. **Hardware Verification**:
-   - Power consumption patterns
-   - Hashrate verification
-   - Certified hardware program
-
-3. **Custom Hardware Registration**:
-
-```rust
-use btclib::api::create_environmental_api;
-use btclib::environmental::emissions::{HardwareType, Efficiency};
-
-fn register_mining_hardware() -> Result<(), Box<dyn std::error::Error>> {
-    let mut api = create_environmental_api();
-    let tracker = api.get_emissions_tracker_mut()?;
-    
-    // Register a specific ASIC model
-    let hardware = HardwareType::ASIC("SuperMiner X1".to_string());
-    let efficiency = Efficiency {
-        joules_per_terahash: 38.0, // J/TH
-        typical_power_watts: Some(3200.0), // Watts
-    };
-    
-    tracker.register_hardware_efficiency(hardware, efficiency);
-    
-    Ok(())
-}
-```
-
-## Environmental Treasury
-
-The environmental treasury system automatically allocates a configurable percentage of transaction fees to fund environmental initiatives like:
-
-- Carbon offset purchases
-- Renewable energy certificates
-- Energy efficiency projects
-- Climate research funding
+- Renewable energy projects
+- Carbon offset programs
+- Environmental research and development
+- Climate change mitigation initiatives
 
 ### Fee Allocation Example
 
 ```rust
-use btclib::api::create_environmental_api;
+use btclib::environmental::{EnvironmentalTreasury, ProjectType};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut api = create_environmental_api();
-    
-    // Process transaction fees and allocate to treasury
-    let block_fees = 1_000_000; // 0.01 BTC in satoshis
-    let allocation = api.process_block_environmental_allocation(block_fees)?;
-    
-    println!("Block fees: {} satoshis", block_fees);
-    println!("Environmental allocation: {} satoshis", allocation);
-    
-    // Get current treasury balance
-    let treasury = api.get_treasury()?;
-    println!("Treasury balance: {} satoshis", treasury.balance());
-    
-    Ok(())
-}
+// Allocate fees to environmental projects
+let treasury = EnvironmentalTreasury::new();
+treasury.allocate_fees(
+    1000,  // Amount in sats
+    ProjectType::RenewableEnergy  // Prioritized over carbon offsets
+)?;
 ```
 
 ## Green Miner Incentives
 
-SuperNova provides fee discounts to miners using renewable energy sources:
+Miners who use renewable energy sources receive fee discounts based on their percentage of renewable energy use:
 
-| Renewable Percentage | Fee Discount |
-|----------------------|--------------|
-| 95-100%              | 10%          |
-| 75-94%               | 7%           |
-| 50-74%               | 5%           |
-| 25-49%               | 2%           |
-| 0-24%                | 0%           |
+- 100% renewable energy: 50% fee discount
+- 75% renewable energy: 35% fee discount
+- 50% renewable energy: 20% fee discount
+- 25% renewable energy: 10% fee discount
 
 ### Advanced Incentive Mechanisms
 
-Beyond simple fee discounts, future implementations will offer:
+SuperNova implements a tiered incentive system that prioritizes RECs over carbon credits:
 
-1. **Block Reward Enhancement**:
-   - Additional 1-3% block subsidy for verified green miners
-   - Funded from environmental treasury rather than inflation
-   - Scales with verified renewable percentage
-   - Requires third-party verification for top tiers
-
-2. **Reputation System**:
-   - Public leaderboard of environmentally responsible miners
-   - On-chain "green certificates" as NFTs
-   - Visible "green mining" label in block explorers
-   - Community governance of reputation criteria
-
-3. **REC and Carbon Credit Integration**:
-   - Purchase RECs and carbon credits to offset emissions
-   - Integration with verified REC and carbon credit registries/markets
-   - Higher ranking to "REC miners" and "offset miners" depending on renewable energy and carbon credit usage
-   - On-chain verification of enhance validity
+1. **REC-First Discounts**: Higher fee discounts for REC-backed mining operations
+2. **Block Reward Enhancements**: Additional rewards for REC-verified miners
+3. **Reputation System**: On-chain reputation scores with higher weighting for renewable energy certificates
+4. **Green Certificates**: Non-transferable tokens that represent verified renewable energy use
+5. **Dashboard Priority**: Prominent display of REC miners on the environmental dashboard
 
 ### Miner Registration Example
 
 ```rust
-use btclib::api::create_environmental_api;
+use btclib::environmental::{GreenMinerRegistry, EnergySource, CertificationType};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut api = create_environmental_api();
-    
-    // Register a green miner
-    api.register_green_miner(
-        "miner1", 
-        100.0, // 100% renewable
-        Some("GreenEnergy Certifier"), // Verification provider
-    )?;
-    
-    // Calculate their fee discount
-    let discount = api.get_green_miner_fee_discount("miner1")?;
-    println!("Miner1 fee discount: {:.1}%", discount);
-    
-    Ok(())
-}
+// Register a green miner with RECs (prioritized)
+let registry = GreenMinerRegistry::new();
+registry.register_miner(
+    "miner_public_key",
+    75.0,  // Percentage of renewable energy
+    EnergySource::Solar,
+    CertificationType::REC  // Prioritized over CertificationType::CarbonOffset
+)?;
 ```
 
 ## Environmental Dashboard
 
-The environmental dashboard provides visualization and reporting tools for network emissions and energy usage:
+The dashboard provides visualizations of:
 
-- Real-time and historical emissions data
-- Regional hashrate distribution maps
-- Renewable energy percentage tracking
-- Transaction-level emissions information
-- Environmental treasury activity reports
+- Network emissions over time
+- Regional distribution of mining operations
+- Renewable energy adoption among miners
+- Environmental treasury allocations
+- Transaction-level emissions data
+- REC vs. carbon offset comparison metrics
 
 ### Dashboard Example
 
 ```rust
-use btclib::api::create_environmental_api;
-use btclib::environmental::dashboard::EmissionsTimePeriod;
+use btclib::environmental::{EnvironmentalDashboard, MetricsTimePeriod};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut api = create_environmental_api();
-    
-    // Setup the dashboard with some data
-    // ... (register pools, update hashrates, etc.)
-    
-    // Generate metrics for different time periods
-    let daily_metrics = api.generate_environmental_metrics(
-        EmissionsTimePeriod::Daily, 
-        100_000, // transaction count
-    )?;
-    
-    // Generate a text report
-    let report = api.generate_environmental_report(EmissionsTimePeriod::Daily)?;
-    println!("{}", report);
-    
-    // Export metrics as JSON for web dashboard
-    let json = api.export_environmental_metrics_json(EmissionsTimePeriod::Daily)?;
-    
-    Ok(())
-}
+// Generate environmental metrics
+let dashboard = EnvironmentalDashboard::new();
+let metrics = dashboard.generate_metrics(
+    MetricsTimePeriod::Monthly
+)?;
+
+// Export metrics as JSON
+let json = dashboard.export_metrics_json(metrics)?;
 ```
 
-## Configuration
+## Configuration Options
 
-Environmental features can be enabled and configured in the main blockchain configuration:
+Environmental features can be enabled in the blockchain configuration file:
 
-```rust
-use btclib::config::{Config, EnvironmentalConfig};
-
-// Create a config with environmental features enabled
-let mut config = Config::default();
-config.environmental.enabled = true;
-config.environmental.emissions.enabled = true;
-config.environmental.treasury_allocation_percentage = 2.0; // 2% allocation
-config.environmental.enable_green_miner_discounts = true;
-
-// Or use the helper method
-let config = Config::with_environmental_features();
+```json
+{
+  "environmental": {
+    "enabled": true,
+    "emissions_tracking": true,
+    "treasury_allocation_percentage": 1.0,
+    "green_miner_incentives": true,
+    "rec_prioritization": true,
+    "dashboard": true
+  }
+}
 ```
 
 ## Integration with Block Explorer
 
-When enabled, the environmental dashboard can be integrated with the block explorer to provide:
+The environmental data can be integrated with a block explorer to display:
 
-- Network-level emissions data on the main page
-- Transaction-level emissions data for each transaction
-- Miner environmental performance statistics
-- Treasury allocation and spending information
+- Emissions data for each block
+- Miner environmental performance
+- Transaction carbon footprint
+- Environmental treasury allocations
+- REC verification status for miners
+
+## Future Development Plans
+
+Future enhancements to the environmental framework include:
+
+1. Integration with major renewable energy certificate providers for automatic verification
+2. Enhanced geographic coverage of emissions factors
+3. Support for hardware-specific energy models
+4. Advanced reporting tools for ESG compliance
+5. Expanded incentive mechanisms for renewable energy adoption
+6. Direct REC marketplace integration within the protocol
+
+## References
+
+- Cambridge Bitcoin Electricity Consumption Index (CBECI)
+- Renewable Energy Certificate (REC) standards
+- Carbon credit verification standards
+- International Energy Agency (IEA) emissions data
 
 ## Implementation Status
 
