@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use crate::crypto::quantum::{QuantumScheme, ClassicalScheme};
 use crate::crypto::zkp::ZkpType;
+use crate::environmental::emissions::EmissionsConfig;
 
 /// Configuration for advanced cryptographic features
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +48,49 @@ pub struct ZkpConfig {
     pub max_range_proofs: usize,
 }
 
+/// Configuration for environmental features
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvironmentalConfig {
+    /// Whether environmental features are enabled
+    pub enabled: bool,
+    
+    /// Configuration for emissions tracking
+    pub emissions: EmissionsConfig,
+    
+    /// Percentage of transaction fees to allocate to environmental treasury
+    pub treasury_allocation_percentage: f64,
+    
+    /// Whether to enable fee discounts for green miners
+    pub enable_green_miner_discounts: bool,
+    
+    /// Whether to display environmental metrics in block explorer
+    pub display_metrics_in_explorer: bool,
+    
+    /// Whether to include transaction-level emissions data
+    pub include_tx_emissions_data: bool,
+    
+    /// Prioritization factor for RECs over carbon credits (higher means stronger preference)
+    pub rec_priority_factor: f64,
+    
+    /// Percentage of treasury funds allocated to RECs (remainder goes to carbon credits)
+    pub rec_allocation_percentage: f64,
+}
+
+impl Default for EnvironmentalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            emissions: EmissionsConfig::default(),
+            treasury_allocation_percentage: 2.0, // 2% of transaction fees
+            enable_green_miner_discounts: false,
+            display_metrics_in_explorer: true,
+            include_tx_emissions_data: false,
+            rec_priority_factor: 2.0,     // RECs given 2x weight over carbon credits
+            rec_allocation_percentage: 75.0, // 75% of funds prioritized for RECs
+        }
+    }
+}
+
 impl Default for CryptoConfig {
     fn default() -> Self {
         Self {
@@ -88,6 +132,9 @@ pub struct Config {
     /// Cryptographic feature configuration
     pub crypto: CryptoConfig,
     
+    /// Environmental feature configuration
+    pub environmental: EnvironmentalConfig,
+    
     /// Maximum transaction size in bytes
     pub max_tx_size: usize,
     
@@ -116,6 +163,7 @@ impl Default for Config {
         Self {
             network: NetworkType::Testnet,
             crypto: CryptoConfig::default(),
+            environmental: EnvironmentalConfig::default(),
             max_tx_size: 1_000_000, // 1 MB
             max_block_size: 4_000_000, // 4 MB
             max_tx_per_block: 10_000,
@@ -148,6 +196,10 @@ impl Config {
         config.crypto.quantum.enabled = true;
         config.crypto.zkp.enabled = true;
         
+        // Enable basic environmental features for testnet
+        config.environmental.enabled = true;
+        config.environmental.emissions.enabled = true;
+        
         config
     }
     
@@ -162,6 +214,24 @@ impl Config {
         
         config.crypto.zkp.enabled = true;
         config.crypto.zkp.max_range_proofs = 1000; // More permissive for testing
+        
+        // Enable all environmental features for regtest
+        config.environmental.enabled = true;
+        config.environmental.emissions.enabled = true;
+        config.environmental.enable_green_miner_discounts = true;
+        config.environmental.include_tx_emissions_data = true;
+        
+        config
+    }
+    
+    /// Create a configuration with environmental features enabled
+    pub fn with_environmental_features() -> Self {
+        let mut config = Self::default();
+        
+        // Enable environmental features
+        config.environmental.enabled = true;
+        config.environmental.emissions.enabled = true;
+        config.environmental.enable_green_miner_discounts = true;
         
         config
     }
@@ -179,10 +249,12 @@ mod tests {
         assert_eq!(config.network, NetworkType::Testnet);
         assert!(!config.crypto.quantum.enabled);
         assert!(!config.crypto.zkp.enabled);
+        assert!(!config.environmental.enabled);
         
         assert_eq!(config.crypto.quantum.default_scheme, QuantumScheme::Dilithium);
         assert_eq!(config.crypto.quantum.security_level, 3);
         assert_eq!(config.crypto.zkp.default_scheme, ZkpType::Bulletproof);
+        assert_eq!(config.environmental.treasury_allocation_percentage, 2.0);
     }
     
     #[test]
@@ -192,6 +264,8 @@ mod tests {
         assert_eq!(config.network, NetworkType::Testnet);
         assert!(config.crypto.quantum.enabled);
         assert!(config.crypto.zkp.enabled);
+        assert!(config.environmental.enabled);
+        assert!(config.environmental.emissions.enabled);
     }
     
     #[test]
@@ -201,7 +275,20 @@ mod tests {
         assert_eq!(config.network, NetworkType::Regtest);
         assert!(config.crypto.quantum.enabled);
         assert!(config.crypto.zkp.enabled);
+        assert!(config.environmental.enabled);
+        assert!(config.environmental.emissions.enabled);
+        assert!(config.environmental.enable_green_miner_discounts);
         assert_eq!(config.crypto.zkp.max_range_proofs, 1000);
+    }
+    
+    #[test]
+    fn test_environmental_config() {
+        let config = Config::with_environmental_features();
+        
+        assert!(config.environmental.enabled);
+        assert!(config.environmental.emissions.enabled);
+        assert!(config.environmental.enable_green_miner_discounts);
+        assert_eq!(config.environmental.treasury_allocation_percentage, 2.0);
     }
     
     #[test]
