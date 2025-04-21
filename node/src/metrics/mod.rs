@@ -118,3 +118,81 @@ impl<'a> VerificationOperation<'a> {
         self.metrics.verification_duration.record(duration);
     }
 }
+
+pub mod registry;
+
+pub use registry::{
+    MetricsRegistry, 
+    MetricsConfig,
+    SystemMetrics,
+    BlockchainMetrics,
+    NetworkMetrics,
+    ConsensusMetrics,
+    MempoolMetrics,
+    TimedOperation,
+};
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tracing::info;
+
+// Singleton metrics instance for the application
+static mut GLOBAL_METRICS: Option<Arc<MetricsRegistry>> = None;
+
+/// Initialize the global metrics registry
+pub fn init_metrics(config: Option<MetricsConfig>) -> Result<Arc<MetricsRegistry>, Box<dyn std::error::Error>> {
+    let metrics = match config {
+        Some(cfg) => MetricsRegistry::with_config(cfg)?,
+        None => MetricsRegistry::new()?,
+    };
+    
+    let metrics_arc = Arc::new(metrics);
+    
+    // Store in global variable (unsafe because of static mut)
+    unsafe {
+        GLOBAL_METRICS = Some(Arc::clone(&metrics_arc));
+    }
+    
+    info!("Global metrics registry initialized");
+    
+    Ok(metrics_arc)
+}
+
+/// Get the global metrics registry
+/// Returns None if it has not been initialized
+pub fn global_metrics() -> Option<Arc<MetricsRegistry>> {
+    unsafe {
+        GLOBAL_METRICS.as_ref().map(Arc::clone)
+    }
+}
+
+/// Create a timed operation using the global metrics
+pub fn timed_operation<F>(callback: F) -> Option<TimedOperation<F>> 
+where 
+    F: FnOnce(f64),
+{
+    Some(TimedOperation::new(callback))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_init_metrics() {
+        let metrics = init_metrics(None).unwrap();
+        assert!(metrics.is_enabled());
+        
+        let global = global_metrics().unwrap();
+        assert!(global.is_enabled());
+    }
+    
+    #[test]
+    fn test_custom_config_metrics() {
+        let mut config = MetricsConfig::default();
+        config.namespace = Some("test".to_string());
+        
+        let metrics = init_metrics(Some(config)).unwrap();
+        assert!(metrics.is_enabled());
+    }
+}
