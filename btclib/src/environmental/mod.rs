@@ -1,15 +1,12 @@
-// Environmental impact measurement and mitigation module
-// This module implements functionality to track and reduce the blockchain's carbon footprint
+// Environmental impact measurement and mitigation features module
 
-pub mod types;
-pub mod miner_reporting;
-pub mod treasury;
+// Export components for public API
 pub mod emissions;
+pub mod treasury;
 pub mod dashboard;
+pub mod miner_reporting;
 
-// Re-export commonly used types for convenience
-pub use types::{EnergySource, EmissionFactor, HardwareType, Region};
-pub use miner_reporting::{MinerEnvironmentalInfo, MinerReportingManager, VerificationInfo, VerificationStatus, MinerEnvironmentalReport};
-pub use treasury::{EnvironmentalTreasury, EnvironmentalAssetType, EnvironmentalAssetPurchase, TreasuryError};
-pub use emissions::{EmissionsCalculator, NetworkEmissions, EmissionsTimePeriod};
-pub use dashboard::{EnvironmentalDashboard, DashboardMetric, MetricTimeframe}; 
+// Re-export key types for convenience
+pub use emissions::{EmissionsTracker, Emissions, Region, HashRate, PoolId, PoolEnergyInfo};
+pub use treasury::{EnvironmentalTreasury, EnvironmentalAssetType, EnvironmentalAssetPurchase};
+pub use dashboard::{EnvironmentalDashboard, EnvironmentalMetrics, EmissionsTimePeriod}; 

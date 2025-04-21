@@ -2,7 +2,7 @@ use prometheus::{
     Encoder, TextEncoder, Registry,
     Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec,
     IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
-    Opts, Result as PrometheusResult
+    Opts, Result as PrometheusResult, HistogramOpts
 };
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
@@ -300,7 +300,7 @@ impl MetricsRegistry {
     pub fn register_gauge(&mut self, name: &str, help: &str) -> Result<Arc<Gauge>, MetricsError> {
         if !self.config.enabled {
             // Return a noop gauge when metrics are disabled
-            return Ok(Arc::new(Gauge::new(name, help)?));
+            return Ok(Arc::new(Gauge::with_opts(Opts::new(name, help))?));
         }
         
         let gauge = Gauge::with_opts(
@@ -320,7 +320,7 @@ impl MetricsRegistry {
     pub fn register_int_gauge(&mut self, name: &str, help: &str) -> Result<Arc<IntGauge>, MetricsError> {
         if !self.config.enabled {
             // Return a noop gauge when metrics are disabled
-            return Ok(Arc::new(IntGauge::new(name, help)?));
+            return Ok(Arc::new(IntGauge::with_opts(Opts::new(name, help))?));
         }
         
         let gauge = IntGauge::with_opts(
@@ -346,15 +346,14 @@ impl MetricsRegistry {
         if !self.config.enabled {
             // Return a noop histogram when metrics are disabled
             return Ok(Arc::new(Histogram::with_opts(
-                Opts::new(name, help), 
-                &buckets
+                HistogramOpts::new(name, help)
             )?));
         }
         
         let histogram = Histogram::with_opts(
-            Opts::new(name, help)
-                .namespace(self.config.namespace.clone()),
-            &buckets
+            HistogramOpts::new(name, help)
+                .namespace(self.config.namespace.clone())
+                .buckets(buckets)
         )?;
         
         self.registry.register(Box::new(histogram.clone()))?;

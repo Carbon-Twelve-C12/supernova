@@ -1,6 +1,6 @@
 use prometheus::{
     Registry, IntGauge, IntGaugeVec, IntCounter, IntCounterVec, 
-    Gauge, GaugeVec, Histogram, HistogramVec, Opts
+    Gauge, GaugeVec, Histogram, HistogramVec, Opts, HistogramOpts
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -75,21 +75,21 @@ impl NetworkMetrics {
         
         // Message size
         let message_size = HistogramVec::new(
-            Opts::new("message_size_bytes", "Message size in bytes")
+            HistogramOpts::new("message_size_bytes", "Message size in bytes")
                 .namespace(namespace.to_string())
-                .subsystem("network"),
+                .subsystem("network")
+                .buckets(vec![100.0, 500.0, 1000.0, 5000.0, 10000.0, 50000.0, 100000.0, 500000.0]),
             &["message_type"],
-            vec![100.0, 500.0, 1000.0, 5000.0, 10000.0, 50000.0, 100000.0, 500000.0],
         )?;
         registry.register(Box::new(message_size.clone()))?;
         
         // Message latency
         let message_latency = HistogramVec::new(
-            Opts::new("message_latency_ms", "Message processing latency in milliseconds")
+            HistogramOpts::new("message_latency_ms", "Message processing latency in milliseconds")
                 .namespace(namespace.to_string())
-                .subsystem("network"),
+                .subsystem("network")
+                .buckets(vec![1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0]),
             &["message_type"],
-            vec![1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0],
         )?;
         registry.register(Box::new(message_latency.clone()))?;
         

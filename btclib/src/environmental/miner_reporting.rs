@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
+use chrono::{DateTime, Utc};
 
 use crate::environmental::types::{EnergySource, EmissionFactor, HardwareType, Region};
+use crate::environmental::treasury::VerificationStatus;
 
 /// Status of an environmental claim verification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -260,6 +262,8 @@ pub struct MinerReportingManager {
     emission_factors: HashMap<Region, EmissionFactor>,
     /// Standard hardware efficiency baselines
     hardware_baselines: HashMap<HardwareType, f64>,
+    /// Reports by miner ID
+    reports: HashMap<String, MinerEnvironmentalReport>,
 }
 
 impl MinerReportingManager {
@@ -269,6 +273,7 @@ impl MinerReportingManager {
             miners: HashMap::new(),
             emission_factors: HashMap::new(),
             hardware_baselines: HashMap::new(),
+            reports: HashMap::new(),
         }
     }
 
@@ -418,6 +423,55 @@ impl MinerReportingManager {
             average_efficiency: self.calculate_average_efficiency(),
         }
     }
+
+    /// Submit a new environmental report
+    pub fn submit_report(&mut self, report: MinerEnvironmentalReport) {
+        self.reports.insert(report.miner_id.clone(), report);
+    }
+
+    /// Get a report by miner ID
+    pub fn get_report(&self, miner_id: &str) -> Option<&MinerEnvironmentalReport> {
+        self.reports.get(miner_id)
+    }
+
+    /// Get all reports
+    pub fn get_all_reports(&self) -> &HashMap<String, MinerEnvironmentalReport> {
+        &self.reports
+    }
+
+    /// Verify a report
+    pub fn verify_report(&mut self, miner_id: &str, verification: VerificationInfo) -> bool {
+        if let Some(report) = self.reports.get_mut(miner_id) {
+            report.info.verification = Some(verification.clone());
+            report.status = match verification.status {
+                VerificationStatus::Approved => ReportStatus::Verified,
+                VerificationStatus::Rejected => ReportStatus::Rejected,
+                VerificationStatus::Pending => ReportStatus::Submitted,
+            };
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Calculate network-wide renewable energy percentage
+    pub fn calculate_network_renewable_percentage(&self) -> f64 {
+        let mut total_renewable = 0.0;
+        let mut total_miners = 0;
+        
+        for report in self.reports.values() {
+            if report.status == ReportStatus::Verified {
+                total_renewable += report.info.renewable_percentage;
+                total_miners += 1;
+            }
+        }
+        
+        if total_miners > 0 {
+            total_renewable / total_miners as f64
+        } else {
+            0.0
+        }
+    }
 }
 
 /// Report of miners' environmental status
@@ -441,6 +495,120 @@ pub struct MinerEnvironmentalReport {
     pub offset_miners: usize,
     /// Average energy efficiency in J/TH
     pub average_efficiency: Option<f64>,
+}
+
+/// Energy source for mining operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EnergySource {
+    /// Solar power
+    Solar,
+    /// Wind power
+    Wind,
+    /// Hydroelectric power
+    Hydro,
+    /// Geothermal power
+    Geothermal,
+    /// Nuclear power
+    Nuclear,
+    /// Natural gas
+    NaturalGas,
+    /// Coal
+    Coal,
+    /// Oil
+    Oil,
+    /// Biomass
+    Biomass,
+    /// Unknown source
+    Unknown,
+}
+
+/// Hardware type used for mining
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HardwareType {
+    /// ASIC miner
+    Asic,
+    /// GPU miner
+    Gpu,
+    /// CPU miner
+    Cpu,
+    /// Other hardware type
+    Other,
+}
+
+/// Environmental information for a miner
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinerEnvironmentalInfo {
+    /// Miner identifier
+    pub miner_id: String,
+    
+    /// Primary energy sources
+    pub energy_sources: Vec<(EnergySource, f64)>,
+    
+    /// Percentage of renewable energy (0-100)
+    pub renewable_percentage: f64,
+    
+    /// Mining hardware types
+    pub hardware_types: HashMap<HardwareType, usize>,
+    
+    /// Energy efficiency in J/TH
+    pub energy_efficiency: f64,
+    
+    /// Regions where mining operations are located
+    pub regions: Vec<Region>,
+    
+    /// Carbon offset programs participation
+    pub carbon_offsets: bool,
+    
+    /// Verification information for environmental claims
+    pub verification: Option<VerificationInfo>,
+}
+
+/// Verification information for environmental claims
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerificationInfo {
+    /// Organization providing verification
+    pub provider: String,
+    
+    /// Date of verification
+    pub date: DateTime<Utc>,
+    
+    /// Reference identifier for the verification
+    pub reference: String,
+    
+    /// Status of verification
+    pub status: VerificationStatus,
+}
+
+/// Environmental report for a miner
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinerEnvironmentalReport {
+    /// Miner identifier
+    pub miner_id: String,
+    
+    /// Environmental information
+    pub info: MinerEnvironmentalInfo,
+    
+    /// Report timestamp
+    pub timestamp: DateTime<Utc>,
+    
+    /// Report status
+    pub status: ReportStatus,
+}
+
+/// Status of an environmental report
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReportStatus {
+    /// Draft report, not yet submitted
+    Draft,
+    
+    /// Submitted report, awaiting verification
+    Submitted,
+    
+    /// Verified report
+    Verified,
+    
+    /// Rejected report
+    Rejected,
 }
 
 #[cfg(test)]

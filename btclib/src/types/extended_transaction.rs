@@ -134,7 +134,7 @@ impl QuantumTransaction {
     /// The implementation ensures no timing side-channels are exposed during verification.
     pub fn verify_signature(&self, public_key: &[u8]) -> Result<bool, QuantumError> {
         if public_key.is_empty() {
-            return Err(QuantumError::InvalidKey);
+            return Err(QuantumError::InvalidKey("Public key is empty".to_string()));
         }
 
         let tx_hash = self.transaction.hash();
@@ -143,7 +143,6 @@ impl QuantumTransaction {
         let params = QuantumParameters {
             security_level: self.security_level,
             scheme: self.scheme,
-            use_compression: false,
         };
         
         // Call the appropriate quantum verification function
@@ -154,11 +153,11 @@ impl QuantumTransaction {
                     2 => 1312, // Dilithium2
                     3 => 1952, // Dilithium3
                     5 => 2592, // Dilithium5
-                    _ => return Err(QuantumError::InvalidKey),
+                    _ => return Err(QuantumError::InvalidKey("Invalid security level for Dilithium".to_string())),
                 };
                 
                 if public_key.len() != expected_key_len {
-                    return Err(QuantumError::InvalidKey);
+                    return Err(QuantumError::InvalidKey(format!("Invalid Dilithium public key length: expected {}, got {}", expected_key_len, public_key.len())));
                 }
                 
                 // Verify signature length
@@ -188,11 +187,11 @@ impl QuantumTransaction {
                     1 => 897,
                     // Falcon-1024
                     5 => 1793,
-                    _ => return Err(QuantumError::InvalidKey),
+                    _ => return Err(QuantumError::InvalidKey("Invalid security level for Falcon".to_string())),
                 };
                 
                 if public_key.len() != expected_key_len {
-                    return Err(QuantumError::InvalidKey);
+                    return Err(QuantumError::InvalidKey(format!("Invalid Falcon public key length: expected {}, got {}", expected_key_len, public_key.len())));
                 }
                 
                 // Verify signature - would call actual Falcon verification
@@ -208,11 +207,11 @@ impl QuantumTransaction {
                     1 => 32,  // SPHINCS+-128f
                     3 => 48,  // SPHINCS+-192f
                     5 => 64,  // SPHINCS+-256f
-                    _ => return Err(QuantumError::InvalidKey),
+                    _ => return Err(QuantumError::InvalidKey("Invalid security level for SPHINCS+".to_string())),
                 };
                 
                 if public_key.len() != expected_key_len {
-                    return Err(QuantumError::InvalidKey);
+                    return Err(QuantumError::InvalidKey(format!("Invalid SPHINCS+ public key length: expected {}, got {}", expected_key_len, public_key.len())));
                 }
                 
                 // Verify signature - would call actual SPHINCS+ verification
@@ -394,7 +393,7 @@ impl QuantumTransactionBuilder {
     ) -> Result<QuantumTransaction, QuantumError> {
         // Validate private key
         if private_key.is_empty() {
-            return Err(QuantumError::InvalidKey);
+            return Err(QuantumError::InvalidKey("Private key is empty".to_string()));
         }
         
         // Validate private key length based on scheme and security level
@@ -420,7 +419,7 @@ impl QuantumTransactionBuilder {
                     2 => 2528, // Dilithium2 + secp256k1
                     3 => 4000, // Dilithium3 + secp256k1
                     5 => 4864, // Dilithium5 + secp256k1
-                    _ => return Err(QuantumError::InvalidKey),
+                    _ => return Err(QuantumError::InvalidKey("Invalid security level for hybrid Secp256k1 scheme".to_string())),
                 }
             },
             (QuantumScheme::Hybrid(ClassicalScheme::Ed25519), _) => {
@@ -429,17 +428,17 @@ impl QuantumTransactionBuilder {
                     2 => 2528, // Dilithium2 + Ed25519
                     3 => 4000, // Dilithium3 + Ed25519
                     5 => 4864, // Dilithium5 + Ed25519
-                    _ => return Err(QuantumError::InvalidKey),
+                    _ => return Err(QuantumError::InvalidKey("Invalid security level for hybrid Ed25519 scheme".to_string())),
                 }
             },
             
             // Invalid security level
-            _ => return Err(QuantumError::InvalidKey),
+            _ => return Err(QuantumError::InvalidKey(format!("Invalid combination of scheme {:?} and security level {}", self.scheme, self.security_level))),
         };
         
         // Check if the provided key has the expected length
         if private_key.len() != expected_key_len {
-            return Err(QuantumError::InvalidKey);
+            return Err(QuantumError::InvalidKey(format!("Invalid private key length: expected {}, got {}", expected_key_len, private_key.len())));
         }
         
         // Get the transaction hash to sign
@@ -460,7 +459,7 @@ impl QuantumTransactionBuilder {
                     2 => 2420, // Dilithium2 signature
                     3 => 3293, // Dilithium3 signature
                     5 => 4595, // Dilithium5 signature
-                    _ => return Err(QuantumError::UnsupportedScheme),
+                    _ => return Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
                 };
                 vec![0u8; sig_len]
             },
@@ -476,7 +475,7 @@ impl QuantumTransactionBuilder {
                 let sig_len = match self.security_level {
                     1 => 690,  // Falcon-512 signature
                     5 => 1330, // Falcon-1024 signature
-                    _ => return Err(QuantumError::UnsupportedScheme),
+                    _ => return Err(QuantumError::UnsupportedScheme("Unsupported security level for Falcon".to_string())),
                 };
                 vec![0u8; sig_len]
             },
@@ -493,7 +492,7 @@ impl QuantumTransactionBuilder {
                     1 => 17088, // SPHINCS+-128f signature
                     3 => 35664, // SPHINCS+-192f signature
                     5 => 49856, // SPHINCS+-256f signature
-                    _ => return Err(QuantumError::UnsupportedScheme),
+                    _ => return Err(QuantumError::UnsupportedScheme("Unsupported security level for SPHINCS+".to_string())),
                 };
                 vec![0u8; sig_len]
             },
@@ -517,7 +516,7 @@ impl QuantumTransactionBuilder {
                             2 => 2420, // Dilithium2 signature
                             3 => 3293, // Dilithium3 signature 
                             5 => 4595, // Dilithium5 signature
-                            _ => return Err(QuantumError::UnsupportedScheme),
+                            _ => return Err(QuantumError::UnsupportedScheme("Unsupported security level for hybrid Secp256k1 scheme".to_string())),
                         };
                         let secp_sig_len = 64; // Compact signature (r,s)
                         vec![0u8; quantum_sig_len + secp_sig_len]
@@ -530,7 +529,7 @@ impl QuantumTransactionBuilder {
                             2 => 2420, // Dilithium2 signature
                             3 => 3293, // Dilithium3 signature
                             5 => 4595, // Dilithium5 signature
-                            _ => return Err(QuantumError::UnsupportedScheme),
+                            _ => return Err(QuantumError::UnsupportedScheme("Unsupported security level for hybrid Ed25519 scheme".to_string())),
                         };
                         let ed_sig_len = 64; // Ed25519 signature
                         vec![0u8; quantum_sig_len + ed_sig_len]

@@ -1,6 +1,6 @@
 use prometheus::{
     Registry, IntGauge, IntGaugeVec, IntCounter, IntCounterVec, 
-    Gauge, GaugeVec, Histogram, HistogramVec, Opts
+    Gauge, GaugeVec, Histogram, HistogramVec, Opts, HistogramOpts
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,9 +21,9 @@ pub struct ConsensusMetrics {
     chain_work: Gauge,
     /// Validation operations per second
     validation_ops_per_second: Gauge,
-    /// Block validation rates
+    /// Block validation results
     block_validation_result: IntCounterVec,
-    /// Transaction validation rates
+    /// Transaction validation results
     transaction_validation_result: IntCounterVec,
     /// Verification operations count by type
     verification_ops: IntCounterVec,
@@ -39,53 +39,62 @@ impl ConsensusMetrics {
     /// Create a new consensus metrics collector
     pub fn new(registry: &Registry, namespace: &str) -> Result<Self, MetricsError> {
         // Block validation time
-        let block_validation_time = Histogram::new(
-            Opts::new("block_validation_time_ms", "Time to validate a block in milliseconds")
-                .namespace(namespace.to_string())
-                .subsystem("consensus"),
-            vec![1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0],
+        let block_validation_time = Histogram::with_opts(
+            HistogramOpts::new(
+                "block_validation_time_ms",
+                "Block validation time in milliseconds"
+            )
+            .namespace(namespace.to_string())
+            .subsystem("consensus")
+            .buckets(vec![1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0])
         )?;
         registry.register(Box::new(block_validation_time.clone()))?;
         
         // Transaction validation time
-        let transaction_validation_time = Histogram::new(
-            Opts::new("transaction_validation_time_us", "Time to validate a transaction in microseconds")
-                .namespace(namespace.to_string())
-                .subsystem("consensus"),
-            vec![10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0, 50000.0, 100000.0],
+        let transaction_validation_time = Histogram::with_opts(
+            HistogramOpts::new(
+                "transaction_validation_time_ms",
+                "Transaction validation time in milliseconds"
+            )
+            .namespace(namespace.to_string())
+            .subsystem("consensus")
+            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0])
         )?;
         registry.register(Box::new(transaction_validation_time.clone()))?;
         
         // Fork count
-        let fork_count = IntCounter::new(
+        let fork_count = IntCounter::with_opts(
             Opts::new("fork_count", "Number of forks observed")
                 .namespace(namespace.to_string())
-                .subsystem("consensus"),
+                .subsystem("consensus")
         )?;
         registry.register(Box::new(fork_count.clone()))?;
         
         // Reorganization depth
-        let reorg_depth = Histogram::new(
-            Opts::new("reorg_depth", "Chain reorganization depth")
-                .namespace(namespace.to_string())
-                .subsystem("consensus"),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 20.0, 50.0, 100.0],
+        let reorg_depth = Histogram::with_opts(
+            HistogramOpts::new(
+                "reorg_depth",
+                "Reorganization depth"
+            )
+            .namespace(namespace.to_string())
+            .subsystem("consensus")
+            .buckets(vec![1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 20.0, 50.0])
         )?;
         registry.register(Box::new(reorg_depth.clone()))?;
         
         // Chain work
-        let chain_work = Gauge::new(
+        let chain_work = Gauge::with_opts(
             Opts::new("chain_work", "Current chain work")
                 .namespace(namespace.to_string())
-                .subsystem("consensus"),
+                .subsystem("consensus")
         )?;
         registry.register(Box::new(chain_work.clone()))?;
         
         // Validation operations per second
-        let validation_ops_per_second = Gauge::new(
+        let validation_ops_per_second = Gauge::with_opts(
             Opts::new("validation_ops_per_second", "Validation operations per second")
                 .namespace(namespace.to_string())
-                .subsystem("consensus"),
+                .subsystem("consensus")
         )?;
         registry.register(Box::new(validation_ops_per_second.clone()))?;
         
@@ -126,18 +135,18 @@ impl ConsensusMetrics {
         registry.register(Box::new(chain_state.clone()))?;
         
         // Nodes with identical tip
-        let nodes_with_identical_tip = IntGauge::new(
+        let nodes_with_identical_tip = IntGauge::with_opts(
             Opts::new("nodes_with_identical_tip", "Number of nodes with identical chain tip")
                 .namespace(namespace.to_string())
-                .subsystem("consensus"),
+                .subsystem("consensus")
         )?;
         registry.register(Box::new(nodes_with_identical_tip.clone()))?;
         
         // Total validation operations
-        let total_validation_ops = IntCounter::new(
+        let total_validation_ops = IntCounter::with_opts(
             Opts::new("total_validation_ops", "Total validation operations count")
                 .namespace(namespace.to_string())
-                .subsystem("consensus"),
+                .subsystem("consensus")
         )?;
         registry.register(Box::new(total_validation_ops.clone()))?;
         

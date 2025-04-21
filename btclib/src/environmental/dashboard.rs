@@ -3,6 +3,7 @@ use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc, Duration};
 use crate::environmental::emissions::{Emissions, EmissionsTracker, Region, EmissionFactor};
 use crate::environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetPurchase, EnvironmentalAssetType};
+use std::fmt;
 
 /// Time period for emissions data
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +48,22 @@ pub struct EnvironmentalMetrics {
     pub total_assets: f64,
     /// Net emissions (emissions - offsets) in tonnes CO2e
     pub net_emissions: f64,
+}
+
+/// Summary of environmental assets
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetSummary {
+    /// Type of asset
+    pub asset_type: EnvironmentalAssetType,
+    
+    /// Total amount purchased
+    pub amount: f64,
+    
+    /// Total cost in satoshis
+    pub cost: u64,
+    
+    /// Environmental impact description
+    pub impact_description: String,
 }
 
 /// Dashboard display options
@@ -105,7 +122,7 @@ impl EnvironmentalDashboard {
     }
     
     /// Generate metrics for the specified time period
-    pub fn generate_metrics(&mut self, period: EmissionsTimePeriod, transaction_count: u64) -> Result<EnvironmentalMetrics, String> {
+    pub fn generate_metrics(&self, period: EmissionsTimePeriod, transaction_count: u64) -> Result<EnvironmentalMetrics, String> {
         let now = Utc::now();
         
         // Determine time range based on period
