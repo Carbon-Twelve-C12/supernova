@@ -5,3 +5,4 @@ pub mod transaction_processor;
 pub mod config;
 pub mod api;
 pub mod validation;
+pub mod environmental;
