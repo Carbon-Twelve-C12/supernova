@@ -1,0 +1,81 @@
+name: Rust
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v2
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Install cargo-tarpaulin
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-tarpaulin
+    - name: Generate code coverage
+      run: cargo tarpaulin --verbose --workspace --timeout 120 --out Xml
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: true
+
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v2
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+  build:
+    name: Build
+    needs: [test, format]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        target: ${{ matrix.target }}
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v2
+    - name: Build
+      run: cargo build --release --target ${{ matrix.target }}
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: rust-binaries-${{ matrix.target }}
+        path: target/${{ matrix.target }}/release/ 

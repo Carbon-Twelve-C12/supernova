@@ -38,8 +38,22 @@ data:
     metrics_enabled = true
     metrics_port = 9090
     log_level = "info"
+    
+    [checkpoint]
+    checkpoints_enabled = true
+    checkpoint_interval = 86400  # Daily
+    checkpoint_type = "Regular"
+    data_dir = "/checkpoints"
+    max_checkpoints = 7
+    
+    [backup]
+    backup_dir = "/backups"
+    max_backups = 5
+    backup_interval = 3600
+    enable_automated_backups = true
+    verify_on_startup = true
 ---
-# Persistent Volume Claim for SuperNova data
+# Persistent Volume Claims
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -51,6 +65,45 @@ spec:
   resources:
     requests:
       storage: 100Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-checkpoints
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-backups
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 200Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-logs
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
   storageClassName: standard
 ---
 # Deployment for SuperNova Full Nodes
@@ -86,6 +139,19 @@ spec:
         fsGroup: 1000
         runAsUser: 1000
         runAsGroup: 1000
+      initContainers:
+      - name: init-dirs
+        image: busybox:latest
+        command: ['sh', '-c', 'mkdir -p /data /checkpoints /backups /logs && chown -R 1000:1000 /data /checkpoints /backups /logs']
+        volumeMounts:
+        - name: supernova-data
+          mountPath: /data
+        - name: supernova-checkpoints
+          mountPath: /checkpoints
+        - name: supernova-backups
+          mountPath: /backups
+        - name: supernova-logs
+          mountPath: /logs
       containers:
       - name: supernova
         image: supernova:latest
@@ -123,9 +189,24 @@ spec:
           timeoutSeconds: 5
           successThreshold: 1
           failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 9332
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 10
         volumeMounts:
         - name: supernova-data
           mountPath: /data
+        - name: supernova-checkpoints
+          mountPath: /checkpoints
+        - name: supernova-backups
+          mountPath: /backups
+        - name: supernova-logs
+          mountPath: /logs
         - name: supernova-config
           mountPath: /config
         env:
@@ -141,10 +222,31 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: SUPERNOVA_DATA_DIR
+          value: "/data"
+        - name: SUPERNOVA_CONFIG_DIR
+          value: "/config"
+        - name: SUPERNOVA_CHECKPOINTS_DIR
+          value: "/checkpoints"
+        - name: SUPERNOVA_BACKUPS_DIR
+          value: "/backups"
+        - name: SUPERNOVA_LOGS_DIR
+          value: "/logs"
+        - name: TZ
+          value: "UTC"
       volumes:
       - name: supernova-data
         persistentVolumeClaim:
           claimName: supernova-data
+      - name: supernova-checkpoints
+        persistentVolumeClaim:
+          claimName: supernova-checkpoints
+      - name: supernova-backups
+        persistentVolumeClaim:
+          claimName: supernova-backups
+      - name: supernova-logs
+        persistentVolumeClaim:
+          claimName: supernova-logs
       - name: supernova-config
         configMap:
           name: supernova-config
@@ -190,6 +292,59 @@ spec:
     app: supernova
     component: full-node
 ---
+# Persistent Volume Claims for Miner
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-miner-data
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-miner-checkpoints
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-miner-backups
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-miner-logs
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard
+---
 # Deployment for SuperNova Mining Nodes
 apiVersion: apps/v1
 kind: Deployment
@@ -218,6 +373,19 @@ spec:
         fsGroup: 1000
         runAsUser: 1000
         runAsGroup: 1000
+      initContainers:
+      - name: init-dirs
+        image: busybox:latest
+        command: ['sh', '-c', 'mkdir -p /data /checkpoints /backups /logs && chown -R 1000:1000 /data /checkpoints /backups /logs']
+        volumeMounts:
+        - name: miner-data
+          mountPath: /data
+        - name: miner-checkpoints
+          mountPath: /checkpoints
+        - name: miner-backups
+          mountPath: /backups
+        - name: miner-logs
+          mountPath: /logs
       containers:
       - name: supernova-miner
         image: supernova:latest
@@ -237,9 +405,33 @@ spec:
           limits:
             cpu: 6000m
             memory: 12Gi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9332
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9332
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
         volumeMounts:
         - name: miner-data
           mountPath: /data
+        - name: miner-checkpoints
+          mountPath: /checkpoints
+        - name: miner-backups
+          mountPath: /backups
+        - name: miner-logs
+          mountPath: /logs
         - name: supernova-config
           mountPath: /config
         env:
@@ -249,27 +441,34 @@ spec:
           value: "info"
         - name: MINE
           value: "true"
+        - name: SUPERNOVA_DATA_DIR
+          value: "/data"
+        - name: SUPERNOVA_CONFIG_DIR
+          value: "/config"
+        - name: SUPERNOVA_CHECKPOINTS_DIR
+          value: "/checkpoints"
+        - name: SUPERNOVA_BACKUPS_DIR
+          value: "/backups"
+        - name: SUPERNOVA_LOGS_DIR
+          value: "/logs"
+        - name: TZ
+          value: "UTC"
       volumes:
       - name: miner-data
         persistentVolumeClaim:
           claimName: supernova-miner-data
+      - name: miner-checkpoints
+        persistentVolumeClaim:
+          claimName: supernova-miner-checkpoints
+      - name: miner-backups
+        persistentVolumeClaim:
+          claimName: supernova-miner-backups
+      - name: miner-logs
+        persistentVolumeClaim:
+          claimName: supernova-miner-logs
       - name: supernova-config
         configMap:
           name: supernova-config
----
-# Persistent Volume Claim for SuperNova Miner data
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: supernova-miner-data
-  namespace: supernova
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 100Gi
-  storageClassName: standard
 ---
 # Horizontal Pod Autoscaler for SuperNova Full Nodes
 apiVersion: autoscaling/v2
@@ -417,6 +616,75 @@ spec:
     targetPort: 9090
   type: ClusterIP
 ---
+# SuperNova Checkpoint CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: supernova-checkpoint-verifier
+  namespace: supernova
+spec:
+  schedule: "0 * * * *"  # Runs hourly
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: checkpoint-verifier
+            image: busybox:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              REPORT_DIR=/logs/checkpoint-verification
+              mkdir -p $REPORT_DIR
+              REPORT_FILE="$REPORT_DIR/checkpoint-verification-$(date +%Y%m%d-%H%M%S).log"
+              
+              echo "Checkpoint Verification Report" > $REPORT_FILE
+              echo "Generated at: $(date)" >> $REPORT_FILE
+              echo "----------------------------------------" >> $REPORT_FILE
+              
+              if [ -d "/checkpoints" ]; then
+                echo "Scanning checkpoints directory..." >> $REPORT_FILE
+                find /checkpoints -type d -name "checkpoint_*" | while read -r dir; do
+                  echo "Checking $dir" >> $REPORT_FILE
+                  INFO_FILE="$dir/checkpoint_info.json"
+                  if [ -f "$INFO_FILE" ]; then
+                    echo "  Info file found" >> $REPORT_FILE
+                    if [ -d "$dir/data" ]; then
+                      echo "  Data directory found" >> $REPORT_FILE
+                      echo "  STATUS: VALID" >> $REPORT_FILE
+                    else
+                      echo "  Data directory missing" >> $REPORT_FILE
+                      echo "  STATUS: INVALID" >> $REPORT_FILE
+                    fi
+                  else
+                    echo "  Info file missing" >> $REPORT_FILE
+                    echo "  STATUS: INVALID" >> $REPORT_FILE
+                  fi
+                  echo "" >> $REPORT_FILE
+                done
+              else
+                echo "No checkpoints directory found" >> $REPORT_FILE
+              fi
+              
+              echo "Verification completed at $(date)" >> $REPORT_FILE
+              echo "Checkpoint verification completed"
+            volumeMounts:
+            - name: supernova-checkpoints
+              mountPath: /checkpoints
+              readOnly: true
+            - name: verification-logs
+              mountPath: /logs
+          restartPolicy: OnFailure
+          volumes:
+          - name: supernova-checkpoints
+            persistentVolumeClaim:
+              claimName: supernova-checkpoints
+          - name: verification-logs
+            persistentVolumeClaim:
+              claimName: supernova-logs
+---
 # SuperNova Backup CronJob
 apiVersion: batch/v1
 kind: CronJob
@@ -439,12 +707,32 @@ spec:
             - |
               BACKUP_DIR=/backups/$(date +%Y-%m-%d)
               mkdir -p $BACKUP_DIR
+              
+              # Backup blockchain data
+              echo "Creating blockchain data backup..."
               cd /data
               tar czf $BACKUP_DIR/supernova-data.tar.gz .
+              
+              # Backup checkpoints
+              echo "Creating checkpoints backup..."
+              cd /checkpoints
+              tar czf $BACKUP_DIR/supernova-checkpoints.tar.gz .
+              
+              # Save metadata
+              echo "Backup completed at $(date)" > $BACKUP_DIR/backup-info.txt
+              echo "Blockchain data size: $(du -sh /data | cut -f1)" >> $BACKUP_DIR/backup-info.txt
+              echo "Checkpoints size: $(du -sh /checkpoints | cut -f1)" >> $BACKUP_DIR/backup-info.txt
+              
+              # Cleanup old backups (keep last 7 days)
+              find /backups -type d -name "20??-??-??" -mtime +7 -exec rm -rf {} \;
+              
               echo "Backup completed"
             volumeMounts:
             - name: supernova-data
               mountPath: /data
+              readOnly: true
+            - name: supernova-checkpoints
+              mountPath: /checkpoints
               readOnly: true
             - name: backup-volume
               mountPath: /backups
@@ -453,20 +741,9 @@ spec:
           - name: supernova-data
             persistentVolumeClaim:
               claimName: supernova-data
+          - name: supernova-checkpoints
+            persistentVolumeClaim:
+              claimName: supernova-checkpoints
           - name: backup-volume
             persistentVolumeClaim:
-              claimName: supernova-backups
----
-# Backup Storage
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: supernova-backups
-  namespace: supernova
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 200Gi
-  storageClassName: standard 
+              claimName: supernova-backups 

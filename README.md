@@ -5,6 +5,14 @@
   <p>
     <h2><strong>A production-grade PoW blockchain implementation written in Rust</strong></h2>
   </p>
+  
+  <p align="center">
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/rust.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/rust.yml/badge.svg" alt="Rust" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/code-coverage.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/code-coverage.yml/badge.svg" alt="Code Coverage" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/security-audit.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/security-audit.yml/badge.svg" alt="Security Audit" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml/badge.svg" alt="Clippy" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml/badge.svg" alt="Benchmarks" /></a>
+  </p>
 </div>
 
 ## Overview
@@ -550,7 +558,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [libp2p](https://libp2p.io/) for the P2P networking stack
 - [sled](https://github.com/spacejam/sled) for the embedded database
 - [Cambridge Bitcoin Electricity Consumption Index](https://ccaf.io/cbeci/index) for emissions calculation methodology
-- [Crypto Climate Accord Carbon Accounting Guidance](https://cryptoclimate.org/wp-content/uploads/2021/12/RMI-CIP-CCA-Guidance-Documentation-Dec15.pdf)
+- [Crypto Climate Accord Carbon Accounting Guidance](https://cryptoclimate.org/wp-content/uploads/2021/12/RMI-CIP-CCA-Guidance-Documentation-Dec15.pdf) for carbon accounting methodology
 - [Lightning Network whitepaper](https://lightning.network/lightning-network-paper.pdf) for off-chain payment channels
 
 

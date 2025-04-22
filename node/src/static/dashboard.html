@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperNova Node Metrics</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f6f8fa;
+            color: #24292e;
+        }
+        
+        header {
+            background-color: #0a0e14;
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 1rem;
+            padding: 1rem;
+        }
+        
+        .card-header {
+            border-bottom: 1px solid #e1e4e8;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin: 0;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+        
+        .metric-name {
+            font-weight: 500;
+            color: #586069;
+        }
+        
+        .metric-value {
+            font-weight: 600;
+        }
+        
+        .progress-bar {
+            height: 8px;
+            background-color: #e1e4e8;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 0.25rem;
+        }
+        
+        .progress-value {
+            height: 100%;
+            border-radius: 4px;
+            background-color: #2188ff;
+        }
+        
+        .refresh-button {
+            background-color: #2188ff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .refresh-button:hover {
+            background-color: #0366d6;
+        }
+        
+        .refresh-info {
+            font-size: 0.8rem;
+            color: #6a737d;
+            margin-top: 0.5rem;
+            text-align: right;
+        }
+        
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .table th,
+        .table td {
+            padding: 0.5rem;
+            text-align: left;
+            border-bottom: 1px solid #e1e4e8;
+        }
+        
+        .table th {
+            font-weight: 600;
+            color: #24292e;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid #e1e4e8;
+            padding-bottom: 0.5rem;
+        }
+        
+        .tab {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-radius: 4px 4px 0 0;
+            font-weight: 500;
+        }
+        
+        .tab.active {
+            background-color: #0366d6;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .chart-container {
+            height: 200px;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+        
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>SuperNova Node Metrics</h1>
+        <button id="refreshButton" class="refresh-button">Refresh</button>
+    </header>
+    
+    <div class="container">
+        <div class="refresh-info">
+            Last updated: <span id="lastUpdated">-</span>
+            <div>Auto-refresh: <input type="checkbox" id="autoRefresh" checked> <span id="countdown">10</span>s</div>
+        </div>
+        
+        <div class="tabs">
+            <div class="tab active" data-tab="system">System</div>
+            <div class="tab" data-tab="custom">Application</div>
+            <div class="tab" data-tab="prometheus">Prometheus</div>
+        </div>
+        
+        <div id="systemTab" class="tab-content active">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Node Information</h2>
+                </div>
+                <div class="grid">
+                    <div>
+                        <div class="metric">
+                            <span class="metric-name">Version</span>
+                            <span class="metric-value" id="version">-</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-name">Uptime</span>
+                            <span class="metric-value" id="uptime">-</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-name">Start Time</span>
+                            <span class="metric-value" id="startTime">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Memory</h2>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">Usage</span>
+                        <span class="metric-value" id="memoryUsage">-</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-value" id="memoryBar" style="width: 0%"></div>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">Total Memory</span>
+                        <span class="metric-value" id="memoryTotal">-</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">Used Memory</span>
+                        <span class="metric-value" id="memoryUsed">-</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">Free Memory</span>
+                        <span class="metric-value" id="memoryFree">-</span>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">CPU</h2>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">Usage</span>
+                        <span class="metric-value" id="cpuUsage">-</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-value" id="cpuBar" style="width: 0%"></div>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">CPU Count</span>
+                        <span class="metric-value" id="cpuCount">-</span>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Process</h2>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">Memory Usage</span>
+                        <span class="metric-value" id="processMemory">-</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">CPU Usage</span>
+                        <span class="metric-value" id="processCpu">-</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">Disk Read</span>
+                        <span class="metric-value" id="processDiskRead">-</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-name">Disk Written</span>
+                        <span class="metric-value" id="processDiskWritten">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Disk Usage</h2>
+                </div>
+                <table class="table" id="disksTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Total</th>
+                            <th>Free</th>
+                            <th>Used</th>
+                            <th>Usage %</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Network Interfaces</h2>
+                </div>
+                <table class="table" id="networksTable">
+                    <thead>
+                        <tr>
+                            <th>Interface</th>
+                            <th>Received</th>
+                            <th>Transmitted</th>
+                            <th>Packets (RX/TX)</th>
+                            <th>Errors (RX/TX)</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div id="customTab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Counters</h2>
+                </div>
+                <table class="table" id="countersTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Value</th>
+                            <th>Labels</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Gauges</h2>
+                </div>
+                <table class="table" id="gaugesTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Value</th>
+                            <th>Labels</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Histograms</h2>
+                </div>
+                <table class="table" id="histogramsTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Count</th>
+                            <th>Min</th>
+                            <th>Max</th>
+                            <th>Mean</th>
+                            <th>Median</th>
+                            <th>P95</th>
+                            <th>Labels</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div id="prometheusTab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Prometheus Metrics</h2>
+                    <a href="/prometheus" target="_blank" class="refresh-button">Raw Metrics</a>
+                </div>
+                <pre id="prometheusContent" style="overflow:auto; white-space:pre-wrap;"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Formatting utilities
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+            
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+        
+        function formatDuration(seconds) {
+            const days = Math.floor(seconds / 86400);
+            seconds %= 86400;
+            const hours = Math.floor(seconds / 3600);
+            seconds %= 3600;
+            const minutes = Math.floor(seconds / 60);
+            seconds %= 60;
+            
+            let result = '';
+            if (days > 0) result += `${days}d `;
+            if (hours > 0 || days > 0) result += `${hours}h `;
+            if (minutes > 0 || hours > 0 || days > 0) result += `${minutes}m `;
+            result += `${Math.floor(seconds)}s`;
+            
+            return result;
+        }
+        
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleString();
+        }
+        
+        function formatPercent(value) {
+            return value.toFixed(2) + '%';
+        }
+        
+        // Tab functionality
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs and tab contents
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                // Add active class to clicked tab and corresponding content
+                tab.classList.add('active');
+                const tabName = tab.getAttribute('data-tab');
+                document.getElementById(tabName + 'Tab').classList.add('active');
+                
+                if (tabName === 'prometheus') {
+                    fetchPrometheusMetrics();
+                }
+            });
+        });
+        
+        // Metrics fetching and rendering
+        let metricsData = null;
+        let countdownInterval = null;
+        let countdownValue = 10;
+        
+        function updateCountdown() {
+            document.getElementById('countdown').textContent = countdownValue;
+            countdownValue--;
+            
+            if (countdownValue < 0) {
+                countdownValue = 10;
+                fetchMetrics();
+            }
+        }
+        
+        function setupAutoRefresh() {
+            const autoRefreshCheckbox = document.getElementById('autoRefresh');
+            
+            autoRefreshCheckbox.addEventListener('change', () => {
+                if (autoRefreshCheckbox.checked) {
+                    countdownValue = 10;
+                    countdownInterval = setInterval(updateCountdown, 1000);
+                } else {
+                    clearInterval(countdownInterval);
+                    document.getElementById('countdown').textContent = '--';
+                }
+            });
+            
+            // Initial setup of countdown
+            if (autoRefreshCheckbox.checked) {
+                countdownInterval = setInterval(updateCountdown, 1000);
+            }
+        }
+        
+        function fetchMetrics() {
+            fetch('/metrics')
+                .then(response => response.json())
+                .then(data => {
+                    metricsData = data;
+                    renderMetrics();
+                    document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
+                })
+                .catch(error => {
+                    console.error('Error fetching metrics:', error);
+                });
+        }
+        
+        function fetchPrometheusMetrics() {
+            fetch('/prometheus')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('prometheusContent').textContent = data;
+                })
+                .catch(error => {
+                    console.error('Error fetching Prometheus metrics:', error);
+                });
+        }
+        
+        function renderMetrics() {
+            if (!metricsData) return;
+            
+            // Node information
+            document.getElementById('version').textContent = metricsData.node_info.version;
+            document.getElementById('uptime').textContent = formatDuration(metricsData.node_info.uptime_sec);
+            document.getElementById('startTime').textContent = formatDate(metricsData.node_info.start_time);
+            
+            // Memory
+            const memory = metricsData.system.memory;
+            document.getElementById('memoryUsage').textContent = formatPercent(memory.utilization_pct);
+            document.getElementById('memoryBar').style.width = memory.utilization_pct + '%';
+            document.getElementById('memoryTotal').textContent = formatBytes(memory.total_bytes);
+            document.getElementById('memoryUsed').textContent = formatBytes(memory.used_bytes);
+            document.getElementById('memoryFree').textContent = formatBytes(memory.free_bytes);
+            
+            // CPU
+            const cpu = metricsData.system.cpu;
+            document.getElementById('cpuUsage').textContent = formatPercent(cpu.usage_pct);
+            document.getElementById('cpuBar').style.width = cpu.usage_pct + '%';
+            document.getElementById('cpuCount').textContent = cpu.count;
+            
+            // Process
+            const process = metricsData.system.process;
+            document.getElementById('processMemory').textContent = formatBytes(process.memory_bytes);
+            document.getElementById('processCpu').textContent = formatPercent(process.cpu_pct);
+            document.getElementById('processDiskRead').textContent = formatBytes(process.disk_read_bytes);
+            document.getElementById('processDiskWritten').textContent = formatBytes(process.disk_written_bytes);
+            
+            // Disks
+            const disksTable = document.querySelector('#disksTable tbody');
+            disksTable.innerHTML = '';
+            metricsData.system.disks.forEach(disk => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${disk.name}</td>
+                    <td>${disk.disk_type}</td>
+                    <td>${formatBytes(disk.total_bytes)}</td>
+                    <td>${formatBytes(disk.available_bytes)}</td>
+                    <td>${formatBytes(disk.used_bytes)}</td>
+                    <td>
+                        <div class="progress-bar" style="width:100px; display:inline-block; margin:0;">
+                            <div class="progress-value" style="width:${disk.utilization_pct}%; background-color:${disk.utilization_pct > 85 ? '#f85149' : disk.utilization_pct > 70 ? '#f97583' : '#2188ff'}"></div>
+                        </div>
+                        ${formatPercent(disk.utilization_pct)}
+                    </td>
+                `;
+                disksTable.appendChild(row);
+            });
+            
+            // Networks
+            const networksTable = document.querySelector('#networksTable tbody');
+            networksTable.innerHTML = '';
+            metricsData.system.networks.forEach(network => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${network.interface}</td>
+                    <td>${formatBytes(network.received_bytes)}</td>
+                    <td>${formatBytes(network.transmitted_bytes)}</td>
+                    <td>${network.received_packets} / ${network.transmitted_packets}</td>
+                    <td>${network.receive_errors} / ${network.transmit_errors}</td>
+                `;
+                networksTable.appendChild(row);
+            });
+            
+            // Counters
+            const countersTable = document.querySelector('#countersTable tbody');
+            countersTable.innerHTML = '';
+            metricsData.counters.forEach(counter => {
+                const row = document.createElement('tr');
+                const labels = counter.labels.map(label => `${label.name}=${label.value}`).join(', ');
+                row.innerHTML = `
+                    <td>${counter.name}</td>
+                    <td>${counter.value}</td>
+                    <td>${labels}</td>
+                `;
+                countersTable.appendChild(row);
+            });
+            
+            // Gauges
+            const gaugesTable = document.querySelector('#gaugesTable tbody');
+            gaugesTable.innerHTML = '';
+            metricsData.gauges.forEach(gauge => {
+                const row = document.createElement('tr');
+                const labels = gauge.labels.map(label => `${label.name}=${label.value}`).join(', ');
+                row.innerHTML = `
+                    <td>${gauge.name}</td>
+                    <td>${gauge.value}</td>
+                    <td>${labels}</td>
+                `;
+                gaugesTable.appendChild(row);
+            });
+            
+            // Histograms
+            const histogramsTable = document.querySelector('#histogramsTable tbody');
+            histogramsTable.innerHTML = '';
+            metricsData.histograms.forEach(histogram => {
+                const row = document.createElement('tr');
+                const labels = histogram.labels.map(label => `${label.name}=${label.value}`).join(', ');
+                row.innerHTML = `
+                    <td>${histogram.name}</td>
+                    <td>${histogram.count}</td>
+                    <td>${histogram.min.toFixed(2)}</td>
+                    <td>${histogram.max.toFixed(2)}</td>
+                    <td>${histogram.mean.toFixed(2)}</td>
+                    <td>${histogram.median.toFixed(2)}</td>
+                    <td>${histogram.p95.toFixed(2)}</td>
+                    <td>${labels}</td>
+                `;
+                histogramsTable.appendChild(row);
+            });
+        }
+        
+        // Initialize
+        document.getElementById('refreshButton').addEventListener('click', fetchMetrics);
+        setupAutoRefresh();
+        fetchMetrics();
+    </script>
+</body>
+</html> 
