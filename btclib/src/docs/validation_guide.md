@@ -145,10 +145,10 @@ You can use this scoring system to implement policies:
 // Example policy implementation
 fn process_transaction(validation_result: &ValidationResult, tx_value: u64) -> bool {
     match validation_result.security_score {
-        90..=100 => true, // Accept all transactions
-        70..=89 => tx_value < 1_000_000_000, // Only allow < 10 BTC for good security
-        50..=69 => tx_value < 100_000_000, // Only allow < 1 BTC for fair security
-        _ => false, // Reject transactions with poor security
+        90..=100 => true, // Always allow highest security
+        70..=89 => tx_value < 1_000_000_000, // Only allow < 10 NOVA for good security
+        50..=69 => tx_value < 100_000_000, // Only allow < 1 NOVA for fair security
+        _ => false, // Reject all transactions with poor security
     }
 }
 ```

@@ -4,10 +4,14 @@ use btclib::types::transaction::Transaction;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::{HashMap, HashSet};
-use tracing::{info, warn};
+use tracing::{info, warn, error, debug};
+use std::cmp::Ordering;
+use std::time::Duration;
 
 const MAX_REORG_DEPTH: u64 = 100;
 const MAX_FORK_DISTANCE: u64 = 6;
+const FORK_CHOICE_WINDOW: u64 = 10;
+const STALE_TIP_THRESHOLD: Duration = Duration::from_secs(3600);
 
 // Add the missing BlockNotFound variant to StorageError in persistence.rs
 impl From<&'static str> for StorageError {
@@ -25,6 +29,9 @@ pub struct ChainState {
     fork_points: HashSet<[u8; 32]>,
     last_reorg_time: SystemTime,
     reorg_count: u64,
+    active_forks: HashMap<[u8; 32], ForkInfo>,
+    last_block_time: SystemTime,
+    rejected_reorgs: u64,
 }
 
 #[derive(Debug)]
@@ -32,9 +39,45 @@ pub struct ReorganizationEvent {
     pub old_tip: [u8; 32],
     pub new_tip: [u8; 32],
     pub fork_point: [u8; 32],
+    pub fork_height: u64,
     pub blocks_disconnected: u64,
     pub blocks_connected: u64,
     pub timestamp: SystemTime,
+    pub time_since_last_reorg: Duration,
+    pub fork_choice_reason: ForkChoiceReason,
+}
+
+/// Information tracked for each active fork
+#[derive(Debug, Clone)]
+pub struct ForkInfo {
+    pub fork_point_hash: [u8; 32],
+    pub fork_point_height: u64,
+    pub tip_hash: [u8; 32],
+    pub tip_height: u64,
+    pub chain_work: u128,
+    pub blocks_added: u64,
+    pub first_seen: SystemTime,
+    pub last_updated: SystemTime,
+    pub is_active: bool,
+}
+
+/// Reason for choosing a particular fork
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForkChoiceReason {
+    /// Fork has higher accumulated work (primary decision factor)
+    HigherChainWork,
+    /// First-seen fork in case of equal chain work
+    FirstSeen,
+    /// Fork with more blocks in case of equal chain work
+    MoreBlocks,
+    /// Fork with better connectivity (more peers supporting it)
+    BetterConnectivity,
+    /// Fork with better transaction efficiency
+    BetterTransactionEfficiency,
+    /// Fork with better block propagation metrics
+    BetterPropagation,
+    /// Manual override by operator
+    ManualSelection,
 }
 
 impl ChainState {
@@ -61,6 +104,9 @@ impl ChainState {
             fork_points: HashSet::new(),
             last_reorg_time: SystemTime::now(),
             reorg_count: 0,
+            active_forks: HashMap::new(),
+            last_block_time: SystemTime::now(),
+            rejected_reorgs: 0,
         })
     }
 
@@ -111,49 +157,159 @@ impl ChainState {
         Ok(())
     }
 
+    /// Get time since last block was added
+    pub fn time_since_last_block(&self) -> Duration {
+        SystemTime::now()
+            .duration_since(self.last_block_time)
+            .unwrap_or_else(|_| Duration::from_secs(0))
+    }
+
+    /// Check if the current tip is considered stale
+    pub fn is_tip_stale(&self) -> bool {
+        self.time_since_last_block() > STALE_TIP_THRESHOLD
+    }
+
+    /// Get number of active forks
+    pub fn get_active_fork_count(&self) -> usize {
+        self.active_forks.len()
+    }
+
+    /// Get stats about rejected reorganizations
+    pub fn get_rejected_reorg_count(&self) -> u64 {
+        self.rejected_reorgs
+    }
+
+    /// Get information about active forks
+    pub fn get_active_forks(&self) -> Vec<ForkInfo> {
+        self.active_forks.values().cloned().collect()
+    }
+
     pub async fn process_block(&mut self, block: Block) -> Result<bool, StorageError> {
         let block_hash = block.hash();
         let prev_hash = block.prev_block_hash();
+
+        // Update last block time even if we don't accept the block
+        self.last_block_time = SystemTime::now();
 
         if !self.validate_block(&block).await? {
             return Err(StorageError::InvalidBlock);
         }
 
         if self.db.get_block(&block_hash)?.is_some() {
+            // Block already exists, but still update fork info
+            self.update_fork_info(&block)?;
             return Ok(false);
         }
 
         let new_chain_work = self.calculate_chain_work(&block)?;
 
         if prev_hash != self.best_block_hash {
-            let current_work = self.chain_work.get(&self.best_block_hash).unwrap_or(&0);
-            
-            if new_chain_work > *current_work {
-                let (fork_point, blocks_to_apply, blocks_to_disconnect) = 
-                    self.find_fork_point(&block)?;
-
-                if blocks_to_disconnect.len() as u64 > MAX_REORG_DEPTH {
-                    warn!("Rejected deep reorganization: {} blocks", blocks_to_disconnect.len());
-                    return Ok(false);
+            let current_work = match self.chain_work.get(&self.best_block_hash) {
+                Some(work) => *work,
+                None => {
+                    // If we don't have work for current tip, calculate it
+                    if let Ok(block) = self.db.get_block(&self.best_block_hash)? {
+                        let work = self.calculate_chain_work(&block)?;
+                        self.chain_work.insert(self.best_block_hash, work);
+                        work
+                    } else {
+                        0
+                    }
                 }
+            };
+            
+            // Update or create fork info regardless of whether we accept the block
+            self.update_fork_info(&block)?;
+            
+            // Determine if we should switch to the new fork
+            match new_chain_work.cmp(&current_work) {
+                Ordering::Greater => {
+                    // New chain has more work, attempt reorganization
+                    let (fork_point, blocks_to_apply, blocks_to_disconnect) = 
+                        self.find_fork_point(&block)?;
 
-                self.handle_chain_reorganization(&block, fork_point, blocks_to_apply, blocks_to_disconnect).await?;
-                return Ok(true);
-            } else {
-                self.fork_points.insert(prev_hash);
+                    if blocks_to_disconnect.len() as u64 > MAX_REORG_DEPTH {
+                        warn!("Rejected deep reorganization: {} blocks (max: {})", 
+                            blocks_to_disconnect.len(), MAX_REORG_DEPTH);
+                        self.rejected_reorgs += 1;
+                        return Ok(false);
+                    }
+
+                    let fork_choice_reason = ForkChoiceReason::HigherChainWork;
+                    self.handle_chain_reorganization(
+                        &block, 
+                        fork_point, 
+                        blocks_to_apply, 
+                        blocks_to_disconnect, 
+                        fork_choice_reason
+                    ).await?;
+                    return Ok(true);
+                },
+                Ordering::Equal => {
+                    // Equal chain work - use secondary metrics to decide
+                    // Look at the fork info to see which fork we saw first
+                    let current_fork = self.active_forks.get(&self.best_block_hash).cloned();
+                    let new_fork = self.active_forks.get(&block_hash).cloned();
+                    
+                    if let (Some(current), Some(new)) = (current_fork, new_fork) {
+                        // Prefer the fork we saw first
+                        if new.first_seen < current.first_seen {
+                            let (fork_point, blocks_to_apply, blocks_to_disconnect) = 
+                                self.find_fork_point(&block)?;
+                                
+                            if blocks_to_disconnect.len() as u64 > MAX_REORG_DEPTH {
+                                warn!("Rejected deep reorganization with equal work: {} blocks", 
+                                    blocks_to_disconnect.len());
+                                self.rejected_reorgs += 1;
+                                return Ok(false);
+                            }
+                            
+                            let fork_choice_reason = ForkChoiceReason::FirstSeen;
+                            self.handle_chain_reorganization(
+                                &block, 
+                                fork_point, 
+                                blocks_to_apply, 
+                                blocks_to_disconnect, 
+                                fork_choice_reason
+                            ).await?;
+                            return Ok(true);
+                        }
+                    }
+                    
+                    // Add to our fork set, but don't switch
+                    self.fork_points.insert(prev_hash);
+                },
+                Ordering::Less => {
+                    // Current chain has more work, just track this as a fork
+                    self.fork_points.insert(prev_hash);
+                }
             }
+        } else {
+            // Direct extension of current chain
+            let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
+            
+            self.store_block(block.clone())?;
+            self.chain_work.insert(block_hash, new_chain_work);
+            
+            // Update block metadata
+            self.current_height = block.height();
+            self.best_block_hash = block_hash;
+            
+            // Update total difficulty
+            self.update_total_difficulty(block_difficulty)?;
+            
+            // Update fork info for direct extension
+            self.update_fork_info(&block)?;
+            
+            return Ok(true);
         }
 
-        // Get the block's difficulty to update total difficulty
+        // Store the block in our database, but don't update best chain
         let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
-        
         self.store_block(block)?;
         self.chain_work.insert(block_hash, new_chain_work);
-        
-        // Update the total difficulty
-        self.update_total_difficulty(block_difficulty)?;
 
-        Ok(true)
+        Ok(false)
     }
 
     async fn validate_block(&self, block: &Block) -> Result<bool, StorageError> {
@@ -223,35 +379,90 @@ impl ChainState {
         fork_point: Block,
         blocks_to_apply: Vec<Block>,
         blocks_to_disconnect: Vec<Block>,
+        fork_choice_reason: ForkChoiceReason,
     ) -> Result<(), StorageError> {
+        let old_tip = self.best_block_hash;
+        let time_since_last_reorg = SystemTime::now()
+            .duration_since(self.last_reorg_time)
+            .unwrap_or_else(|_| Duration::from_secs(0));
+            
         let reorg_event = ReorganizationEvent {
-            old_tip: self.best_block_hash,
+            old_tip,
             new_tip: new_tip.hash(),
             fork_point: fork_point.hash(),
+            fork_height: fork_point.height(),
             blocks_disconnected: blocks_to_disconnect.len() as u64,
             blocks_connected: blocks_to_apply.len() as u64,
             timestamp: SystemTime::now(),
+            time_since_last_reorg,
+            fork_choice_reason: fork_choice_reason.clone(),
         };
+
+        // Log the reorganization event with detail appropriate to its size
+        if blocks_to_disconnect.len() > 1 || blocks_to_apply.len() > 1 {
+            info!("Chain reorganization: {} blocks disconnected, {} blocks connected at height {}. Reason: {:?}",
+                blocks_to_disconnect.len(),
+                blocks_to_apply.len(),
+                fork_point.height(),
+                fork_choice_reason);
+        } else {
+            debug!("Minor chain reorganization: {} blocks disconnected, {} blocks connected at height {}",
+                blocks_to_disconnect.len(),
+                blocks_to_apply.len(),
+                fork_point.height());
+        }
 
         self.db.begin_transaction()?;
 
+        // Disconnect blocks from the current main chain
         for block in blocks_to_disconnect.iter().rev() {
-            self.disconnect_block(block)?;
+            if let Err(e) = self.disconnect_block(block) {
+                error!("Error disconnecting block during reorganization: {:?}", e);
+                self.db.rollback_transaction()?;
+                return Err(e);
+            }
         }
 
+        // Connect blocks from the new chain
+        let mut total_difficulty_adjustment: u64 = 0;
         for block in blocks_to_apply.iter() {
-            self.connect_block(block)?;
+            let block_difficulty = calculate_block_work(extract_target_from_block(block)) as u64;
+            total_difficulty_adjustment += block_difficulty;
+            
+            if let Err(e) = self.connect_block(block) {
+                error!("Error connecting block during reorganization: {:?}", e);
+                // Critical error - rollback the transaction
+                self.db.rollback_transaction()?;
+                return Err(e);
+            }
         }
 
+        // Update chain state
         self.best_block_hash = new_tip.hash();
         self.current_height = new_tip.height();
         self.last_reorg_time = SystemTime::now();
         self.reorg_count += 1;
 
-        self.db.commit_transaction()?;
-        self.prune_fork_points()?;
+        // Update total difficulty for the reorg
+        self.update_total_difficulty(total_difficulty_adjustment)?;
 
-        info!("Chain reorganization complete: {:?}", reorg_event);
+        // Commit the transaction
+        if let Err(e) = self.db.commit_transaction() {
+            error!("Failed to commit reorganization transaction: {:?}", e);
+            return Err(e);
+        }
+        
+        // Update fork points
+        self.prune_fork_points()?;
+        
+        // Update fork info to reflect current state
+        for (hash, fork) in self.active_forks.iter_mut() {
+            fork.is_active = *hash == new_tip.hash() || self.is_ancestor_of(&fork.tip_hash, &new_tip.hash())?;
+        }
+
+        // Log successful reorganization
+        info!("Chain reorganization complete: Activated fork with tip {} at height {}",
+            hex::encode(&new_tip.hash()[..4]), new_tip.height());
 
         Ok(())
     }
@@ -423,6 +634,176 @@ impl ChainState {
     /// Get a reference to the underlying database
     pub fn get_db(&self) -> &Arc<BlockchainDB> {
         &self.db
+    }
+
+    /// Update information about active forks when a new block arrives
+    fn update_fork_info(&mut self, block: &Block) -> Result<(), StorageError> {
+        let block_hash = block.hash();
+        let prev_hash = block.prev_block_hash();
+        let now = SystemTime::now();
+        
+        // Check if this is an extension of an existing fork
+        if let Some(fork) = self.active_forks.get_mut(&prev_hash) {
+            // Update existing fork with new tip
+            fork.tip_hash = block_hash;
+            fork.tip_height = block.height();
+            fork.blocks_added += 1;
+            fork.last_updated = now;
+            fork.chain_work = self.calculate_chain_work(block)?;
+            
+            // Clone the updated fork info
+            let updated_fork = fork.clone();
+            
+            // Also store under the new block hash
+            self.active_forks.insert(block_hash, updated_fork);
+            
+            debug!("Extended fork to height {} with tip {}", 
+                block.height(), hex::encode(&block_hash[..4]));
+        } else if prev_hash == self.best_block_hash {
+            // This is a direct extension of the main chain
+            let fork_info = ForkInfo {
+                fork_point_hash: prev_hash,
+                fork_point_height: self.current_height,
+                tip_hash: block_hash,
+                tip_height: block.height(),
+                chain_work: self.calculate_chain_work(block)?,
+                blocks_added: 1,
+                first_seen: now,
+                last_updated: now,
+                is_active: true,
+            };
+            
+            self.active_forks.insert(block_hash, fork_info);
+        } else {
+            // This is a new fork or extension of an unknown fork
+            // Try to find fork point with main chain
+            let mut current = block.clone();
+            let mut fork_point_hash = [0u8; 32];
+            let mut fork_point_height = 0;
+            let mut blocks_on_fork = 1;
+            
+            // Work backwards until we find a common block with our main chain
+            while current.height() > 0 {
+                let prev_hash = current.prev_block_hash();
+                
+                if let Ok(Some(_)) = self.db.get_block(&prev_hash) {
+                    // Found a block we know about
+                    fork_point_hash = prev_hash;
+                    if let Ok(prev_block) = self.db.get_block(&prev_hash)? {
+                        fork_point_height = prev_block.height();
+                    }
+                    break;
+                }
+                
+                blocks_on_fork += 1;
+                
+                if let Ok(Some(prev_block)) = self.db.get_block(&prev_hash) {
+                    current = prev_block;
+                } else {
+                    // We don't have the previous block, so we can't determine the fork point
+                    break;
+                }
+            }
+            
+            let fork_info = ForkInfo {
+                fork_point_hash,
+                fork_point_height,
+                tip_hash: block_hash,
+                tip_height: block.height(),
+                chain_work: self.calculate_chain_work(block)?,
+                blocks_added: blocks_on_fork,
+                first_seen: now,
+                last_updated: now,
+                is_active: true,
+            };
+            
+            self.active_forks.insert(block_hash, fork_info);
+            
+            info!("Detected new fork at height {} with {} blocks since fork point", 
+                block.height(), blocks_on_fork);
+        }
+        
+        // Clean up old forks
+        self.prune_inactive_forks();
+        
+        Ok(())
+    }
+    
+    /// Remove forks that haven't been updated recently
+    fn prune_inactive_forks(&mut self) {
+        let now = SystemTime::now();
+        let max_age = Duration::from_secs(86400); // 24 hours
+        
+        self.active_forks.retain(|_, fork| {
+            if let Ok(age) = now.duration_since(fork.last_updated) {
+                // Keep forks that have been updated recently or are still close to the main chain
+                let height_difference = self.current_height.saturating_sub(fork.tip_height);
+                age < max_age || height_difference < MAX_FORK_DISTANCE
+            } else {
+                true // Keep on duration error
+            }
+        });
+    }
+
+    /// Check if one block is an ancestor of another
+    fn is_ancestor_of(&self, potential_ancestor_hash: &[u8; 32], descendant_hash: &[u8; 32]) -> Result<bool, StorageError> {
+        if potential_ancestor_hash == descendant_hash {
+            return Ok(true);
+        }
+        
+        let mut current_hash = *descendant_hash;
+        
+        // Walk back the chain until we find the ancestor or reach genesis
+        loop {
+            let current_block = match self.db.get_block(&current_hash)? {
+                Some(block) => block,
+                None => return Ok(false),
+            };
+            
+            // Check if we've reached height 0 (genesis)
+            if current_block.height() == 0 {
+                return Ok(false);
+            }
+            
+            // Get the previous hash
+            let prev_hash = current_block.prev_block_hash();
+            
+            // Check if we found our ancestor
+            if &prev_hash == potential_ancestor_hash {
+                return Ok(true);
+            }
+            
+            // Move to previous block
+            current_hash = prev_hash;
+        }
+    }
+
+    /// Calculate metrics about the longest chain and active forks
+    pub fn calculate_fork_metrics(&self) -> HashMap<String, u64> {
+        let mut metrics = HashMap::new();
+        
+        metrics.insert("main_chain_height".to_string(), self.current_height);
+        metrics.insert("active_forks".to_string(), self.active_forks.len() as u64);
+        metrics.insert("fork_points".to_string(), self.fork_points.len() as u64);
+        metrics.insert("reorg_count".to_string(), self.reorg_count);
+        metrics.insert("rejected_reorgs".to_string(), self.rejected_reorgs);
+        
+        // Calculate maximum fork length
+        let mut max_fork_length = 0;
+        for fork in self.active_forks.values() {
+            let fork_length = fork.tip_height.saturating_sub(fork.fork_point_height);
+            if fork_length > max_fork_length {
+                max_fork_length = fork_length;
+            }
+        }
+        metrics.insert("max_fork_length".to_string(), max_fork_length);
+        
+        // Time since last block
+        if let Ok(duration) = SystemTime::now().duration_since(self.last_block_time) {
+            metrics.insert("seconds_since_last_block".to_string(), duration.as_secs());
+        }
+        
+        metrics
     }
 }
 

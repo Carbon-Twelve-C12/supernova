@@ -14,6 +14,7 @@ use btclib::types::transaction::Transaction;
 use node::network::sync::{ChainSync, DefaultSyncMetrics};
 use hex;
 use std::thread::JoinHandle;
+use btclib::monitoring::mempool::MempoolMetrics;
 
 // Add NodeCommand enum for safe communication with the node
 enum NodeCommand {
@@ -29,6 +30,7 @@ struct Node {
     chain_state: ChainState,
     backup_manager: Arc<BackupManager>,
     corruption_handler: Arc<Mutex<CorruptionHandler>>,
+    mempool_metrics: Option<MempoolMetrics>,
 }
 
 impl Node {
@@ -88,6 +90,27 @@ impl Node {
             &config.lock().await.node.chain_id
         ).await?;
 
+        // Initialize mempool metrics if metrics are enabled
+        let mempool_metrics = if config.lock().await.node.metrics_enabled {
+            match prometheus::Registry::new() {
+                Ok(registry) => {
+                    match MempoolMetrics::new(&registry, "supernova") {
+                        Ok(metrics) => Some(metrics),
+                        Err(e) => {
+                            warn!("Failed to create mempool metrics: {}", e);
+                            None
+                        }
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to create metrics registry: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             mempool,
@@ -96,6 +119,7 @@ impl Node {
             chain_state,
             backup_manager,
             corruption_handler,
+            mempool_metrics,
         })
     }
 
@@ -188,17 +212,129 @@ impl Node {
         if fee_rate < config.mempool.min_fee_rate as u64 {
             info!("Transaction {} rejected: fee rate too low ({} < {})",
                     hex::encode(&tx_hash[..4]), fee_rate, config.mempool.min_fee_rate);
+            
+            // Update metrics if available
+            if let Some(metrics) = &self.mempool_metrics {
+                metrics.increment_transactions_removed("low_fee");
+            }
+            
             return Err("Fee rate too low".into());
         }
         
-        // Add to mempool
-        self.mempool.add_transaction(transaction.clone(), fee_rate)?;
+        // First try as an RBF transaction if enabled
+        if config.mempool.enable_rbf {
+            match self.mempool.replace_transaction(transaction.clone(), fee_rate) {
+                Ok(replaced_tx) => {
+                    // Successfully processed as RBF
+                    if let Some(old_tx) = replaced_tx {
+                        // Single transaction replacement
+                        let old_tx_hash = old_tx.hash();
+                        info!("Replaced transaction {} with {} (RBF, fee rate: {} -> {})",
+                              hex::encode(&old_tx_hash[..4]), 
+                              hex::encode(&tx_hash[..4]),
+                              self.prioritizer.lock().await.get_transaction_fee_rate(&old_tx_hash).unwrap_or(0),
+                              fee_rate);
+                        
+                        // Remove old transaction from prioritizer
+                        self.prioritizer.lock().await.remove_transaction(&old_tx_hash);
+                        
+                        // Update RBF metrics
+                        if let Some(metrics) = &self.mempool_metrics {
+                            metrics.increment_transactions_replaced();
+                            metrics.increment_transactions_removed("rbf");
+                            metrics.increment_transactions_added("rbf");
+                            metrics.observe_fee_rate(fee_rate as f64, "rbf");
+                        }
+                    } else {
+                        // Multiple transaction replacement
+                        info!("Replaced multiple transactions with {} (RBF, fee rate: {})",
+                              hex::encode(&tx_hash[..4]), fee_rate);
+                        
+                        // Update RBF metrics
+                        if let Some(metrics) = &self.mempool_metrics {
+                            metrics.increment_transactions_replaced();
+                            metrics.increment_transactions_removed("rbf_package");
+                            metrics.increment_transactions_added("rbf");
+                            metrics.observe_fee_rate(fee_rate as f64, "rbf");
+                        }
+                    }
+                    
+                    // Add new transaction to prioritizer
+                    self.prioritizer.lock().await.add_transaction(transaction, fee_rate, 0);
+                    return Ok(());
+                },
+                Err(MempoolError::NoConflictingTransactions) => {
+                    // Not an RBF, continue with regular add
+                },
+                Err(MempoolError::RbfDisabled) => {
+                    // RBF is disabled in config, continue with regular add
+                },
+                Err(MempoolError::InsufficientFeeIncrease(required)) => {
+                    // Log rejection due to insufficient fee increase
+                    info!("Transaction {} rejected: insufficient fee increase for RBF ({} < {})",
+                          hex::encode(&tx_hash[..4]), fee_rate, required);
+                    
+                    // Update metrics if available
+                    if let Some(metrics) = &self.mempool_metrics {
+                        metrics.increment_transactions_removed("insufficient_rbf_fee");
+                    }
+                    
+                    return Err(format!("Insufficient fee increase for RBF, minimum required: {}", required).into());
+                },
+                Err(e) => {
+                    // Other error
+                    info!("Transaction {} rejected: RBF error: {}", hex::encode(&tx_hash[..4]), e);
+                    
+                    // Update metrics if available
+                    if let Some(metrics) = &self.mempool_metrics {
+                        metrics.increment_transactions_removed("rbf_error");
+                    }
+                    
+                    return Err(format!("RBF error: {}", e).into());
+                }
+            }
+        }
         
-        // Add to prioritizer
-        self.prioritizer.lock().await.add_transaction(transaction, fee_rate, 0);
-        
-        info!("Added transaction {} to mempool with fee rate {}", hex::encode(&tx_hash[..4]), fee_rate);
-        Ok(())
+        // Regular transaction addition (not RBF or RBF failed)
+        match self.mempool.add_transaction(transaction.clone(), fee_rate) {
+            Ok(()) => {
+                // Add to prioritizer
+                self.prioritizer.lock().await.add_transaction(transaction, fee_rate, 0);
+                
+                // Update metrics if available
+                if let Some(metrics) = &self.mempool_metrics {
+                    metrics.increment_transactions_added("p2p");
+                    metrics.observe_fee_rate(fee_rate as f64, "standard");
+                    
+                    // Update mempool size metrics
+                    let mempool_size = self.mempool.transactions.len() as i64;
+                    metrics.observe_mempool_size(mempool_size);
+                }
+                
+                info!("Added transaction {} to mempool with fee rate {}", hex::encode(&tx_hash[..4]), fee_rate);
+                Ok(())
+            },
+            Err(MempoolError::DoubleSpend) => {
+                info!("Transaction {} rejected: double spend detected", hex::encode(&tx_hash[..4]));
+                
+                // Update metrics if available
+                if let Some(metrics) = &self.mempool_metrics {
+                    metrics.increment_transactions_removed("double_spend");
+                }
+                
+                Err("Double spend detected".into())
+            },
+            Err(e) => {
+                info!("Transaction {} rejected: {}", hex::encode(&tx_hash[..4]), e);
+                
+                // Update metrics if available
+                if let Some(metrics) = &self.mempool_metrics {
+                    metrics.increment_transactions_removed("other_error");
+                }
+                
+                Err(format!("Mempool error: {}", e).into())
+            }
+        }
     }
 
     async fn handle_config_reload(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -284,6 +420,7 @@ struct NodeHandle {
     backup_manager: Arc<BackupManager>,
     corruption_handler: Arc<Mutex<CorruptionHandler>>,
     config: Arc<Mutex<NodeConfig>>,
+    mempool_metrics: Option<MempoolMetrics>,
 }
 
 #[tokio::main]
@@ -301,6 +438,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         backup_manager: Arc::clone(&node.backup_manager),
         corruption_handler: Arc::clone(&node.corruption_handler),
         config: Arc::clone(&node.config),
+        mempool_metrics: node.mempool_metrics,
     };
     
     // Set up a command channel for node operations
@@ -515,6 +653,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let removed = node_handle.mempool.clear_expired();
                 if removed > 0 {
                     info!("Cleared {} expired transactions from mempool", removed);
+                    
+                    // Update metrics if available
+                    if let Some(metrics) = &node_handle.mempool_metrics {
+                        // Track expired transactions in metrics
+                        for _ in 0..removed {
+                            metrics.increment_transactions_expired();
+                            metrics.increment_transactions_removed("expired");
+                        }
+                        
+                        // Update mempool size metrics
+                        let mempool_size = node_handle.mempool.transactions.len() as i64;
+                        metrics.observe_mempool_size(mempool_size);
+                    }
                 }
             },
             
@@ -536,6 +687,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let sync_stats = sync_handle.get_stats();
                 info!("Sync status: {}. Current height: {}, Target height: {}", 
                      sync_stats.state, sync_stats.current_height, sync_stats.target_height);
+                
+                // Log fork information
+                let fork_stats = sync_handle.get_fork_stats();
+                let active_forks = fork_stats.get("active_forks").unwrap_or(&0);
+                let max_fork_length = fork_stats.get("max_fork_length").unwrap_or(&0);
+                let reorg_count = fork_stats.get("reorg_count").unwrap_or(&0);
+                let rejected_reorgs = fork_stats.get("rejected_reorgs").unwrap_or(&0);
+                
+                if *active_forks > 0 {
+                    info!("Fork status: {} active forks, max length: {}, reorgs: {}, rejected: {}", 
+                         active_forks, max_fork_length, reorg_count, rejected_reorgs);
+                }
+                
+                // Check if the tip is stale
+                if sync_handle.check_for_stale_tip() {
+                    let time_since_last = sync_handle.time_since_last_block().as_secs() / 60;
+                    warn!("Chain tip is stale! No new blocks for {} minutes", time_since_last);
+                }
             },
             
             // Handle shutdown signal

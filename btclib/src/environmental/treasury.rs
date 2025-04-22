@@ -217,12 +217,22 @@ impl EnvironmentalTreasury {
             ));
         }
         
-        let rec_amount = (amount as f64 * rec_allocation_percentage / 100.0) as u64;
+        // Default to a minimum of 60% for RECs unless explicitly set lower
+        // This enforces the priority of RECs over carbon offsets
+        let adjusted_rec_percentage = if rec_allocation_percentage < 60.0 {
+            // Only go below 60% if explicitly requested, but log a warning
+            log::warn!("REC allocation below recommended minimum of 60%. Using specified {}%", rec_allocation_percentage);
+            rec_allocation_percentage
+        } else {
+            rec_allocation_percentage
+        };
+        
+        let rec_amount = (amount as f64 * adjusted_rec_percentage / 100.0) as u64;
         let offset_amount = amount - rec_amount;
         
         let mut purchases = Vec::new();
         
-        // Purchase RECs
+        // Purchase RECs first - they have priority
         if rec_amount > 0 {
             // In a real implementation, this would connect to a REC marketplace
             // For demo, we'll simulate a purchase
@@ -237,14 +247,14 @@ impl EnvironmentalTreasury {
                 date: Utc::now(),
                 provider: "EcoREC Provider".to_string(),
                 reference: format!("REC-{}", Utc::now().timestamp()),
-                impact_score: 8.5, // High impact score for RECs
+                impact_score: 9.0, // Higher impact score for RECs (increased from 8.5)
             };
             
             purchases.push(purchase.clone());
             self.asset_purchases.push(purchase);
         }
         
-        // Purchase carbon offsets with remaining funds
+        // Purchase carbon offsets with remaining funds only if RECs are already purchased
         if offset_amount > 0 {
             // In a real implementation, this would connect to a carbon offset marketplace
             // For demo, we'll simulate a purchase
@@ -259,7 +269,7 @@ impl EnvironmentalTreasury {
                 date: Utc::now(),
                 provider: "Carbon Offset Provider".to_string(),
                 reference: format!("OFFSET-{}", Utc::now().timestamp()),
-                impact_score: 6.0, // Lower impact score for offsets
+                impact_score: 5.5, // Lower impact score for offsets (decreased from 6.0)
             };
             
             purchases.push(purchase.clone());
@@ -270,6 +280,92 @@ impl EnvironmentalTreasury {
         self.balance -= amount;
         
         Ok(purchases)
+    }
+    
+    /// Calculate environmental impact based on the RECs vs offsets ratio
+    /// Returns a score from 0-10, with higher scores representing better environmental impact
+    pub fn calculate_environmental_impact_score(&self) -> f64 {
+        let total_spent: u64 = self.asset_purchases.iter().map(|p| p.cost).sum();
+        
+        if total_spent == 0 {
+            return 0.0;
+        }
+        
+        let rec_spent: u64 = self.asset_purchases
+            .iter()
+            .filter(|p| p.asset_type == EnvironmentalAssetType::RenewableEnergyCertificate)
+            .map(|p| p.cost)
+            .sum();
+            
+        let rec_percentage = (rec_spent as f64 / total_spent as f64) * 100.0;
+        
+        // Calculate impact score based on REC percentage
+        // Higher REC percentage = higher score, prioritizing RECs over offsets
+        if rec_percentage >= 90.0 {
+            9.5 // Excellent impact, almost all funds to RECs
+        } else if rec_percentage >= 80.0 {
+            8.5
+        } else if rec_percentage >= 70.0 {
+            7.5
+        } else if rec_percentage >= 60.0 {
+            6.5 // Recommended minimum
+        } else if rec_percentage >= 50.0 {
+            5.5
+        } else if rec_percentage >= 40.0 {
+            4.5
+        } else if rec_percentage >= 30.0 {
+            3.5
+        } else if rec_percentage >= 20.0 {
+            2.5
+        } else if rec_percentage > 0.0 {
+            1.5
+        } else {
+            0.5 // Poor impact, no RECs purchased
+        }
+    }
+    
+    /// Get the current REC to carbon offset allocation ratio
+    pub fn get_rec_allocation_ratio(&self) -> f64 {
+        let total_spent: u64 = self.asset_purchases.iter().map(|p| p.cost).sum();
+        
+        if total_spent == 0 {
+            return 0.0;
+        }
+        
+        let rec_spent: u64 = self.asset_purchases
+            .iter()
+            .filter(|p| p.asset_type == EnvironmentalAssetType::RenewableEnergyCertificate)
+            .map(|p| p.cost)
+            .sum();
+            
+        (rec_spent as f64 / total_spent as f64) * 100.0
+    }
+    
+    /// Get recommended REC allocation percentage based on network characteristics
+    /// Takes into account the current renewable energy usage across registered miners
+    pub fn get_recommended_rec_allocation(&self) -> f64 {
+        if self.green_miners.is_empty() {
+            return 80.0; // Default high percentage if no miners registered
+        }
+        
+        // Calculate average renewable percentage among registered miners
+        let total_miners = self.green_miners.len() as f64;
+        let total_renewable_percentage: f64 = self.green_miners
+            .values()
+            .map(|info| info.renewable_percentage)
+            .sum();
+            
+        let avg_renewable_percentage = total_renewable_percentage / total_miners;
+        
+        // If miners are already using lots of renewable energy, focus more on offsets
+        // Otherwise, prioritize RECs even more
+        if avg_renewable_percentage >= 80.0 {
+            60.0 // 60% RECs, 40% offsets when miners already use lots of renewables
+        } else if avg_renewable_percentage >= 50.0 {
+            70.0 // 70% RECs, 30% offsets for moderate renewable usage
+        } else {
+            80.0 // 80% RECs, 20% offsets for low renewable usage to drive adoption
+        }
     }
     
     /// Get the current balance of the treasury

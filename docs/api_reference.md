@@ -239,7 +239,7 @@ Submits a raw transaction to the network.
 
 **Parameters**:
 1. `hexstring` (string, required): The hex string of the raw transaction
-2. `maxfeerate` (number, optional, default=0.1): Reject transactions whose fee rate is higher than the specified value (in BTC/kB)
+2. `maxfeerate` (number, optional, default=0.1): Reject transactions whose fee rate is higher than the specified value (in NOVA/kB)
 
 **Result**:
 ```
@@ -550,7 +550,7 @@ Send an amount to a given address.
 **Parameters**:
 1. `fromaccount` (string, required): The name of the account to send funds from
 2. `toaddress` (string, required): The address to send funds to
-3. `amount` (number, required): The amount to send (in BTC)
+3. `amount` (number, required): The amount to send (in NOVA)
 4. `minconf` (number, optional, default=1): Only use funds with at least this many confirmations
 5. `comment` (string, optional): A comment used to store what the transaction is for
 6. `comment_to` (string, optional): A comment to store the name of the person or organization to which you're sending the transaction
@@ -566,79 +566,6 @@ Send an amount to a given address.
 
 **Parameters**:
 1. `address` (string, required): The address to send to
-2. `amount` (number, required): The amount to send (in BTC)
+2. `amount` (number, required): The amount to send (in NOVA)
 3. `comment` (string, optional): A comment used to store what the transaction is for
-4. `comment_to` (string, optional): A comment to store the name of the person or organization to which you're sending the transaction
-5. `subtractfeefromamount` (boolean, optional, default=false): The fee will be deducted from the amount being sent
-
-**Result**:
-```
-"4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
-```
-
-## Error Codes
-
-The API uses the following error codes:
-
-| Code      | Message                  | Meaning                                                                     |
-|-----------|--------------------------|-----------------------------------------------------------------------------|
-| -32600    | Invalid Request          | The JSON sent is not a valid Request object                                 |
-| -32601    | Method not found         | The method does not exist / is not available                                |
-| -32602    | Invalid params           | Invalid method parameter(s)                                                 |
-| -32603    | Internal error           | Internal JSON-RPC error                                                     |
-| -32700    | Parse error              | Invalid JSON was received by the server                                     |
-| -1        | Out of memory            | Not enough memory available to complete the operation                       |
-| -3        | Database error           | Error interacting with the blockchain database                              |
-| -5        | Invalid address          | The provided address is invalid                                             |
-| -8        | Transaction not found    | Transaction not found in blockchain or mempool                              |
-| -25       | Missing or invalid params| Required parameter missing or invalid                                       |
-| -26       | Transaction rejected     | Transaction was rejected by the network rules                              |
-| -27       | Block not found          | Block not found in blockchain                                               |
-
-## Versioning
-
-The API follows semantic versioning. Breaking changes will only be introduced in major version updates.
-
-## Rate Limiting
-
-To protect the node from abuse, the API implements rate limiting. By default, the limits are:
-
-- 30 requests per minute per IP address
-- 5 concurrent connections per IP address
-
-These limits can be adjusted in the node configuration file.
-
-## WebSocket Subscriptions
-
-In addition to the HTTP RPC interface, SuperNova supports WebSocket connections for real-time notifications. The following subscription topics are available:
-
-- `blocks`: Notifies when a new block is added to the blockchain
-- `transactions`: Notifies when a new transaction is added to the mempool
-- `mempool`: Notifies when the mempool changes (add/remove transactions)
-
-Example WebSocket subscription:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "subscription-1",
-  "method": "subscribe",
-  "params": {
-    "topic": "blocks"
-  }
-}
-```
-
-Example notification:
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "notification",
-  "params": {
-    "topic": "blocks",
-    "data": {
-      "hash": "00000000000000000007ab12ca7931bed88ddb0e36edc99b063c6d469d6375b4",
-      "height": 1234
-    }
-  }
-}
-``` 
+4. `comment_to`

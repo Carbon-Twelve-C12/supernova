@@ -1,0 +1,472 @@
+---
+# Namespace for SuperNova Blockchain
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: supernova
+---
+# ConfigMap for SuperNova
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supernova-config
+  namespace: supernova
+data:
+  node.toml: |
+    # SuperNova Node Configuration
+    [network]
+    network_name = "supernova-testnet"
+    p2p_port = 9333
+    rpc_port = 9332
+    max_connections = 128
+    dns_seeds = ["seed1.supernova.network", "seed2.supernova.network"]
+    is_testnet = true
+    
+    [consensus]
+    target_block_time = 600
+    initial_difficulty = 1000
+    difficulty_adjustment_window = 2016
+    
+    [mining]
+    enabled = false
+    
+    [storage]
+    db_path = "/data/supernova"
+    prune_mode = "archive"
+    
+    [telemetry]
+    metrics_enabled = true
+    metrics_port = 9090
+    log_level = "info"
+---
+# Persistent Volume Claim for SuperNova data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-data
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: standard
+---
+# Deployment for SuperNova Full Nodes
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supernova-full-node
+  namespace: supernova
+  labels:
+    app: supernova
+    component: full-node
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: supernova
+      component: full-node
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: supernova
+        component: full-node
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+      - name: supernova
+        image: supernova:latest
+        imagePullPolicy: IfNotPresent
+        args: ["--config", "/config/node.toml"]
+        ports:
+        - containerPort: 9333
+          name: p2p
+        - containerPort: 9332
+          name: rpc
+        - containerPort: 9090
+          name: metrics
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 4000m
+            memory: 8Gi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9332
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9332
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        volumeMounts:
+        - name: supernova-data
+          mountPath: /data
+        - name: supernova-config
+          mountPath: /config
+        env:
+        - name: RUST_BACKTRACE
+          value: "1"
+        - name: RUST_LOG
+          value: "info"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+      volumes:
+      - name: supernova-data
+        persistentVolumeClaim:
+          claimName: supernova-data
+      - name: supernova-config
+        configMap:
+          name: supernova-config
+---
+# Service for SuperNova Full Nodes P2P
+apiVersion: v1
+kind: Service
+metadata:
+  name: supernova-p2p
+  namespace: supernova
+  labels:
+    app: supernova
+    component: full-node
+spec:
+  type: NodePort
+  ports:
+  - port: 9333
+    targetPort: p2p
+    nodePort: 30333
+    protocol: TCP
+    name: p2p
+  selector:
+    app: supernova
+    component: full-node
+---
+# Service for SuperNova RPC
+apiVersion: v1
+kind: Service
+metadata:
+  name: supernova-rpc
+  namespace: supernova
+  labels:
+    app: supernova
+    component: full-node
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9332
+    targetPort: rpc
+    protocol: TCP
+    name: rpc
+  selector:
+    app: supernova
+    component: full-node
+---
+# Deployment for SuperNova Mining Nodes
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supernova-miner
+  namespace: supernova
+  labels:
+    app: supernova
+    component: miner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: supernova
+      component: miner
+  template:
+    metadata:
+      labels:
+        app: supernova
+        component: miner
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+      - name: supernova-miner
+        image: supernova:latest
+        imagePullPolicy: IfNotPresent
+        args: ["--config", "/config/node.toml", "--mine"]
+        ports:
+        - containerPort: 9333
+          name: p2p
+        - containerPort: 9332
+          name: rpc
+        - containerPort: 9090
+          name: metrics
+        resources:
+          requests:
+            cpu: 2000m
+            memory: 4Gi
+          limits:
+            cpu: 6000m
+            memory: 12Gi
+        volumeMounts:
+        - name: miner-data
+          mountPath: /data
+        - name: supernova-config
+          mountPath: /config
+        env:
+        - name: RUST_BACKTRACE
+          value: "1"
+        - name: RUST_LOG
+          value: "info"
+        - name: MINE
+          value: "true"
+      volumes:
+      - name: miner-data
+        persistentVolumeClaim:
+          claimName: supernova-miner-data
+      - name: supernova-config
+        configMap:
+          name: supernova-config
+---
+# Persistent Volume Claim for SuperNova Miner data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-miner-data
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: standard
+---
+# Horizontal Pod Autoscaler for SuperNova Full Nodes
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: supernova-full-node-hpa
+  namespace: supernova
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: supernova-full-node
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 20
+        periodSeconds: 60
+---
+# Prometheus Monitoring
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: supernova
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    scrape_configs:
+      - job_name: 'supernova-nodes'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - supernova
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: (\d+)
+            target_label: __metrics_path__
+            replacement: /metrics
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+---
+# Prometheus Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: supernova
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: prometheus-config-volume
+          mountPath: /etc/prometheus/
+        - name: prometheus-storage-volume
+          mountPath: /prometheus/
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+      volumes:
+      - name: prometheus-config-volume
+        configMap:
+          defaultMode: 420
+          name: prometheus-config
+      - name: prometheus-storage-volume
+        persistentVolumeClaim:
+          claimName: prometheus-storage
+---
+# Prometheus Storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-storage
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+---
+# Prometheus Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: supernova
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+  type: ClusterIP
+---
+# SuperNova Backup CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: supernova-backup
+  namespace: supernova
+spec:
+  schedule: "0 2 * * *"  # Runs at 2:00 AM every day
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: busybox:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              BACKUP_DIR=/backups/$(date +%Y-%m-%d)
+              mkdir -p $BACKUP_DIR
+              cd /data
+              tar czf $BACKUP_DIR/supernova-data.tar.gz .
+              echo "Backup completed"
+            volumeMounts:
+            - name: supernova-data
+              mountPath: /data
+              readOnly: true
+            - name: backup-volume
+              mountPath: /backups
+          restartPolicy: OnFailure
+          volumes:
+          - name: supernova-data
+            persistentVolumeClaim:
+              claimName: supernova-data
+          - name: backup-volume
+            persistentVolumeClaim:
+              claimName: supernova-backups
+---
+# Backup Storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supernova-backups
+  namespace: supernova
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 200Gi
+  storageClassName: standard 

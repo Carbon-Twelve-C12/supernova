@@ -288,7 +288,7 @@ mod tests {
         )];
         
         let outputs = vec![TransactionOutput::new(
-            90_000_000, // Spending 0.9 BTC, implicit fee of 0.1 BTC
+            90_000_000, // Spending 0.9 NOVA, implicit fee of 0.1 NOVA
             vec![],
         )];
         
@@ -320,7 +320,7 @@ mod tests {
         )];
         
         let outputs = vec![TransactionOutput::new(
-            110_000_000, // Trying to spend 1.1 BTC when we only have 1.0 BTC
+            110_000_000, // Trying to spend 1.1 NOVA when we only have 1.0 NOVA
             vec![],
         )];
         

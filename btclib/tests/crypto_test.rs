@@ -3,6 +3,10 @@
 mod crypto {
     mod quantum_tests;
     mod zkp_tests;
+    mod signature_integration_tests;
+    mod interoperability_tests;
+    mod batch_verification_tests;
+    mod network_integration_tests;
 }
 
 #[test]

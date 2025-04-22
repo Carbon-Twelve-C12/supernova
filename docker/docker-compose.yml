@@ -1,0 +1,174 @@
+version: '3.8'
+
+services:
+  # Main blockchain node
+  supernova-node-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: supernova:latest
+    container_name: supernova-node-1
+    restart: unless-stopped
+    ports:
+      - "9333:9333"  # P2P networking
+      - "9332:9332"  # RPC interface
+      - "9090:9090"  # Prometheus metrics
+    volumes:
+      - node1-data:/home/supernova/data
+      - ../config/node1.toml:/home/supernova/config/default.toml
+    environment:
+      - RUST_LOG=info
+      - NODE_NAME=node1
+      - NETWORK=testnet
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.2
+
+  # Secondary blockchain node
+  supernova-node-2:
+    image: supernova:latest
+    container_name: supernova-node-2
+    restart: unless-stopped
+    ports:
+      - "19333:9333"  # P2P networking
+      - "19332:9332"  # RPC interface
+      - "19090:9090"  # Prometheus metrics
+    volumes:
+      - node2-data:/home/supernova/data
+      - ../config/node2.toml:/home/supernova/config/default.toml
+    environment:
+      - RUST_LOG=info
+      - NODE_NAME=node2
+      - NETWORK=testnet
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.3
+    depends_on:
+      - supernova-node-1
+
+  # Mining node
+  supernova-miner:
+    image: supernova:latest
+    container_name: supernova-miner
+    restart: unless-stopped
+    command: ["--config", "/home/supernova/config/default.toml", "--mine"]
+    ports:
+      - "29333:9333"  # P2P networking
+      - "29332:9332"  # RPC interface
+      - "29090:9090"  # Prometheus metrics
+    volumes:
+      - miner-data:/home/supernova/data
+      - ../config/miner.toml:/home/supernova/config/default.toml
+    environment:
+      - RUST_LOG=info
+      - NODE_NAME=miner
+      - NETWORK=testnet
+      - MINE=true
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.4
+    depends_on:
+      - supernova-node-1
+
+  # Explorer node
+  supernova-explorer:
+    image: supernova:latest
+    container_name: supernova-explorer
+    restart: unless-stopped
+    ports:
+      - "39333:9333"  # P2P networking
+      - "39332:9332"  # RPC interface
+      - "39090:9090"  # Prometheus metrics
+      - "8080:8080"   # Explorer web interface
+    volumes:
+      - explorer-data:/home/supernova/data
+      - ../config/explorer.toml:/home/supernova/config/default.toml
+    environment:
+      - RUST_LOG=info
+      - NODE_NAME=explorer
+      - NETWORK=testnet
+      - EXPLORER=true
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.5
+    depends_on:
+      - supernova-node-1
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: supernova-prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.10
+    depends_on:
+      - supernova-node-1
+      - supernova-node-2
+      - supernova-miner
+      - supernova-explorer
+
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: supernova-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=supernova
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.11
+    depends_on:
+      - prometheus
+
+  # Faucet service for testnet
+  supernova-faucet:
+    build:
+      context: ..
+      dockerfile: docker/faucet.Dockerfile
+    image: supernova-faucet:latest
+    container_name: supernova-faucet
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - faucet-data:/home/supernova/data
+      - ../config/faucet.toml:/home/supernova/config/faucet.toml
+    environment:
+      - RUST_LOG=info
+      - NODE_NAME=faucet
+      - NETWORK=testnet
+      - FAUCET_RPC_URL=http://supernova-node-1:9332
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.6
+    depends_on:
+      - supernova-node-1
+
+volumes:
+  node1-data:
+  node2-data:
+  miner-data:
+  explorer-data:
+  faucet-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  supernova-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 

@@ -151,7 +151,7 @@ impl QuantumParameters {
     pub fn expected_signature_length(&self) -> Result<usize, QuantumError> {
         match self.scheme {
             QuantumScheme::Dilithium => {
-                match self.security_level {
+                match SecurityLevel::from(self.security_level) {
                     SecurityLevel::Low => Ok(dilithium2::SIGNATUREBYTES),
                     SecurityLevel::Medium => Ok(dilithium3::SIGNATUREBYTES),
                     SecurityLevel::High => Ok(dilithium5::SIGNATUREBYTES),
@@ -174,7 +174,7 @@ impl QuantumParameters {
                 };
                 
                 // Get quantum length and add
-                let quantum_len = match self.security_level {
+                let quantum_len = match SecurityLevel::from(self.security_level) {
                     SecurityLevel::Low => dilithium2::SIGNATUREBYTES,
                     SecurityLevel::Medium => dilithium3::SIGNATUREBYTES,
                     SecurityLevel::High => dilithium5::SIGNATUREBYTES,
@@ -207,7 +207,7 @@ impl QuantumKeyPair {
         _rng: &mut R,
         security_level: u8,
     ) -> Result<Self, QuantumError> {
-        match security_level {
+        match SecurityLevel::from(security_level) {
             SecurityLevel::Low => {
                 let (pk, sk) = dilithium2::keypair();
                 let public_key = DilithiumPublicKey {
@@ -274,10 +274,29 @@ impl QuantumKeyPair {
     
     // Generate Falcon key pair
     fn generate_falcon<R: CryptoRng + RngCore>(
-        _rng: &mut R,
-        _security_level: u8,
+        rng: &mut R,
+        security_level: u8,
     ) -> Result<Self, QuantumError> {
-        Err(QuantumError::CryptoOperationFailed("Falcon key generation not yet implemented".to_string()))
+        // Use our new Falcon implementation
+        use crate::crypto::falcon::{FalconKeyPair, FalconParameters, FalconError};
+        
+        let params = FalconParameters::with_security_level(security_level);
+        
+        match FalconKeyPair::generate(rng, params) {
+            Ok(falcon_keypair) => {
+                Ok(Self {
+                    public_key: falcon_keypair.public_key,
+                    private_key: falcon_keypair.private_key,
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Falcon,
+                        security_level,
+                    },
+                })
+            },
+            Err(err) => {
+                Err(QuantumError::CryptoOperationFailed(format!("Falcon key generation failed: {}", err)))
+            }
+        }
     }
     
     // Generate SPHINCS+ key pair
@@ -301,7 +320,7 @@ impl QuantumKeyPair {
     pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>, QuantumError> {
         match self.parameters.scheme {
             QuantumScheme::Dilithium => {
-                match self.parameters.security_level {
+                match SecurityLevel::from(self.parameters.security_level) {
                     SecurityLevel::Low => {
                         let sk = dilithium2::SecretKey::from_bytes(&self.private_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium secret key: {}", e)))?;
@@ -324,9 +343,19 @@ impl QuantumKeyPair {
                 }
             },
             QuantumScheme::Falcon => {
-                // Implementation for Falcon would go here
-                // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed("Falcon signature implementation pending".to_string()))
+                // Use our new Falcon implementation
+                use crate::crypto::falcon::{FalconKeyPair, FalconParameters, FalconError};
+                
+                let params = FalconParameters::with_security_level(self.parameters.security_level);
+                
+                let falcon_keypair = FalconKeyPair {
+                    public_key: self.public_key.clone(),
+                    private_key: self.private_key.clone(),
+                    parameters: params,
+                };
+                
+                falcon_keypair.sign(message)
+                    .map_err(|e| QuantumError::CryptoOperationFailed(format!("Falcon signing failed: {}", e)))
             },
             QuantumScheme::Sphincs => {
                 // Implementation for SPHINCS+ would go here
@@ -355,7 +384,7 @@ impl QuantumKeyPair {
         
         match self.parameters.scheme {
             QuantumScheme::Dilithium => {
-                match self.parameters.security_level {
+                match SecurityLevel::from(self.parameters.security_level) {
                     SecurityLevel::Low => {
                         let pk = dilithium2::PublicKey::from_bytes(&self.public_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium public key: {}", e)))?;
@@ -393,9 +422,19 @@ impl QuantumKeyPair {
                 }
             },
             QuantumScheme::Falcon => {
-                // Implementation for Falcon would go here
-                // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed("Falcon verification implementation pending".to_string()))
+                // Use our new Falcon implementation
+                use crate::crypto::falcon::{FalconKeyPair, FalconParameters, FalconError};
+                
+                let params = FalconParameters::with_security_level(self.parameters.security_level);
+                
+                let falcon_keypair = FalconKeyPair {
+                    public_key: self.public_key.clone(),
+                    private_key: vec![], // Empty since we're only verifying
+                    parameters: params,
+                };
+                
+                falcon_keypair.verify(message, signature)
+                    .map_err(|e| QuantumError::CryptoOperationFailed(format!("Falcon verification failed: {}", e)))
             },
             QuantumScheme::Sphincs => {
                 // Implementation for SPHINCS+ would go here

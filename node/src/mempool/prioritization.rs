@@ -192,6 +192,28 @@ impl TransactionPrioritizer {
             Some(total_fee / total_size as u64)
         }
     }
+
+    /// Get the fee rate of a transaction by its hash
+    pub fn get_transaction_fee_rate(&self, tx_hash: &[u8; 32]) -> Option<u64> {
+        self.transactions.get(tx_hash).map(|tx| tx.fee_rate)
+    }
+    
+    /// Remove a transaction from the prioritizer
+    pub fn remove_transaction(&mut self, tx_hash: &[u8; 32]) -> Option<Transaction> {
+        if let Some(ptx) = self.transactions.remove(tx_hash) {
+            // Update descendant information for ancestors
+            for ancestor_hash in &ptx.ancestors {
+                if let Some(ancestor) = self.transactions.get_mut(ancestor_hash) {
+                    ancestor.descendants.remove(tx_hash);
+                }
+            }
+            
+            // Return the transaction
+            Some(ptx.transaction)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]

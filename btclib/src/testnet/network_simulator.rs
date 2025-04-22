@@ -2,6 +2,27 @@ use crate::testnet::config::NetworkSimulationConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, warn};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use rand::{thread_rng, Rng, distributions::{Distribution, Bernoulli}};
+use tokio::time::sleep;
+use thiserror::Error;
+use serde::{Serialize, Deserialize};
+
+/// Error types for network simulation
+#[derive(Debug, Error)]
+pub enum NetworkSimulationError {
+    #[error("Node not found: {0}")]
+    NodeNotFound(usize),
+    
+    #[error("Invalid network condition: {0}")]
+    InvalidCondition(String),
+    
+    #[error("Simulation error: {0}")]
+    SimulationError(String),
+    
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+}
 
 /// Represents the condition of a network connection between two nodes
 #[derive(Debug, Clone)]

@@ -20,6 +20,10 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 prometheus = { version = "0.13", features = ["process"] }
 pqcrypto-dilithium = "0.4.3"
 pqcrypto-traits = "0.3.4"
+reqwest = { version = "0.11", features = ["json"] }
+url = "2.4.0"
+hyper = { version = "0.14", features = ["full"] }
+curve25519-dalek = "4.1.1"
 
 [features]
 default = ["quantum", "environmental", "monitoring"]
@@ -30,3 +34,11 @@ monitoring = []
 [[example]]
 name = "environmental_demo"
 path = "examples/environmental_demo.rs"
+
+[[example]]
+name = "filecoin_inspired_env_demo"
+path = "examples/filecoin_inspired_env_demo.rs"
+
+[[example]]
+name = "emissions_tracking"
+path = "examples/emissions_tracking.rs"

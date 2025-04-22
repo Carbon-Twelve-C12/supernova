@@ -58,8 +58,8 @@ fn test_confidential_transaction_flow() {
     )];
     
     let outputs = vec![
-        (50_000_000, vec![]), // 0.5 BTC
-        (40_000_000, vec![]), // 0.4 BTC
+        (50_000_000, vec![]), // 0.5 NOVA
+        (40_000_000, vec![]), // 0.4 NOVA
     ];
     
     // Create a confidential transaction
@@ -107,7 +107,7 @@ fn test_transaction_processing() {
     )];
     
     let outputs = vec![TransactionOutput::new(
-        90_000_000, // 0.9 BTC
+        90_000_000, // 0.9 NOVA
         vec![],
     )];
     
@@ -147,7 +147,7 @@ fn test_confidential_transaction_processing() {
     )];
     
     let outputs = vec![
-        (90_000_000, vec![]), // 0.9 BTC
+        (90_000_000, vec![]), // 0.9 NOVA
     ];
     
     // Create a confidential transaction
@@ -179,7 +179,7 @@ fn test_confidential_transaction_with_invalid_amounts() {
     
     // Test with zero amount
     let zero_outputs = vec![
-        (0, vec![]), // Zero BTC - should be rejected
+        (0, vec![]), // Zero NOVA - should be rejected
     ];
     
     let zero_result = api.create_confidential_transaction(inputs.clone(), zero_outputs, &mut rng);
@@ -220,7 +220,7 @@ fn test_disabled_features() {
     )];
     
     let outputs = vec![
-        (90_000_000, vec![]), // 0.9 BTC
+        (90_000_000, vec![]), // 0.9 NOVA
     ];
     
     // Try to create a confidential transaction

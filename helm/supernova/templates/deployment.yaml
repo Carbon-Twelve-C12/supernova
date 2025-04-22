@@ -1,0 +1,100 @@
+{{- $fullName := include "supernova.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}-node
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.node.fullNodeReplicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supernova.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: full-node
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "supernova.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: full-node
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.node.config.telemetry.metricsPort }}"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.node.image.repository }}:{{ .Values.node.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.node.image.pullPolicy }}
+        args: ["--config", "/config/node.toml"]
+        ports:
+        - containerPort: {{ .Values.node.config.network.p2pPort }}
+          name: p2p
+        - containerPort: {{ .Values.node.config.network.rpcPort }}
+          name: rpc
+        - containerPort: {{ .Values.node.config.telemetry.metricsPort }}
+          name: metrics
+        resources:
+          {{- toYaml .Values.node.resources | nindent 12 }}
+        {{- if .Values.node.probes.readiness.enabled }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.node.probes.readiness.path }}
+            port: {{ .Values.node.probes.readiness.port }}
+          initialDelaySeconds: {{ .Values.node.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.node.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.node.probes.readiness.timeoutSeconds }}
+          successThreshold: {{ .Values.node.probes.readiness.successThreshold }}
+          failureThreshold: {{ .Values.node.probes.readiness.failureThreshold }}
+        {{- end }}
+        {{- if .Values.node.probes.liveness.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.node.probes.liveness.path }}
+            port: {{ .Values.node.probes.liveness.port }}
+          initialDelaySeconds: {{ .Values.node.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.node.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.node.probes.liveness.timeoutSeconds }}
+          successThreshold: {{ .Values.node.probes.liveness.successThreshold }}
+          failureThreshold: {{ .Values.node.probes.liveness.failureThreshold }}
+        {{- end }}
+        volumeMounts:
+        - name: node-data
+          mountPath: /data
+        - name: config
+          mountPath: /config
+        env:
+        - name: RUST_BACKTRACE
+          value: "1"
+        - name: RUST_LOG
+          value: {{ .Values.node.config.telemetry.logLevel }}
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+      volumes:
+      - name: config
+        configMap:
+          name: {{ $fullName }}-config
+      {{- if .Values.node.persistence.enabled }}
+      - name: node-data
+        persistentVolumeClaim:
+          claimName: {{ $fullName }}-node-data
+      {{- else }}
+      - name: node-data
+        emptyDir: {}
+      {{- end }} 

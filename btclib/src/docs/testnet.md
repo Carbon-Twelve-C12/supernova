@@ -82,7 +82,7 @@ config.initial_difficulty = 50_000;                // Lower initial difficulty
 config.difficulty_adjustment_window = 10;          // Adjust every 10 blocks
 config.max_difficulty_adjustment_factor = 2.0;     // Limit difficulty changes
 config.enable_faucet = true;                       // Enable test faucet
-config.faucet_distribution_amount = 50_000_000;    // 0.5 BTC per request
+config.faucet_distribution_amount = 50_000_000;    // 0.5 NOVA per request
 ```
 
 ### Network Simulation Settings

@@ -1,0 +1,287 @@
+# Default values for supernova Helm chart
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+  
+# SuperNova Node configuration
+node:
+  # Number of replicas for full nodes
+  fullNodeReplicas: 3
+  
+  # Image configuration
+  image:
+    repository: supernova
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  
+  # Node configuration
+  config:
+    network:
+      networkName: "supernova-testnet"
+      p2pPort: 9333
+      rpcPort: 9332
+      maxConnections: 128
+      dnsSeeds: ["seed1.supernova.network", "seed2.supernova.network"]
+      isTestnet: true
+    
+    consensus:
+      targetBlockTime: 600
+      initialDifficulty: 1000
+      difficultyAdjustmentWindow: 2016
+    
+    mining:
+      enabled: false
+    
+    storage:
+      dbPath: "/data/supernova"
+      pruneMode: "archive"
+    
+    telemetry:
+      metricsEnabled: true
+      metricsPort: 9090
+      logLevel: "info"
+  
+  # Storage configuration
+  persistence:
+    enabled: true
+    size: 100Gi
+    accessMode: ReadWriteOnce
+
+  # Services configuration
+  services:
+    p2p:
+      type: NodePort
+      port: 9333
+      nodePort: 30333
+    
+    rpc:
+      type: ClusterIP
+      port: 9332
+
+  # Health checks
+  probes:
+    readiness:
+      enabled: true
+      path: /health
+      port: 9332
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+    
+    liveness:
+      enabled: true
+      path: /health
+      port: 9332
+      initialDelaySeconds: 60
+      periodSeconds: 20
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 3
+
+# Mining nodes configuration
+miner:
+  # Enable miner nodes
+  enabled: true
+  
+  # Number of replicas for mining nodes
+  replicas: 1
+  
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+    limits:
+      cpu: 6000m
+      memory: 12Gi
+  
+  # Storage configuration
+  persistence:
+    enabled: true
+    size: 100Gi
+    accessMode: ReadWriteOnce
+
+# Autoscaling configuration
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Prometheus monitoring
+prometheus:
+  enabled: true
+  
+  # Storage configuration
+  persistence:
+    enabled: true
+    size: 50Gi
+    accessMode: ReadWriteOnce
+
+# Grafana dashboard
+grafana:
+  enabled: true
+  
+  # Admin password
+  adminPassword: "supernova"
+  
+  # Storage configuration  
+  persistence:
+    enabled: true
+    size: 10Gi
+    accessMode: ReadWriteOnce
+  
+  # Dashboards configuration
+  dashboards:
+    default:
+      supernova-dashboard:
+        json: |
+          {
+            "annotations": {
+              "list": []
+            },
+            "editable": true,
+            "gnetId": null,
+            "graphTooltip": 0,
+            "hideControls": false,
+            "id": null,
+            "links": [],
+            "panels": [
+              {
+                "aliasColors": {},
+                "bars": false,
+                "dashLength": 10,
+                "dashes": false,
+                "datasource": "Prometheus",
+                "fieldConfig": {
+                  "defaults": {
+                    "custom": {}
+                  },
+                  "overrides": []
+                },
+                "fill": 1,
+                "fillGradient": 0,
+                "gridPos": {
+                  "h": 8,
+                  "w": 12,
+                  "x": 0,
+                  "y": 0
+                },
+                "hiddenSeries": false,
+                "id": 1,
+                "legend": {
+                  "avg": false,
+                  "current": false,
+                  "max": false,
+                  "min": false,
+                  "show": true,
+                  "total": false,
+                  "values": false
+                },
+                "lines": true,
+                "linewidth": 1,
+                "nullPointMode": "null",
+                "percentage": false,
+                "pointradius": 2,
+                "points": false,
+                "renderer": "flot",
+                "seriesOverrides": [],
+                "spaceLength": 10,
+                "stack": false,
+                "steppedLine": false,
+                "targets": [
+                  {
+                    "expr": "supernova_blockchain_height",
+                    "interval": "",
+                    "legendFormat": "Height",
+                    "refId": "A"
+                  }
+                ],
+                "thresholds": [],
+                "timeFrom": null,
+                "timeRegions": [],
+                "timeShift": null,
+                "title": "Blockchain Height",
+                "tooltip": {
+                  "shared": true,
+                  "sort": 0,
+                  "value_type": "individual"
+                },
+                "type": "graph",
+                "xaxis": {
+                  "buckets": null,
+                  "mode": "time",
+                  "name": null,
+                  "show": true,
+                  "values": []
+                },
+                "yaxes": [
+                  {
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                  },
+                  {
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                  }
+                ],
+                "yaxis": {
+                  "align": false,
+                  "alignLevel": null
+                }
+              }
+            ],
+            "refresh": "10s",
+            "schemaVersion": 16,
+            "style": "dark",
+            "tags": [],
+            "templating": {
+              "list": []
+            },
+            "time": {
+              "from": "now-6h",
+              "to": "now"
+            },
+            "timepicker": {},
+            "timezone": "",
+            "title": "SuperNova Dashboard",
+            "uid": "supernova",
+            "version": 1
+          }
+
+# Backup configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Run daily at 2:00 AM
+  image:
+    repository: busybox
+    tag: latest
+    pullPolicy: IfNotPresent
+  persistence:
+    enabled: true
+    size: 200Gi
+    accessMode: ReadWriteOnce 

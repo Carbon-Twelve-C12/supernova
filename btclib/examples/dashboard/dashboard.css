@@ -1,0 +1,446 @@
+/* Main Styles for SuperNova Environmental Dashboard */
+
+:root {
+  --primary: #3498db;
+  --primary-light: #5dade2;
+  --primary-dark: #2980b9;
+  --success: #2ecc71;
+  --warning: #f39c12;
+  --danger: #e74c3c;
+  --dark: #34495e;
+  --light: #ecf0f1;
+  --bg-color: #f8f9fa;
+  --card-bg: #ffffff;
+  --border-color: #e0e0e0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-color);
+  color: #333;
+  padding-bottom: 30px;
+}
+
+/* Loading Overlay */
+#loadingOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.8);
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+
+.loading-spinner {
+  border: 5px solid var(--border-color);
+  border-top: 5px solid var(--primary);
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Navigation */
+.navbar {
+  background-color: var(--dark);
+  padding: 15px 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-brand {
+  font-weight: 700;
+  font-size: 1.5rem;
+  color: white !important;
+}
+
+.navbar-brand img {
+  margin-right: 10px;
+}
+
+.nav-link {
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85) !important;
+  padding: 8px 16px !important;
+  transition: all 0.3s ease;
+}
+
+.nav-link:hover, .nav-link.active {
+  color: white !important;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+/* Dashboard Container */
+.dashboard-container {
+  padding: 30px 15px;
+}
+
+.dashboard-title {
+  margin-bottom: 30px;
+  color: var(--dark);
+}
+
+.refresh-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.refresh-button {
+  background-color: var(--primary);
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.refresh-button:hover {
+  background-color: var(--primary-dark);
+}
+
+.refresh-button i {
+  margin-right: 8px;
+}
+
+/* Cards */
+.card {
+  background-color: var(--card-bg);
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+  background-color: rgba(0, 0, 0, 0.03);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-body {
+  padding: 20px;
+}
+
+/* Summary Cards */
+.summary-card .card-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 15px 0;
+  display: flex;
+  align-items: center;
+}
+
+.trend-indicator {
+  margin-left: 10px;
+  font-size: 0.9rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.trend-up {
+  color: var(--success);
+}
+
+.trend-down {
+  color: var(--danger);
+}
+
+.trend-up.negative {
+  color: var(--danger);
+}
+
+.trend-down.positive {
+  color: var(--success);
+}
+
+.card-label {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Chart Cards */
+.chart-container {
+  position: relative;
+  height: 300px;
+  width: 100%;
+}
+
+.chart-tabs {
+  display: flex;
+  margin-bottom: 15px;
+}
+
+.chart-tabs .nav-link {
+  color: #666 !important;
+  border-radius: 4px;
+  padding: 5px 10px !important;
+  margin-right: 5px;
+  font-size: 0.85rem;
+  background-color: #f0f2f5;
+}
+
+.chart-tabs .nav-link.active {
+  background-color: var(--primary);
+  color: white !important;
+}
+
+/* Distribution Charts */
+.distribution-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.asset-distribution {
+  display: flex;
+  flex-direction: column;
+  width: 40%;
+}
+
+.asset-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.asset-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  margin-right: 8px;
+}
+
+.asset-color.rec {
+  background-color: rgba(52, 191, 163, 0.8);
+}
+
+.asset-color.offset {
+  background-color: rgba(101, 143, 241, 0.8);
+}
+
+.asset-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.asset-value {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+/* Miners Table */
+.miners-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.miners-table th {
+  background-color: rgba(0, 0, 0, 0.03);
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #555;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.miners-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.miners-table tr:last-child td {
+  border-bottom: none;
+}
+
+.miners-table .badge {
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.badge-success {
+  background-color: rgba(46, 204, 113, 0.2);
+  color: #27ae60;
+}
+
+.badge-warning {
+  background-color: rgba(243, 156, 18, 0.2);
+  color: #d35400;
+}
+
+.badge-danger {
+  background-color: rgba(231, 76, 60, 0.2);
+  color: #c0392b;
+}
+
+.miners-table .progress {
+  height: 8px;
+  margin-bottom: 5px;
+  background-color: #f0f2f5;
+}
+
+.miners-table .progress-bar {
+  background-color: var(--success);
+}
+
+.table-footer {
+  padding: 10px 12px;
+  background-color: rgba(0, 0, 0, 0.02);
+  border-top: 1px solid var(--border-color);
+  font-size: 0.85rem;
+  color: #666;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Region Details */
+.region-details {
+  margin-top: 20px;
+}
+
+.region-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.region-item:last-child {
+  border-bottom: none;
+}
+
+.region-code {
+  font-weight: 600;
+  margin-right: 8px;
+  background-color: #f0f2f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.region-name {
+  color: #555;
+}
+
+.region-emissions {
+  font-weight: 500;
+  color: #555;
+}
+
+/* Debug Panel */
+#debugToggleContainer {
+  margin-left: 20px;
+  display: flex;
+  align-items: center;
+}
+
+#debugToggle {
+  margin-right: 5px;
+}
+
+#debugPanel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 200px;
+  background-color: #1e1e1e;
+  color: #ddd;
+  padding: 10px;
+  font-family: monospace;
+  overflow-y: auto;
+  z-index: 1000;
+  display: none;
+  font-size: 0.85rem;
+  border-top: 2px solid #3498db;
+}
+
+.debug-time {
+  color: #f39c12;
+  margin-right: 5px;
+}
+
+/* Footer */
+.footer {
+  text-align: center;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+  color: #666;
+  font-size: 0.85rem;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 992px) {
+  .chart-container {
+    height: 250px;
+  }
+  
+  .distribution-container {
+    flex-direction: column;
+  }
+  
+  .asset-distribution {
+    width: 100%;
+    margin-top: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .summary-card .card-value {
+    font-size: 1.5rem;
+  }
+  
+  .miners-table {
+    font-size: 0.85rem;
+  }
+  
+  .miners-table td, .miners-table th {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 576px) {
+  .refresh-section {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  #debugToggleContainer {
+    margin-left: 0;
+    margin-top: 10px;
+  }
+  
+  .chart-container {
+    height: 200px;
+  }
+} 
