@@ -3,6 +3,8 @@ use std::net::IpAddr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
+use log;
+use tokio;
 
 /// Errors related to security mitigation systems
 #[derive(Debug, Error)]
@@ -725,4 +727,180 @@ impl SecurityManager {
         let diversity_manager = self.diversity_manager.read().unwrap();
         diversity_manager.evaluate_diversity()
     }
+    
+    /// Initialize the security manager with network components
+    pub fn initialize_network_security(&self, network_manager: Arc<RwLock<NetworkManager>>) {
+        log::info!("Initializing network security components");
+        
+        // Configure and apply Sybil attack protections
+        let eclipse_config = EclipsePreventionConfig {
+            min_outbound_connections: 8,
+            forced_rotation_interval: 3600, // 1 hour
+            enable_automatic_rotation: true,
+            max_peers_per_subnet: 3,
+            max_peers_per_asn: 8,
+            max_peers_per_region: 15,
+            max_inbound_ratio: 3.0,
+        };
+        
+        // Apply Eclipse prevention configuration
+        if let Ok(mut network = network_manager.write()) {
+            network.configure_eclipse_prevention(eclipse_config);
+            log::info!("Eclipse attack prevention mechanisms configured");
+        } else {
+            log::error!("Failed to configure Eclipse prevention mechanisms");
+        }
+        
+        // Configure peer verification challenges
+        if let Ok(mut peers) = self.diversity_manager.write() {
+            peers.enable_identity_verification(true);
+            peers.set_verification_difficulty(16); // Moderate difficulty 
+            peers.set_verification_timeout(30);    // 30 seconds timeout
+            log::info!("Peer identity verification challenges configured");
+        } else {
+            log::error!("Failed to configure peer identity verification");
+        }
+        
+        // Schedule regular peer rotation to prevent Eclipse attacks
+        self.schedule_peer_rotation(network_manager.clone());
+        
+        log::info!("Network security components initialized successfully");
+    }
+    
+    /// Schedule periodic peer rotation to prevent Eclipse attacks
+    fn schedule_peer_rotation(&self, network_manager: Arc<RwLock<NetworkManager>>) {
+        let eclipse_prevention = self.eclipse_prevention.clone();
+        let diversity_manager = self.diversity_manager.clone();
+        
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60)); // Check every minute
+            
+            loop {
+                interval.tick().await;
+                
+                // Check if rotation is needed
+                let rotation_needed = {
+                    if let Ok(prevention) = eclipse_prevention.read() {
+                        prevention.check_rotation_needed()
+                    } else {
+                        false
+                    }
+                };
+                
+                if rotation_needed {
+                    log::info!("Performing scheduled peer rotation for Eclipse attack prevention");
+                    
+                    // Get peers to rotate
+                    let peers_to_rotate = {
+                        if let Ok(mut prevention) = eclipse_prevention.write() {
+                            prevention.get_rotation_candidates()
+                        } else {
+                            Vec::new()
+                        }
+                    };
+                    
+                    if !peers_to_rotate.is_empty() {
+                        // Request peer rotation from network manager
+                        if let Ok(mut network) = network_manager.write() {
+                            let replacement_count = network.rotate_peers(&peers_to_rotate);
+                            log::info!("Rotated {} peers to maintain network diversity", replacement_count);
+                            
+                            // Update diversity metrics
+                            if let Ok(mut diversity) = diversity_manager.write() {
+                                let score = diversity.evaluate_diversity();
+                                log::info!("Updated network diversity score: {:.2}", score);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    /// Check connection to ensure it complies with security requirements
+    pub fn validate_connection(&self, peer_id: &str, ip_addr: IpAddr) -> Result<ConnectionValidation, SecurityError> {
+        // Check rate limits
+        self.check_rate_limits(ip_addr)?;
+        
+        // Check peer diversity
+        let diversity_check = {
+            if let Ok(diversity) = self.diversity_manager.read() {
+                // Create subnet from IP
+                let subnet = IpSubnet::new(ip_addr, 24);
+                
+                // Check if this connection would maintain sufficient diversity
+                !diversity.would_violate_limits(&subnet)
+            } else {
+                true // Default to allowing if we can't check
+            }
+        };
+        
+        if !diversity_check {
+            return Err(SecurityError::DiversityRequirementsFailed(
+                "Connection would violate network diversity requirements".to_string()
+            ));
+        }
+        
+        // Determine if identity verification is needed
+        let needs_verification = {
+            if let Ok(prevention) = self.eclipse_prevention.read() {
+                // Require identity verification for new connections
+                !prevention.is_verified_peer(peer_id)
+            } else {
+                true // Default to requiring verification if we can't check
+            }
+        };
+        
+        if needs_verification {
+            // Generate a challenge for this peer
+            let challenge = {
+                if let Ok(mut prevention) = self.eclipse_prevention.write() {
+                    prevention.generate_challenge_for_peer(peer_id.to_string())
+                } else {
+                    None
+                }
+            };
+            
+            if let Some(challenge_data) = challenge {
+                return Ok(ConnectionValidation::RequiresVerification(challenge_data));
+            }
+        }
+        
+        // Connection passes all security checks
+        Ok(ConnectionValidation::Approved)
+    }
+    
+    /// Process a verification response from a peer
+    pub fn process_verification_response(&self, peer_id: &str, response: &str) -> Result<bool, SecurityError> {
+        let verification_result = {
+            if let Ok(mut prevention) = self.eclipse_prevention.write() {
+                prevention.verify_challenge_response(peer_id.to_string(), response.to_string())
+            } else {
+                Err(SecurityError::InternalError("Failed to access eclipse prevention manager".to_string()))
+            }
+        };
+        
+        match verification_result {
+            Ok(true) => {
+                log::info!("Peer {} successfully completed identity verification", peer_id);
+                Ok(true)
+            },
+            Ok(false) => {
+                log::warn!("Peer {} failed identity verification", peer_id);
+                Ok(false)
+            },
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// Connection validation result
+#[derive(Debug, Clone)]
+pub enum ConnectionValidation {
+    /// Connection is approved
+    Approved,
+    /// Connection requires verification
+    RequiresVerification(String),
+    /// Connection is rejected
+    Rejected(String),
 } 

@@ -1,10 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::{Duration, Instant};
+use rand::{Rng, thread_rng};
+use rand::distributions::Alphanumeric;
+use sha2::{Sha256, Digest};
 
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, error};
 
 /// Represents a subnet of IP addresses for diversity tracking
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -150,6 +153,32 @@ impl RateLimitInfo {
     }
 }
 
+/// Challenge status for identity verification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChallengeStatus {
+    /// No challenge issued yet
+    None,
+    /// Challenge issued and waiting for response
+    Pending {
+        /// The challenge string
+        challenge: String,
+        /// When the challenge was issued
+        issued_at: Instant,
+        /// Number of attempts made
+        attempts: u8,
+    },
+    /// Challenge successfully completed
+    Verified {
+        /// When verification occurred
+        verified_at: Instant,
+    },
+    /// Challenge failed
+    Failed {
+        /// Reason for failure
+        reason: String,
+    },
+}
+
 /// Information about a connected peer
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
@@ -177,6 +206,95 @@ pub struct PeerInfo {
     pub failed_exchanges: u64,
     /// Protocol versions supported
     pub protocols: Vec<String>,
+    /// Identity verification challenge status
+    pub challenge_status: ChallengeStatus,
+    /// Behavior patterns tracking
+    pub behavior_patterns: PeerBehavior,
+}
+
+/// Tracks peer behavior patterns for reputation scoring
+#[derive(Debug, Clone, Default)]
+pub struct PeerBehavior {
+    /// Number of valid blocks announced
+    pub valid_blocks_announced: u32,
+    /// Number of invalid blocks announced
+    pub invalid_blocks_announced: u32,
+    /// Number of valid transactions relayed
+    pub valid_txns_relayed: u32,
+    /// Number of invalid transactions relayed
+    pub invalid_txns_relayed: u32,
+    /// Response time history (in milliseconds)
+    pub response_times: VecDeque<u64>,
+    /// Number of protocol violations
+    pub protocol_violations: u32,
+    /// Number of unexpected disconnections
+    pub unexpected_disconnects: u32,
+    /// Last seen software version
+    pub client_version: Option<String>,
+    /// Unusual message patterns detected
+    pub unusual_patterns_detected: Vec<String>,
+}
+
+impl PeerBehavior {
+    /// Create a new peer behavior tracker
+    pub fn new() -> Self {
+        Self {
+            response_times: VecDeque::with_capacity(100),
+            ..Default::default()
+        }
+    }
+    
+    /// Record message response time
+    pub fn record_response_time(&mut self, time_ms: u64) {
+        if self.response_times.len() >= 100 {
+            self.response_times.pop_front();
+        }
+        self.response_times.push_back(time_ms);
+    }
+    
+    /// Calculate average response time
+    pub fn average_response_time(&self) -> Option<f64> {
+        if self.response_times.is_empty() {
+            return None;
+        }
+        
+        let sum: u64 = self.response_times.iter().sum();
+        Some(sum as f64 / self.response_times.len() as f64)
+    }
+    
+    /// Record unusual behavior pattern
+    pub fn record_unusual_pattern(&mut self, pattern: &str) {
+        self.unusual_patterns_detected.push(pattern.to_string());
+    }
+    
+    /// Calculate behavior reliability score (0-1)
+    pub fn reliability_score(&self) -> f64 {
+        let mut score = 1.0;
+        
+        // Penalize for invalid blocks/transactions
+        let total_blocks = self.valid_blocks_announced + self.invalid_blocks_announced;
+        if total_blocks > 0 {
+            let invalid_ratio = self.invalid_blocks_announced as f64 / total_blocks as f64;
+            score -= invalid_ratio * 0.3; // Up to 0.3 point penalty
+        }
+        
+        let total_txns = self.valid_txns_relayed + self.invalid_txns_relayed;
+        if total_txns > 0 {
+            let invalid_ratio = self.invalid_txns_relayed as f64 / total_txns as f64;
+            score -= invalid_ratio * 0.3; // Up to 0.3 point penalty
+        }
+        
+        // Penalize for protocol violations
+        score -= (self.protocol_violations as f64 * 0.05).min(0.2);
+        
+        // Penalize for unexpected disconnects
+        score -= (self.unexpected_disconnects as f64 * 0.02).min(0.1);
+        
+        // Penalize for unusual patterns
+        score -= (self.unusual_patterns_detected.len() as f64 * 0.05).min(0.1);
+        
+        score.max(0.0)
+    }
 }
 
 impl PeerInfo {
@@ -196,6 +314,8 @@ impl PeerInfo {
             successful_exchanges: 0,
             failed_exchanges: 0,
             protocols: Vec::new(),
+            challenge_status: ChallengeStatus::None,
+            behavior_patterns: PeerBehavior::new(),
         }
     }
 
@@ -235,12 +355,33 @@ impl PeerInfo {
             self.score.stability_score = stability * 5.0;
         }
 
-        // Behavior score based on successful vs. failed exchanges
+        // Behavior score based on successful vs. failed exchanges and behavior patterns
         if self.successful_exchanges + self.failed_exchanges > 0 {
             let total = self.successful_exchanges + self.failed_exchanges;
-            let ratio = self.successful_exchanges as f64 / total as f64;
-            self.score.behavior_score = ratio * 3.0;
+            let exchange_ratio = self.successful_exchanges as f64 / total as f64;
+            
+            // Combine with behavior reliability score
+            let reliability = self.behavior_patterns.reliability_score();
+            self.score.behavior_score = (exchange_ratio * 0.7 + reliability * 0.3) * 5.0;
         }
+        
+        // Adjust score based on verification status
+        match &self.challenge_status {
+            ChallengeStatus::Verified { .. } => {
+                // Bonus for verified peers
+                self.score.base_score += 1.0;
+            },
+            ChallengeStatus::Failed { .. } => {
+                // Penalty for failed verification
+                self.score.base_score = self.score.base_score.max(0.5);
+            },
+            _ => {}
+        }
+    }
+    
+    /// Get the latency if available
+    pub fn get_latency(&self) -> Option<f64> {
+        self.behavior_patterns.average_response_time()
     }
 }
 
@@ -407,12 +548,24 @@ pub struct PeerManager {
     connected_peers: HashSet<PeerId>,
     /// Rate limit information by IP address
     rate_limits: HashMap<IpAddr, RateLimitInfo>,
+    /// Rate limit information by IP subnet
+    subnet_rate_limits: HashMap<IpSubnet, RateLimitInfo>,
     /// Peer diversity manager
     diversity_manager: PeerDiversityManager,
     /// Maximum connection attempts per minute per IP
     max_connection_attempts_per_min: usize,
     /// Connection challenge enabled
     enable_connection_challenges: bool,
+    /// Challenge timeout in seconds
+    challenge_timeout_seconds: u64,
+    /// Challenge difficulty (0-255)
+    challenge_difficulty: u8,
+    /// Maximum challenge attempts
+    max_challenge_attempts: u8,
+    /// Forced peer rotation interval
+    forced_rotation_interval: Duration,
+    /// Last peer rotation time
+    last_rotation_time: Instant,
 }
 
 impl PeerManager {
@@ -422,16 +575,124 @@ impl PeerManager {
             peers: HashMap::new(),
             connected_peers: HashSet::new(),
             rate_limits: HashMap::new(),
+            subnet_rate_limits: HashMap::new(),
             diversity_manager: PeerDiversityManager::new(),
             max_connection_attempts_per_min: 5,
             enable_connection_challenges: true,
+            challenge_timeout_seconds: 30,
+            challenge_difficulty: 16, // Moderate difficulty
+            max_challenge_attempts: 3,
+            forced_rotation_interval: Duration::from_secs(3600), // 1 hour
+            last_rotation_time: Instant::now(),
         }
+    }
+    
+    /// Generate a new challenge for peer verification
+    pub fn generate_challenge(&self) -> String {
+        let random_string: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(32)
+            .map(char::from)
+            .collect();
+        
+        random_string
+    }
+    
+    /// Verify a challenge response
+    pub fn verify_challenge_response(&self, challenge: &str, response: &str, difficulty: u8) -> bool {
+        // Check if response has the required number of leading zeros
+        if let Ok(bytes) = hex::decode(response) {
+            // Check if the first byte has required leading zeros
+            if bytes[0] < (1 << (8 - difficulty.min(8))) {
+                // Verify hash matches challenge
+                let mut hasher = Sha256::new();
+                hasher.update(challenge);
+                let nonce_start = response.len() - 16;
+                if nonce_start > 0 {
+                    let nonce = &response[nonce_start..];
+                    hasher.update(nonce);
+                    let hash = hasher.finalize();
+                    let hash_hex = hex::encode(&hash);
+                    return hash_hex == response[0..nonce_start];
+                }
+            }
+        }
+        false
+    }
+    
+    /// Issue a challenge to a peer
+    pub fn issue_challenge(&mut self, peer_id: &PeerId) -> Option<String> {
+        if let Some(peer) = self.peers.get_mut(peer_id) {
+            match &peer.challenge_status {
+                ChallengeStatus::None | ChallengeStatus::Failed { .. } => {
+                    let challenge = self.generate_challenge();
+                    peer.challenge_status = ChallengeStatus::Pending {
+                        challenge: challenge.clone(),
+                        issued_at: Instant::now(),
+                        attempts: 0,
+                    };
+                    return Some(challenge);
+                }
+                ChallengeStatus::Pending { attempts, issued_at, .. } => {
+                    // If challenge timed out, issue a new one
+                    if issued_at.elapsed() > Duration::from_secs(self.challenge_timeout_seconds) {
+                        if *attempts >= self.max_challenge_attempts {
+                            peer.challenge_status = ChallengeStatus::Failed {
+                                reason: "Too many failed attempts".to_string(),
+                            };
+                            return None;
+                        }
+                        
+                        let challenge = self.generate_challenge();
+                        peer.challenge_status = ChallengeStatus::Pending {
+                            challenge: challenge.clone(),
+                            issued_at: Instant::now(),
+                            attempts: attempts + 1,
+                        };
+                        return Some(challenge);
+                    }
+                    return None;
+                }
+                ChallengeStatus::Verified { .. } => return None,
+            }
+        }
+        None
+    }
+    
+    /// Process a challenge response
+    pub fn process_challenge_response(&mut self, peer_id: &PeerId, response: &str) -> bool {
+        if let Some(peer) = self.peers.get_mut(peer_id) {
+            if let ChallengeStatus::Pending { challenge, attempts, .. } = &peer.challenge_status {
+                let success = self.verify_challenge_response(challenge, response, self.challenge_difficulty);
+                
+                if success {
+                    peer.challenge_status = ChallengeStatus::Verified {
+                        verified_at: Instant::now(),
+                    };
+                    // Update score after verification
+                    peer.update_score();
+                    return true;
+                } else if *attempts >= self.max_challenge_attempts {
+                    peer.challenge_status = ChallengeStatus::Failed {
+                        reason: "Failed to solve challenge correctly".to_string(),
+                    };
+                    // Update score after failure
+                    peer.update_score();
+                }
+                return false;
+            }
+        }
+        false
     }
 
     /// Try to add a new peer connection
     pub fn try_add_connection(&mut self, peer_id: PeerId, ip: IpAddr, port: u16) -> Result<bool, String> {
         // Check if IP is rate limited
         self.check_and_update_rate_limit(&ip)?;
+
+        // Also check subnet rate limiting
+        let subnet = IpSubnet::from_ip(ip);
+        self.check_and_update_subnet_rate_limit(&subnet)?;
 
         // Check if we already know this peer
         let peer_info = match self.peers.get_mut(&peer_id) {
@@ -452,6 +713,28 @@ impl PeerManager {
         // Check diversity limits
         if self.diversity_manager.would_violate_limits(&peer_info) {
             return Err("Connection would violate diversity limits".to_string());
+        }
+
+        // If challenges are enabled and peer isn't verified, don't fully accept yet
+        if self.enable_connection_challenges {
+            match &peer_info.challenge_status {
+                ChallengeStatus::None => {
+                    if let Some(challenge) = self.issue_challenge(&peer_id) {
+                        // Return a special result indicating a challenge is required
+                        return Ok(false);
+                    }
+                }
+                ChallengeStatus::Pending { .. } => {
+                    // We're waiting for a response
+                    return Ok(false);
+                }
+                ChallengeStatus::Failed { reason } => {
+                    return Err(format!("Challenge verification failed: {}", reason));
+                }
+                ChallengeStatus::Verified { .. } => {
+                    // Already verified, proceed with connection
+                }
+            }
         }
 
         // Update diversity tracking
@@ -507,6 +790,37 @@ impl PeerManager {
             return Err("Rate limited: too many connection attempts".to_string());
         }
 
+        Ok(())
+    }
+
+    /// Check if subnet is rate limited and update tracking
+    fn check_and_update_subnet_rate_limit(&mut self, subnet: &IpSubnet) -> Result<(), String> {
+        let rate_limit = self.subnet_rate_limits
+            .entry(subnet.clone())
+            .or_insert_with(|| RateLimitInfo::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))); // Dummy IP for subnet
+            
+        // Check if banned
+        if let Some(banned_until) = rate_limit.banned_until {
+            if banned_until > Instant::now() {
+                return Err(format!("Subnet is banned until {:?}: {}", 
+                        banned_until, 
+                        rate_limit.ban_reason.as_deref().unwrap_or("No reason provided")));
+            }
+        }
+        
+        // Record attempt
+        rate_limit.record_attempt();
+        
+        // Calculate subnet limit (higher than individual IP limit)
+        let subnet_limit = self.max_connection_attempts_per_min * 3;
+        
+        // Check if too many recent attempts from this subnet
+        if rate_limit.recent_attempts.len() > subnet_limit {
+            // Ban subnet temporarily
+            rate_limit.ban(Duration::from_secs(300), "Subnet rate limit exceeded");
+            return Err(format!("Too many connection attempts from subnet, banned for 5 minutes"));
+        }
+        
         Ok(())
     }
 
@@ -672,6 +986,97 @@ impl PeerManager {
     /// Get count of all known peers
     pub fn total_peer_count(&self) -> usize {
         self.peers.len()
+    }
+
+    /// Check for peers that need rotation to prevent eclipse attacks
+    pub fn check_for_rotation_need(&mut self) -> bool {
+        // Check if we need to force rotation
+        if self.last_rotation_time.elapsed() >= self.forced_rotation_interval {
+            return true;
+        }
+        
+        // Also check for signs of an eclipse attack
+        // (Implement heuristics for detecting potential eclipse attacks)
+        
+        false
+    }
+    
+    /// Perform forced peer rotation
+    pub fn perform_forced_rotation(&mut self) -> (Vec<PeerId>, usize) {
+        let rotation_plan = self.create_rotation_plan();
+        
+        if let Some((to_disconnect, _to_connect)) = rotation_plan {
+            self.last_rotation_time = Instant::now();
+            return (to_disconnect, to_disconnect.len());
+        }
+        
+        (vec![], 0)
+    }
+    
+    /// Record block announcement from peer
+    pub fn record_block_announcement(&mut self, peer_id: &PeerId, valid: bool) {
+        if let Some(peer) = self.peers.get_mut(peer_id) {
+            if valid {
+                peer.behavior_patterns.valid_blocks_announced += 1;
+            } else {
+                peer.behavior_patterns.invalid_blocks_announced += 1;
+            }
+            peer.update_score();
+        }
+    }
+    
+    /// Record transaction relay from peer
+    pub fn record_transaction_relay(&mut self, peer_id: &PeerId, valid: bool) {
+        if let Some(peer) = self.peers.get_mut(peer_id) {
+            if valid {
+                peer.behavior_patterns.valid_txns_relayed += 1;
+            } else {
+                peer.behavior_patterns.invalid_txns_relayed += 1;
+            }
+            peer.update_score();
+        }
+    }
+    
+    /// Record protocol violation by peer
+    pub fn record_protocol_violation(&mut self, peer_id: &PeerId, violation: &str) {
+        if let Some(peer) = self.peers.get_mut(peer_id) {
+            peer.behavior_patterns.protocol_violations += 1;
+            peer.behavior_patterns.record_unusual_pattern(violation);
+            peer.update_score();
+            
+            // If severe violations, ban the peer
+            if peer.behavior_patterns.protocol_violations > 5 {
+                let ip = peer.ip;
+                if let Some(rate_limit) = self.rate_limits.get_mut(&ip) {
+                    rate_limit.ban(
+                        Duration::from_secs(3600), 
+                        &format!("Multiple protocol violations: {}", violation)
+                    );
+                }
+            }
+        }
+    }
+    
+    /// Record message response time
+    pub fn record_response_time(&mut self, peer_id: &PeerId, time_ms: u64) {
+        if let Some(peer) = self.peers.get_mut(peer_id) {
+            peer.behavior_patterns.record_response_time(time_ms);
+            // Update latency score
+            let avg_time = peer.behavior_patterns.average_response_time();
+            if let Some(avg) = avg_time {
+                // Latency score inversely proportional to response time
+                // 0ms -> 5.0, 1000ms -> 0.0
+                peer.score.latency_score = (1000.0 - avg.min(1000.0)) / 200.0;
+            }
+            peer.update_score();
+        }
+    }
+    
+    /// Set the client version for a peer
+    pub fn set_client_version(&mut self, peer_id: &PeerId, version: String) {
+        if let Some(peer) = self.peers.get_mut(peer_id) {
+            peer.behavior_patterns.client_version = Some(version);
+        }
     }
 }
 

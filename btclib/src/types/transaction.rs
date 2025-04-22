@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
+use crate::environmental::emissions::{EmissionsError, EmissionsTracker, Emissions};
 
 /// Represents a transaction input referencing a previous output
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,6 +184,47 @@ impl Transaction {
         size += varint_size(self.outputs.len() as u64);
         
         size
+    }
+
+    /// Calculate emissions associated with this transaction
+    pub fn calculate_emissions(&self, tracker: &EmissionsTracker) -> Result<Emissions, EmissionsError> {
+        tracker.estimate_transaction_emissions(self)
+    }
+    
+    /// Calculate the carbon intensity of this transaction (gCO2e per byte)
+    pub fn carbon_intensity(&self, tracker: &EmissionsTracker) -> Result<f64, EmissionsError> {
+        let emissions = self.calculate_emissions(tracker)?;
+        let size = self.calculate_size() as f64;
+        
+        if size > 0.0 {
+            // Convert tonnes to grams and divide by size
+            Ok((emissions.tonnes_co2e * 1_000_000.0) / size)
+        } else {
+            Err(EmissionsError::InvalidTimeRange) // Reuse existing error type
+        }
+    }
+    
+    /// Check if this transaction is carbon neutral (has offsetting certificates)
+    pub fn is_carbon_neutral(&self, tracker: &EmissionsTracker) -> Result<bool, EmissionsError> {
+        let emissions = self.calculate_emissions(tracker)?;
+        
+        // If market-based emissions available and close to zero
+        if let Some(market_emissions) = emissions.market_based_emissions {
+            Ok(market_emissions < 0.001) // Threshold for "carbon neutral"
+        } else {
+            // Fall back to comparing renewable percentage
+            if let Some(renewable_pct) = emissions.renewable_percentage {
+                Ok(renewable_pct >= 99.0) // 99% or more renewable
+            } else {
+                Ok(false)
+            }
+        }
+    }
+    
+    /// Get estimated energy consumption of this transaction in kWh
+    pub fn energy_consumption(&self, tracker: &EmissionsTracker) -> Result<f64, EmissionsError> {
+        let emissions = self.calculate_emissions(tracker)?;
+        Ok(emissions.energy_kwh)
     }
 }
 
