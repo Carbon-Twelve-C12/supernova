@@ -213,7 +213,7 @@ mod tests {
         )];
 
         let outputs = vec![TransactionOutput::new(
-            50_000_000, // 0.5 BTC
+            50_000_000, // 0.5 NOVA
             vec![],
         )];
 

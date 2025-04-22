@@ -201,8 +201,8 @@ fn create_confidential_transaction() {
     
     // Define outputs as (amount, pubkey script) pairs
     let outputs = vec![
-        (50_000_000, vec![]), // Output 1: 0.5 BTC
-        (40_000_000, vec![]), // Output 2: 0.4 BTC
+        (50_000_000, vec![]), // Output 1: 0.5 NOVA
+        (40_000_000, vec![]), // Output 2: 0.4 NOVA
     ];
     
     // Create a confidential transaction that hides the amounts
@@ -325,7 +325,7 @@ fn work_with_commitments_and_proofs() {
     let mut rng = OsRng;
     
     // Create a commitment to a value (e.g., an amount)
-    let value = 1_000_000; // 0.01 BTC
+    let value = 1_000_000; // 0.01 NOVA
     let (commitment, blinding_factor) = api.commit_to_value(value, &mut rng);
     
     println!("Created commitment to the value {}", value);

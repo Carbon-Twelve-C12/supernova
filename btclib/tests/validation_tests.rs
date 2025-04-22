@@ -23,7 +23,7 @@ fn test_standard_transaction_validation() {
     )];
     
     let outputs = vec![TransactionOutput::new(
-        90_000_000, // 0.9 BTC
+        90_000_000, // 0.9 NOVA
         vec![],
     )];
     
@@ -55,7 +55,7 @@ fn test_invalid_transaction_validation() {
     let inputs = vec![];
     
     let outputs = vec![TransactionOutput::new(
-        90_000_000, // 0.9 BTC
+        90_000_000, // 0.9 NOVA
         vec![],
     )];
     
@@ -90,7 +90,7 @@ fn test_quantum_transaction_validation() {
     )];
     
     let outputs = vec![TransactionOutput::new(
-        90_000_000, // 0.9 BTC
+        90_000_000, // 0.9 NOVA
         vec![],
     )];
     
@@ -146,8 +146,8 @@ fn test_confidential_transaction_validation() {
     )];
     
     let outputs = vec![
-        (50_000_000, vec![]), // 0.5 BTC
-        (40_000_000, vec![]), // 0.4 BTC
+        (50_000_000, vec![]), // 0.5 NOVA
+        (40_000_000, vec![]), // 0.4 NOVA
     ];
     
     // Create a confidential transaction

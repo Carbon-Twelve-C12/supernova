@@ -9,7 +9,7 @@ SuperNova includes support for post-quantum cryptographic algorithms to ensure t
 ### Supported Quantum-Resistant Schemes
 
 - **CRYSTALS-Dilithium**: A lattice-based signature scheme selected for standardization by NIST (Fully implemented)
-- **Falcon**: A lattice-based signature scheme with compact signatures (Implementation in progress)
+- **Falcon**: A lattice-based signature scheme with compact signatures (Fully implemented)
 - **SPHINCS+**: A hash-based signature scheme with minimal security assumptions (Implementation in progress)
 - **Hybrid Schemes**: Combinations of classical (e.g., secp256k1, ed25519) and quantum-resistant schemes (Implementation in progress)
 
@@ -147,4 +147,77 @@ let confidential_tx = ConfidentialTransaction::new(
 - Verifiable delay functions
 - Threshold signatures using post-quantum schemes
 - Zero-knowledge virtual machines
-- Complete implementation of Falcon, SPHINCS+, and Hybrid signature schemes 
+- Complete implementation of Falcon, SPHINCS+, and Hybrid signature schemes
+
+## Unified Signature Verification Layer
+
+SuperNova provides a unified cryptographic abstraction layer that allows seamless integration of both classical and post-quantum signature schemes through a common interface.
+
+### Key Features
+
+- **Unified Interface**: Work with different signature schemes through a consistent API
+- **Batch Verification**: Efficiently verify multiple signatures in parallel for any supported scheme
+- **Pluggable Architecture**: Easily add new signature schemes without changing existing code
+- **Type Safety**: Strong typing ensures correct usage of cryptographic primitives
+
+### Usage Example
+
+```rust
+use btclib::crypto::signature::{SignatureVerifier, SignatureType};
+
+// Create a signature verifier
+let verifier = SignatureVerifier::new();
+
+// Verify signatures using different schemes
+let secp_result = verifier.verify(
+    SignatureType::Secp256k1,
+    &secp_public_key,
+    &message,
+    &secp_signature
+);
+
+let dilithium_result = verifier.verify(
+    SignatureType::Dilithium,
+    &dilithium_public_key,
+    &message,
+    &dilithium_signature
+);
+
+// Batch verification for improved performance
+let batch_result = verifier.batch_verify(
+    SignatureType::Dilithium,
+    &[&public_key1, &public_key2, &public_key3],
+    &[&message1, &message2, &message3],
+    &[&signature1, &signature2, &signature3]
+);
+
+// Batch verification of transaction signatures
+let batch_tx_result = verifier.batch_verify_transactions(&[&tx1, &tx2, &tx3]);
+```
+
+### Supported Signature Types
+
+- **Classical Schemes**: 
+  - `Secp256k1`: Used in Bitcoin and many other blockchains
+  - `Ed25519`: Modern Edwards curve digital signature algorithm
+
+- **Post-Quantum Schemes**:
+  - `Dilithium`: CRYSTALS-Dilithium lattice-based signatures
+  - `Falcon`: Compact lattice-based signatures
+  - `Sphincs`: Hash-based signatures with minimal security assumptions
+  - `Hybrid`: Combinations of classical and post-quantum signatures
+
+### Performance Characteristics
+
+Different signature schemes have different performance and size characteristics:
+
+| Scheme | Public Key Size | Signature Size | Verification Speed | Security Assumptions |
+|--------|----------------|----------------|--------------------|--------------------|
+| Secp256k1 | 33 bytes | 64-65 bytes | Very fast | Discrete logarithm |
+| Ed25519 | 32 bytes | 64 bytes | Very fast | Discrete logarithm |
+| Dilithium (Medium) | 1,312 bytes | 2,420 bytes | Fast | Lattice (Module-LWE) |
+| Falcon-512 | 897 bytes | ~666 bytes | Moderate | Lattice (NTRU) |
+| SPHINCS+ | 32-64 bytes | 8-50 KB | Slow | Hash function |
+| Hybrid | Sum of both | Sum of both | Depends on schemes | Multiple |
+
+For applications that need to be quantum-resistant while maintaining reasonable signature sizes, Falcon is recommended due to its compact signatures. For maximum security with less concern for signature size, Dilithium or SPHINCS+ are good choices. 

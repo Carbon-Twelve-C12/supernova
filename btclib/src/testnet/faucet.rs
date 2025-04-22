@@ -20,7 +20,7 @@ impl Faucet {
     /// Create a new test faucet
     pub fn new(distribution_amount: u64, cooldown_period: u64) -> Self {
         info!(
-            "Test faucet initialized: {} satoshis per request, {} seconds cooldown",
+            "Test faucet initialized: {} millinova per request, {} seconds cooldown",
             distribution_amount, cooldown_period
         );
         
@@ -58,7 +58,7 @@ impl Faucet {
         self.distribution_count += 1;
         
         info!(
-            "Faucet distributed {} satoshis to {}",
+            "Faucet distributed {} millinova to {}",
             self.distribution_amount, recipient
         );
         
@@ -140,7 +140,7 @@ mod tests {
     
     #[test]
     fn test_faucet_distribution() {
-        let mut faucet = Faucet::new(1000, 1); // 1000 satoshis, 1 second cooldown
+        let mut faucet = Faucet::new(1000, 1); // 1000 millinova, 1 second cooldown
         
         // First distribution should succeed
         let result = faucet.distribute_coins("test1abcdef");

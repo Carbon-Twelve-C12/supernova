@@ -46,6 +46,8 @@ pub struct MempoolConfig {
     pub min_fee_rate: f64,
     pub max_per_address: usize,
     pub max_orphan_transactions: usize,
+    pub enable_rbf: bool,
+    pub min_rbf_fee_increase: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -142,6 +144,8 @@ impl Default for MempoolConfig {
             min_fee_rate: 1.0,
             max_per_address: 100,
             max_orphan_transactions: 100,
+            enable_rbf: true,
+            min_rbf_fee_increase: 10.0,
         }
     }
 }
@@ -316,6 +320,9 @@ impl NodeConfig {
         }
         if self.mempool.max_orphan_transactions == 0 {
             return Err("max_orphan_transactions must be greater than 0".to_string());
+        }
+        if self.mempool.min_rbf_fee_increase < 0.0 {
+            return Err("min_rbf_fee_increase must be non-negative".to_string());
         }
 
         if self.storage.max_open_files < 100 {

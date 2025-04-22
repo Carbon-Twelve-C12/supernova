@@ -18,7 +18,7 @@ fn test_quantum_transaction_creation() {
     )];
 
     let outputs = vec![TransactionOutput::new(
-        50_000_000, // 0.5 BTC
+        50_000_000, // 0.5 NOVA
         vec![],
     )];
 
@@ -51,8 +51,8 @@ fn test_confidential_transaction_creation() {
 
     // Create transaction outputs as (amount, pub_key_script) pairs
     let outputs = vec![
-        (50_000_000, vec![]), // 0.5 BTC
-        (25_000_000, vec![]), // 0.25 BTC
+        (50_000_000, vec![]), // 0.5 NOVA
+        (25_000_000, vec![]), // 0.25 NOVA
     ];
     
     // Create ZKP parameters for Bulletproofs
@@ -88,7 +88,7 @@ fn test_hybrid_schemes() {
     )];
 
     let outputs = vec![TransactionOutput::new(
-        50_000_000, // 0.5 BTC
+        50_000_000, // 0.5 NOVA
         vec![],
     )];
 
@@ -159,7 +159,7 @@ fn test_transaction_verification() {
     )];
 
     let outputs = vec![TransactionOutput::new(
-        50_000_000, // 0.5 BTC
+        50_000_000, // 0.5 NOVA
         vec![],
     )];
 

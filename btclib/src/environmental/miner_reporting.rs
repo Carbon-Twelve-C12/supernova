@@ -35,6 +35,94 @@ pub struct VerificationInfo {
     pub status: VerificationStatus,
 }
 
+/// REC certificate information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RECCertificate {
+    /// Certificate ID or reference number
+    pub certificate_id: String,
+    /// Issuing organization
+    pub issuer: String,
+    /// Amount of renewable energy in MWh
+    pub amount_mwh: f64,
+    /// Start date of generation period
+    pub generation_start: DateTime<Utc>,
+    /// End date of generation period
+    pub generation_end: DateTime<Utc>,
+    /// Location of renewable energy generation
+    pub generation_location: Option<Region>,
+    /// Type of renewable energy
+    pub energy_type: EnergySource,
+    /// Verification status
+    pub verification_status: VerificationStatus,
+    /// URL to certificate
+    pub certificate_url: Option<String>,
+    /// Last verification date
+    pub last_verified: Option<DateTime<Utc>>,
+    /// Transaction ID if recorded on blockchain
+    pub blockchain_tx_id: Option<String>,
+}
+
+/// Carbon offset information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CarbonOffset {
+    /// Offset ID or reference number
+    pub offset_id: String,
+    /// Issuing organization
+    pub issuer: String,
+    /// Amount of carbon offset in tonnes CO2e
+    pub amount_tonnes: f64,
+    /// Type of offset project
+    pub project_type: String,
+    /// Location of offset project
+    pub project_location: Option<Region>,
+    /// Start date of offset period
+    pub offset_start: DateTime<Utc>,
+    /// End date of offset period
+    pub offset_end: DateTime<Utc>,
+    /// Verification status
+    pub verification_status: VerificationStatus,
+    /// URL to offset certificate
+    pub certificate_url: Option<String>,
+    /// Last verification date
+    pub last_verified: Option<DateTime<Utc>>,
+    /// Transaction ID if recorded on blockchain
+    pub blockchain_tx_id: Option<String>,
+}
+
+/// Location verification method
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LocationVerificationMethod {
+    /// IP address geolocation
+    IPGeolocation,
+    /// Third-party audit
+    Audit,
+    /// Cryptographic proof (like synthetic location)
+    CryptographicProof,
+    /// Self-declaration (lowest confidence)
+    SelfDeclared,
+    /// Government registration
+    GovernmentRegistry,
+    /// Multi-factor verification (highest confidence)
+    MultiFactor,
+}
+
+/// Location verification information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocationVerification {
+    /// Verification method used
+    pub method: LocationVerificationMethod,
+    /// Verification timestamp
+    pub timestamp: DateTime<Utc>,
+    /// Confidence level (0-1)
+    pub confidence: f64,
+    /// Verifier name or ID
+    pub verifier: Option<String>,
+    /// Evidence reference
+    pub evidence_reference: Option<String>,
+    /// Verification status
+    pub status: VerificationStatus,
+}
+
 /// Information about a miner's environmental claims
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MinerEnvironmentalInfo {
@@ -44,6 +132,8 @@ pub struct MinerEnvironmentalInfo {
     pub name: String,
     /// Geographic region of the miner
     pub region: Region,
+    /// Location verification information
+    pub location_verification: Option<LocationVerification>,
     /// Types of hardware used by the miner
     pub hardware_types: Vec<HardwareType>,
     /// Energy sources with percentage breakdown
@@ -66,6 +156,14 @@ pub struct MinerEnvironmentalInfo {
     pub has_carbon_offsets: bool,
     /// URL to environmental policy or certificates
     pub certificates_url: Option<String>,
+    /// Detailed REC certificate information
+    pub rec_certificates: Vec<RECCertificate>,
+    /// Detailed carbon offset information
+    pub carbon_offsets: Vec<CarbonOffset>,
+    /// Environmental score (0-100)
+    pub environmental_score: Option<f64>,
+    /// Preferred renewable energy type
+    pub preferred_energy_type: Option<EnergySource>,
 }
 
 impl MinerEnvironmentalInfo {
@@ -79,6 +177,7 @@ impl MinerEnvironmentalInfo {
             miner_id,
             name,
             region,
+            location_verification: None,
             hardware_types: Vec::new(),
             energy_sources: HashMap::new(),
             renewable_percentage: 0.0,
@@ -90,6 +189,10 @@ impl MinerEnvironmentalInfo {
             has_rec_certificates: false,
             has_carbon_offsets: false,
             certificates_url: None,
+            rec_certificates: Vec::new(),
+            carbon_offsets: Vec::new(),
+            environmental_score: None,
+            preferred_energy_type: None,
         }
     }
 
@@ -251,6 +354,177 @@ impl MinerEnvironmentalInfo {
         // 1 kWh = 3.6e6 J
         // energy_consumption_kwh_day * 3.6e6 / (total_hashrate * 24 * 3600)
         Some(self.energy_consumption_kwh_day * 3.6e6 / (self.total_hashrate * 24.0 * 3600.0))
+    }
+
+    /// Add REC certificate
+    pub fn add_rec_certificate(&mut self, certificate: RECCertificate) {
+        self.rec_certificates.push(certificate);
+        self.has_rec_certificates = true;
+        self.last_update = chrono::Utc::now();
+    }
+
+    /// Add carbon offset
+    pub fn add_carbon_offset(&mut self, offset: CarbonOffset) {
+        self.carbon_offsets.push(offset);
+        self.has_carbon_offsets = true;
+        self.last_update = chrono::Utc::now();
+    }
+
+    /// Set location verification information
+    pub fn set_location_verification(&mut self, verification: LocationVerification) {
+        self.location_verification = Some(verification);
+        self.last_update = chrono::Utc::now();
+    }
+
+    /// Calculate environmental score
+    pub fn calculate_environmental_score(&mut self) -> f64 {
+        // Base score starts with renewable percentage (0-50 points)
+        let renewable_score = (self.renewable_percentage / 100.0) * 50.0;
+        
+        // Add points for REC certificates (0-20 points)
+        let rec_score = if self.has_rec_certificates {
+            let verified_recs = self.rec_certificates.iter()
+                .filter(|rec| rec.verification_status == VerificationStatus::Verified)
+                .count();
+            
+            if verified_recs > 0 {
+                20.0
+            } else {
+                10.0 // Some points for unverified RECs
+            }
+        } else {
+            0.0
+        };
+        
+        // Add points for carbon offsets (0-10 points)
+        let offset_score = if self.has_carbon_offsets {
+            let verified_offsets = self.carbon_offsets.iter()
+                .filter(|offset| offset.verification_status == VerificationStatus::Verified)
+                .count();
+            
+            if verified_offsets > 0 {
+                10.0
+            } else {
+                5.0 // Some points for unverified offsets
+            }
+        } else {
+            0.0
+        };
+        
+        // Add points for location verification (0-10 points)
+        let location_score = if let Some(verification) = &self.location_verification {
+            match verification.method {
+                LocationVerificationMethod::MultiFactor => 10.0,
+                LocationVerificationMethod::Audit => 8.0,
+                LocationVerificationMethod::GovernmentRegistry => 7.0,
+                LocationVerificationMethod::CryptographicProof => 6.0,
+                LocationVerificationMethod::IPGeolocation => 3.0,
+                LocationVerificationMethod::SelfDeclared => 1.0,
+            }
+        } else {
+            0.0
+        };
+        
+        // Add points for energy efficiency (0-10 points)
+        let efficiency_score = if let Some(efficiency) = self.calculate_energy_efficiency() {
+            // Lower J/TH is better
+            let score = match efficiency {
+                e if e < 25.0 => 10.0,  // Most efficient ASICs
+                e if e < 35.0 => 8.0,   // Very efficient
+                e if e < 50.0 => 6.0,   // Efficient
+                e if e < 75.0 => 4.0,   // Moderate
+                e if e < 100.0 => 2.0,  // Below average
+                _ => 0.0,               // Inefficient
+            };
+            
+            score
+        } else {
+            0.0
+        };
+        
+        // Total score (0-100)
+        let total_score = renewable_score + rec_score + offset_score + location_score + efficiency_score;
+        
+        // Update the score
+        self.environmental_score = Some(total_score);
+        
+        total_score
+    }
+
+    /// Calculate carbon footprint with REC and offset prioritization
+    pub fn calculate_carbon_footprint_with_prioritization(
+        &mut self, 
+        emission_factors: &HashMap<Region, EmissionFactor>
+    ) -> Result<f64, String> {
+        if self.energy_consumption_kwh_day <= 0.0 {
+            return Err("Energy consumption must be greater than zero".to_string());
+        }
+
+        // Get emission factor for the region
+        let emission_factor = match emission_factors.get(&self.region) {
+            Some(factor) => factor,
+            None => return Err(format!("No emission factor available for region {:?}", self.region)),
+        };
+
+        // Calculate annual energy consumption in MWh
+        let annual_energy_mwh = self.energy_consumption_kwh_day * 365.0 / 1000.0;
+
+        // Calculate gross carbon footprint (without RECs or offsets)
+        let gross_footprint = annual_energy_mwh * emission_factor.grid_emissions_factor;
+        
+        // Apply reductions based on verified RECs (given top priority)
+        let mut remaining_footprint = gross_footprint;
+        
+        // First apply RECs (full reduction of covered portion)
+        let rec_covered_mwh: f64 = self.rec_certificates.iter()
+            .filter(|cert| cert.verification_status == VerificationStatus::Verified)
+            .map(|cert| cert.amount_mwh)
+            .sum();
+        
+        let rec_coverage_ratio = (rec_covered_mwh / annual_energy_mwh).min(1.0);
+        remaining_footprint = gross_footprint * (1.0 - rec_coverage_ratio);
+        
+        // Then apply carbon offsets to remaining footprint
+        let offset_tonnes: f64 = self.carbon_offsets.iter()
+            .filter(|offset| offset.verification_status == VerificationStatus::Verified)
+            .map(|offset| offset.amount_tonnes)
+            .sum();
+        
+        // Directly subtract verified offsets from remaining footprint
+        remaining_footprint = (remaining_footprint - offset_tonnes).max(0.0);
+        
+        // Update the carbon footprint field
+        self.carbon_footprint_tonnes_year = Some(remaining_footprint);
+
+        Ok(remaining_footprint)
+    }
+    
+    /// Check if miner has verified RECs
+    pub fn has_verified_recs(&self) -> bool {
+        self.rec_certificates.iter()
+            .any(|cert| cert.verification_status == VerificationStatus::Verified)
+    }
+    
+    /// Check if miner has verified carbon offsets
+    pub fn has_verified_offsets(&self) -> bool {
+        self.carbon_offsets.iter()
+            .any(|offset| offset.verification_status == VerificationStatus::Verified)
+    }
+    
+    /// Get total verified REC amount in MWh
+    pub fn total_verified_recs_mwh(&self) -> f64 {
+        self.rec_certificates.iter()
+            .filter(|cert| cert.verification_status == VerificationStatus::Verified)
+            .map(|cert| cert.amount_mwh)
+            .sum()
+    }
+    
+    /// Get total verified offset amount in tonnes CO2e
+    pub fn total_verified_offsets_tonnes(&self) -> f64 {
+        self.carbon_offsets.iter()
+            .filter(|offset| offset.verification_status == VerificationStatus::Verified)
+            .map(|offset| offset.amount_tonnes)
+            .sum()
     }
 }
 
@@ -426,7 +700,9 @@ impl MinerReportingManager {
 
     /// Submit a new environmental report
     pub fn submit_report(&mut self, report: MinerEnvironmentalReport) {
-        self.reports.insert(report.miner_id.clone(), report);
+        // Generate a report ID from the timestamp to use as key
+        let report_id = format!("report-{}", report.timestamp.timestamp());
+        self.reports.insert(report_id, report);
     }
 
     /// Get a report by miner ID
@@ -442,16 +718,38 @@ impl MinerReportingManager {
     /// Verify a report
     pub fn verify_report(&mut self, miner_id: &str, verification: VerificationInfo) -> bool {
         if let Some(report) = self.reports.get_mut(miner_id) {
-            report.info.verification = Some(verification.clone());
-            report.status = match verification.status {
-                VerificationStatus::Approved => ReportStatus::Verified,
-                VerificationStatus::Rejected => ReportStatus::Rejected,
-                VerificationStatus::Pending => ReportStatus::Submitted,
-            };
-            true
+            // Access original MinerEnvironmentalInfo methods that exist
+            if let Some(miner_info) = self.miners.get_mut(miner_id) {
+                miner_info.add_verification(
+                    verification.provider.clone(),
+                    verification.reference.clone(),
+                    verification.status
+                );
+            }
+            
+            // Determine report status based on verification status
+            match verification.status {
+                VerificationStatus::Verified => {
+                    // Approve the report
+                    self.update_miner_status(miner_id, true);
+                    true
+                },
+                VerificationStatus::Failed => {
+                    // Reject the report
+                    self.update_miner_status(miner_id, false);
+                    true
+                },
+                _ => false,
+            }
         } else {
             false
         }
+    }
+    
+    /// Update miner status after verification
+    fn update_miner_status(&mut self, miner_id: &str, verified: bool) {
+        // Implementation would update status in a real system
+        info!("Updated miner {} status: verified={}", miner_id, verified);
     }
 
     /// Calculate network-wide renewable energy percentage
@@ -459,9 +757,10 @@ impl MinerReportingManager {
         let mut total_renewable = 0.0;
         let mut total_miners = 0;
         
-        for report in self.reports.values() {
-            if report.status == ReportStatus::Verified {
-                total_renewable += report.info.renewable_percentage;
+        // Use miners information directly instead of reports
+        for miner_info in self.miners.values() {
+            if miner_info.is_verification_valid() {
+                total_renewable += miner_info.renewable_percentage;
                 total_miners += 1;
             }
         }
@@ -470,6 +769,186 @@ impl MinerReportingManager {
             total_renewable / total_miners as f64
         } else {
             0.0
+        }
+    }
+
+    /// Verify miner location using multiple methods
+    pub fn verify_miner_location(
+        &mut self, 
+        miner_id: &str, 
+        method: LocationVerificationMethod,
+        evidence: Option<String>
+    ) -> Result<(), String> {
+        let miner = match self.miners.get_mut(miner_id) {
+            Some(miner) => miner,
+            None => return Err(format!("Miner with ID {} not found", miner_id)),
+        };
+        
+        // Determine confidence level based on verification method
+        let confidence = match method {
+            LocationVerificationMethod::MultiFactor => 0.95,
+            LocationVerificationMethod::Audit => 0.9,
+            LocationVerificationMethod::GovernmentRegistry => 0.85,
+            LocationVerificationMethod::CryptographicProof => 0.8,
+            LocationVerificationMethod::IPGeolocation => 0.6,
+            LocationVerificationMethod::SelfDeclared => 0.3,
+        };
+        
+        // Create verification record
+        let verification = LocationVerification {
+            method,
+            timestamp: Utc::now(),
+            confidence,
+            verifier: None, // Would be set in a real implementation
+            evidence_reference: evidence,
+            status: VerificationStatus::Verified,
+        };
+        
+        // Update miner record
+        miner.set_location_verification(verification);
+        
+        Ok(())
+    }
+    
+    /// Verify REC certificate
+    pub fn verify_rec_certificate(
+        &mut self, 
+        miner_id: &str, 
+        certificate_id: &str
+    ) -> Result<(), String> {
+        let miner = match self.miners.get_mut(miner_id) {
+            Some(miner) => miner,
+            None => return Err(format!("Miner with ID {} not found", miner_id)),
+        };
+        
+        // Find the certificate
+        let cert_index = miner.rec_certificates.iter()
+            .position(|cert| cert.certificate_id == certificate_id)
+            .ok_or_else(|| format!("Certificate with ID {} not found", certificate_id))?;
+        
+        // In a real system, this would connect to a REC verification service
+        // For now, we just simulate verification
+        
+        // Update verification status
+        miner.rec_certificates[cert_index].verification_status = VerificationStatus::Verified;
+        miner.rec_certificates[cert_index].last_verified = Some(Utc::now());
+        
+        // Update miner's REC status
+        miner.has_rec_certificates = true;
+        
+        Ok(())
+    }
+    
+    /// Calculate fee discount with REC prioritization
+    pub fn calculate_fee_discount_with_rec_priority(&self, miner_id: &str) -> f64 {
+        let info = match self.miners.get(miner_id) {
+            Some(info) => info,
+            None => return 0.0, // No discount for non-registered miners
+        };
+        
+        // Base discount from renewable percentage
+        let base_discount = if info.renewable_percentage >= 95.0 {
+            10.0 // 10% discount for 95%+ renewable
+        } else if info.renewable_percentage >= 75.0 {
+            7.0 // 7% discount for 75%+ renewable
+        } else if info.renewable_percentage >= 50.0 {
+            5.0 // 5% discount for 50%+ renewable
+        } else if info.renewable_percentage >= 25.0 {
+            2.0 // 2% discount for 25%+ renewable
+        } else {
+            0.0 // No discount for less than 25% renewable
+        };
+        
+        // REC bonus - prioritize RECs over everything else
+        let rec_bonus = if info.has_verified_recs() {
+            // Calculate REC coverage percentage relative to energy consumption
+            let annual_energy_mwh = info.energy_consumption_kwh_day * 365.0 / 1000.0;
+            let rec_coverage = (info.total_verified_recs_mwh() / annual_energy_mwh).min(1.0);
+            
+            // Bonus based on REC coverage
+            rec_coverage * 5.0 // Up to 5% additional discount
+        } else {
+            0.0
+        };
+        
+        // Offset bonus - smaller bonus for offsets
+        let offset_bonus = if info.has_verified_offsets() {
+            2.0 // 2% additional discount for verified offsets
+        } else {
+            0.0
+        };
+        
+        // Location verification bonus
+        let location_bonus = if let Some(verification) = &info.location_verification {
+            if verification.status == VerificationStatus::Verified {
+                verification.confidence * 3.0 // Up to 3% additional discount
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        
+        // Total discount
+        base_discount + rec_bonus + offset_bonus + location_bonus
+    }
+    
+    /// Get miners with verified REC certificates (prioritize over offsets)
+    pub fn get_verified_rec_miners(&self) -> Vec<&MinerEnvironmentalInfo> {
+        self.miners.values()
+            .filter(|info| info.has_verified_recs())
+            .collect()
+    }
+    
+    /// Generate metrics report with REC prioritization
+    pub fn generate_report_with_rec_priority(&self) -> MinerEnvironmentalReport {
+        let total_miners = self.miners.len();
+        let verified_miners = self.miners.values()
+            .filter(|info| info.is_verification_valid())
+            .count();
+
+        let renewable_percentage = if total_miners > 0 {
+            self.miners.values()
+                .map(|info| info.renewable_percentage)
+                .sum::<f64>() / total_miners as f64
+        } else {
+            0.0
+        };
+
+        let total_hashrate = self.miners.values()
+            .map(|info| info.total_hashrate)
+            .sum();
+
+        let total_energy = self.miners.values()
+            .map(|info| info.energy_consumption_kwh_day)
+            .sum();
+
+        let rec_miners = self.get_verified_rec_miners().len();
+        let offset_miners = self.get_offset_miners().len();
+        
+        // Calculate REC coverage
+        let total_annual_energy_mwh = total_energy * 365.0 / 1000.0;
+        let total_verified_recs: f64 = self.miners.values()
+            .map(|info| info.total_verified_recs_mwh())
+            .sum();
+        
+        let rec_coverage_percentage = if total_annual_energy_mwh > 0.0 {
+            (total_verified_recs / total_annual_energy_mwh * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+
+        MinerEnvironmentalReport {
+            timestamp: chrono::Utc::now(),
+            total_miners,
+            verified_miners,
+            average_renewable_percentage: renewable_percentage,
+            total_hashrate,
+            total_energy_consumption_kwh_day: total_energy,
+            green_miners: rec_miners,
+            offset_miners,
+            average_efficiency: self.calculate_average_efficiency(),
+            rec_coverage_percentage: Some(rec_coverage_percentage),
         }
     }
 }
@@ -495,6 +974,8 @@ pub struct MinerEnvironmentalReport {
     pub offset_miners: usize,
     /// Average energy efficiency in J/TH
     pub average_efficiency: Option<f64>,
+    /// Percentage of network energy covered by RECs
+    pub rec_coverage_percentage: Option<f64>,
 }
 
 /// Energy source for mining operations
@@ -522,6 +1003,25 @@ pub enum EnergySource {
     Unknown,
 }
 
+impl EnergySource {
+    /// Check if the energy source is renewable
+    pub fn is_renewable(&self) -> bool {
+        match self {
+            EnergySource::Solar => true,
+            EnergySource::Wind => true,
+            EnergySource::Hydro => true,
+            EnergySource::Geothermal => true,
+            EnergySource::Biomass => true,
+            // Nuclear is carbon-free but not classified as renewable
+            EnergySource::Nuclear => false,
+            EnergySource::NaturalGas => false,
+            EnergySource::Coal => false,
+            EnergySource::Oil => false,
+            EnergySource::Unknown => false,
+        }
+    }
+}
+
 /// Hardware type used for mining
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HardwareType {
@@ -533,82 +1033,6 @@ pub enum HardwareType {
     Cpu,
     /// Other hardware type
     Other,
-}
-
-/// Environmental information for a miner
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MinerEnvironmentalInfo {
-    /// Miner identifier
-    pub miner_id: String,
-    
-    /// Primary energy sources
-    pub energy_sources: Vec<(EnergySource, f64)>,
-    
-    /// Percentage of renewable energy (0-100)
-    pub renewable_percentage: f64,
-    
-    /// Mining hardware types
-    pub hardware_types: HashMap<HardwareType, usize>,
-    
-    /// Energy efficiency in J/TH
-    pub energy_efficiency: f64,
-    
-    /// Regions where mining operations are located
-    pub regions: Vec<Region>,
-    
-    /// Carbon offset programs participation
-    pub carbon_offsets: bool,
-    
-    /// Verification information for environmental claims
-    pub verification: Option<VerificationInfo>,
-}
-
-/// Verification information for environmental claims
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerificationInfo {
-    /// Organization providing verification
-    pub provider: String,
-    
-    /// Date of verification
-    pub date: DateTime<Utc>,
-    
-    /// Reference identifier for the verification
-    pub reference: String,
-    
-    /// Status of verification
-    pub status: VerificationStatus,
-}
-
-/// Environmental report for a miner
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MinerEnvironmentalReport {
-    /// Miner identifier
-    pub miner_id: String,
-    
-    /// Environmental information
-    pub info: MinerEnvironmentalInfo,
-    
-    /// Report timestamp
-    pub timestamp: DateTime<Utc>,
-    
-    /// Report status
-    pub status: ReportStatus,
-}
-
-/// Status of an environmental report
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ReportStatus {
-    /// Draft report, not yet submitted
-    Draft,
-    
-    /// Submitted report, awaiting verification
-    Submitted,
-    
-    /// Verified report
-    Verified,
-    
-    /// Rejected report
-    Rejected,
 }
 
 #[cfg(test)]

@@ -11,6 +11,9 @@ use dashmap::DashMap;
 use serde;
 use std::clone::Clone;
 use std::error::Error;
+use std::fmt::Debug;
+use tokio::time::timeout;
+use crate::storage::persistence::{ReorganizationEvent, ForkInfo, ForkChoiceReason};
 
 // Constants for sync configuration
 const MAX_HEADERS_PER_REQUEST: u64 = 2000;
@@ -54,7 +57,7 @@ pub trait SyncMetrics: Send + Sync {
     async fn record_header_download(&self, count: usize, duration_ms: u64);
     async fn record_block_download(&self, count: usize, duration_ms: u64);
     async fn record_block_validation(&self, result: bool, duration_ms: u64);
-    async fn record_fork_detection(&self, old_height: u64, new_height: u64);
+    async fn record_fork_detection(&self, old_tip: [u8; 32], new_tip: [u8; 32], fork_height: u64, blocks_disconnected: u64, blocks_connected: u64, reason: String);
 }
 
 /// Default implementation of sync metrics
@@ -95,8 +98,16 @@ impl SyncMetrics for DefaultSyncMetrics {
         }
     }
 
-    async fn record_fork_detection(&self, old_height: u64, new_height: u64) {
-        info!("Fork detected: switching from height {} to {}", old_height, new_height);
+    async fn record_fork_detection(&self, old_tip: [u8; 32], new_tip: [u8; 32], fork_height: u64, blocks_disconnected: u64, blocks_connected: u64, reason: String) {
+        info!(
+            "Fork detected: old_tip={}, new_tip={}, fork_height={}, blocks_disconnected={}, blocks_connected={}, reason={}",
+            hex::encode(&old_tip[..4]),
+            hex::encode(&new_tip[..4]),
+            fork_height,
+            blocks_disconnected,
+            blocks_connected,
+            reason
+        );
     }
 }
 
@@ -1039,39 +1050,74 @@ impl ChainSync {
 
     /// Process a single block (validate and add to chain)
     async fn process_single_block(&mut self, block: Block) -> Result<(), String> {
-        let start_time = Instant::now();
         let block_hash = block.hash();
+        let current_height = self.chain_state.get_height();
+        let current_hash = self.chain_state.get_best_block_hash();
         
-        // Store the block
-        if let Err(e) = self.db.store_block(&block_hash, &bincode::serialize(&block)
-            .map_err(|e| format!("Serialization error: {}", e))?) {
-            return Err(format!("Failed to store block: {}", e));
-        }
+        debug!("Processing single block {} at height {}", 
+            hex::encode(&block_hash[..4]), current_height + 1);
         
-        // Process with chain state
-        match self.chain_state.process_block(block).await {
+        // Process the block
+        let process_start = Instant::now();
+        match self.chain_state.process_block(block.clone()).await {
             Ok(true) => {
-                debug!("Block processed successfully: {}", hex::encode(&block_hash[..4]));
+                // Block was accepted and is now on best chain
+                let validation_time = process_start.elapsed().as_millis() as u64;
+                self.metrics.record_block_validation(true, validation_time).await;
                 
-                // Create checkpoint if needed
-                let height = self.chain_state.get_height();
-                if height % CHECKPOINT_INTERVAL == 0 {
-                    self.create_checkpoint(height, block_hash).await?;
+                // Check if this is a new tip and different from prev_hash (potential fork)
+                let new_height = self.chain_state.get_height();
+                let new_hash = self.chain_state.get_best_block_hash();
+                
+                if new_height > current_height && new_hash != block_hash {
+                    // A reorganization occurred during block processing
+                    // This is managed by the ChainState, but we'll record it here
+                    debug!("Chain reorganization occurred during block processing");
+                    
+                    // Get fork metrics
+                    let fork_metrics = self.chain_state.calculate_fork_metrics();
+                    
+                    // Log metrics
+                    debug!("Fork metrics after reorganization: {:?}", fork_metrics);
+                    
+                    // For any fork-related metrics, we track them here
+                    for (key, value) in fork_metrics {
+                        match key.as_str() {
+                            "max_fork_length" => {
+                                if value > 1 {
+                                    debug!("Currently tracking a fork of length {}", value);
+                                }
+                            },
+                            "active_forks" => {
+                                if value > 0 {
+                                    debug!("Currently tracking {} active forks", value);
+                                }
+                            },
+                            _ => {}
+                        }
+                    }
                 }
+                
+                // Update sync status
+                self.update_sync_progress().await;
+                Ok(())
             },
             Ok(false) => {
-                // Block was processed but not added to main chain
-                debug!("Block not added to main chain: {}", hex::encode(&block_hash[..4]));
+                // Block was valid but not the best chain
+                let validation_time = process_start.elapsed().as_millis() as u64;
+                self.metrics.record_block_validation(true, validation_time).await;
+                
+                debug!("Added side chain block {}", hex::encode(&block_hash[..4]));
+                Ok(())
             },
             Err(e) => {
-                return Err(format!("Failed to process block: {}", e));
+                // Block validation failed
+                let validation_time = process_start.elapsed().as_millis() as u64;
+                self.metrics.record_block_validation(false, validation_time).await;
+                
+                Err(format!("Failed to process block: {}", e))
             }
         }
-        
-        let duration_ms = start_time.elapsed().as_millis() as u64;
-        self.metrics.record_block_validation(true, duration_ms).await;
-        
-        Ok(())
     }
 
     /// Create a new checkpoint
@@ -1519,6 +1565,101 @@ impl ChainSync {
         }
         
         Ok(())
+    }
+
+    /// Get statistics about active forks
+    pub fn get_fork_stats(&self) -> HashMap<String, u64> {
+        self.chain_state.calculate_fork_metrics()
+    }
+
+    /// Handle chain reorganization events from the chain state
+    async fn handle_reorganization_event(&mut self, event: &ReorganizationEvent) {
+        // Record the fork detection in metrics
+        let reason = format!("{:?}", event.fork_choice_reason);
+        self.metrics.record_fork_detection(
+            event.old_tip,
+            event.new_tip,
+            event.fork_height,
+            event.blocks_disconnected,
+            event.blocks_connected,
+            reason
+        ).await;
+
+        // Update peers that provided blocks on the winning fork
+        for peer_entry in self.peer_data.iter_mut() {
+            let peer_id = peer_entry.key().clone();
+            let peer_data = peer_entry.value_mut();
+            
+            // Check if this peer was ahead on the winning fork
+            if peer_data.reported_height >= self.chain_state.get_height() {
+                // Potentially reward this peer slightly as they had the winning fork
+                peer_data.update_score(1);
+            }
+        }
+
+        // Update sync state if needed
+        match &mut self.sync_state {
+            SyncState::SyncingBlocks { .. } |
+            SyncState::VerifyingBlocks { .. } => {
+                // We're already syncing, continue with the current process
+                debug!("Reorganization occurred during sync process, continuing with current sync");
+            },
+            SyncState::Idle => {
+                // If we had a significant reorg, consider syncing from trusted peers
+                if event.blocks_disconnected > 2 {
+                    debug!("Significant reorganization detected, checking if further sync is needed");
+                    let current_height = self.chain_state.get_height();
+                    let mut should_sync = false;
+                    let mut target_height = current_height;
+                    let mut target_difficulty = 0;
+                    
+                    // Find if any peers are reporting a higher chain
+                    for peer_entry in self.peer_data.iter() {
+                        let peer_data = peer_entry.value();
+                        if peer_data.reported_height > target_height {
+                            target_height = peer_data.reported_height;
+                            target_difficulty = peer_data.reported_difficulty;
+                            should_sync = true;
+                        }
+                    }
+                    
+                    if should_sync {
+                        if let Err(e) = self.start_sync(target_height, target_difficulty).await {
+                            warn!("Failed to start sync after reorganization: {}", e);
+                        }
+                    }
+                }
+            },
+            SyncState::SyncingHeaders { .. } => {
+                // Continue with header sync, it should pick up the new chain naturally
+                debug!("Reorganization occurred during header sync, continuing with current sync");
+            }
+        }
+    }
+
+    /// Check if there's a stale tip (no new blocks for a while)
+    pub fn check_for_stale_tip(&self) -> bool {
+        self.chain_state.is_tip_stale()
+    }
+
+    /// Get time since last block was added
+    pub fn time_since_last_block(&self) -> Duration {
+        self.chain_state.time_since_last_block()
+    }
+
+    /// Get count of active forks
+    pub fn get_active_fork_count(&self) -> usize {
+        self.chain_state.get_active_fork_count()
+    }
+    
+    /// Get rejected reorganization count
+    pub fn get_rejected_reorg_count(&self) -> u64 {
+        self.chain_state.get_rejected_reorg_count()
+    }
+    
+    /// Get information about all active forks
+    pub fn get_active_forks(&self) -> Vec<ForkInfo> {
+        self.chain_state.get_active_forks()
     }
 }
 

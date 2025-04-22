@@ -71,11 +71,11 @@ fn main() -> Result<(), ApiError> {
     
     println!("\n6. Processing block rewards and transaction fees...");
     // Process some transaction fees
-    let total_fees = 1_000_000; // 0.01 BTC in satoshis
+    let total_fees = 1_000_000; // 0.01 NOVA in millinova
     let allocation = api.process_block_environmental_allocation(total_fees)?;
     
-    println!("   Block with {} satoshis in fees", total_fees);
-    println!("   Environmental allocation: {} satoshis", allocation);
+    println!("   Block with {} millinova in fees", total_fees);
+    println!("   Environmental allocation: {} millinova", allocation);
     
     println!("\n6a. Purchasing environmental assets with REC prioritization...");
     // Get current REC settings
@@ -84,13 +84,13 @@ fn main() -> Result<(), ApiError> {
              priority_factor, allocation_percentage);
     
     // Purchase some assets
-    let purchase_amount = 500_000; // 0.005 BTC
+    let purchase_amount = 500_000; // 0.005 NOVA
     let purchases = api.purchase_environmental_assets(purchase_amount)?;
     
     // Display purchases
     println!("   Purchased {} environmental assets:", purchases.len());
     for purchase in &purchases {
-        println!("     - {} {} of {:?} for {} satoshis (impact score: {:.2})", 
+        println!("     - {} {} of {:?} for {} millinova (impact score: {:.2})", 
                 purchase.amount, 
                 if purchase.asset_type == EnvironmentalAssetType::RenewableEnergyCertificate {
                     "MWh"
@@ -115,7 +115,7 @@ fn main() -> Result<(), ApiError> {
     // Display purchases
     println!("   Purchased with new settings:");
     for purchase in &purchases {
-        println!("     - {} {} of {:?} for {} satoshis (impact score: {:.2})", 
+        println!("     - {} {} of {:?} for {} millinova (impact score: {:.2})", 
                 purchase.amount, 
                 if purchase.asset_type == EnvironmentalAssetType::RenewableEnergyCertificate {
                     "MWh"

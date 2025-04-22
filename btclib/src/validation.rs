@@ -25,6 +25,9 @@ pub enum ValidationError {
     
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(String),
+    
+    #[error("Output too large")]
+    OutputTooLarge,
 }
 
 /// Security level for cryptographic operations and validation
@@ -174,7 +177,7 @@ impl ValidationService {
             if self.security_level == SecurityLevel::Maximum {
                 // Check for unusual output values
                 for output in tx.outputs() {
-                    if output.amount() > 1_000_000_000_000 { // 10,000 BTC
+                    if output.amount() > 1_000_000_000_000 { // 10,000 NOVA
                         issues.push(format!("Unusually large output: {}", output.amount()));
                         security_score -= 5;
                     }
