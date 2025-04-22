@@ -10,6 +10,8 @@ pub mod types;
 pub mod validation;
 pub mod testnet;
 pub mod consensus_verification;
+#[cfg(feature = "lightning")]
+pub mod lightning;
 
 // Internal modules
 mod transaction_processor;
@@ -29,3 +31,11 @@ pub use environmental::emissions::{EmissionsTracker, Emissions};
 pub use environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetType};
 pub use environmental::dashboard::{EnvironmentalDashboard, EmissionsTimePeriod};
 pub use consensus_verification::{ConsensusVerificationFramework, VerificationReport, ConsensusProperty};
+// Re-export Lightning types when feature is enabled
+#[cfg(feature = "lightning")]
+pub use lightning::{
+    LightningNetwork, 
+    LightningConfig, 
+    LightningNetworkError,
+    channel::{Channel, ChannelId, ChannelState, ChannelConfig, ChannelInfo}
+};
