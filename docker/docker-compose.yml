@@ -15,6 +15,9 @@ services:
       - "9090:9090"  # Prometheus metrics
     volumes:
       - node1-data:/home/supernova/data
+      - node1-checkpoints:/home/supernova/checkpoints
+      - node1-backups:/home/supernova/backups
+      - node1-logs:/home/supernova/logs
       - ../config/node1.toml:/home/supernova/config/default.toml
     environment:
       - RUST_LOG=info
@@ -23,6 +26,12 @@ services:
     networks:
       supernova-net:
         ipv4_address: 172.20.0.2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9332/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # Secondary blockchain node
   supernova-node-2:
@@ -35,6 +44,9 @@ services:
       - "19090:9090"  # Prometheus metrics
     volumes:
       - node2-data:/home/supernova/data
+      - node2-checkpoints:/home/supernova/checkpoints
+      - node2-backups:/home/supernova/backups
+      - node2-logs:/home/supernova/logs
       - ../config/node2.toml:/home/supernova/config/default.toml
     environment:
       - RUST_LOG=info
@@ -44,7 +56,14 @@ services:
       supernova-net:
         ipv4_address: 172.20.0.3
     depends_on:
-      - supernova-node-1
+      supernova-node-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9332/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # Mining node
   supernova-miner:
@@ -58,6 +77,9 @@ services:
       - "29090:9090"  # Prometheus metrics
     volumes:
       - miner-data:/home/supernova/data
+      - miner-checkpoints:/home/supernova/checkpoints
+      - miner-backups:/home/supernova/backups
+      - miner-logs:/home/supernova/logs
       - ../config/miner.toml:/home/supernova/config/default.toml
     environment:
       - RUST_LOG=info
@@ -68,7 +90,14 @@ services:
       supernova-net:
         ipv4_address: 172.20.0.4
     depends_on:
-      - supernova-node-1
+      supernova-node-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9332/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # Explorer node
   supernova-explorer:
@@ -82,6 +111,9 @@ services:
       - "8080:8080"   # Explorer web interface
     volumes:
       - explorer-data:/home/supernova/data
+      - explorer-checkpoints:/home/supernova/checkpoints
+      - explorer-backups:/home/supernova/backups
+      - explorer-logs:/home/supernova/logs
       - ../config/explorer.toml:/home/supernova/config/default.toml
     environment:
       - RUST_LOG=info
@@ -92,7 +124,14 @@ services:
       supernova-net:
         ipv4_address: 172.20.0.5
     depends_on:
-      - supernova-node-1
+      supernova-node-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9332/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # Prometheus for metrics collection
   prometheus:
@@ -108,10 +147,20 @@ services:
       supernova-net:
         ipv4_address: 172.20.0.10
     depends_on:
-      - supernova-node-1
-      - supernova-node-2
-      - supernova-miner
-      - supernova-explorer
+      supernova-node-1:
+        condition: service_healthy
+      supernova-node-2:
+        condition: service_healthy
+      supernova-miner:
+        condition: service_healthy
+      supernova-explorer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # Grafana for metrics visualization
   grafana:
@@ -131,7 +180,14 @@ services:
       supernova-net:
         ipv4_address: 172.20.0.11
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # Faucet service for testnet
   supernova-faucet:
@@ -145,6 +201,7 @@ services:
       - "8081:8081"
     volumes:
       - faucet-data:/home/supernova/data
+      - faucet-logs:/home/supernova/logs
       - ../config/faucet.toml:/home/supernova/config/faucet.toml
     environment:
       - RUST_LOG=info
@@ -155,16 +212,84 @@ services:
       supernova-net:
         ipv4_address: 172.20.0.6
     depends_on:
-      - supernova-node-1
+      supernova-node-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Backup manager - handles scheduled backups across all nodes
+  supernova-backup-manager:
+    image: alpine:latest
+    container_name: supernova-backup-manager
+    restart: unless-stopped
+    volumes:
+      - node1-backups:/backups/node1:ro
+      - node2-backups:/backups/node2:ro
+      - miner-backups:/backups/miner:ro
+      - explorer-backups:/backups/explorer:ro
+      - backup-storage:/storage
+      - ./backup-scripts:/scripts
+    environment:
+      - BACKUP_INTERVAL=86400  # Daily backups
+      - RETENTION_DAYS=7       # Keep backups for 7 days
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      chmod +x /scripts/backup.sh && 
+      /scripts/backup.sh
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.12
+
+  # Checkpoint manager and monitor
+  supernova-checkpoint-monitor:
+    image: alpine:latest
+    container_name: supernova-checkpoint-monitor
+    restart: unless-stopped
+    volumes:
+      - node1-checkpoints:/checkpoints/node1:ro
+      - node2-checkpoints:/checkpoints/node2:ro
+      - miner-checkpoints:/checkpoints/miner:ro
+      - explorer-checkpoints:/checkpoints/explorer:ro
+      - checkpoint-archive:/archive
+      - ./checkpoint-scripts:/scripts
+    environment:
+      - CHECK_INTERVAL=3600    # Hourly checkpoint verification
+      - RETAIN_CHECKPOINTS=14  # Keep checkpoints for 14 days
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      chmod +x /scripts/verify_checkpoints.sh && 
+      /scripts/verify_checkpoints.sh
+    networks:
+      supernova-net:
+        ipv4_address: 172.20.0.13
 
 volumes:
   node1-data:
+  node1-checkpoints:
+  node1-backups:
+  node1-logs:
   node2-data:
+  node2-checkpoints:
+  node2-backups:
+  node2-logs:
   miner-data:
+  miner-checkpoints:
+  miner-backups:
+  miner-logs:
   explorer-data:
+  explorer-checkpoints:
+  explorer-backups:
+  explorer-logs:
   faucet-data:
+  faucet-logs:
   prometheus-data:
   grafana-data:
+  backup-storage:
+  checkpoint-archive:
 
 networks:
   supernova-net:

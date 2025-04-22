@@ -1,0 +1,52 @@
+name: Cargo Clippy Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  clippy:
+    name: Clippy Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Install clippy-sarif
+        run: cargo install clippy-sarif sarif-fmt
+        
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features --message-format=json | clippy-sarif | tee clippy-results.sarif | sarif-fmt
+        
+      - name: Upload analysis results to GitHub
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: clippy-results.sarif
+          wait-for-processing: true 

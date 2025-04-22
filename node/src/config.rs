@@ -13,6 +13,7 @@ pub struct NodeConfig {
     pub mempool: MempoolConfig,
     pub backup: BackupConfig,
     pub node: GeneralConfig,
+    pub checkpoint: CheckpointConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -77,6 +78,16 @@ pub enum NetworkEnvironment {
     Production,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CheckpointConfig {
+    pub checkpoints_enabled: bool,
+    #[serde(with = "duration_serde")]
+    pub checkpoint_interval: Duration,
+    pub checkpoint_type: String,
+    pub data_dir: PathBuf,
+    pub max_checkpoints: usize,
+}
+
 mod duration_serde {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::time::Duration;
@@ -105,6 +116,7 @@ impl Default for NodeConfig {
             mempool: MempoolConfig::default(),
             backup: BackupConfig::default(),
             node: GeneralConfig::default(),
+            checkpoint: CheckpointConfig::default(),
         }
     }
 }
@@ -171,6 +183,18 @@ impl Default for GeneralConfig {
             metrics_enabled: true,
             metrics_port: 9000,
             log_level: "info".to_string(),
+        }
+    }
+}
+
+impl Default for CheckpointConfig {
+    fn default() -> Self {
+        Self {
+            checkpoints_enabled: true,
+            checkpoint_interval: Duration::from_secs(3600 * 24), // Daily checkpoints
+            checkpoint_type: "Full".to_string(),
+            data_dir: PathBuf::from("./checkpoints"),
+            max_checkpoints: 7, // Keep a week of checkpoints
         }
     }
 }

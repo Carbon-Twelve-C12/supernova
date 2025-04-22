@@ -14,6 +14,8 @@ pub struct MetricsRegistry {
     pub consensus_metrics: ConsensusMetrics,
     // Mempool metrics
     pub mempool_metrics: MempoolMetrics,
+    // Lightning Network metrics
+    pub lightning_metrics: LightningMetrics,
     // Handle to Prometheus exporter (if configured)
     prometheus_handle: Option<PrometheusHandle>,
 }
@@ -35,6 +37,7 @@ impl MetricsRegistry {
         let network_metrics = NetworkMetrics::new();
         let consensus_metrics = ConsensusMetrics::new();
         let mempool_metrics = MempoolMetrics::new();
+        let lightning_metrics = LightningMetrics::new();
         
         Ok(Self {
             system_metrics,
@@ -42,6 +45,7 @@ impl MetricsRegistry {
             network_metrics,
             consensus_metrics,
             mempool_metrics,
+            lightning_metrics,
             prometheus_handle: Some(handle),
         })
     }
@@ -83,6 +87,7 @@ impl MetricsRegistry {
         let network_metrics = NetworkMetrics::new();
         let consensus_metrics = ConsensusMetrics::new();
         let mempool_metrics = MempoolMetrics::new();
+        let lightning_metrics = LightningMetrics::new();
         
         Ok(Self {
             system_metrics,
@@ -90,6 +95,7 @@ impl MetricsRegistry {
             network_metrics,
             consensus_metrics,
             mempool_metrics,
+            lightning_metrics,
             prometheus_handle: Some(handle),
         })
     }
@@ -102,6 +108,7 @@ impl MetricsRegistry {
         let network_metrics = NetworkMetrics::new();
         let consensus_metrics = ConsensusMetrics::new();
         let mempool_metrics = MempoolMetrics::new();
+        let lightning_metrics = LightningMetrics::new();
         
         info!("Metrics system initialized in disabled mode");
         
@@ -111,6 +118,7 @@ impl MetricsRegistry {
             network_metrics,
             consensus_metrics,
             mempool_metrics,
+            lightning_metrics,
             prometheus_handle: None,
         }
     }
@@ -502,6 +510,144 @@ impl MempoolMetrics {
     /// Record transaction expired from mempool
     pub fn record_transaction_expired(&self) {
         self.transactions_expired.increment(1);
+    }
+}
+
+/// Lightning Network-related metrics
+pub struct LightningMetrics {
+    /// Number of active payment channels
+    active_channels: Gauge,
+    /// Number of pending channels (opening/closing)
+    pending_channels: Gauge,
+    /// Number of channel opens initiated
+    channel_opens: Counter,
+    /// Number of channel closes initiated
+    channel_closes: Counter,
+    /// Number of successful payments
+    payments_success: Counter,
+    /// Number of failed payments
+    payments_failed: Counter,
+    /// Number of HTLCs currently in flight
+    htlcs_in_flight: Gauge,
+    /// Total capacity of all channels in satoshis
+    total_capacity: Gauge,
+    /// Local balance across all channels in satoshis
+    local_balance: Gauge,
+    /// Remote balance across all channels in satoshis
+    remote_balance: Gauge,
+    /// Payment routing fee income in millisatoshis
+    routing_fee_income: Counter,
+    /// Average payment path length
+    payment_path_length: Histogram,
+    /// Payment processing time (end-to-end)
+    payment_processing_time: Histogram,
+    /// Payment amounts in millisatoshis
+    payment_amounts: Histogram,
+    /// Number of routing failures
+    routing_failures: Counter,
+    /// Number of channel errors
+    channel_errors: Counter,
+    /// Number of forwarded payments
+    forwarded_payments: Counter,
+    /// Number of declined HTLCs
+    declined_htlcs: Counter,
+    /// Number of channel force-closes
+    force_closes: Counter,
+}
+
+impl LightningMetrics {
+    /// Create new Lightning Network metrics
+    pub fn new() -> Self {
+        Self {
+            active_channels: metrics::gauge!("lightning_active_channels"),
+            pending_channels: metrics::gauge!("lightning_pending_channels"),
+            channel_opens: metrics::counter!("lightning_channel_opens_total"),
+            channel_closes: metrics::counter!("lightning_channel_closes_total"),
+            payments_success: metrics::counter!("lightning_payments_success_total"),
+            payments_failed: metrics::counter!("lightning_payments_failed_total"),
+            htlcs_in_flight: metrics::gauge!("lightning_htlcs_in_flight"),
+            total_capacity: metrics::gauge!("lightning_total_capacity_sats"),
+            local_balance: metrics::gauge!("lightning_local_balance_sats"),
+            remote_balance: metrics::gauge!("lightning_remote_balance_sats"),
+            routing_fee_income: metrics::counter!("lightning_routing_fee_income_msats"),
+            payment_path_length: metrics::histogram!("lightning_payment_path_length"),
+            payment_processing_time: metrics::histogram!("lightning_payment_processing_time_seconds"),
+            payment_amounts: metrics::histogram!("lightning_payment_amounts_msats"),
+            routing_failures: metrics::counter!("lightning_routing_failures_total"),
+            channel_errors: metrics::counter!("lightning_channel_errors_total"),
+            forwarded_payments: metrics::counter!("lightning_forwarded_payments_total"),
+            declined_htlcs: metrics::counter!("lightning_declined_htlcs_total"),
+            force_closes: metrics::counter!("lightning_force_closes_total"),
+        }
+    }
+    
+    /// Update channel counts
+    pub fn update_channel_counts(&self, active: u64, pending: u64) {
+        self.active_channels.set(active as f64);
+        self.pending_channels.set(pending as f64);
+    }
+    
+    /// Record channel open
+    pub fn record_channel_open(&self) {
+        self.channel_opens.increment(1);
+    }
+    
+    /// Record channel close
+    pub fn record_channel_close(&self, force_close: bool) {
+        self.channel_closes.increment(1);
+        if force_close {
+            self.force_closes.increment(1);
+        }
+    }
+    
+    /// Record payment outcome
+    pub fn record_payment_outcome(&self, success: bool, amount_msat: u64, path_length: u64, processing_time_secs: f64) {
+        if success {
+            self.payments_success.increment(1);
+        } else {
+            self.payments_failed.increment(1);
+        }
+        
+        self.payment_amounts.record(amount_msat as f64);
+        self.payment_path_length.record(path_length as f64);
+        self.payment_processing_time.record(processing_time_secs);
+    }
+    
+    /// Update HTLC in-flight count
+    pub fn update_htlcs_in_flight(&self, count: u64) {
+        self.htlcs_in_flight.set(count as f64);
+    }
+    
+    /// Update channel balances
+    pub fn update_balances(&self, total_capacity: u64, local_balance: u64, remote_balance: u64) {
+        self.total_capacity.set(total_capacity as f64);
+        self.local_balance.set(local_balance as f64);
+        self.remote_balance.set(remote_balance as f64);
+    }
+    
+    /// Record routing fee income
+    pub fn record_fee_income(&self, fee_msat: u64) {
+        self.routing_fee_income.increment(fee_msat);
+    }
+    
+    /// Record routing failure
+    pub fn record_routing_failure(&self) {
+        self.routing_failures.increment(1);
+    }
+    
+    /// Record channel error
+    pub fn record_channel_error(&self) {
+        self.channel_errors.increment(1);
+    }
+    
+    /// Record forwarded payment
+    pub fn record_forwarded_payment(&self) {
+        self.forwarded_payments.increment(1);
+    }
+    
+    /// Record declined HTLC
+    pub fn record_declined_htlc(&self) {
+        self.declined_htlcs.increment(1);
     }
 }
 
