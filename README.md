@@ -12,6 +12,8 @@
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/security-audit.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/security-audit.yml/badge.svg" alt="Security Audit" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml/badge.svg" alt="Clippy" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml/badge.svg" alt="Benchmarks" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/docker-image.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/docker-image.yml/badge.svg" alt="Docker" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/deploy.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/deploy.yml/badge.svg" alt="Deploy" /></a>
   </p>
 </div>
 

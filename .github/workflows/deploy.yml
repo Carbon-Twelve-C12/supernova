@@ -14,6 +14,11 @@ on:
         options:
           - staging
           - production
+      skip_kubernetes:
+        description: 'Skip Kubernetes deployment'
+        required: false
+        default: true
+        type: boolean
 
 env:
   REGISTRY: docker.io
@@ -69,6 +74,7 @@ jobs:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
     needs: build-and-push
+    if: ${{ github.event.inputs.skip_kubernetes != 'true' }}
     environment: ${{ github.event.inputs.environment || 'staging' }}
     
     steps:
@@ -117,8 +123,13 @@ jobs:
     if: always()
     
     steps:
-      - name: Notify success
-        if: ${{ needs.build-and-push.result == 'success' && needs.deploy-to-kubernetes.result == 'success' }}
+      - name: Notify success for Docker push
+        if: ${{ needs.build-and-push.result == 'success' }}
+        run: |
+          echo "✅ Docker image built and pushed successfully!"
+      
+      - name: Notify Slack success (if configured)
+        if: ${{ needs.build-and-push.result == 'success' && (github.event.inputs.skip_kubernetes == 'true' || needs.deploy-to-kubernetes.result == 'success') && env.SLACK_WEBHOOK_URL != '' }}
         uses: slackapi/slack-github-action@v1.23.0
         with:
           payload: |
@@ -128,13 +139,13 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       
-      - name: Notify failure
-        if: ${{ needs.build-and-push.result != 'success' || needs.deploy-to-kubernetes.result != 'success' }}
+      - name: Notify Slack failure (if configured)
+        if: ${{ (needs.build-and-push.result != 'success' || (github.event.inputs.skip_kubernetes != 'true' && needs.deploy-to-kubernetes.result != 'success')) && env.SLACK_WEBHOOK_URL != '' }}
         uses: slackapi/slack-github-action@v1.23.0
         with:
           payload: |
             {
-              "text": "❌ Deployment failed for ${{ github.repository }} to ${{ github.event.inputs.environment || 'staging' }}! \nPlease check the logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "text": "❌ Deployment failed for ${{ github.repository }}! \nPlease check the logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} 
