@@ -15,7 +15,7 @@ This Docker image contains everything needed to run a Supernova blockchain node.
 docker run -d --name supernova-node \
   -p 9333:9333 -p 9332:9332 -p 9090:9090 \
   -v supernova-data:/home/supernova/data \
-  username/supernova:latest
+  mjohnson518/supernova:latest
 ```
 
 ## Configuration
@@ -68,7 +68,7 @@ docker run -d --name supernova-node \
   -e RUST_LOG=info \
   -e NODE_NAME=my-node \
   -e NETWORK=testnet \
-  username/supernova:latest
+  mjohnson518/supernova:latest
 ```
 
 ### Running a Mining Node
@@ -83,7 +83,7 @@ docker run -d --name supernova-miner \
   -e NODE_NAME=my-miner \
   -e NETWORK=testnet \
   -e MINE=true \
-  username/supernova:latest --mine
+  mjohnson518/supernova:latest --mine
 ```
 
 ### Running an Explorer Node
@@ -98,12 +98,12 @@ docker run -d --name supernova-explorer \
   -e NODE_NAME=my-explorer \
   -e NETWORK=testnet \
   -e EXPLORER=true \
-  username/supernova:latest
+  mjohnson518/supernova:latest
 ```
 
 ## Using Docker Compose
 
-For more complex setups, we recommend using Docker Compose. See our [example docker-compose.yml](https://github.com/username/supernova/blob/main/docker/docker-compose.yml) file that sets up a complete testnet environment with multiple nodes, miners, and monitoring tools.
+For more complex setups, we recommend using Docker Compose. See our [example docker-compose.yml](https://github.com/mjohnson518/supernova/blob/main/docker/docker-compose.yml) file that sets up a complete testnet environment with multiple nodes, miners, and monitoring tools.
 
 ## Health Checks
 
@@ -124,5 +124,5 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 
 For issues, questions, or contributions:
 
-- [GitHub Issues](https://github.com/username/supernova/issues)
-- [Documentation](https://github.com/username/supernova/docs) 
+- [GitHub Issues](https://github.com/mjohnson518/supernova/issues)
+- [Documentation](https://github.com/mjohnson518/supernova/docs) 
