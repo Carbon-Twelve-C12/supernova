@@ -80,7 +80,7 @@ This document outlines the formal specification of the SuperNova blockchain cons
 
 ### Transaction Outputs
 
-1. **Value Range**: Each output value must be between `MIN_AMOUNT` (1 satoshi) and `MAX_AMOUNT` (21,000,000 NOVA).
+1. **Value Range**: Each output value must be between `MIN_AMOUNT` (1 attonova) and `MAX_AMOUNT` (42,000,000 NOVA).
 
 2. **Script Validity**: Output scripts must be standard and valid according to the scripting system.
 
@@ -126,7 +126,7 @@ The SuperNova consensus must satisfy the following formal properties:
 
 2. **No Double Spending**: No UTXO can be spent more than once in the blockchain.
 
-3. **Supply Conservation**: The total supply of NOVA must never exceed 21,000,000.
+3. **Supply Conservation**: The total supply of NOVA must never exceed 42,000,000.
 
 4. **Block Validity**: All blocks in the blockchain must adhere to the block validation rules.
 
@@ -185,7 +185,7 @@ Formal properties can be specified in a structured JSON format:
     },
     {
       "id": "supply-limit",
-      "description": "The total supply of NOVA must never exceed 21,000,000",
+      "description": "The total supply of NOVA must never exceed 42,000,000",
       "verification_type": "Invariant",
       "predicate": {
         "type": "LessThanOrEqual",
@@ -193,7 +193,7 @@ Formal properties can be specified in a structured JSON format:
           "type": "Function",
           "name": "total_supply"
         },
-        "right": 2100000000000000
+        "right": 4200000000000000
       },
       "is_critical": true
     }

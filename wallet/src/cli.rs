@@ -7,6 +7,7 @@ use crate::{
     ui::tui::WalletTui,
     history::TransactionHistory,
 };
+use chrono::{Utc};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -64,6 +65,18 @@ enum Commands {
 
     /// Run the TUI
     Tui,
+    
+    /// Create a test transaction (for development/demo)
+    #[cfg(debug_assertions)]
+    CreateTestTransaction {
+        /// Account to credit
+        #[arg(short, long)]
+        account: String,
+        
+        /// Amount in satoshis
+        #[arg(short, long, default_value = "50000")]
+        amount: u64,
+    },
 }
 
 pub fn run_cli() -> Result<(), String> {
@@ -169,16 +182,16 @@ pub fn run_cli() -> Result<(), String> {
                 return Err("No wallet found. Create one first with 'new' command.".to_string());
             }
             
-            let acc_type = AccountType::from_str(&account_type)
-                .map_err(|e| format!("Invalid account type: {}", e))?;
-            
             let mut wallet = HDWallet::load(wallet_path)
                 .map_err(|e| format!("Failed to load wallet: {}", e))?;
+            
+            let acc_type = AccountType::from_str(&account_type)
+                .map_err(|e| format!("Invalid account type: {}", e))?;
             
             wallet.create_account(name.clone(), acc_type)
                 .map_err(|e| format!("Failed to create account: {}", e))?;
             
-            println!("Account '{}' created successfully.", name);
+            println!("Account '{}' of type {:?} created successfully.", name, acc_type);
             Ok(())
         },
         
@@ -227,6 +240,43 @@ pub fn run_cli() -> Result<(), String> {
                 .map_err(|e| format!("Failed to create TUI: {}", e))?;
             
             tui.run().map_err(|e| format!("TUI error: {}", e))?;
+            Ok(())
+        },
+        
+        #[cfg(debug_assertions)]
+        Some(Commands::CreateTestTransaction { account, amount }) => {
+            if !wallet_path.exists() {
+                return Err("No wallet found. Create one first with 'new' command.".to_string());
+            }
+            
+            let wallet = HDWallet::load(wallet_path)
+                .map_err(|e| format!("Failed to load wallet: {}", e))?;
+            
+            let mut history = TransactionHistory::new(history_path)
+                .map_err(|e| format!("Failed to load transaction history: {}", e))?;
+                
+            // Validate the account exists
+            if wallet.get_balance(&account).is_err() {
+                return Err(format!("Account '{}' not found", account));
+            }
+            
+            // Create a test transaction record
+            let tx_record = TransactionRecord {
+                hash: format!("test_tx_{}", Utc::now().timestamp()),
+                timestamp: Utc::now(),
+                direction: TransactionDirection::Received,
+                amount,
+                fee: 1000,
+                status: TransactionStatus::Confirmed(6),
+                label: Some(format!("Test transaction to {}", account)),
+                category: Some("Test".to_string()),
+                tags: vec!["test".to_string(), "demo".to_string()],
+            };
+            
+            history.add_transaction(tx_record)
+                .map_err(|e| format!("Failed to add transaction: {}", e))?;
+                
+            println!("Test transaction of {} sats created for account '{}'", amount, account);
             Ok(())
         },
         
