@@ -3,6 +3,7 @@ use crate::storage::{
     CheckpointManager, CheckpointConfig, CheckpointType,
     RecoveryManager, StorageError, UTXOSet
 };
+use crate::api::{ApiServer, ApiConfig};
 
 pub struct Node {
     pub config: NodeConfig,
@@ -18,6 +19,8 @@ pub struct Node {
     pub rpc_server: Option<Arc<RpcServer>>,
     pub is_running: Arc<AtomicBool>,
     pub mem_pool: Arc<RwLock<MemPool>>,
+    /// API server instance
+    pub api_server: Option<ApiServer>,
 }
 
 impl Node {
@@ -58,6 +61,7 @@ impl Node {
             rpc_server,
             is_running: Arc::new(AtomicBool::new(false)),
             mem_pool,
+            api_server: None,
         })
     }
 
@@ -84,6 +88,51 @@ impl Node {
 
         // ... existing code ...
         
+        Ok(())
+    }
+
+    /// Start the API server
+    pub async fn start_api(&mut self, bind_address: &str, port: u16) -> std::io::Result<()> {
+        // Create API server with default configuration
+        let api_server = ApiServer::new(Arc::new(self.clone()), bind_address, port);
+        
+        // Store the server instance
+        self.api_server = Some(api_server.clone());
+        
+        // Start the server in a separate task
+        let server_handle = api_server.start().await?;
+        
+        // Spawn a task to run the server
+        tokio::spawn(async move {
+            if let Err(e) = server_handle.await {
+                error!("API server error: {}", e);
+            }
+        });
+        
+        info!("API server started on {}:{}", bind_address, port);
+        Ok(())
+    }
+
+    /// Start the API server with custom configuration
+    pub async fn start_api_with_config(&mut self, config: ApiConfig) -> std::io::Result<()> {
+        // Create API server with custom configuration
+        let api_server = ApiServer::new(Arc::new(self.clone()), &config.bind_address, config.port)
+            .with_config(config.clone());
+        
+        // Store the server instance
+        self.api_server = Some(api_server.clone());
+        
+        // Start the server in a separate task
+        let server_handle = api_server.start().await?;
+        
+        // Spawn a task to run the server
+        tokio::spawn(async move {
+            if let Err(e) = server_handle.await {
+                error!("API server error: {}", e);
+            }
+        });
+        
+        info!("API server started on {}:{} with custom configuration", config.bind_address, config.port);
         Ok(())
     }
 

@@ -5,6 +5,7 @@ use std::fs;
 use tracing::{info, warn, error};
 use config::{Config, ConfigError, Environment, File};
 use notify::{self, Watcher, RecommendedWatcher, RecursiveMode};
+use crate::api::ApiConfig;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NodeConfig {
@@ -14,6 +15,7 @@ pub struct NodeConfig {
     pub backup: BackupConfig,
     pub node: GeneralConfig,
     pub checkpoint: CheckpointConfig,
+    pub api: ApiConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -117,6 +119,7 @@ impl Default for NodeConfig {
             backup: BackupConfig::default(),
             node: GeneralConfig::default(),
             checkpoint: CheckpointConfig::default(),
+            api: ApiConfig::default(),
         }
     }
 }
@@ -222,6 +225,16 @@ impl NodeConfig {
 
         let config: NodeConfig = config.build()?.try_deserialize()?;
         Self::ensure_directories(&config)?;
+
+        // If api bind address is not set, use the same as the p2p address
+        if config.api.bind_address.is_empty() {
+            // Extract host from p2p address (remove port)
+            if let Some(host) = config.network.listen_addr.split(':').next() {
+                config.api.bind_address = host.to_string();
+            } else {
+                config.api.bind_address = "127.0.0.1".to_string();
+            }
+        }
 
         Ok(config)
     }

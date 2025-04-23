@@ -35,11 +35,14 @@ The total supply of 42,000,000 NOVA tokens is allocated as follows:
 | Allocation Category | Percentage | Amount (NOVA) | Purpose |
 |---------------------|------------|---------------|---------|
 | Mining Rewards | 40% | 16,800,000 | Network security incentives |
-| Foundation Reserve | 15% | 6,300,000 | Long-term ecosystem development |
+| Foundation Reserve | 13.5% | 5,670,000 | Long-term ecosystem development |
 | Ecosystem Development | 15% | 6,300,000 | Grants, partnerships, and marketing |
 | Team & Advisors | 15% | 6,300,000 | Team compensation and advisory services |
 | Environmental Treasury | 10% | 4,200,000 | Ensuring carbon negativity |
-| Community & Airdrops | 5% | 2,100,000 | Community building and adoption |
+| Community & Airdrops | 4.5% | 1,890,000 | Community building and adoption |
+| Liquidity Reserve | 2% | 840,000 | Market making and liquidity provision |
+
+The Liquidity Reserve is a dedicated allocation managed by the Treasury Committee to ensure stable, deep markets for NOVA tokens. This allocation reduces selling pressure on the Foundation Reserve while providing professional market making services.
 
 ### 2.2 Visual Breakdown
 
@@ -199,6 +202,119 @@ The Foundation allocates operational funding across these categories:
 | Environmental Programs | 15% | Carbon negativity initiatives beyond standard offset purchases |
 | Legal & Compliance | 5% | Legal services, regulatory compliance, and audits |
 | Administration | 5% | Administrative costs, facilities, and general operations |
+
+### 5.5 Token Launch Mechanism
+
+Supernova will implement a Liquidity Bootstrapping Pool (LBP) for fair and efficient price discovery:
+
+- **Launch Format**: 7-day Balancer LBP with dynamic weighting
+- **Initial Pool Structure**: 
+  - Starting weight: 90% NOVA / 10% USDC
+  - Ending weight: 50% NOVA / 50% USDC
+  - Initial NOVA allocation: 1,050,000 tokens (1/2 of initial Community & Airdrop allocation)
+  
+- **Price Parameters**:
+  - Starting price ceiling: $6.30 USDC
+  - No price floor (true price discovery)
+  - Target equilibrium: ~$4.20 USDC
+  
+- **Participation**: Open to public, KYC required for purchases over $10,000 USD
+- **Anti-whale Measures**: Maximum individual contribution of $50,000 in first 24 hours
+- **Post-LBP**: Unsold tokens return to Community allocation, sold tokens create initial DEX liquidity
+
+This mechanism ensures:
+1. Fair market-determined price discovery
+2. Protection against front-running and whale manipulation
+3. Efficient capital deployment with minimal initial volatility
+4. Broader initial token distribution
+
+### 5.6 Strategic Investment Framework
+
+Prior to public launch, the Foundation will secure strategic investors through a structured approach:
+
+- **Strategic Round Allocation**: 525,000 NOVA (1.25% of total supply) from Foundation Reserve
+- **Investor Criteria**:
+  - Demonstrated alignment with SuperNova's environmental mission
+  - Technical expertise in blockchain infrastructure or quantum computing
+  - Long-term investment horizon (minimum 2-year lockup with linear vesting)
+  - Ability to provide technical, operational, or market-making support
+  - Geographic diversity across key markets
+
+- **Investment Structure**:
+  - Price: 20% discount to expected LBP target price
+  - Lockup: 6-month cliff, 24-month linear vesting thereafter
+  - Participation rights in future governance decisions
+  - Maximum allocation per investor: 105,000 NOVA (0.25% of total supply)
+
+- **Strategic Partner Categories**:
+  | Category | Allocation | Example Partners |
+  |----------|------------|------------------|
+  | Environmental | 30% | Renewable energy companies, carbon markets |
+  | Technical | 30% | Post-quantum security, mining innovation |
+  | Financial | 20% | Market makers, crypto-native funds |
+  | Ecosystem | 20% | DeFi protocols, infrastructure projects |
+
+The strategic investment round will close at least 30 days before the public LBP launch.
+
+### 5.7 Market Liquidity Strategy
+
+Supernova will implement a comprehensive liquidity strategy to ensure market stability:
+
+#### DEX Liquidity Provision
+- **Initial Liquidity**: 25% of LBP proceeds paired with 210,000 NOVA (0.5% of total supply)
+- **Protocol-Owned Liquidity**: At least 70% of initial liquidity will be protocol-owned
+- **Deployment Strategy**:
+  | Exchange | Allocation | Token Pairs | Fee Tier |
+  |----------|------------|-------------|----------|
+  | Uniswap V3 | 40% | NOVA/ETH, NOVA/USDC | 0.3%, 1% |
+  | Curve Finance | 30% | NOVA/stablecoin pool | Standard |
+  | Balancer | 20% | NOVA/ETH/BTC weighted pool | 2% |
+  | Emerging DEXes | 10% | Various pairs | Various |
+
+- **Concentrated Liquidity Management**: Professional active management of Uniswap V3 positions
+- **Incentives**: Initial 90-day reward program for liquidity providers using 105,000 NOVA from Ecosystem Development fund
+
+#### CEX Market Making
+- **Market Maker Partnerships**: 2-3 professional market making firms with specific performance requirements:
+  - Maximum spread: 1.5% during normal conditions
+  - Minimum depth: $100,000 within 2% of mid price
+  - Uptime requirement: 99.5%
+  - Anti-manipulation protections
+  
+- **CEX Listing Strategy**:
+  - Initial focus on Tier 2 exchanges with strong compliance
+  - Target 2-3 Tier 1 exchanges within 6 months of launch
+  - Progressive geographic expansion: Americas → Europe → Asia
+  - No payment for "market maker programs" run by exchanges
+
+- **Performance Monitoring**: Weekly liquidity quality reports published to community
+
+### 5.8 Liquidity Reserve Management
+
+The 840,000 NOVA (2% of total supply) allocated to the Liquidity Reserve follows strict guidelines for market stability:
+
+- **Allocation Breakdown**:
+  - DEX Liquidity: 50% (420,000 NOVA)
+  - CEX Market Making: 40% (336,000 NOVA)
+  - Volatility Reserve: 10% (84,000 NOVA)
+
+- **Vesting Schedule**: 
+  - 30% available at launch (252,000 NOVA)
+  - Remaining 70% released linearly over 24 months
+
+- **Utilization Guidelines**:
+  - All liquidity deployments must be proposed by Treasury Committee
+  - Minimum 3/5 Council approval for significant changes
+  - Quarterly audits of liquidity positions and market making performance
+  - Public dashboard showing liquidity metrics across venues
+
+- **Performance Metrics**:
+  - Trading volume / liquidity ratio
+  - Bid-ask spread measurements
+  - Slippage at various order sizes
+  - Volatility comparison to benchmarks
+
+The Liquidity Reserve is not intended for speculation or profit-generation but solely to ensure NOVA markets remain liquid, fair, and accessible to all participants.
 
 ## 6. Environmental Treasury Management
 
