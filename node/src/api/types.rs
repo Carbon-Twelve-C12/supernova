@@ -839,6 +839,432 @@ pub struct TimeRangeParams {
     pub end_time: Option<u64>,
 }
 
+/// Wallet information
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct WalletInfo {
+    /// Wallet identifier
+    pub wallet_id: String,
+    
+    /// Type of wallet (HD, Legacy, etc.)
+    pub wallet_type: String,
+    
+    /// Total confirmed balance in satoshis
+    pub balance: u64,
+    
+    /// Unconfirmed balance in satoshis
+    pub unconfirmed_balance: u64,
+    
+    /// Number of addresses in the wallet
+    pub address_count: u32,
+    
+    /// Number of transactions in the wallet
+    pub tx_count: u32,
+    
+    /// Timestamp of last wallet activity
+    pub last_active: Option<String>,
+    
+    /// HD master key fingerprint (if HD wallet)
+    pub hd_master_key_fingerprint: Option<String>,
+    
+    /// Whether the wallet is currently locked
+    pub is_locked: bool,
+}
+
+/// Wallet balance information
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BalanceInfo {
+    /// Confirmed balance in satoshis
+    pub confirmed: u64,
+    
+    /// Unconfirmed balance in satoshis
+    pub unconfirmed: u64,
+    
+    /// Immature balance in satoshis (from mining)
+    pub immature: u64,
+    
+    /// Total balance in satoshis
+    pub total: u64,
+    
+    /// Spendable balance in satoshis
+    pub spendable: u64,
+    
+    /// Pending mining rewards in satoshis
+    pub pending_rewards: u64,
+}
+
+/// Wallet address
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Address {
+    /// The address string
+    pub address: String,
+    
+    /// Address type (receive, change)
+    pub type_: String,
+    
+    /// HD derivation path (if HD wallet)
+    pub hd_path: Option<String>,
+    
+    /// Current balance in satoshis
+    pub balance: u64,
+    
+    /// Number of transactions for this address
+    pub tx_count: u32,
+    
+    /// User-defined label
+    pub label: Option<String>,
+    
+    /// Timestamp of last use
+    pub last_used: Option<String>,
+}
+
+/// Detailed address information
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AddressInfo {
+    /// The address string
+    pub address: String,
+    
+    /// Address type (receive, change)
+    pub type_: String,
+    
+    /// HD derivation path (if HD wallet)
+    pub hd_path: Option<String>,
+    
+    /// Current balance in satoshis
+    pub balance: u64,
+    
+    /// Number of transactions for this address
+    pub tx_count: u32,
+    
+    /// User-defined label
+    pub label: Option<String>,
+    
+    /// Timestamp of last use
+    pub last_used: Option<String>,
+    
+    /// UTXOs associated with this address
+    pub utxos: Vec<UTXO>,
+}
+
+/// Unspent transaction output (UTXO)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UTXO {
+    /// Transaction ID
+    pub txid: String,
+    
+    /// Output index
+    pub vout: u32,
+    
+    /// Address
+    pub address: String,
+    
+    /// Amount in satoshis
+    pub amount: u64,
+    
+    /// Number of confirmations
+    pub confirmations: u32,
+    
+    /// Block height
+    pub height: Option<u32>,
+    
+    /// Whether the UTXO is spendable
+    pub spendable: bool,
+    
+    /// Whether the UTXO is safe to spend
+    pub safe: bool,
+}
+
+/// List of UTXOs
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UTXOList {
+    /// List of UTXOs
+    pub utxos: Vec<UTXO>,
+    
+    /// Total amount in satoshis
+    pub total_amount: u64,
+}
+
+/// Transaction input
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TransactionInput {
+    /// Transaction ID being spent
+    pub txid: String,
+    
+    /// Output index being spent
+    pub vout: u32,
+    
+    /// Address
+    pub address: Option<String>,
+    
+    /// Amount in satoshis
+    pub amount: Option<u64>,
+}
+
+/// Transaction output
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TransactionOutput {
+    /// Recipient address
+    pub address: String,
+    
+    /// Amount in satoshis
+    pub amount: u64,
+    
+    /// Output index
+    pub n: u32,
+    
+    /// Whether this is a change output
+    pub is_change: bool,
+}
+
+/// Carbon footprint information
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CarbonFootprint {
+    /// Emissions in grams of CO2 equivalent
+    pub emissions_gCO2: f64,
+    
+    /// Energy consumption in kilowatt-hours
+    pub energy_consumption_kWh: f64,
+}
+
+/// Transaction information
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Transaction {
+    /// Transaction ID
+    pub txid: String,
+    
+    /// Timestamp
+    pub time: String,
+    
+    /// Amount in satoshis (positive for receive, negative for send)
+    pub amount: i64,
+    
+    /// Fee in satoshis
+    pub fee: u64,
+    
+    /// Number of confirmations
+    pub confirmations: u32,
+    
+    /// Block height
+    pub height: Option<u32>,
+    
+    /// Block hash
+    pub blockhash: Option<String>,
+    
+    /// Transaction category (send, receive, generate, immature, fee)
+    pub category: String,
+    
+    /// Address (primary address for transaction)
+    pub address: Option<String>,
+    
+    /// Label (user-defined)
+    pub label: Option<String>,
+    
+    /// Transaction inputs
+    pub inputs: Vec<TransactionInput>,
+    
+    /// Transaction outputs
+    pub outputs: Vec<TransactionOutput>,
+    
+    /// Carbon footprint of the transaction
+    pub carbon_footprint: Option<CarbonFootprint>,
+    
+    /// Raw transaction hex (if requested)
+    pub raw: Option<String>,
+}
+
+/// List of transactions
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TransactionList {
+    /// List of transactions
+    pub transactions: Vec<Transaction>,
+    
+    /// Total number of transactions
+    pub total_count: u32,
+}
+
+/// Request to create a new address
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AddressRequest {
+    /// User-defined label
+    pub label: Option<String>,
+    
+    /// Address type (receive, change)
+    #[serde(rename = "type")]
+    pub type_: Option<String>,
+    
+    /// Whether to use quantum-resistant addressing
+    pub quantum_resistant: Option<bool>,
+}
+
+/// Response for address creation
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AddressResponse {
+    /// The address string
+    pub address: String,
+    
+    /// Address type (receive, change)
+    pub type_: String,
+    
+    /// HD derivation path (if HD wallet)
+    pub hd_path: Option<String>,
+    
+    /// User-defined label
+    pub label: Option<String>,
+    
+    /// Whether it's a quantum-resistant address
+    pub quantum_resistant: Option<bool>,
+}
+
+/// Transaction output request for sending
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SendOutput {
+    /// Recipient address
+    pub address: String,
+    
+    /// Amount in satoshis
+    pub amount: u64,
+}
+
+/// Quantum signature options
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct QuantumSignatureOptions {
+    /// Signature scheme ("dilithium" or "falcon")
+    pub scheme: String,
+    
+    /// Security strength level ("low", "medium", "high")
+    pub strength: String,
+}
+
+/// Request to send a transaction
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SendRequest {
+    /// Transaction outputs
+    pub outputs: Vec<SendOutput>,
+    
+    /// Fee rate in satoshis per byte
+    pub fee_rate: Option<f64>,
+    
+    /// Whether to subtract fee from outputs
+    pub subtract_fee_from_amount: Option<bool>,
+    
+    /// Whether transaction is replaceable (RBF)
+    pub replaceable: Option<bool>,
+    
+    /// User-defined comment
+    pub comment: Option<String>,
+    
+    /// Quantum signature options
+    pub quantum_signature: Option<QuantumSignatureOptions>,
+}
+
+/// Response for sending a transaction
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SendResponse {
+    /// Transaction ID
+    pub txid: String,
+    
+    /// Fee in satoshis
+    pub fee: u64,
+    
+    /// Size in bytes
+    pub size: u32,
+    
+    /// Inputs used
+    pub inputs: Vec<TransactionInput>,
+    
+    /// Outputs created
+    pub outputs: Vec<TransactionOutput>,
+    
+    /// Raw transaction hex
+    pub raw_tx: String,
+    
+    /// Carbon footprint of the transaction
+    pub carbon_footprint: Option<CarbonFootprint>,
+}
+
+/// Request to sign a message or transaction
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SignRequest {
+    /// Type ("message" or "transaction")
+    #[serde(rename = "type")]
+    pub type_: String,
+    
+    /// Data to sign (message text or raw transaction hex)
+    pub data: String,
+    
+    /// Address to sign with (for message signing)
+    pub address: Option<String>,
+}
+
+/// Response for signing
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SignResponse {
+    /// Signature
+    pub signature: String,
+    
+    /// Address used for signing
+    pub address: Option<String>,
+    
+    /// Type of signature
+    #[serde(rename = "type")]
+    pub type_: String,
+}
+
+/// Request to verify a message signature
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VerifyRequest {
+    /// Message to verify
+    pub message: String,
+    
+    /// Signature to verify
+    pub signature: String,
+    
+    /// Address that created the signature
+    pub address: String,
+}
+
+/// Response for verification
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VerifyResponse {
+    /// Whether the signature is valid
+    pub valid: bool,
+    
+    /// Address that created the signature
+    pub address: String,
+}
+
+/// Request to set an address label
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LabelRequest {
+    /// Address to label
+    pub address: String,
+    
+    /// New label
+    pub label: String,
+}
+
+/// Response for setting an address label
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LabelResponse {
+    /// Address that was labeled
+    pub address: String,
+    
+    /// New label
+    pub label: String,
+}
+
+/// Response for creating a wallet backup
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BackupResponse {
+    /// Path to the backup file
+    pub backup_file: String,
+    
+    /// Timestamp of backup
+    pub timestamp: String,
+    
+    /// Checksum of backup file
+    pub checksum: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -110,37 +110,37 @@ impl WalletTui {
     }
 
     fn render<B: ratatui::backend::Backend>(&mut self, f: &mut Frame<B>) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(1)
-            .constraints([
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .margin(1)
+                    .constraints([
                 Constraint::Length(3),  // Tabs
                 Constraint::Min(1),     // Content
                 Constraint::Length(3),  // Status bar/message
-            ].as_ref())
-            .split(f.size());
+                    ].as_ref())
+                    .split(f.size());
 
         // Render tabs
         let titles = vec!["Overview", "Accounts", "Transactions", "Help"];
         let tabs = Tabs::new(titles.iter().map(|t| {
-            let (first, rest) = t.split_at(1);
-            Line::from(vec![
-                Span::styled(first, Style::default().fg(Color::Yellow)),
-                Span::styled(rest, Style::default().fg(Color::White)),
-            ])
+                    let (first, rest) = t.split_at(1);
+                    Line::from(vec![
+                        Span::styled(first, Style::default().fg(Color::Yellow)),
+                        Span::styled(rest, Style::default().fg(Color::White)),
+                    ])
         }).collect::<Vec<_>>())
             .block(Block::default().borders(Borders::ALL).title("SuperNova Wallet"))
             .select(self.current_tab as usize)
-            .style(Style::default().fg(Color::White))
+                .style(Style::default().fg(Color::White))
             .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
 
-        f.render_widget(tabs, chunks[0]);
+                f.render_widget(tabs, chunks[0]);
 
         // Render main content based on current tab
-        match self.current_tab {
-            Tab::Overview => self.render_overview(f, chunks[1]),
-            Tab::Accounts => self.render_accounts(f, chunks[1]),
-            Tab::Transactions => self.render_transactions(f, chunks[1]),
+                match self.current_tab {
+                    Tab::Overview => self.render_overview(f, chunks[1]),
+                    Tab::Accounts => self.render_accounts(f, chunks[1]),
+                    Tab::Transactions => self.render_transactions(f, chunks[1]),
             Tab::Help => self.render_help(f, chunks[1]),
         }
 
@@ -281,8 +281,8 @@ impl WalletTui {
                     Line::from(vec![
                         Span::styled(format!("{}. ", index), Style::default().fg(Color::DarkGray)),
                         Span::styled(&account.name, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::raw(" - "),
-                        Span::styled(format!("{} sats", balance), Style::default().fg(Color::Green)),
+                Span::raw(" - "),
+                Span::styled(format!("{} sats", balance), Style::default().fg(Color::Green)),
                     ]),
                     Line::from(vec![
                         Span::raw("   "),
@@ -312,16 +312,16 @@ impl WalletTui {
         let items: Vec<ListItem> = transactions
             .iter()
             .map(|tx| {
-                let amount_color = match tx.direction {
-                    TransactionDirection::Sent => Color::Red,
-                    TransactionDirection::Received => Color::Green,
-                };
+            let amount_color = match tx.direction {
+                TransactionDirection::Sent => Color::Red,
+                TransactionDirection::Received => Color::Green,
+            };
 
                 let status_color = match &tx.status {
-                    TransactionStatus::Pending => Color::Yellow,
-                    TransactionStatus::Confirmed(_) => Color::Green,
-                    TransactionStatus::Failed => Color::Red,
-                };
+                TransactionStatus::Pending => Color::Yellow,
+                TransactionStatus::Confirmed(_) => Color::Green,
+                TransactionStatus::Failed => Color::Red,
+            };
 
                 let status_text = match &tx.status {
                     TransactionStatus::Pending => "Pending",
@@ -337,13 +337,13 @@ impl WalletTui {
 
                 ListItem::new(vec![
                     Line::from(vec![
-                        Span::styled(
-                            tx.timestamp.format("%Y-%m-%d %H:%M").to_string(),
-                            Style::default().fg(Color::Blue),
-                        ),
-                        Span::raw(" - "),
-                        Span::styled(
-                            format!("{} sats", tx.amount),
+                Span::styled(
+                    tx.timestamp.format("%Y-%m-%d %H:%M").to_string(),
+                    Style::default().fg(Color::Blue),
+                ),
+                Span::raw(" - "),
+                Span::styled(
+                    format!("{} sats", tx.amount),
                             Style::default().fg(amount_color).add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
@@ -353,10 +353,10 @@ impl WalletTui {
                     ]),
                     Line::from(vec![
                         Span::raw("   "),
-                        Span::styled(
+                Span::styled(
                             status_text,
-                            Style::default().fg(status_color),
-                        ),
+                    Style::default().fg(status_color),
+                ),
                         Span::raw(" | "),
                         Span::styled(
                             format!("Tx: {}...", &tx.hash[0..8]),

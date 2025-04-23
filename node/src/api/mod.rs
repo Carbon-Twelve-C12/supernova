@@ -1,19 +1,19 @@
-//! SuperNova Blockchain API
+//! API module for the SuperNova blockchain node
 //!
-//! This module implements a comprehensive REST API for interacting with the SuperNova blockchain,
-//! providing endpoints for blocks, transactions, wallet operations, network information,
-//! environmental data, and Lightning Network functionality.
+//! This module provides the HTTP API for interacting with the SuperNova blockchain.
 
-mod error;
-mod types;
-mod server;
+pub mod server;
 pub mod routes;
 pub mod middleware;
+pub mod types;
+pub mod error;
 pub mod docs;
+pub mod v1;
+pub mod jsonrpc;
 
-pub use error::{ApiError, Result};
-pub use types::*;
 pub use server::ApiServer;
+pub use server::ApiConfig;
+pub use error::{ApiError, Result};
 
 use crate::node::Node;
 use std::sync::Arc;

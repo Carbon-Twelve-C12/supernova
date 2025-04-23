@@ -17,6 +17,7 @@ use crate::metrics::ApiMetrics;
 use super::routes;
 use super::docs::ApiDoc;
 use super::middleware::{auth, rate_limiting, logging};
+use super::jsonrpc;
 
 /// Configuration options for the API server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,22 @@ pub struct ApiConfig {
     pub max_json_payload_size: usize,
     /// Request timeout in seconds
     pub request_timeout: u64,
+    /// Enable JSON-RPC API
+    #[serde(default = "default_enable_jsonrpc")]
+    pub enable_jsonrpc: bool,
+    /// JSON-RPC endpoint path
+    #[serde(default = "default_jsonrpc_path")]
+    pub jsonrpc_path: String,
+}
+
+/// Default value for enable_jsonrpc
+fn default_enable_jsonrpc() -> bool {
+    true
+}
+
+/// Default value for jsonrpc_path
+fn default_jsonrpc_path() -> String {
+    "/rpc".to_string()
 }
 
 impl Default for ApiConfig {
@@ -57,6 +74,8 @@ impl Default for ApiConfig {
             detailed_logging: true,
             max_json_payload_size: 5, // 5 MB
             request_timeout: 30, // 30 seconds
+            enable_jsonrpc: true,
+            jsonrpc_path: "/rpc".to_string(),
         }
     }
 }
@@ -167,8 +186,18 @@ impl ApiServer {
                 app = app.wrap(rate_limiting::RateLimiter::new(rate));
             }
             
-            // Configure API routes
+            // Configure REST API routes
             app = app.configure(routes::configure);
+            
+            // Configure JSON-RPC API if enabled
+            if config.enable_jsonrpc {
+                app = app.service(
+                    web::scope(&config.jsonrpc_path)
+                        .configure(jsonrpc::configure)
+                );
+                
+                info!("JSON-RPC API enabled at {}", config.jsonrpc_path);
+            }
             
             // Add OpenAPI documentation if enabled
             if config.enable_docs {
@@ -202,5 +231,7 @@ mod tests {
         assert!(config.enable_docs);
         assert_eq!(config.cors_allowed_origins, vec!["*".to_string()]);
         assert_eq!(config.rate_limit, Some(100));
+        assert!(config.enable_jsonrpc);
+        assert_eq!(config.jsonrpc_path, "/rpc");
     }
 } 

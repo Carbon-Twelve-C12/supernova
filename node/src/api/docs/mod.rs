@@ -7,6 +7,7 @@ pub mod openapi;
 pub use openapi::init as init_openapi;
 
 use utoipa::OpenApi;
+use super::types;
 
 /// Generate OpenAPI documentation
 #[derive(OpenApi)]
@@ -87,92 +88,92 @@ use utoipa::OpenApi;
     components(
         schemas(
             // API response
-            crate::api::types::ApiResponse<String>,
+            types::ApiResponse<String>,
             
             // Blockchain
-            crate::api::types::BlockInfo,
-            crate::api::types::TransactionInfo,
-            crate::api::types::TransactionInput,
-            crate::api::types::TransactionOutput,
-            crate::api::types::BlockchainInfo,
-            crate::api::types::Block,
-            crate::api::types::Transaction,
-            crate::api::types::BlockHeader,
-            crate::api::types::TransactionSubmissionResponse,
+            types::BlockInfo,
+            types::TransactionInfo,
+            types::TransactionInput,
+            types::TransactionOutput,
+            types::BlockchainInfo,
+            types::Block,
+            types::Transaction,
+            types::BlockHeader,
+            types::TransactionSubmissionResponse,
             
             // Mempool
-            crate::api::types::MempoolInfo,
-            crate::api::types::MempoolStatistics,
-            crate::api::types::MempoolTransaction,
-            crate::api::types::MempoolTransactionSubmissionResponse,
-            crate::api::types::TransactionValidationResult,
-            crate::api::types::TransactionFees,
+            types::MempoolInfo,
+            types::MempoolStatistics,
+            types::MempoolTransaction,
+            types::MempoolTransactionSubmissionResponse,
+            types::TransactionValidationResult,
+            types::TransactionFees,
             crate::api::routes::mempool::SubmitTransactionRequest,
             crate::api::routes::mempool::ValidateTransactionRequest,
             
             // Network
-            crate::api::types::NetworkInfo,
-            crate::api::types::NetworkAddress,
-            crate::api::types::NetworkStats,
-            crate::api::types::PeerInfo,
-            crate::api::types::PeerConnectionStatus,
-            crate::api::types::BandwidthUsage,
-            crate::api::types::PeerAddRequest,
-            crate::api::types::PeerAddResponse,
-            crate::api::types::NodeAddress,
-            crate::api::types::ConnectionCount,
+            types::NetworkInfo,
+            types::NetworkAddress,
+            types::NetworkStats,
+            types::PeerInfo,
+            types::PeerConnectionStatus,
+            types::BandwidthUsage,
+            types::PeerAddRequest,
+            types::PeerAddResponse,
+            types::NodeAddress,
+            types::ConnectionCount,
             
             // Mining
-            crate::api::types::MiningInfo,
-            crate::api::types::MiningTemplate,
-            crate::api::types::MiningStats,
-            crate::api::types::SubmitBlockRequest,
-            crate::api::types::SubmitBlockResponse,
-            crate::api::types::MiningStatus,
-            crate::api::types::MiningConfiguration,
+            types::MiningInfo,
+            types::MiningTemplate,
+            types::MiningStats,
+            types::SubmitBlockRequest,
+            types::SubmitBlockResponse,
+            types::MiningStatus,
+            types::MiningConfiguration,
             crate::api::routes::mining::StartMiningRequest,
             
             // Environmental
-            crate::api::types::EnvironmentalImpact,
-            crate::api::types::EnergyUsage,
-            crate::api::types::CarbonFootprint,
-            crate::api::types::EnvironmentalSettings,
-            crate::api::types::ResourceUtilization,
+            types::EnvironmentalImpact,
+            types::EnergyUsage,
+            types::CarbonFootprint,
+            types::EnvironmentalSettings,
+            types::ResourceUtilization,
             
             // Lightning Network
-            crate::api::types::LightningInfo,
-            crate::api::types::LightningChannel,
-            crate::api::types::LightningPayment,
-            crate::api::types::LightningInvoice,
-            crate::api::types::OpenChannelRequest,
-            crate::api::types::OpenChannelResponse,
-            crate::api::types::CloseChannelRequest,
-            crate::api::types::PaymentRequest,
-            crate::api::types::PaymentResponse,
-            crate::api::types::InvoiceRequest,
-            crate::api::types::InvoiceResponse,
-            crate::api::types::NodeInfo,
-            crate::api::types::Route,
+            types::LightningInfo,
+            types::LightningChannel,
+            types::LightningPayment,
+            types::LightningInvoice,
+            types::OpenChannelRequest,
+            types::OpenChannelResponse,
+            types::CloseChannelRequest,
+            types::PaymentRequest,
+            types::PaymentResponse,
+            types::InvoiceRequest,
+            types::InvoiceResponse,
+            types::NodeInfo,
+            types::Route,
             
             // Node
-            crate::api::types::SystemInfo,
-            crate::api::types::LogEntry,
-            crate::api::types::NodeStatus,
-            crate::api::types::NodeVersion,
-            crate::api::types::NodeConfiguration,
-            crate::api::types::BackupInfo,
-            crate::api::types::NodeMetrics,
-            crate::api::types::DebugInfo,
+            types::SystemInfo,
+            types::LogEntry,
+            types::NodeStatus,
+            types::NodeVersion,
+            types::NodeConfiguration,
+            types::BackupInfo,
+            types::NodeMetrics,
+            types::DebugInfo,
             crate::api::routes::node::CreateBackupRequest,
             
             // Request parameters
-            crate::api::types::BlockHeightParams,
-            crate::api::types::BlockHashParams,
-            crate::api::types::TxHashParams,
-            crate::api::types::AddressParams,
-            crate::api::types::SubmitTxRequest,
-            crate::api::types::PaginationParams,
-            crate::api::types::TimeRangeParams,
+            types::BlockHeightParams,
+            types::BlockHashParams,
+            types::TxHashParams,
+            types::AddressParams,
+            types::SubmitTxRequest,
+            types::PaginationParams,
+            types::TimeRangeParams,
         )
     ),
     tags(
@@ -215,4 +216,108 @@ const SUCCESS_RESPONSE_EXAMPLE: &str = r#"
   "success": true,
   "data": {}
 }
-"#; 
+"#;
+
+/// Add JSON-RPC documentation
+pub mod jsonrpc {
+    /// JSON-RPC documentation
+    pub struct JsonRpcDoc;
+    
+    impl JsonRpcDoc {
+        /// Generate JSON-RPC documentation
+        pub fn generate() -> String {
+            let doc = r#"
+# JSON-RPC API Reference
+
+SuperNova provides a JSON-RPC 2.0 compatible API that follows the Bitcoin Core JSON-RPC specification.
+
+## Endpoint
+
+The JSON-RPC API is available at `/rpc` by default.
+
+## Request Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-id",
+  "method": "method-name",
+  "params": {}
+}
+```
+
+## Response Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-id",
+  "result": {}
+}
+```
+
+Or in case of an error:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-id",
+  "error": {
+    "code": -32000,
+    "message": "Error message"
+  }
+}
+```
+
+## Available Methods
+
+### Blockchain Methods
+
+- `getblockchaininfo`: Get blockchain information
+- `getblock`: Get block by hash
+- `getblockhash`: Get block hash by height
+- `getbestblockhash`: Get the hash of the best (tip) block
+- `getblockcount`: Get the current block count
+- `getdifficulty`: Get the proof-of-work difficulty
+
+### Transaction Methods
+
+- `gettransaction`: Get transaction information
+- `getrawtransaction`: Get raw transaction data
+- `sendrawtransaction`: Send raw transaction
+
+### Mempool Methods
+
+- `getmempoolinfo`: Get mempool information
+- `getrawmempool`: Get raw mempool transactions
+
+### Network Methods
+
+- `getnetworkinfo`: Get network information
+- `getpeerinfo`: Get peer information
+
+### Mining Methods
+
+- `getmininginfo`: Get mining information
+- `getblocktemplate`: Get block template for mining
+- `submitblock`: Submit a mined block
+
+## Error Codes
+
+- `-32700`: Parse error - Invalid JSON was received
+- `-32600`: Invalid Request - The JSON sent is not a valid Request object
+- `-32601`: Method not found - The method does not exist / is not available
+- `-32602`: Invalid params - Invalid method parameter(s)
+- `-32603`: Internal error - Internal JSON-RPC error
+- `-32000`: Server error - Generic server error
+- `-32001`: Node syncing - Node is still syncing with the network
+- `-32002`: Blockchain error - Error in blockchain operations
+- `-32003`: Transaction error - Error in transaction processing
+- `-32004`: Wallet error - Error in wallet operations
+- `-32005`: Network error - Error in network operations
+            "#;
+            
+            doc.to_string()
+        }
+    }
+} 

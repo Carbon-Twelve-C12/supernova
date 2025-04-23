@@ -9,26 +9,24 @@ pub mod mining;
 pub mod environmental;
 pub mod lightning;
 pub mod node;
+pub mod wallet;
 
 use actix_web::web;
 
 /// Configure all API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    // API version prefix
-    let api_scope = web::scope("/api/v1");
-    
-    // Configure individual route modules
-    let api_scope = api_scope
-        .configure(blockchain::configure)
-        .configure(mempool::configure)
-        .configure(network::configure)
-        .configure(mining::configure)
-        .configure(environmental::configure)
-        .configure(lightning::configure)
-        .configure(node::configure);
-        
-    // Register API scope
-    cfg.service(api_scope);
+    // Configure API v1 routes
+    cfg.service(
+        web::scope("/api/v1")
+            .configure(blockchain::configure)
+            .configure(mempool::configure)
+            .configure(network::configure)
+            .configure(mining::configure)
+            .configure(environmental::configure)
+            .configure(lightning::configure)
+            .configure(node::configure)
+            .configure(wallet::configure)
+    );
     
     // Add health check endpoint at root
     cfg.route("/health", web::get().to(health_check));
