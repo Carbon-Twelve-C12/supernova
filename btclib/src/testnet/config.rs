@@ -63,7 +63,7 @@ pub struct TestAccount {
     pub name: String,
     /// Account address
     pub address: String,
-    /// Initial balance in millinova (1 NOVA = 100,000,000 millinova)
+    /// Initial balance in millinova (1 NOVA = 1,000 millinova)
     pub balance: u64,
     /// Whether this account is a miner
     pub is_miner: bool,
@@ -76,7 +76,7 @@ pub struct TestAccount {
 pub struct CoinDistribution {
     /// Recipient address
     pub address: String,
-    /// Amount in millinova (smallest unit of NOVA)
+    /// Amount in millinova (1 NOVA = 1,000 millinova)
     pub amount: u64,
 }
 
