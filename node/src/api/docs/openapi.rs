@@ -189,12 +189,13 @@ impl Modify for SecurityAddon {
         (name = "mining", description = "Mining API endpoints"),
         (name = "environmental", description = "Environmental monitoring API endpoints"),
         (name = "lightning", description = "Lightning Network API endpoints"),
-        (name = "node", description = "Node management API endpoints")
+        (name = "node", description = "Node management API endpoints"),
+        (name = "jsonrpc", description = "JSON-RPC API endpoints")
     ),
     info(
         title = "SuperNova Node API",
         version = env!("CARGO_PKG_VERSION"),
-        description = "API for interacting with the SuperNova blockchain node",
+        description = "API for interacting with the SuperNova blockchain node. Includes both RESTful (this documentation) and JSON-RPC interfaces. See /rpc for the JSON-RPC API.",
         contact(
             name = "SuperNova Team",
             email = "support@supernova.network",
@@ -211,4 +212,102 @@ pub struct ApiDoc;
 /// Initialize the OpenAPI documentation
 pub fn init() -> utoipa::openapi::OpenApi {
     ApiDoc::openapi()
+}
+
+/// JSON-RPC documentation
+pub struct JsonRpcDoc;
+
+impl JsonRpcDoc {
+    /// Get JSON-RPC documentation as Markdown
+    pub fn markdown() -> String {
+        r#"# JSON-RPC API Reference
+
+SuperNova provides a JSON-RPC 2.0 compatible API that follows the Bitcoin Core JSON-RPC specification.
+
+## Endpoint
+
+The JSON-RPC API is available at `/rpc` by default.
+
+## Request Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-id",
+  "method": "method-name",
+  "params": {}
+}
+```
+
+## Response Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-id",
+  "result": {}
+}
+```
+
+Or in case of an error:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request-id",
+  "error": {
+    "code": -32000,
+    "message": "Error message"
+  }
+}
+```
+
+## Available Methods
+
+### Blockchain Methods
+
+- `getblockchaininfo`: Get blockchain information
+- `getblock`: Get block by hash
+- `getblockhash`: Get block hash by height
+- `getbestblockhash`: Get the hash of the best (tip) block
+- `getblockcount`: Get the current block count
+- `getdifficulty`: Get the proof-of-work difficulty
+
+### Transaction Methods
+
+- `gettransaction`: Get transaction information
+- `getrawtransaction`: Get raw transaction data
+- `sendrawtransaction`: Send raw transaction
+
+### Mempool Methods
+
+- `getmempoolinfo`: Get mempool information
+- `getrawmempool`: Get raw mempool transactions
+
+### Network Methods
+
+- `getnetworkinfo`: Get network information
+- `getpeerinfo`: Get peer information
+
+### Mining Methods
+
+- `getmininginfo`: Get mining information
+- `getblocktemplate`: Get block template for mining
+- `submitblock`: Submit a mined block
+
+## Error Codes
+
+- `-32700`: Parse error - Invalid JSON was received
+- `-32600`: Invalid Request - The JSON sent is not a valid Request object
+- `-32601`: Method not found - The method does not exist / is not available
+- `-32602`: Invalid params - Invalid method parameter(s)
+- `-32603`: Internal error - Internal JSON-RPC error
+- `-32000`: Server error - Generic server error
+- `-32001`: Node syncing - Node is still syncing with the network
+- `-32002`: Blockchain error - Error in blockchain operations
+- `-32003`: Transaction error - Error in transaction processing
+- `-32004`: Wallet error - Error in wallet operations
+- `-32005`: Network error - Error in network operations
+"#.to_string()
+    }
 } 

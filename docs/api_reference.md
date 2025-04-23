@@ -1,8 +1,40 @@
 # SuperNova Blockchain API Reference
 
-This document details the JSON-RPC API endpoints available in the SuperNova blockchain implementation. The API provides methods for interacting with the blockchain, including querying data, sending transactions, and managing the node.
+This document details the APIs available in the SuperNova blockchain implementation. SuperNova provides both RESTful APIs and JSON-RPC APIs for interacting with the blockchain, including querying data, sending transactions, and managing the node.
 
-## API Overview
+## API Types Overview
+
+SuperNova provides two different types of APIs:
+
+1. **RESTful API** - Modern, resource-oriented API using standard HTTP methods and JSON responses
+2. **JSON-RPC API** - Bitcoin-compatible API following the JSON-RPC 2.0 specification
+
+## RESTful API
+
+The RESTful API provides a comprehensive interface for interacting with the SuperNova blockchain using standard HTTP methods and JSON responses. This API is designed to be easy to use and follows RESTful principles.
+
+### API Documentation
+
+For complete RESTful API documentation, please refer to the following resources:
+
+- [Blockchain API](./api/blockchain.md) - Access blocks and transactions
+- [Wallet API](./api/wallet.md) - Manage wallets, addresses, and transactions
+- [Admin API](./api/admin.md) - Node administration and management
+- [Statistics API](./api/statistics.md) - Blockchain analytics and metrics
+
+### Default Endpoint
+
+RESTful API is available at: `http://localhost:8080/api/v1/`
+
+### Authentication
+
+Authentication for the RESTful API is performed using API keys. Include your API key in the request headers:
+
+```
+Authorization: Bearer YOUR_API_KEY
+```
+
+## JSON-RPC API
 
 SuperNova provides a JSON-RPC 2.0 compatible API that can be accessed via HTTP or WebSocket connections. All API requests should be sent to the configured RPC endpoint.
 
@@ -10,7 +42,7 @@ SuperNova provides a JSON-RPC 2.0 compatible API that can be accessed via HTTP o
 - HTTP: `http://localhost:8332`
 - WebSocket: `ws://localhost:8332/ws`
 
-## Authentication
+### Authentication
 
 By default, API access requires authentication to prevent unauthorized access. Two authentication methods are supported:
 
@@ -22,9 +54,9 @@ Example HTTP header with API key:
 X-API-Key: your-api-key-here
 ```
 
-## General Structure
+### General Structure
 
-### Request Format
+#### Request Format
 
 All requests should follow the JSON-RPC 2.0 specification, with the following structure:
 
@@ -43,7 +75,7 @@ Where:
 - `method`: The name of the API method to call
 - `params`: An object containing the parameters for the method call
 
-### Response Format
+#### Response Format
 
 Responses follow the JSON-RPC 2.0 specification:
 
@@ -244,33 +276,6 @@ Submits a raw transaction to the network.
 **Result**:
 ```
 "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
-```
-
-### `createrawtransaction`
-
-Creates a transaction spending the given inputs and sending to the given addresses.
-
-**Parameters**:
-1. `inputs` (array, required): The transaction inputs
-```json
-[
-  {
-    "txid": "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
-    "vout": 0
-  }
-]
-```
-2. `outputs` (object, required): The transaction outputs (key-value pairs), where keys are addresses and values are amounts
-```json
-{
-  "1CK6KHY6MHgYvmRQ4PAafKYDrg1ejbH1cE": 50.0
-}
-```
-3. `locktime` (number, optional, default=0): Raw locktime. Non-0 value also locktime-activates inputs
-
-**Result**:
-```
-"01000000013ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a0000000000ffffffff0100f2052a010000001976a914f7c6c1f9f6142107ed293c8fbf3f94110ff2eb0888ac00000000"
 ```
 
 ## Mempool Methods
