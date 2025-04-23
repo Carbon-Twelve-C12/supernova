@@ -746,6 +746,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Start API server if enabled
+    if config_lock.api.port > 0 {
+        info!("Starting API server on {}:{}", config_lock.api.bind_address, config_lock.api.port);
+        if let Err(e) = node.start_api_with_config(config_lock.api).await {
+            error!("Failed to start API server: {}", e);
+        }
+    } else {
+        info!("API server disabled");
+    }
+
     info!("Shutdown complete");
     Ok(())
 }

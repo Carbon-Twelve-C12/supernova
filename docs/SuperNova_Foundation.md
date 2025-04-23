@@ -77,11 +77,12 @@ SuperNova features a total supply of 42,000,000 NOVA tokens allocated as follows
 | Allocation Category | Percentage | Amount (NOVA) | Vesting/Release |
 |---------------------|------------|---------------|-----------------|
 | **Mining Rewards** | 40% | 16,800,000 | Released through mining over ~20 years |
-| **Foundation Reserve** | 15% | 6,300,000 | 10% at launch, 90% with 5-year vesting and 1-year cliff |
+| **Foundation Reserve** | 13.5% | 5,670,000 | 10% at launch, 90% with 5-year vesting and 1-year cliff |
 | **Ecosystem Development** | 15% | 6,300,000 | 4-year vesting with 6-month cliff |
 | **Team & Advisors** | 15% | 6,300,000 | 4-year vesting with 6-month cliff |
 | **Environmental Treasury** | 10% | 4,200,000 | 20% at launch, 80% released based on carbon metrics |
-| **Community & Airdrops** | 5% | 2,100,000 | 50% at launch, 50% over 2 years |
+| **Community & Airdrops** | 4.5% | 1,890,000 | 50% at launch, 50% over 2 years |
+| **Liquidity Reserve** | 2% | 840,000 | 30% at launch, 70% over 2 years |
 
 ### 2.2 Mining Rewards Distribution
 
@@ -94,9 +95,9 @@ The 40% allocated to mining rewards is distributed through a proof-of-work mecha
 
 ### 2.3 Foundation Reserve
 
-The 15% allocated to the Foundation Reserve is managed by the Treasury Committee with strict guidelines:
+The 13.5% allocated to the Foundation Reserve is managed by the Treasury Committee with strict guidelines:
 
-- **Initial Release**: 10% at mainnet launch (630,000 NOVA) to fund day one operations
+- **Initial Release**: 10% at mainnet launch (567,000 NOVA) to fund day one operations
 - Used to fund long-term foundation operations
 - Major expenditures require approval from both the Treasury Committee and Foundation Council
 - Maximum annual spending cap of 15% of remaining reserve
@@ -137,13 +138,22 @@ Tokens are released from this allocation based on verified carbon negativity met
 
 ### 2.7 Community & Airdrops
 
-The 5% allocated to Community & Airdrops is distributed through:
+The 4.5% allocated to Community & Airdrops is distributed through:
 
 - Community incentive programs
 - User adoption campaigns
 - Proof-of-participation airdrops
 - Protocol usage rewards
 - Stakeholder governance participation
+
+### 2.8 Liquidity Reserve
+
+The 2% allocated to the Liquidity Reserve is managed by the Treasury Committee and is used for:
+
+- Initial liquidity provision on DEXes
+- Professional market making
+- Strategic investment framework
+- Market stability
 
 ## 3. Operational Expenses and Token Sales
 
@@ -179,6 +189,50 @@ The Foundation implements strict financial controls:
 - Clear separation between foundation operations and protocol governance
 - Quarterly financial reports published publicly
 - Annual budget approved by full council
+
+### 3.4 Token Launch Mechanism
+
+The Foundation will implement a fair and transparent token launch through a Liquidity Bootstrapping Pool (LBP):
+
+- **Launch Format**: 7-day Balancer LBP with dynamic weighting
+- **Initial Pool Structure**: 
+  - Starting weight: 90% NOVA / 10% USDC
+  - Ending weight: 50% NOVA / 50% USDC
+  - Initial NOVA allocation: 1,050,000 tokens from Community allocation
+  
+- **Participation**: Open to public, with KYC requirements for larger purchases
+- **Anti-whale Measures**: Maximum individual contribution caps in the first 24 hours
+- **Post-LBP**: Unsold tokens return to Community allocation, sold tokens establish initial DEX liquidity
+
+### 3.5 Strategic Investment Framework
+
+Prior to public launch, the Foundation will secure strategic investors who align with SuperNova's vision:
+
+- **Strategic Round Allocation**: 525,000 NOVA (1.25% of total supply) from Foundation Reserve
+- **Investor Criteria**:
+  - Alignment with SuperNova's environmental mission
+  - Technical expertise in relevant fields
+  - Long-term investment horizon with appropriate lockups
+  - Ability to provide technical, operational, or market-making support
+  - Geographic diversity across key markets
+
+- **Strategic Partner Categories**:
+  | Category | Target Allocation | Partner Types |
+  |----------|------------|------------------|
+  | Environmental | 30% | Renewable energy companies, carbon markets |
+  | Technical | 30% | Post-quantum security, mining innovation |
+  | Financial | 20% | Market makers, crypto-native funds |
+  | Ecosystem | 20% | DeFi protocols, infrastructure providers |
+
+### 3.6 Liquidity Management
+
+The Foundation will implement a comprehensive liquidity strategy to ensure market stability:
+
+- **Dedicated Liquidity Reserve**: 2% of total supply (840,000 NOVA) allocated specifically for liquidity provision
+- **DEX Strategy**: Initial liquidity on major DEXes with professional position management
+- **Market Making**: Partnerships with professional market makers with strict performance requirements
+- **Oversight**: Treasury Committee manages liquidity deployments with Foundation Council approval
+- **Transparency**: Regular reporting on liquidity metrics and market quality
 
 ## 4. Environmental Initiatives Management
 

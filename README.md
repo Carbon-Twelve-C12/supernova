@@ -19,7 +19,7 @@
 
 ## Overview
 
-Supernova is a production-grade proof-of-work blockchain implementation written in Rust. It leverages Rust's safety features and performance characteristics to provide a secure, efficient, and modular blockchain platform. Supernova demonstrates modern blockchain architecture and best practices while offering a complete set of features needed for a fully functional blockchain network.
+Supernova is a production-grade proof-of-work blockchain implementation written in Rust. It leverages Rust's safety features and performance characteristics to provide a secure, efficient, and modular blockchain platform. Supernova demonstrates modern blockchain architecture and best practices while offering a complete set of features needed for a fully functional production-grade blockchain network.
 
 ### Key Features
 
@@ -455,6 +455,19 @@ The security system includes:
 - **Peer Reputation System**: Multi-factor scoring based on behavior, stability, and diversity contribution
 - **Connection Rate Limiting**: IP-based and subnet-based connection limits with adaptive banning
 
+### Tokenomics & Launch Strategy
+
+SuperNova implements a transparent and balanced tokenomics model:
+
+- **Total Supply**: 42,000,000 NOVA tokens
+- **Distribution**: Mining (40%), Foundation (13.5%), Ecosystem Development (15%), Team & Advisors (15%), Environmental Treasury (10%), Community & Airdrops (4.5%), and Liquidity Reserve (2%)
+- **Launch Mechanism**: 7-day Liquidity Bootstrapping Pool (LBP) for fair price discovery
+- **Strategic Investors**: Dedicated framework for partners aligned with environmental and technical mission
+- **Market Stability**: Comprehensive liquidity strategy with professional market making
+- **Environmental Impact**: Carbon-negative by design with dedicated treasury and fee allocation
+
+For detailed tokenomics information, see [SuperNova Tokenomics](btclib/src/docs/tokenomics.md).
+
 ### Disaster Recovery
 
 Supernova includes a comprehensive disaster recovery system:
@@ -493,6 +506,7 @@ Comprehensive documentation is still a work-in-progress. Please refer to these o
 - [Environmental Features](btclib/src/docs/environmental.md)
 - [Cryptographic Features](btclib/src/docs/crypto.md)
 - [Security Mitigation](btclib/src/docs/security_mitigation.md)
+- [Tokenomics & Launch Strategy](btclib/src/docs/tokenomics.md)
 - [Integration Guide](btclib/src/docs/integration_guide.md)
 - [Lightning Network](btclib/src/docs/lightning.md)
 

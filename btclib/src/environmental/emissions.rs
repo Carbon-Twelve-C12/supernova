@@ -789,6 +789,221 @@ impl EmissionsTracker {
     }
 }
 
+/// Adapter to provide compatibility between the new API and existing EmissionsTracker
+pub struct EmissionsTrackerAdapter {
+    tracker: EmissionsTracker,
+}
+
+impl EmissionsTrackerAdapter {
+    /// Create a new adapter with default configuration
+    pub fn new() -> Self {
+        Self {
+            tracker: EmissionsTracker::default(),
+        }
+    }
+    
+    /// Create a new adapter with custom configuration
+    pub fn with_config(config: EmissionsConfig) -> Self {
+        Self {
+            tracker: EmissionsTracker::new(config),
+        }
+    }
+    
+    /// Get the inner tracker
+    pub fn inner(&self) -> &EmissionsTracker {
+        &self.tracker
+    }
+    
+    /// Get mutable reference to the inner tracker
+    pub fn inner_mut(&mut self) -> &mut EmissionsTracker {
+        &mut self.tracker
+    }
+    
+    /// Add miner data to the emissions tracker
+    pub fn add_miner_data(&mut self, id: &str, info: &crate::environmental::miner_reporting::MinerEnvironmentalInfo) -> Result<(), EmissionsError> {
+        // Create a pool ID from the miner ID
+        let pool_id = PoolId(id.to_string());
+        
+        // Convert MinerEnvironmentalInfo to PoolEnergyInfo
+        let pool_info = PoolEnergyInfo {
+            renewable_percentage: info.renewable_energy_percentage,
+            verified: info.verification_status == crate::environmental::miner_reporting::VerificationStatus::Verified,
+            regions: vec![info.region.clone()],
+            last_updated: Utc::now(),
+            energy_sources: Vec::new(), // Would need more detailed info from miner
+            rec_certificates: if info.rec_percentage > 0.0 {
+                Some(RECCertificateInfo {
+                    certificate_id: format!("REC-{}", id),
+                    issuer: "".to_string(),
+                    amount_mwh: 0.0, // Would need more info
+                    generation_start: Utc::now() - chrono::Duration::days(365),
+                    generation_end: Utc::now(),
+                    generation_location: None,
+                    verification_status: match info.verification_status {
+                        crate::environmental::miner_reporting::VerificationStatus::Verified => VerificationStatus::Verified,
+                        crate::environmental::miner_reporting::VerificationStatus::Pending => VerificationStatus::Pending,
+                        _ => VerificationStatus::None,
+                    },
+                    certificate_url: None,
+                })
+            } else {
+                None
+            },
+            carbon_offsets: if info.offset_percentage > 0.0 {
+                Some(CarbonOffsetInfo {
+                    offset_id: format!("OFFSET-{}", id),
+                    issuer: "".to_string(),
+                    amount_tonnes: 0.0, // Would need more info
+                    project_type: "".to_string(),
+                    project_location: None,
+                    verification_status: match info.verification_status {
+                        crate::environmental::miner_reporting::VerificationStatus::Verified => VerificationStatus::Verified,
+                        crate::environmental::miner_reporting::VerificationStatus::Pending => VerificationStatus::Pending,
+                        _ => VerificationStatus::None,
+                    },
+                    certificate_url: None,
+                })
+            } else {
+                None
+            },
+        };
+        
+        // Register the pool in the emissions tracker
+        self.tracker.register_pool_energy_info(pool_id, pool_info);
+        
+        // Estimate hashrate based on hardware type and units
+        let hashrate = match info.hardware_type {
+            crate::environmental::hardware_types::HardwareType::AntminerS19XP => 140.0 * info.units as f64,
+            crate::environmental::hardware_types::HardwareType::AntminerS19Pro => 110.0 * info.units as f64,
+            crate::environmental::hardware_types::HardwareType::AntminerS19jPro => 104.0 * info.units as f64,
+            crate::environmental::hardware_types::HardwareType::AntminerS19 => 95.0 * info.units as f64,
+            crate::environmental::hardware_types::HardwareType::WhatsminerM30SPlusPlus => 112.0 * info.units as f64,
+            crate::environmental::hardware_types::HardwareType::WhatsminerM30SPlus => 100.0 * info.units as f64,
+            crate::environmental::hardware_types::HardwareType::WhatsminerM30S => 88.0 * info.units as f64,
+            crate::environmental::hardware_types::HardwareType::AvalonA1246 => 90.0 * info.units as f64,
+            _ => 80.0 * info.units as f64, // Default to 80 TH/s per unit for unknown types
+        };
+        
+        // Update the region hashrate
+        self.tracker.update_region_hashrate(info.region.clone(), HashRate(hashrate));
+        
+        Ok(())
+    }
+    
+    /// Update miner data in the emissions tracker
+    pub fn update_miner_data(&mut self, id: &str, info: &crate::environmental::miner_reporting::MinerEnvironmentalInfo) -> Result<(), EmissionsError> {
+        // Implementation is the same as add_miner_data for now
+        self.add_miner_data(id, info)
+    }
+    
+    /// Calculate emissions for a specific miner
+    pub fn calculate_miner_emissions(&self, id: &str) -> Result<MinerEmissionsResults, EmissionsError> {
+        let pool_id = PoolId(id.to_string());
+        
+        // Check if we have information for this miner
+        let pool_info = match self.tracker.pool_energy_info.get(&pool_id) {
+            Some(info) => info,
+            None => return Err(EmissionsError::InvalidRegion(format!("No data for miner {}", id))),
+        };
+        
+        // Take the first region for this miner
+        if pool_info.regions.is_empty() {
+            return Err(EmissionsError::InvalidRegion(format!("No region for miner {}", id)));
+        }
+        
+        let region = &pool_info.regions[0];
+        
+        // Get the hashrate for this miner
+        let hashrate = match self.tracker.region_hashrates.get(region) {
+            Some(hr) => hr.0,
+            None => return Err(EmissionsError::InvalidRegion(format!("No hashrate for region {}", region.country_code))),
+        };
+        
+        // Get the emissions factor for this region
+        let emissions_factor = match self.tracker.get_best_emissions_factor(region) {
+            Some(factor) => factor.grid_emissions_factor,
+            None => self.tracker.config.default_emission_factor / 1000.0, // Convert g/kWh to kg/kWh
+        };
+        
+        // Calculate energy consumption (kWh per day)
+        let efficiency = self.tracker.config.default_network_efficiency; // J/TH
+        let daily_energy_kwh = (hashrate * 1e12 * efficiency * 86400.0) / 3.6e9; // TH/s to kWh/day
+        
+        // Calculate gross emissions (kg CO2e)
+        let gross_emissions_kg = daily_energy_kwh * emissions_factor;
+        
+        // Apply renewable percentage reduction
+        let renewable_percentage = pool_info.renewable_percentage;
+        let rec_percentage = pool_info.rec_certificates.as_ref().map_or(0.0, |_| 0.0); // Need more info
+        let offset_percentage = pool_info.carbon_offsets.as_ref().map_or(0.0, |_| 0.0); // Need more info
+        
+        // Calculate net emissions after applying renewable percentage and RECs
+        let reduction_percentage = (renewable_percentage + rec_percentage).min(100.0);
+        let net_emissions_kg = gross_emissions_kg * (1.0 - reduction_percentage / 100.0);
+        
+        Ok(MinerEmissionsResults {
+            daily_energy_kwh,
+            gross_emissions_kg,
+            net_emissions_kg,
+            reduction_percentage,
+        })
+    }
+    
+    /// Update emissions factor for a region
+    pub fn update_emissions_factor(&mut self, region: crate::environmental::types::Region, emissions_factor: f64) -> Result<(), EmissionsError> {
+        // Convert from types::Region to emissions::Region
+        let emissions_region = Region {
+            country_code: region.country_code.clone(),
+            sub_region: region.sub_region.clone(),
+        };
+        
+        // Convert to kg/kWh for internal storage
+        let factor_kg_per_kwh = emissions_factor / 1000.0;
+        
+        // Create an EmissionFactor
+        let emission_factor = EmissionFactor {
+            grid_emissions_factor: factor_kg_per_kwh,
+            region_name: emissions_region.to_string(),
+            data_source: EmissionsDataSource::Custom,
+            factor_type: EmissionsFactorType::GridAverage,
+            year: Some(chrono::Utc::now().year() as u16),
+            timestamp: Some(chrono::Utc::now()),
+            confidence: None,
+        };
+        
+        // Update the emissions factor
+        self.tracker.region_emission_factors.insert(emissions_region.clone(), emission_factor);
+        
+        Ok(())
+    }
+    
+    /// Get the average emissions factor across all regions
+    pub fn get_average_emissions_factor(&self) -> Result<f64, EmissionsError> {
+        let (avg_factor, weight) = self.tracker.calculate_weighted_emission_factor();
+        
+        if weight <= 0.0 {
+            return Err(EmissionsError::DataSourceError("No valid emissions factors found".to_string()));
+        }
+        
+        // Convert back to g/kWh for API
+        Ok(avg_factor * 1000.0)
+    }
+}
+
+/// Results from miner emissions calculations
+pub struct MinerEmissionsResults {
+    pub daily_energy_kwh: f64,
+    pub gross_emissions_kg: f64,
+    pub net_emissions_kg: f64,
+    pub reduction_percentage: f64,
+}
+
+impl Default for EmissionsTrackerAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
