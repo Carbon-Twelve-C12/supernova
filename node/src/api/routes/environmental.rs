@@ -55,10 +55,10 @@ async fn get_environmental_impact(
     let period = params.period.unwrap_or(86400);
     let detail = params.detail.clone().unwrap_or_else(|| "standard".to_string());
     
-    // TODO: Implement real environmental impact retrieval
-    let impact = monitor.get_environmental_impact(period, &detail)?;
-    
-    Ok(HttpResponse::Ok().json(impact))
+    match monitor.get_environmental_impact(period, &detail) {
+        Ok(impact) => Ok(HttpResponse::Ok().json(impact)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve environmental impact: {}", e))),
+    }
 }
 
 /// Get energy usage data
@@ -94,10 +94,10 @@ async fn get_energy_usage(
     let period = params.period.unwrap_or(3600);
     let include_history = params.include_history.unwrap_or(false);
     
-    // TODO: Implement real energy usage retrieval
-    let energy_data = monitor.get_energy_usage(period, include_history)?;
-    
-    Ok(HttpResponse::Ok().json(energy_data))
+    match monitor.get_energy_usage(period, include_history) {
+        Ok(energy_data) => Ok(HttpResponse::Ok().json(energy_data)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve energy usage: {}", e))),
+    }
 }
 
 /// Get carbon footprint data
@@ -133,10 +133,10 @@ async fn get_carbon_footprint(
     let period = params.period.unwrap_or(86400);
     let include_offsets = params.include_offsets.unwrap_or(true);
     
-    // TODO: Implement real carbon footprint retrieval
-    let carbon_data = monitor.get_carbon_footprint(period, include_offsets)?;
-    
-    Ok(HttpResponse::Ok().json(carbon_data))
+    match monitor.get_carbon_footprint(period, include_offsets) {
+        Ok(carbon_data) => Ok(HttpResponse::Ok().json(carbon_data)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve carbon footprint: {}", e))),
+    }
 }
 
 /// Get resource utilization data
@@ -167,10 +167,10 @@ async fn get_resource_utilization(
 ) -> ApiResult<ResourceUtilization> {
     let period = params.period.unwrap_or(300);
     
-    // TODO: Implement real resource utilization retrieval
-    let resource_data = monitor.get_resource_utilization(period)?;
-    
-    Ok(HttpResponse::Ok().json(resource_data))
+    match monitor.get_resource_utilization(period) {
+        Ok(resource_data) => Ok(HttpResponse::Ok().json(resource_data)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve resource utilization: {}", e))),
+    }
 }
 
 /// Get environmental monitoring settings
@@ -187,10 +187,10 @@ async fn get_resource_utilization(
 async fn get_environmental_settings(
     monitor: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalSettings> {
-    // TODO: Implement real environmental settings retrieval
-    let settings = monitor.get_settings()?;
-    
-    Ok(HttpResponse::Ok().json(settings))
+    match monitor.get_settings() {
+        Ok(settings) => Ok(HttpResponse::Ok().json(settings)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve environmental settings: {}", e))),
+    }
 }
 
 /// Update environmental monitoring settings
@@ -210,8 +210,16 @@ async fn update_environmental_settings(
     request: web::Json<EnvironmentalSettings>,
     monitor: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalSettings> {
-    // TODO: Implement real environmental settings update
-    let updated_settings = monitor.update_settings(request.0)?;
-    
-    Ok(HttpResponse::Ok().json(updated_settings))
+    match monitor.update_settings(request.0) {
+        Ok(updated_settings) => Ok(HttpResponse::Ok().json(updated_settings)),
+        Err(e) => match e {
+            crate::environmental::EnvironmentalError::InvalidRegion(region) => {
+                Err(ApiError::bad_request(format!("Invalid region code: {}", region)))
+            },
+            crate::environmental::EnvironmentalError::InvalidSetting(msg) => {
+                Err(ApiError::bad_request(format!("Invalid setting: {}", msg)))
+            },
+            _ => Err(ApiError::internal_error(format!("Failed to update environmental settings: {}", e))),
+        },
+    }
 } 

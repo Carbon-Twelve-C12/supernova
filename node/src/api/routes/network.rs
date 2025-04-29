@@ -37,8 +37,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 async fn get_network_info(
     network: web::Data<Arc<NetworkManager>>,
 ) -> ApiResult<NetworkInfo> {
-    // TODO: Implement real network info retrieval
-    let info = network.get_network_info()?;
+    // Retrieve network information from the NetworkManager
+    let info = match network.get_network_info() {
+        Ok(info) => info,
+        Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve network info: {}", e))),
+    };
     
     Ok(HttpResponse::Ok().json(info))
 }
@@ -57,8 +60,11 @@ async fn get_network_info(
 async fn get_connection_count(
     network: web::Data<Arc<NetworkManager>>,
 ) -> ApiResult<ConnectionCount> {
-    // TODO: Implement real connection count retrieval
-    let count = network.get_connection_count()?;
+    // Retrieve connection count from the NetworkManager
+    let count = match network.get_connection_count() {
+        Ok(count) => count,
+        Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve connection count: {}", e))),
+    };
     
     Ok(HttpResponse::Ok().json(count))
 }
@@ -95,8 +101,11 @@ async fn get_peers(
     let connection_state = params.connection_state.clone();
     let verbose = params.verbose.unwrap_or(false);
     
-    // TODO: Implement real peer listing
-    let peers = network.get_peers(connection_state, verbose)?;
+    // Retrieve peers from the NetworkManager with the specified filters
+    let peers = match network.get_peers(connection_state, verbose) {
+        Ok(peers) => peers,
+        Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve peers: {}", e))),
+    };
     
     Ok(HttpResponse::Ok().json(peers))
 }

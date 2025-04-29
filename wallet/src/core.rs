@@ -5,12 +5,14 @@ use bitcoin::{
     hashes::Hash,
     sighash::{SighashCache, EcdsaSighashType},
     Amount,
+    TxIn, TxOut, OutPoint, Script, Witness,
 };
 use std::str::FromStr;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use sha2::Digest;
 use serde::{Serialize, Deserialize};
+use reqwest;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalletError {
@@ -90,7 +92,36 @@ impl Wallet {
     }
 
     pub fn sign_transaction(&self, tx: &mut Transaction) -> Result<(), WalletError> {
-        // TODO: Implement transaction signing
+        let secp = Secp256k1::new();
+        
+        for (input_index, input) in tx.input.iter_mut().enumerate() {
+            // Get the corresponding UTXO
+            let utxo = self.find_utxo(input.previous_output.txid.to_raw_hash().to_byte_array(), input.previous_output.vout)
+                .ok_or(WalletError::UTXONotFound)?;
+            
+            // Create signature hash
+            let sighash = self.create_signature_hash(tx, input_index)?;
+            
+            // Sign the hash
+            let msg = bitcoin::secp256k1::Message::from_slice(&sighash)
+                .map_err(|e| WalletError::SigningError(e.to_string()))?;
+                
+            let signature = secp.sign_ecdsa(&msg, &self.private_key.inner);
+            
+            // Create signature with sighash flag
+            let mut sig_serialized = signature.serialize_der().to_vec();
+            sig_serialized.push(EcdsaSighashType::All as u8);
+            
+            // Construct witness
+            let public_key = self.get_public_key();
+            let mut witness_stack = Witness::new();
+            witness_stack.push(sig_serialized);
+            witness_stack.push(public_key.serialize().to_vec());
+            
+            // Set witness
+            input.witness = witness_stack;
+        }
+        
         Ok(())
     }
 
@@ -102,9 +133,67 @@ impl Wallet {
     ) -> Result<Transaction, WalletError> {
         let recipient_address = Address::from_str(recipient)
             .map_err(|_| WalletError::InvalidAddress(recipient.to_string()))?;
-
-        // TODO: Implement transaction creation
-        unimplemented!()
+        
+        // Calculate total amount needed
+        let total_needed = amount + fee;
+        
+        // Select UTXOs to use as inputs
+        let selected_utxos = self.select_utxos(total_needed)?;
+        
+        // Calculate total input amount
+        let total_input: u64 = selected_utxos.iter().map(|utxo| utxo.amount).sum();
+        
+        // Calculate change amount
+        let change_amount = total_input - total_needed;
+        
+        // Create inputs
+        let inputs: Vec<TxIn> = selected_utxos.iter()
+            .map(|utxo| {
+                let outpoint = OutPoint {
+                    txid: bitcoin::Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::from_byte_array(utxo.tx_hash)),
+                    vout: utxo.output_index,
+                };
+                
+                TxIn {
+                    previous_output: outpoint,
+                    script_sig: Script::new(),
+                    sequence: 0xFFFFFFFF, // Default sequence
+                    witness: Witness::new(),
+                }
+            })
+            .collect();
+        
+        // Create output to recipient
+        let mut outputs: Vec<TxOut> = vec![
+            TxOut {
+                value: amount,
+                script_pubkey: recipient_address.script_pubkey(),
+            }
+        ];
+        
+        // Add change output if necessary
+        if change_amount > 0 {
+            let change_address = self.get_address()?;
+            outputs.push(
+                TxOut {
+                    value: change_amount,
+                    script_pubkey: change_address.script_pubkey(),
+                }
+            );
+        }
+        
+        // Create transaction
+        let mut tx = Transaction {
+            version: 2, // Default version
+            lock_time: 0, // No lock time
+            input: inputs,
+            output: outputs,
+        };
+        
+        // Sign transaction
+        self.sign_transaction(&mut tx)?;
+        
+        Ok(tx)
     }
 
     /// Get wallet balance
@@ -124,11 +213,41 @@ impl Wallet {
     ) -> Result<[u8; 32], WalletError> {
         // Create and sign transaction
         let transaction = self.create_transaction(recipient, amount, fee)?;
-        let tx_hash = transaction.txid().to_raw_hash().to_byte_array();
         
-        // For now, just return the transaction hash
-        // In a real implementation, this would broadcast to the network
+        // Broadcast the transaction to the network
+        self.broadcast_transaction(&transaction)?;
+        
+        let tx_hash = transaction.txid().to_raw_hash().to_byte_array();
         Ok(tx_hash)
+    }
+
+    /// Broadcast a transaction to the network
+    pub fn broadcast_transaction(&self, transaction: &Transaction) -> Result<(), WalletError> {
+        // Serialize the transaction
+        let tx_data = bitcoin::consensus::encode::serialize(transaction);
+        
+        // In a real implementation, this would connect to the P2P network or an RPC interface
+        // and broadcast the transaction to the network
+        
+        // For now, we'll use a simple HTTP request to a node's RPC interface
+        let node_url = std::env::var("SUPERNOVA_NODE_URL")
+            .unwrap_or_else(|_| "http://localhost:9332".to_string());
+        
+        let client = reqwest::blocking::Client::new();
+        let response = client.post(&format!("{}/api/v1/mempool/transactions", node_url))
+            .header("Content-Type", "application/octet-stream")
+            .body(tx_data)
+            .send()
+            .map_err(|e| WalletError::NetworkError(format!("Failed to broadcast transaction: {}", e)))?;
+        
+        if !response.status().is_success() {
+            return Err(WalletError::NetworkError(format!(
+                "Failed to broadcast transaction: HTTP status {}", 
+                response.status()
+            )));
+        }
+        
+        Ok(())
     }
 
     /// Create signature hash for an input
