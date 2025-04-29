@@ -425,7 +425,7 @@ chain_id = "supernova-testnet"
 Obtain testnet tokens from the faucet:
 
 ```bash
-curl -X POST "https://faucet.testnet.supernova.io/request" \
+curl -X POST "https://faucet.testnet.supernovanetwork.xyz/request" \
   -H "Content-Type: application/json" \
   -d '{
     "address": "snt1qkl4hvc5zw8ru6tpzj2lf0u4s5jx9rgwep2j5d5",
@@ -447,7 +447,7 @@ Test the following aspects:
 
 For integration support, contact:
 
-- **Documentation**: [https://docs.supernova.io](https://docs.supernova.io)
+- **Documentation**: [https://docs.supernovanetwork.xyz](https://docs.supernova.io)
 - **Discord**: [SuperNova Developers](https://discord.gg/supernova-dev)
 - **GitHub**: [SuperNova Issues](https://github.com/username/supernova/issues)
 - **Email**: integration-support@supernova.io
