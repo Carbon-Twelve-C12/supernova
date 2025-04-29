@@ -57,7 +57,7 @@ Based on the requirements and the structure of the documentation, we recommend t
   ],
   "favicon": "img/favicon.ico",
   "customFields": {
-    "repoUrl": "https://github.com/mjohnson518/supernova",
+    "repoUrl": "https://github.com/mjohnson/supernova",
     "apiUrl": "https://api.supernovanetwork.xyz"
   }
 }
