@@ -162,7 +162,7 @@ This will deploy:
 
 ```bash
 # Download the latest release
-curl -L https://github.com/mjohnson518/supernova/releases/latest/download/supernova-linux-x86_64.tar.gz -o supernova.tar.gz
+curl -L https://github.com/supernova/supernova/releases/latest/download/supernova-linux-x86_64.tar.gz -o supernova.tar.gz
 
 # Extract the archive
 tar -xzf supernova.tar.gz
@@ -185,7 +185,7 @@ supernova-node
 
 ```bash
 # Download the latest release
-curl -L https://github.com/mjohnson518/supernova/releases/latest/download/supernova-macos-universal.tar.gz -o supernova.tar.gz
+curl -L https://github.com/supernova/supernova/releases/latest/download/supernova-macos-universal.tar.gz -o supernova.tar.gz
 
 # Extract the archive
 tar -xzf supernova.tar.gz
@@ -206,7 +206,7 @@ supernova-node
 
 ### Windows
 
-1. Download the latest Windows release from the [Supernova GitHub Releases](https://github.com/mjohnson518/supernova/releases/latest)
+1. Download the latest Windows release from the [Supernova GitHub Releases](https://github.com/supernova/supernova/releases/latest)
 2. Extract the ZIP file to a location of your choice
 3. Open Command Prompt as Administrator
 4. Navigate to the extracted directory
@@ -233,7 +233,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
 # Clone the repository
-git clone https://github.com/mjohnson518/supernova.git
+git clone https://github.com/supernova/supernova.git
 cd supernova
 
 # Build the project
@@ -616,7 +616,7 @@ docker-compose up -d
 
 ```bash
 # Download the latest release
-curl -L https://github.com/mjohnson518/supernova/releases/latest/download/supernova-linux-x86_64.tar.gz -o supernova.tar.gz
+curl -L https://github.com/supernova/supernova/releases/latest/download/supernova-linux-x86_64.tar.gz -o supernova.tar.gz
 
 # Extract the archive
 tar -xzf supernova.tar.gz
@@ -697,7 +697,7 @@ sudo systemctl start supernova-node
 ### Getting Help
 
 - [Supernova Discord Community](https://discord.gg/supernova)
-- [Supernova GitHub Issues](https://github.com/mjohnson518/supernova/issues)
+- [Supernova GitHub Issues](https://github.com/supernova/supernova/issues)
 - [Supernova Documentation](https://docs.supernovanetwork.xyz)
 
 ## Advanced Topics

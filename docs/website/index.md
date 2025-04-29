@@ -153,7 +153,7 @@ We welcome contributions to the Supernova documentation! Please see our [Contrib
 If you need help or have questions, you can reach out to the Supernova community through the following channels:
 
 - [Discord Community](https://discord.gg/supernova)
-- [GitHub Issues](https://github.com/mjohnson518/supernova/issues)
+- [GitHub Issues](https://github.com/supernova/supernova/issues)
 - [Twitter](https://twitter.com/supernovachain)
 - [Telegram](https://t.me/supernovachain)
 - [Forum](https://forum.supernovanetwork.xyz)

@@ -492,7 +492,7 @@ package main
 
 import (
   "fmt"
-  "github.com/mjohnson518/supernova-sdk-go"
+  "github.com/mjohnson/supernova-sdk-go"
 )
 
 func main() {
