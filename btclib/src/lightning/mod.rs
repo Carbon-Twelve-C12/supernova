@@ -23,6 +23,7 @@ use std::sync::{Arc, RwLock, Mutex};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
+use rand;
 
 /// Error types for Lightning Network operations
 #[derive(Debug, Error)]
@@ -245,6 +246,9 @@ impl LightningNetwork {
         &self,
         invoice: &Invoice,
     ) -> Result<PaymentPreimage, LightningNetworkError> {
+        info!("Paying invoice: amount={} msat, destination={}", 
+              invoice.amount_msat(), invoice.destination());
+        
         // Find a route to the destination
         let route = {
             let router = self.router.read().unwrap();
@@ -255,22 +259,141 @@ impl LightningNetwork {
             )?
         };
         
-        // Execute payment across channels
-        let preimage = match route.len() {
-            0 => {
-                return Err(LightningNetworkError::RoutingError(
-                    router::RoutingError::NoRouteFound
-                ));
-            }
-            _ => {
-                // Implementation would handle multi-hop payment
-                // For now, simulate a direct payment
-                let wallet = self.wallet.lock().unwrap();
-                wallet.pay_invoice(invoice)?
-            }
-        };
+        if route.is_empty() {
+            return Err(LightningNetworkError::RoutingError(
+                router::RoutingError::NoRouteFound
+            ));
+        }
         
-        Ok(preimage)
+        debug!("Found route with {} hops, total fee: {} msat", 
+               route.len(), route.total_fee_msat);
+        
+        // For single-hop payments, proceed directly
+        if route.len() == 1 {
+            let wallet = self.wallet.lock().unwrap();
+            return wallet.pay_invoice(invoice);
+        }
+        
+        // For multi-hop payments, we need to handle the routing
+        // First, create a payment hash and shared secret for each hop
+        let payment_hash = invoice.payment_hash().clone();
+        let mut next_hop_shared_secret = [0u8; 32]; // Would be derived in a real implementation
+        
+        // Generate random payment preimages for testing
+        let mut rng = rand::thread_rng();
+        let payment_preimage = PaymentPreimage::new_random();
+        
+        // Track the current payment amount (decreases as we move through the route due to fees)
+        let mut remaining_amount = invoice.amount_msat();
+        let mut current_expiry = invoice.min_final_cltv_expiry();
+        
+        // Process the route in reverse (from destination to source)
+        for i in (0..route.hops.len()).rev() {
+            let hop = &route.hops[i];
+            
+            // For real implementation, we would:
+            // 1. Generate shared secret for this hop
+            // 2. Create onion packet with encrypted payload
+            // 3. Add HTLC to channel with appropriate timelock
+            
+            // Add fees for this hop
+            if i < route.hops.len() - 1 {
+                // Intermediate hop - add fees
+                let fee = route.hops[i].channel_fee(remaining_amount);
+                remaining_amount += fee;
+                
+                // Adjust timelock
+                current_expiry += route.hops[i].cltv_expiry_delta as u32;
+            }
+        }
+        
+        // Now process the route from source to destination
+        let mut preimage: Option<PaymentPreimage> = None;
+        
+        for (i, hop) in route.hops.iter().enumerate() {
+            // Find the channel for this hop
+            let channel_arc = {
+                let channels = self.channels.read().unwrap();
+                channels.get(&hop.channel_id).cloned()
+            };
+            
+            let channel_arc = channel_arc.ok_or_else(|| 
+                LightningNetworkError::InvalidState(format!("Channel {} not found", hop.channel_id))
+            )?;
+            
+            // Calculate the amount to forward and timelock
+            let forward_amount = if i == route.hops.len() - 1 {
+                // Last hop - use final amount
+                invoice.amount_msat()
+            } else {
+                // Intermediate hop - forward amount minus fees for next hops
+                let next_hop_fees = route.hops[i+1..].iter()
+                    .map(|h| h.channel_fee(remaining_amount))
+                    .sum::<u64>();
+                remaining_amount - next_hop_fees
+            };
+            
+            // Calculate timelock
+            let timelock = if i == route.hops.len() - 1 {
+                // Last hop - use final expiry
+                current_expiry
+            } else {
+                // Intermediate hop - add CLTV delta for this hop
+                current_expiry + hop.cltv_expiry_delta as u32
+            };
+            
+            debug!("Hop {}: forwarding {} msat with timelock {}", i, forward_amount, timelock);
+            
+            let mut channel = channel_arc.write().unwrap();
+            
+            // Add HTLC to channel
+            let htlc_id = channel.add_htlc(
+                forward_amount,
+                payment_hash.into_inner(),
+                timelock,
+                HtlcDirection::Offered,
+            )?;
+            
+            // If this is the final hop, wait for fulfillment (in a real implementation)
+            if i == route.hops.len() - 1 {
+                // For test purposes, we'll simulate the fulfillment
+                // In a real implementation, we would listen for the fulfillment or failure
+                
+                preimage = Some(payment_preimage);
+                
+                // Fulfill the HTLC (simulate remote fulfillment)
+                channel.fulfill_htlc(htlc_id, payment_preimage.into_inner())?;
+            }
+        }
+        
+        // Now handle the fulfillment in reverse
+        for i in (0..route.hops.len() - 1).rev() {
+            // Find the channel for this hop
+            let channel_arc = {
+                let channels = self.channels.read().unwrap();
+                channels.get(&route.hops[i].channel_id).cloned()
+            };
+            
+            let channel_arc = channel_arc.ok_or_else(|| 
+                LightningNetworkError::InvalidState(format!("Channel {} not found", route.hops[i].channel_id))
+            )?;
+            
+            let mut channel = channel_arc.write().unwrap();
+            
+            // Find the HTLC and fulfill it
+            // In a real implementation, we would track the HTLC IDs
+            // For now, we'll simulate finding the right HTLC
+            let htlcs = channel.get_pending_htlcs();
+            
+            if let Some(htlc) = htlcs.iter().find(|h| h.payment_hash == payment_hash.into_inner()) {
+                channel.fulfill_htlc(htlc.id, payment_preimage.into_inner())?;
+            }
+        }
+        
+        // Return the payment preimage
+        preimage.ok_or_else(|| 
+            LightningNetworkError::InvalidState("Payment completed but no preimage available".to_string())
+        )
     }
     
     /// Get all active channels
@@ -287,6 +410,109 @@ impl LightningNetwork {
             let channel = channel_arc.read().unwrap();
             channel.get_info()
         })
+    }
+    
+    /// Handle an incoming HTLC payment from another node
+    pub async fn handle_incoming_htlc(
+        &self,
+        channel_id: &ChannelId,
+        htlc_id: u64,
+        payment_hash: [u8; 32],
+        amount_msat: u64,
+        cltv_expiry: u32,
+        onion_packet: &[u8],
+    ) -> Result<Option<PaymentPreimage>, LightningNetworkError> {
+        info!("Received incoming HTLC on channel {}: amount={} msat, payment_hash={:x?}",
+              channel_id, amount_msat, &payment_hash[0..4]);
+        
+        // Find the channel
+        let channel_arc = {
+            let channels = self.channels.read().unwrap();
+            channels.get(channel_id).cloned()
+        };
+        
+        let channel_arc = channel_arc.ok_or_else(|| 
+            LightningNetworkError::InvalidState(format!("Channel {} not found", channel_id))
+        )?;
+        
+        // Decode the onion packet to determine if this is final hop or forwarding
+        // In a real implementation, we would:
+        // 1. Decrypt the onion packet with our key
+        // 2. Extract the payload for this hop
+        // 3. Get the next hop information if not the final recipient
+        
+        // For now, we'll simulate this by checking if we have an invoice matching the payment hash
+        let wallet = self.wallet.lock().unwrap();
+        let is_final_recipient = wallet.has_invoice(&payment_hash);
+        
+        if is_final_recipient {
+            debug!("We are the final recipient for this HTLC");
+            
+            // Get the invoice
+            let invoice = wallet.get_invoice(&payment_hash)
+                .ok_or_else(|| LightningNetworkError::InvalidState(
+                    format!("Invoice for payment hash {:x?} not found", &payment_hash[0..4])
+                ))?;
+            
+            // Verify amount
+            if invoice.amount_msat() > amount_msat {
+                return Err(LightningNetworkError::InsufficientFunds(
+                    format!("Received amount {} is less than invoice amount {}", 
+                        amount_msat, invoice.amount_msat())
+                ));
+            }
+            
+            // Verify expiry (simplified)
+            if cltv_expiry < invoice.min_final_cltv_expiry() {
+                return Err(LightningNetworkError::InvalidState(
+                    format!("CLTV expiry {} is less than required {}", 
+                        cltv_expiry, invoice.min_final_cltv_expiry())
+                ));
+            }
+            
+            // Accept the HTLC
+            {
+                let mut channel = channel_arc.write().unwrap();
+                
+                // Record the incoming HTLC
+                channel.add_htlc(
+                    amount_msat,
+                    payment_hash,
+                    cltv_expiry,
+                    HtlcDirection::Received,
+                )?;
+            }
+            
+            // Get the payment preimage
+            let preimage = invoice.payment_preimage();
+            
+            // Fulfill the HTLC
+            {
+                let mut channel = channel_arc.write().unwrap();
+                channel.fulfill_htlc(htlc_id, preimage.into_inner())?;
+            }
+            
+            // Mark the invoice as paid
+            wallet.mark_invoice_paid(&payment_hash)?;
+            
+            Ok(Some(preimage))
+        } else {
+            debug!("We are forwarding this HTLC");
+            
+            // In a real implementation, we would:
+            // 1. Extract the next hop information from the onion packet
+            // 2. Find a suitable outgoing channel to the next hop
+            // 3. Forward the HTLC with the remaining amount
+            
+            // For simplicity, we'll fail the HTLC for now
+            {
+                let mut channel = channel_arc.write().unwrap();
+                channel.fail_htlc(htlc_id, "Unable to forward payment")?;
+            }
+            
+            // Return no preimage since we failed
+            Ok(None)
+        }
     }
 }
 

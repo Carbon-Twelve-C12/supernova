@@ -114,6 +114,24 @@ pub struct PathHop {
     
     /// CLTV expiry
     pub cltv_expiry: u32,
+    
+    /// Base fee in millisatoshis
+    pub base_fee_msat: u32,
+    
+    /// Fee rate in parts per million
+    pub fee_rate_millionths: u32,
+    
+    /// CLTV expiry delta
+    pub cltv_expiry_delta: u16,
+}
+
+impl PathHop {
+    /// Calculate the fee for forwarding a payment through this channel
+    pub fn channel_fee(&self, amount_msat: u64) -> u64 {
+        // Fee calculation: base_fee + (amount * fee_rate / 1_000_000)
+        let proportional_fee = (amount_msat * self.fee_rate_millionths as u64) / 1_000_000;
+        self.base_fee_msat as u64 + proportional_fee
+    }
 }
 
 /// A complete payment path
@@ -600,6 +618,9 @@ impl Router {
                     channel_id: channel.channel_id.clone(),
                     amount_msat,
                     cltv_expiry: 40, // Default CLTV delta
+                    base_fee_msat: channel.base_fee_msat,
+                    fee_rate_millionths: channel.fee_rate_millionths,
+                    cltv_expiry_delta: channel.cltv_expiry_delta,
                 };
                 
                 // Add hop to path

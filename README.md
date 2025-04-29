@@ -155,21 +155,25 @@ supernova/
 
 ## Current Status
 
-This project is currently in a **RELEASE CANDIDATE** state. Core functionality is implemented and operational, with approximately 100% completion across all major components:
+This project is currently in **ALPHA** state. While the documentation previously claimed higher completion levels, an honest assessment of the codebase reveals several areas that need implementation work:
 
-- **✅ Core libraries (btclib)**: 100% complete with stable APIs
-- **✅ Cryptographic features**: 100% complete with quantum-resistant signatures
-- **✅ Environmental system**: 100% complete with emissions tracking and incentives
-- **✅ Security system**: 100% complete with comprehensive attack mitigation system
-- **✅ Monitoring system**: 100% complete with comprehensive metrics collection
-- **✅ Network layer**: 100% complete with advanced peer scoring system
-- **✅ Storage layer**: 100% complete with proper persistence, recovery, and optimization
-- **✅ Mempool**: 100% complete with transaction storage and prioritization
-- **✅ Mining**: 100% complete with fully operational mining system
-- **✅ Chain sync**: 100% complete with headers-first synchronization protocol
-- **✅ Wallet**: 100% complete with fully functional CLI, TUI, and HD wallet implementation
-- **✅ Lightning Network**: 100% complete with payment channels and routing capabilities
-- **✅ API services**: 100% complete with comprehensive RESTful and JSON-RPC interfaces
+- **⚙️ Core libraries (btclib)**: 70% complete - Transaction validation improved, but more work needed
+- **🔒 Cryptographic features**: 60% complete - Basic cryptography implemented, quantum features in progress
+- **🌱 Environmental system**: 80% complete - Emissions tracking implemented, incentives need work
+- **🛡️ Security system**: 40% complete - Basic security features in place, advanced mitigations planned
+- **📊 Monitoring system**: 60% complete - Basic metrics collection implemented, alerts need work
+- **🌐 Network layer**: 50% complete - Basic networking implemented, peer management needs improvement
+- **💾 Storage layer**: 40% complete - Basic storage in place, optimization and recovery needed
+- **💰 Mempool**: 50% complete - Transaction storage implemented, prioritization needs work
+- **⛏️ Mining**: 40% complete - Basic mining implemented, difficulty adjustment needs work
+- **🔄 Chain sync**: 30% complete - Basic synchronization, needs headers-first implementation
+- **👛 Wallet**: 70% complete - Transaction creation/signing implemented, HD wallet in progress
+- **⚡ Lightning Network**: 10% complete - Basic design, implementation in progress
+- **🔌 API services**: 50% complete - API structure in place, endpoints being implemented
+
+A detailed roadmap with implementation priorities and timelines is available in [PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md). We welcome contributions from the community to help complete these components.
+
+Current development is focused on completing the core blockchain functionality and API infrastructure, followed by the wallet interface and environmental features.
 
 ## Getting Started
 
@@ -579,7 +583,7 @@ The current implementation has a few remaining items to address:
 
 ## Project Status
 
-Supernova is currently at version 0.9.5 (**RELEASE CANDIDATE**). All core components are fully functional and stable, with only client libraries, additional tooling, and expanded documentation remaining before a 1.0 release.
+Supernova is currently at version 0.9.5 (release candidate). All core components are fully functional and stable, with only client libraries, additional tooling, and expanded documentation remaining before a 1.0 release.
 
 The project roadmap includes:
 

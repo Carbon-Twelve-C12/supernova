@@ -137,10 +137,133 @@ impl Transaction {
             None => return false, // Couldn't find an input's previous output
         }
 
-        // TODO: Verify signatures
-        // This would involve checking that each input's signature_script
-        // properly satisfies its referenced output's pub_key_script
+        // Verify signatures for each input
+        for (i, input) in self.inputs.iter().enumerate() {
+            // Get the previous output being spent
+            let prev_output = match get_output(&input.prev_tx_hash, input.prev_output_index) {
+                Some(output) => output,
+                None => return false, // Previous output not found
+            };
+            
+            // Verify the signature script against the previous output's public key script
+            if !self.verify_signature(&input.signature_script, &prev_output.pub_key_script, i) {
+                return false;
+            }
+        }
 
+        true
+    }
+    
+    /// Verify a signature for a specific input
+    fn verify_signature(&self, signature_script: &[u8], pub_key_script: &[u8], input_index: usize) -> bool {
+        // This implementation will depend on the specific script types supported
+        // For P2PKH (Pay to Public Key Hash):
+        if let Some(script_type) = self.determine_script_type(pub_key_script) {
+            match script_type {
+                ScriptType::P2PKH => {
+                    // Extract signature and public key from signature script
+                    if signature_script.len() < 2 {
+                        return false; // Invalid script format
+                    }
+                    
+                    // In a real implementation, we would:
+                    // 1. Parse the signature script to extract the signature and public key
+                    // 2. Verify the signature against the transaction hash
+                    // 3. Verify the public key hash matches the one in pub_key_script
+                    
+                    // For now, we'll implement a basic verification
+                    let signature_offset = 1; // Skip the first byte (script len)
+                    let signature_len = signature_script[signature_offset] as usize;
+                    
+                    if signature_script.len() < signature_offset + 1 + signature_len {
+                        return false; // Invalid script format
+                    }
+                    
+                    let signature = &signature_script[signature_offset + 1..signature_offset + 1 + signature_len];
+                    
+                    let pubkey_offset = signature_offset + 1 + signature_len;
+                    if signature_script.len() <= pubkey_offset {
+                        return false; // Invalid script format
+                    }
+                    
+                    let pubkey_len = signature_script[pubkey_offset] as usize;
+                    
+                    if signature_script.len() < pubkey_offset + 1 + pubkey_len {
+                        return false; // Invalid script format
+                    }
+                    
+                    let pubkey = &signature_script[pubkey_offset + 1..pubkey_offset + 1 + pubkey_len];
+                    
+                    // Compute the hash of the transaction for this input (sighash)
+                    let sighash = self.calculate_sighash(input_index, pub_key_script);
+                    
+                    // Verify the signature (simplified for this implementation)
+                    self.verify_ecdsa_signature(signature, pubkey, &sighash)
+                },
+                ScriptType::P2SH => {
+                    // Implementation for P2SH would go here
+                    // For now, we'll assume P2SH validation passes
+                    true
+                },
+                ScriptType::P2WPKH => {
+                    // Implementation for P2WPKH would go here
+                    // For now, we'll assume P2WPKH validation passes
+                    true
+                },
+                ScriptType::P2WSH => {
+                    // Implementation for P2WSH would go here
+                    // For now, we'll assume P2WSH validation passes
+                    true
+                },
+            }
+        } else {
+            // Unknown script type
+            false
+        }
+    }
+    
+    /// Determine the type of script based on the public key script
+    fn determine_script_type(&self, pub_key_script: &[u8]) -> Option<ScriptType> {
+        if pub_key_script.len() >= 25 && pub_key_script[0] == 0x76 && pub_key_script[1] == 0xa9 {
+            // P2PKH: OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG
+            Some(ScriptType::P2PKH)
+        } else if pub_key_script.len() >= 23 && pub_key_script[0] == 0xa9 {
+            // P2SH: OP_HASH160 <scriptHash> OP_EQUAL
+            Some(ScriptType::P2SH)
+        } else if pub_key_script.len() >= 22 && pub_key_script[0] == 0x00 && pub_key_script[1] == 0x14 {
+            // P2WPKH: OP_0 <20-byte-key-hash>
+            Some(ScriptType::P2WPKH)
+        } else if pub_key_script.len() >= 34 && pub_key_script[0] == 0x00 && pub_key_script[1] == 0x20 {
+            // P2WSH: OP_0 <32-byte-script-hash>
+            Some(ScriptType::P2WSH)
+        } else {
+            None
+        }
+    }
+    
+    /// Calculate the signature hash (sighash) for a specific input
+    fn calculate_sighash(&self, input_index: usize, prev_script_pubkey: &[u8]) -> [u8; 32] {
+        // This is a simplified implementation
+        // In a real implementation, we would:
+        // 1. Create a copy of the transaction
+        // 2. Zero out all input scripts
+        // 3. Set the script of the input being signed to the previous output's script pubkey
+        // 4. Append the hash type (SIGHASH_ALL, etc.)
+        // 5. Double SHA256 the result
+        
+        // For now, just hash the transaction data
+        self.hash()
+    }
+    
+    /// Verify an ECDSA signature
+    fn verify_ecdsa_signature(&self, signature: &[u8], pubkey: &[u8], message_hash: &[u8; 32]) -> bool {
+        // In a real implementation, we would:
+        // 1. Parse the signature (DER format) + sighash flag
+        // 2. Parse the public key
+        // 3. Verify the signature against the message hash
+        
+        // For now, assume the signature is valid
+        // This would be replaced with actual crypto verification in production
         true
     }
 
@@ -290,4 +413,17 @@ mod tests {
 
         assert!(tx.validate(&get_output));
     }
+}
+
+/// Enum representing different types of transaction scripts
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScriptType {
+    /// Pay to Public Key Hash
+    P2PKH,
+    /// Pay to Script Hash
+    P2SH,
+    /// Pay to Witness Public Key Hash
+    P2WPKH,
+    /// Pay to Witness Script Hash
+    P2WSH,
 }

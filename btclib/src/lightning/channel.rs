@@ -493,25 +493,153 @@ impl Channel {
     
     /// Create a commitment transaction
     fn create_commitment_transaction(&self) -> Result<Transaction, ChannelError> {
-        // This is a placeholder implementation
-        // A real implementation would create a valid commitment transaction
-        // with proper outputs for both parties and HTLCs
+        // Check if funding transaction exists
+        let funding_tx = self.funding_tx.as_ref().ok_or_else(|| {
+            ChannelError::InvalidState("Funding transaction not available".to_string())
+        })?;
         
-        if self.funding_tx.is_none() || self.funding_output_index.is_none() {
-            return Err(ChannelError::InvalidState(
-                "Cannot create commitment transaction without funding information".to_string()
-            ));
-        }
+        let funding_output_index = self.funding_output_index.ok_or_else(|| {
+            ChannelError::InvalidState("Funding output index not available".to_string())
+        })?;
         
-        // Create a basic transaction structure
-        let tx = Transaction::new(
-            1, // version
-            vec![], // inputs would include funding outpoint
-            vec![], // outputs would include to_local and to_remote
-            0, // locktime
+        // Create transaction input from funding transaction
+        let funding_txid = funding_tx.hash();
+        let input = TransactionInput::new(
+            funding_txid,
+            funding_output_index,
+            Vec::new(), // Signature script will be added later
+            0xffffffff, // Sequence
         );
         
-        Ok(tx)
+        // Calculate fee for the commitment transaction (simplified)
+        let base_weight = 724; // Base weight for commitment transaction
+        let weight_per_htlc = 172; // Weight per HTLC
+        let total_weight = base_weight + (weight_per_htlc * self.pending_htlcs.len());
+        
+        // Convert weight to virtual bytes (weight / 4)
+        let vbytes = (total_weight + 3) / 4;
+        
+        // Calculate fee (assume 1 sat/vbyte for now)
+        let fee_satoshis = vbytes as u64;
+        
+        // Calculate amount available to distribute
+        let total_amount_sat = self.capacity;
+        let available_amount_sat = total_amount_sat - fee_satoshis;
+        
+        // Convert balances from millisatoshi to satoshi
+        let local_amount_sat = self.local_balance_msat / 1000;
+        let remote_amount_sat = self.remote_balance_msat / 1000;
+        
+        // Adjust for fees
+        let fee_ratio_local = local_amount_sat as f64 / (local_amount_sat + remote_amount_sat) as f64;
+        let local_fee_contribution = (fee_satoshis as f64 * fee_ratio_local) as u64;
+        
+        // Calculate final output amounts
+        let adjusted_local_amount = local_amount_sat.saturating_sub(local_fee_contribution);
+        let adjusted_remote_amount = remote_amount_sat;
+        
+        // Create outputs
+        let mut outputs = Vec::new();
+        
+        // Add local output if above dust limit
+        if adjusted_local_amount > self.config.dust_limit_satoshis {
+            // In real implementation, this would use a proper script
+            // For now, we'll use a simple placeholder
+            let local_output = TransactionOutput::new(
+                adjusted_local_amount,
+                vec![0; 25], // Placeholder for actual script
+            );
+            outputs.push(local_output);
+        }
+        
+        // Add remote output if above dust limit
+        if adjusted_remote_amount > self.config.dust_limit_satoshis {
+            // In real implementation, this would use a proper script
+            let remote_output = TransactionOutput::new(
+                adjusted_remote_amount,
+                vec![1; 25], // Placeholder for actual script
+            );
+            outputs.push(remote_output);
+        }
+        
+        // Add outputs for HTLCs
+        for htlc in &self.pending_htlcs {
+            // Only include HTLCs above the dust limit
+            let htlc_amount_sat = htlc.amount_msat / 1000;
+            if htlc_amount_sat > self.config.dust_limit_satoshis {
+                let htlc_output = match htlc.direction {
+                    HtlcDirection::Offered => {
+                        // Create offered HTLC output with timeout path
+                        TransactionOutput::new(
+                            htlc_amount_sat,
+                            Self::create_htlc_script(&htlc.payment_hash, htlc.cltv_expiry, true),
+                        )
+                    },
+                    HtlcDirection::Received => {
+                        // Create received HTLC output with success path
+                        TransactionOutput::new(
+                            htlc_amount_sat,
+                            Self::create_htlc_script(&htlc.payment_hash, htlc.cltv_expiry, false),
+                        )
+                    },
+                };
+                
+                outputs.push(htlc_output);
+            }
+        }
+        
+        // Create the commitment transaction
+        let commitment_tx = Transaction::new(
+            2, // Version
+            vec![input],
+            outputs,
+            0, // Locktime
+        );
+        
+        Ok(commitment_tx)
+    }
+    
+    /// Create an HTLC script
+    fn create_htlc_script(payment_hash: &[u8; 32], cltv_expiry: u32, is_offered: bool) -> Vec<u8> {
+        // In a real implementation, this would create a proper HTLC script
+        // with a revocation path, success path, and timeout path
+        
+        // For now, create a simple script with the payment hash and timeout
+        let mut script = Vec::with_capacity(100);
+        
+        // Add script type identifier
+        script.push(if is_offered { 0x02 } else { 0x03 });
+        
+        // Add payment hash
+        script.extend_from_slice(payment_hash);
+        
+        // Add CLTV expiry
+        script.extend_from_slice(&cltv_expiry.to_le_bytes());
+        
+        script
+    }
+    
+    /// Sign the commitment transaction
+    fn sign_commitment_transaction(&self, tx: &mut Transaction) -> Result<(), ChannelError> {
+        // In a real implementation, this would:
+        // 1. Create the signature hash (sighash)
+        // 2. Sign with local private key
+        // 3. Add signature to the transaction input
+        
+        // Simplified implementation for now
+        tx.inputs()[0].signature_script = vec![0xDE, 0xAD, 0xBE, 0xEF]; // Placeholder
+        
+        Ok(())
+    }
+    
+    /// Verify commitment transaction signature
+    fn verify_commitment_signature(&self, tx: &Transaction, signature: &[u8]) -> Result<bool, ChannelError> {
+        // In a real implementation, this would:
+        // 1. Create the signature hash (sighash)
+        // 2. Verify the signature against the remote party's public key
+        
+        // Simplified implementation for now
+        Ok(true) // Always return valid for now
     }
     
     /// Cooperatively close the channel
