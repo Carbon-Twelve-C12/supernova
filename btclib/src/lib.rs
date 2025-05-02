@@ -10,13 +10,15 @@ pub mod types;
 pub mod validation;
 pub mod testnet;
 pub mod consensus_verification;
+pub mod consensus;
 #[cfg(feature = "lightning")]
 pub mod lightning;
+pub mod mempool;
+pub mod util;
 
 // Internal modules
 mod transaction_processor;
 mod storage;
-mod mempool;
 mod mining;
 mod network;
 mod security_mitigation;
@@ -31,6 +33,11 @@ pub use environmental::emissions::{EmissionsTracker, Emissions};
 pub use environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetType};
 pub use environmental::dashboard::{EnvironmentalDashboard, EmissionsTimePeriod};
 pub use consensus_verification::{ConsensusVerificationFramework, VerificationReport, ConsensusProperty};
+pub use consensus::{DifficultyAdjustment, DifficultyAdjustmentConfig};
+pub use validation::{BlockValidator, BlockValidationConfig, TransactionValidator, ValidationResult};
+pub use mempool::{TransactionPool, TransactionPoolConfig, MempoolError};
+pub use util::merkle::{MerkleTree, MerkleProof, MerkleError};
+
 // Re-export Lightning types when feature is enabled
 #[cfg(feature = "lightning")]
 pub use lightning::{

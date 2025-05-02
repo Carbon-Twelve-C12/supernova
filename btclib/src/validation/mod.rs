@@ -5,6 +5,7 @@
 
 pub mod transaction;
 pub mod crypto;
+pub mod block;
 
 pub use transaction::{
     ValidationResult,
@@ -16,4 +17,11 @@ pub use transaction::{
 pub use crypto::{
     ValidationMode,
     SignatureValidator,
+};
+
+pub use block::{
+    BlockValidator,
+    BlockValidationConfig,
+    BlockValidationError,
+    BlockValidationResult,
 }; 
