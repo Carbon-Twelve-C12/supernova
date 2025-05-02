@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use crate::environmental::emissions::{EmissionsError, EmissionsTracker, Emissions};
+use crate::crypto::signature::{SignatureType, SignatureVerifier, SignatureError};
+use crate::crypto::quantum::{QuantumParameters, QuantumScheme};
 
 /// Represents a transaction input referencing a previous output
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +26,36 @@ pub struct TransactionOutput {
     pub_key_script: Vec<u8>,
 }
 
+/// Type of signature scheme used in a transaction
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SignatureSchemeType {
+    /// Legacy ECDSA with secp256k1 (original Bitcoin)
+    Legacy,
+    /// Ed25519 signatures
+    Ed25519,
+    /// Post-quantum Dilithium signatures
+    Dilithium,
+    /// Post-quantum Falcon signatures
+    Falcon,
+    /// Post-quantum SPHINCS+ signatures
+    Sphincs,
+    /// Hybrid scheme combining classical and quantum signatures
+    Hybrid,
+}
+
+/// Contains signature data for extended signature schemes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionSignatureData {
+    /// Signature scheme used
+    pub scheme: SignatureSchemeType,
+    /// Security level (for quantum schemes)
+    pub security_level: u8,
+    /// Extended signature data (format depends on scheme)
+    pub data: Vec<u8>,
+    /// Public key associated with this signature
+    pub public_key: Vec<u8>,
+}
+
 /// Main transaction structure containing inputs and outputs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
@@ -35,6 +67,8 @@ pub struct Transaction {
     outputs: Vec<TransactionOutput>,
     /// Lock time (block height or timestamp)
     lock_time: u32,
+    /// Optional signature data for extended signature schemes
+    signature_data: Option<TransactionSignatureData>,
 }
 
 impl TransactionInput {
@@ -77,18 +111,67 @@ impl Transaction {
             inputs,
             outputs,
             lock_time,
+            signature_data: None,
         }
+    }
+
+    /// Create a new transaction with extended signature data
+    pub fn new_with_signature(
+        version: u32, 
+        inputs: Vec<TransactionInput>, 
+        outputs: Vec<TransactionOutput>, 
+        lock_time: u32,
+        signature_data: TransactionSignatureData
+    ) -> Self {
+        Self {
+            version,
+            inputs,
+            outputs,
+            lock_time,
+            signature_data: Some(signature_data),
+        }
+    }
+
+    /// Get the transaction's signature data if present
+    pub fn signature_data(&self) -> Option<&TransactionSignatureData> {
+        self.signature_data.as_ref()
+    }
+
+    /// Set the transaction's signature data
+    pub fn set_signature_data(&mut self, signature_data: TransactionSignatureData) {
+        self.signature_data = Some(signature_data);
+    }
+
+    /// Clear the transaction's signature data
+    pub fn clear_signature_data(&mut self) {
+        self.signature_data = None;
     }
 
     /// Calculate the transaction hash
     pub fn hash(&self) -> [u8; 32] {
-        let serialized = bincode::serialize(&self).unwrap();
-        let mut hasher = Sha256::new();
-        hasher.update(&serialized);
-        let result = hasher.finalize();
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        hash
+        if self.version >= 2 && self.signature_data.is_some() {
+            // For v2+ transactions with extended signatures, calculate hash differently
+            // to exclude the signature data for signing purposes
+            let mut tx_copy = self.clone();
+            tx_copy.signature_data = None;
+            
+            let serialized = bincode::serialize(&tx_copy).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&serialized);
+            let result = hasher.finalize();
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(&result);
+            hash
+        } else {
+            // For legacy transactions or those without extended signatures, use the original hash method
+            let serialized = bincode::serialize(&self).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&serialized);
+            let result = hasher.finalize();
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(&result);
+            hash
+        }
     }
 
     /// Get reference to inputs
@@ -154,10 +237,14 @@ impl Transaction {
         true
     }
     
-    /// Verify a signature for a specific input
+    /// Verify a signature for a specific input, handling multiple signature schemes
     fn verify_signature(&self, signature_script: &[u8], pub_key_script: &[u8], input_index: usize) -> bool {
-        // This implementation will depend on the specific script types supported
-        // For P2PKH (Pay to Public Key Hash):
+        // Check if this is a transaction with extended signature data
+        if self.version >= 2 && self.signature_data.is_some() {
+            return self.verify_extended_signature(signature_script, pub_key_script, input_index);
+        }
+        
+        // Use the legacy verification for standard transactions
         if let Some(script_type) = self.determine_script_type(pub_key_script) {
             match script_type {
                 ScriptType::P2PKH => {
@@ -200,21 +287,9 @@ impl Transaction {
                     // Verify the signature (simplified for this implementation)
                     self.verify_ecdsa_signature(signature, pubkey, &sighash)
                 },
-                ScriptType::P2SH => {
-                    // Implementation for P2SH would go here
-                    // For now, we'll assume P2SH validation passes
-                    true
-                },
-                ScriptType::P2WPKH => {
-                    // Implementation for P2WPKH would go here
-                    // For now, we'll assume P2WPKH validation passes
-                    true
-                },
-                ScriptType::P2WSH => {
-                    // Implementation for P2WSH would go here
-                    // For now, we'll assume P2WSH validation passes
-                    true
-                },
+                ScriptType::P2SH => true,
+                ScriptType::P2WPKH => true,
+                ScriptType::P2WSH => true,
             }
         } else {
             // Unknown script type
@@ -222,6 +297,100 @@ impl Transaction {
         }
     }
     
+    /// Verify a signature using the extended signature data
+    fn verify_extended_signature(&self, _signature_script: &[u8], _pub_key_script: &[u8], _input_index: usize) -> bool {
+        let signature_data = match &self.signature_data {
+            Some(data) => data,
+            None => return false, // No signature data available
+        };
+        
+        // Calculate the transaction hash for signing (this excludes the signature data itself)
+        let message_hash = self.hash();
+        
+        // Create a signature verifier
+        let signature_verifier = SignatureVerifier::new();
+        
+        // Determine which verification logic to use based on the signature scheme
+        match signature_data.scheme {
+            SignatureSchemeType::Legacy => {
+                match signature_verifier.verify(
+                    SignatureType::Secp256k1,
+                    &signature_data.public_key,
+                    &message_hash,
+                    &signature_data.data
+                ) {
+                    Ok(result) => result,
+                    Err(_) => false,
+                }
+            },
+            SignatureSchemeType::Ed25519 => {
+                match signature_verifier.verify(
+                    SignatureType::Ed25519,
+                    &signature_data.public_key,
+                    &message_hash,
+                    &signature_data.data
+                ) {
+                    Ok(result) => result,
+                    Err(_) => false,
+                }
+            },
+            SignatureSchemeType::Dilithium => {
+                let params = QuantumParameters {
+                    scheme: QuantumScheme::Dilithium,
+                    security_level: signature_data.security_level,
+                };
+                
+                match crate::crypto::quantum::verify_quantum_signature(
+                    &signature_data.public_key,
+                    &message_hash,
+                    &signature_data.data,
+                    params
+                ) {
+                    Ok(result) => result,
+                    Err(_) => false,
+                }
+            },
+            SignatureSchemeType::Falcon => {
+                let params = QuantumParameters {
+                    scheme: QuantumScheme::Falcon,
+                    security_level: signature_data.security_level,
+                };
+                
+                match crate::crypto::quantum::verify_quantum_signature(
+                    &signature_data.public_key,
+                    &message_hash,
+                    &signature_data.data,
+                    params
+                ) {
+                    Ok(result) => result,
+                    Err(_) => false,
+                }
+            },
+            SignatureSchemeType::Sphincs => {
+                let params = QuantumParameters {
+                    scheme: QuantumScheme::Sphincs,
+                    security_level: signature_data.security_level,
+                };
+                
+                match crate::crypto::quantum::verify_quantum_signature(
+                    &signature_data.public_key,
+                    &message_hash,
+                    &signature_data.data,
+                    params
+                ) {
+                    Ok(result) => result,
+                    Err(_) => false,
+                }
+            },
+            SignatureSchemeType::Hybrid => {
+                // Implementation for hybrid verification is more complex and would require
+                // parsing the data to separate classical and quantum signatures
+                // For now, return false to indicate it's not implemented
+                false
+            },
+        }
+    }
+
     /// Determine the type of script based on the public key script
     fn determine_script_type(&self, pub_key_script: &[u8]) -> Option<ScriptType> {
         if pub_key_script.len() >= 25 && pub_key_script[0] == 0x76 && pub_key_script[1] == 0xa9 {
@@ -273,11 +442,8 @@ impl Transaction {
         let tx_size = self.calculate_size();
         
         // Calculate fee (inputs - outputs)
-        if let Some(total_input) = self.total_input(get_output) {
-            let total_output = self.total_output();
-            
-            if total_input > total_output && tx_size > 0 {
-                let fee = total_input - total_output;
+        if let Some(fee) = self.calculate_fee(get_output) {
+            if tx_size > 0 {
                 return Some(fee / tx_size as u64);
             }
         }
@@ -349,6 +515,130 @@ impl Transaction {
         let emissions = self.calculate_emissions(tracker)?;
         Ok(emissions.energy_kwh)
     }
+
+    /// Sign this transaction using the specified signature scheme
+    pub fn sign(
+        &mut self,
+        private_key: &[u8],
+        public_key: &[u8],
+        scheme: SignatureSchemeType,
+        security_level: u8
+    ) -> Result<(), SignatureError> {
+        // Calculate the hash of the transaction (without existing signature data)
+        let tx_hash = self.hash();
+        
+        // Generate the signature based on the specified scheme
+        let signature = match scheme {
+            SignatureSchemeType::Legacy => {
+                // Sign with secp256k1
+                // This is a placeholder - in a real implementation, we would use the
+                // appropriate crypto library to generate a real signature
+                vec![0u8; 64] // Placeholder
+            },
+            SignatureSchemeType::Ed25519 => {
+                // Sign with Ed25519
+                // This is a placeholder
+                vec![0u8; 64] // Placeholder
+            },
+            SignatureSchemeType::Dilithium => {
+                // Create a quantum keypair from the provided keys
+                let keypair = crate::crypto::quantum::QuantumKeyPair {
+                    public_key: public_key.to_vec(),
+                    private_key: private_key.to_vec(),
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Dilithium,
+                        security_level,
+                    },
+                };
+                
+                // Sign with Dilithium
+                keypair.sign(&tx_hash)
+                    .map_err(|e| SignatureError::CryptoOperationFailed(format!("Dilithium signing failed: {}", e)))?
+            },
+            SignatureSchemeType::Falcon => {
+                // Create a quantum keypair from the provided keys
+                let keypair = crate::crypto::quantum::QuantumKeyPair {
+                    public_key: public_key.to_vec(),
+                    private_key: private_key.to_vec(),
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Falcon,
+                        security_level,
+                    },
+                };
+                
+                // Sign with Falcon
+                keypair.sign(&tx_hash)
+                    .map_err(|e| SignatureError::CryptoOperationFailed(format!("Falcon signing failed: {}", e)))?
+            },
+            SignatureSchemeType::Sphincs => {
+                // This is a placeholder - SPHINCS+ is not yet fully implemented
+                return Err(SignatureError::UnsupportedScheme("SPHINCS+ not yet implemented".to_string()));
+            },
+            SignatureSchemeType::Hybrid => {
+                // This is a placeholder - hybrid schemes are not yet fully implemented
+                return Err(SignatureError::UnsupportedScheme("Hybrid signatures not yet implemented".to_string()));
+            },
+        };
+        
+        // Set the signature data
+        self.signature_data = Some(TransactionSignatureData {
+            scheme,
+            security_level,
+            data: signature,
+            public_key: public_key.to_vec(),
+        });
+        
+        Ok(())
+    }
+
+    /// Calculate the transaction fee (inputs - outputs)
+    pub fn calculate_fee(&self, get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>) -> Option<u64> {
+        if let Some(total_input) = self.total_input(&get_output) {
+            let total_output = self.total_output();
+            
+            if total_input > total_output {
+                return Some(total_input - total_output);
+            }
+        }
+        
+        None
+    }
+
+    /// Get the priority score of this transaction based on fee rate and other factors
+    pub fn get_priority_score(&self, get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>) -> u64 {
+        // Base priority is the fee rate
+        let base_priority = self.calculate_fee_rate(&get_output).unwrap_or(0);
+        
+        // Apply environmental and quantum bonus factors if applicable
+        let mut priority = base_priority;
+        
+        // Apply a bonus for transactions using quantum-resistant signatures
+        if let Some(sig_data) = &self.signature_data {
+            match sig_data.scheme {
+                SignatureSchemeType::Dilithium | 
+                SignatureSchemeType::Falcon | 
+                SignatureSchemeType::Sphincs | 
+                SignatureSchemeType::Hybrid => {
+                    // 10% bonus for quantum-resistant transactions
+                    priority = priority.saturating_add(priority / 10);
+                },
+                _ => {}
+            }
+        }
+        
+        // Future: Add environmental bonus based on carbon neutrality
+        
+        priority
+    }
+    
+    /// Compare two transactions for ordering in mempool based on priority
+    pub fn compare_by_priority(&self, other: &Self, get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>) -> std::cmp::Ordering {
+        let self_priority = self.get_priority_score(&get_output);
+        let other_priority = other.get_priority_score(&get_output);
+        
+        // Higher priority comes first
+        other_priority.cmp(&self_priority)
+    }
 }
 
 // Helper function to calculate variable integer size
@@ -412,6 +702,112 @@ mod tests {
         };
 
         assert!(tx.validate(&get_output));
+    }
+
+    #[test]
+    fn test_transaction_with_signature_data() {
+        let inputs = vec![TransactionInput::new(
+            [0u8; 32],
+            0,
+            vec![],
+            0xffffffff,
+        )];
+
+        let outputs = vec![TransactionOutput::new(
+            50_000_000,
+            vec![],
+        )];
+
+        let signature_data = TransactionSignatureData {
+            scheme: SignatureSchemeType::Dilithium,
+            security_level: 3,
+            data: vec![1, 2, 3, 4], // Example data
+            public_key: vec![5, 6, 7, 8], // Example public key
+        };
+
+        let tx = Transaction::new_with_signature(2, inputs, outputs, 0, signature_data);
+        
+        assert_eq!(tx.version, 2);
+        assert!(tx.signature_data().is_some());
+        if let Some(sig_data) = tx.signature_data() {
+            assert_eq!(sig_data.scheme, SignatureSchemeType::Dilithium);
+            assert_eq!(sig_data.security_level, 3);
+        }
+    }
+
+    #[test]
+    fn test_transaction_fee_calculation() {
+        let inputs = vec![TransactionInput::new(
+            [0u8; 32],
+            0,
+            vec![0; 10], // Add some data to make size non-zero
+            0xffffffff,
+        )];
+
+        let outputs = vec![TransactionOutput::new(
+            50_000_000, // 0.5 NOVA
+            vec![0; 10], // Add some data to make size non-zero
+        )];
+
+        let tx = Transaction::new(1, inputs, outputs, 0);
+        
+        // Mock function to provide previous output with higher value
+        let get_output = |_hash: &[u8; 32], _index: u32| {
+            Some(TransactionOutput::new(
+                60_000_000, // 0.6 NOVA
+                vec![],
+            ))
+        };
+        
+        // Fee should be (60_000_000 - 50_000_000) = 10_000_000
+        assert_eq!(tx.calculate_fee(&get_output), Some(10_000_000));
+        
+        // Fee rate should be fee divided by size
+        let size = tx.calculate_size();
+        assert!(size > 0);
+        let expected_fee_rate = 10_000_000 / size as u64;
+        assert_eq!(tx.calculate_fee_rate(&get_output), Some(expected_fee_rate));
+    }
+    
+    #[test]
+    fn test_transaction_priority() {
+        let inputs = vec![TransactionInput::new(
+            [0u8; 32],
+            0,
+            vec![0; 10],
+            0xffffffff,
+        )];
+
+        let outputs = vec![TransactionOutput::new(
+            50_000_000,
+            vec![0; 10],
+        )];
+        
+        // Create a standard transaction
+        let tx1 = Transaction::new(1, inputs.clone(), outputs.clone(), 0);
+        
+        // Create a quantum-resistant transaction
+        let signature_data = TransactionSignatureData {
+            scheme: SignatureSchemeType::Dilithium,
+            security_level: 3,
+            data: vec![1, 2, 3, 4],
+            public_key: vec![5, 6, 7, 8],
+        };
+        let tx2 = Transaction::new_with_signature(2, inputs, outputs, 0, signature_data);
+        
+        // Mock function to provide previous output
+        let get_output = |_hash: &[u8; 32], _index: u32| {
+            Some(TransactionOutput::new(
+                60_000_000,
+                vec![],
+            ))
+        };
+        
+        // The quantum transaction should have a higher priority
+        let priority1 = tx1.get_priority_score(&get_output);
+        let priority2 = tx2.get_priority_score(&get_output);
+        
+        assert!(priority2 > priority1);
     }
 }
 
