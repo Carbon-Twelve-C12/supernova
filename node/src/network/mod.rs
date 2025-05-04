@@ -4,6 +4,9 @@ pub mod peer;
 pub mod protocol;
 pub mod sync;
 pub mod peer_diversity;
+pub mod p2p;
+pub mod advanced;
+pub mod discovery;
 
 use connection::Connection;
 use message::Message;
@@ -11,6 +14,8 @@ use peer::Peer;
 use protocol::Protocol;
 use sync::ChainSync;
 use peer_diversity::PeerDiversityManager;
+use p2p::P2PNetwork;
+use discovery::PeerDiscovery;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -20,71 +25,55 @@ use tracing::{debug, info, warn, error};
 // Re-export network types for external use
 pub use connection::ConnectionState;
 pub use message::NetworkMessage;
-pub use peer::PeerState;
-pub use protocol::ProtocolError;
+pub use peer::{PeerState, PeerInfo, PeerMetadata};
+pub use protocol::{ProtocolError, Message as ProtocolMessage};
+pub use p2p::{NetworkCommand, NetworkEvent, NetworkStats};
+pub use discovery::DiscoveryEvent;
 
-/// Network command sent to the P2P network
-#[derive(Debug, Clone)]
-pub enum NetworkCommand {
-    /// Connect to a peer
-    Connect(libp2p::Multiaddr),
-    /// Disconnect from a peer
-    Disconnect(PeerId),
-    /// Send a message to a peer
-    SendMessage(PeerId, NetworkMessage),
-    /// Broadcast a message to all peers
-    Broadcast(NetworkMessage),
-    /// Request syncing with a peer
-    Sync(PeerId),
-    /// Stop the network
-    Shutdown,
-}
+/// Maximum number of peers to connect to
+pub const MAX_PEERS: usize = 50;
 
-/// Network event from the P2P network
-#[derive(Debug, Clone)]
-pub enum NetworkEvent {
-    /// New peer connected
-    PeerConnected(PeerId),
-    /// Peer disconnected
-    PeerDisconnected(PeerId),
-    /// Message received from peer
-    MessageReceived(PeerId, NetworkMessage),
-    /// Error occurred
-    Error(String),
-}
+/// Maximum number of inbound connections allowed
+pub const MAX_INBOUND_CONNECTIONS: usize = 128;
 
-/// P2P Network implementation
-pub struct P2PNetwork {
-    // Network components
-    peers: Arc<std::sync::Mutex<std::collections::HashMap<PeerId, Peer>>>,
-    // Diversity manager for Sybil protection
-    diversity_manager: PeerDiversityManager,
-    // Other fields as needed...
-}
+/// Maximum number of outbound connections to maintain
+pub const MAX_OUTBOUND_CONNECTIONS: usize = 24;
 
-impl P2PNetwork {
-    /// Create a new P2P network
-    pub async fn new(
-        keypair: Option<libp2p::identity::Keypair>,
-        genesis_hash: [u8; 32],
-        network_id: &str,
-    ) -> Result<(Self, mpsc::Sender<NetworkCommand>, mpsc::Receiver<NetworkEvent>), Box<dyn std::error::Error>> {
-        // Create diversity manager
-        let diversity_manager = PeerDiversityManager::new();
-        
-        // Create channels for commands and events
-        let (cmd_tx, _cmd_rx) = mpsc::channel(32);
-        let (_event_tx, event_rx) = mpsc::channel(32);
-        
-        // Create network instance
-        let network = Self {
-            peers: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-            diversity_manager,
-            // Initialize other fields...
-        };
-        
-        Ok((network, cmd_tx, event_rx))
-    }
+/// Target number of outbound connections for diversity
+pub const TARGET_OUTBOUND_CONNECTIONS: usize = 8;
+
+/// Connection timeout in seconds
+pub const CONNECTION_TIMEOUT_SECS: u64 = 30;
+
+/// Initialize the network stack with proper configuration
+pub async fn initialize_network(
+    config: &crate::config::NetworkConfig,
+    genesis_hash: [u8; 32],
+) -> Result<(P2PNetwork, mpsc::Sender<NetworkCommand>, mpsc::Receiver<NetworkEvent>), Box<dyn std::error::Error>> {
+    info!("Initializing P2P network stack");
+    
+    // Create keypair from config or generate a new one
+    let keypair = if let Some(key_path) = &config.key_path {
+        // Load keypair from file
+        let key_bytes = std::fs::read(key_path)
+            .map_err(|e| format!("Failed to read key file: {}", e))?;
+        libp2p::identity::Keypair::from_protobuf_encoding(&key_bytes)
+            .map_err(|e| format!("Invalid key format: {}", e))?
+    } else {
+        // Generate a new keypair
+        libp2p::identity::Keypair::generate_ed25519()
+    };
+    
+    // Initialize P2P network with the keypair
+    let (network, command_tx, event_rx) = P2PNetwork::new(
+        Some(keypair),
+        genesis_hash,
+        &config.network_id,
+    ).await?;
+    
+    info!("P2P network initialized with peer ID: {}", network.local_peer_id());
+    
+    Ok((network, command_tx, event_rx))
 }
 
 // Implementation continues...

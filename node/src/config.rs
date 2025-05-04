@@ -30,6 +30,24 @@ pub struct NetworkConfig {
     pub ban_threshold: u32,
     #[serde(with = "duration_serde")]
     pub ban_duration: Duration,
+    
+    // Added network configuration options
+    pub key_path: Option<PathBuf>,
+    pub network_id: String,
+    pub enable_mdns: bool,
+    pub enable_upnp: bool,
+    pub enable_peer_exchange: bool,
+    pub enable_nat_traversal: bool,
+    #[serde(with = "duration_serde")]
+    pub connection_timeout: Duration,
+    #[serde(with = "duration_serde")]
+    pub reconnect_interval: Duration,
+    #[serde(with = "duration_serde")]
+    pub status_broadcast_interval: Duration,
+    pub trusted_peers: Vec<String>,
+    pub min_outbound_connections: usize,
+    pub peer_diversity: PeerDiversityConfig,
+    pub pubsub_config: PubSubConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -90,6 +108,34 @@ pub struct CheckpointConfig {
     pub max_checkpoints: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PeerDiversityConfig {
+    pub enabled: bool,
+    pub min_diversity_score: f64,
+    pub connection_strategy: String,
+    #[serde(with = "duration_serde")]
+    pub rotation_interval: Duration,
+    pub max_peers_per_subnet: usize,
+    pub max_peers_per_asn: usize,
+    pub max_peers_per_region: usize,
+    pub max_inbound_ratio: f64,
+    pub max_connection_attempts_per_min: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PubSubConfig {
+    pub history_length: usize,
+    pub history_gossip: usize,
+    pub duplicate_cache_size: usize,
+    #[serde(with = "duration_serde")]
+    pub duplicate_cache_ttl: Duration,
+    #[serde(with = "duration_serde")]
+    pub heartbeat_interval: Duration,
+    pub validation_mode: String,
+    pub max_transmit_size: usize,
+    pub explicit_relays: usize,
+}
+
 mod duration_serde {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::time::Duration;
@@ -131,10 +177,25 @@ impl Default for NetworkConfig {
             max_peers: 50,
             bootstrap_nodes: vec![],
             peer_ping_interval: Duration::from_secs(30),
-            max_outbound_connections: 8,
-            max_inbound_connections: 32,
+            max_outbound_connections: 24,
+            max_inbound_connections: 128,
             ban_threshold: 100,
             ban_duration: Duration::from_secs(24 * 60 * 60),
+            
+            // New defaults
+            key_path: None,
+            network_id: "supernova-mainnet".to_string(),
+            enable_mdns: true,
+            enable_upnp: true,
+            enable_peer_exchange: true,
+            enable_nat_traversal: true,
+            connection_timeout: Duration::from_secs(30),
+            reconnect_interval: Duration::from_secs(60),
+            status_broadcast_interval: Duration::from_secs(180),
+            trusted_peers: vec![],
+            min_outbound_connections: 8,
+            peer_diversity: PeerDiversityConfig::default(),
+            pubsub_config: PubSubConfig::default(),
         }
     }
 }
@@ -198,6 +259,37 @@ impl Default for CheckpointConfig {
             checkpoint_type: "Full".to_string(),
             data_dir: PathBuf::from("./checkpoints"),
             max_checkpoints: 7, // Keep a week of checkpoints
+        }
+    }
+}
+
+impl Default for PeerDiversityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_diversity_score: 0.7,
+            connection_strategy: "BalancedDiversity".to_string(),
+            rotation_interval: Duration::from_secs(3600 * 6), // 6 hours
+            max_peers_per_subnet: 3,
+            max_peers_per_asn: 5,
+            max_peers_per_region: 10,
+            max_inbound_ratio: 3.0,
+            max_connection_attempts_per_min: 5,
+        }
+    }
+}
+
+impl Default for PubSubConfig {
+    fn default() -> Self {
+        Self {
+            history_length: 5,
+            history_gossip: 3,
+            duplicate_cache_size: 1000,
+            duplicate_cache_ttl: Duration::from_secs(120),
+            heartbeat_interval: Duration::from_secs(10),
+            validation_mode: "Strict".to_string(),
+            max_transmit_size: 1024 * 1024 * 5, // 5 MB
+            explicit_relays: 3,
         }
     }
 }
@@ -347,6 +439,18 @@ impl NodeConfig {
         }
         if self.network.max_outbound_connections == 0 {
             return Err("max_outbound_connections must be greater than 0".to_string());
+        }
+        if self.network.min_outbound_connections > self.network.max_outbound_connections {
+            return Err("min_outbound_connections cannot exceed max_outbound_connections".to_string());
+        }
+        if self.network.connection_timeout.as_secs() < 1 {
+            return Err("connection_timeout must be at least 1 second".to_string());
+        }
+        if self.network.peer_diversity.max_inbound_ratio <= 0.0 {
+            return Err("max_inbound_ratio must be positive".to_string());
+        }
+        if self.network.peer_diversity.min_diversity_score < 0.0 || self.network.peer_diversity.min_diversity_score > 1.0 {
+            return Err("min_diversity_score must be between 0.0 and 1.0".to_string());
         }
 
         if self.mempool.max_size == 0 {

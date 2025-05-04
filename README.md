@@ -153,9 +153,9 @@ supernova/
 
 ## Current Status
 
-This project has recently completed Phase 1 (Core Blockchain Foundations) and is now progressing from **ALPHA** to **BETA** state. Component completion status:
+This project has recently completed Phase 1 (Core Blockchain Foundations) and is now progressing through **Phase 2 (Network and Transaction Propagation)**. Component completion status:
 
-- **✅ Core libraries (btclib)**: 75% complete - Transaction validation implemented, core systems in place
+- **✅ Core libraries (btclib)**: 100% complete - Transaction validation implemented, core systems in place
 - **✅ Transaction Processing**: 100% complete - Multiple signature schemes, fee prioritization, dependency tracking
 - **✅ Mempool Management**: 100% complete - Thread-safe with expiration, conflicts, replace-by-fee 
 - **✅ Block Validation**: 100% complete - Comprehensive validation with timestamps, PoW, transaction validity
@@ -164,20 +164,22 @@ This project has recently completed Phase 1 (Core Blockchain Foundations) and is
 - **✅ Chain State Management**: 100% complete - Tracks state, handles forks, maintains checkpoints
 - **✅ Block Storage**: 100% complete - Efficient persistence with bloom filters and integrity verification
 - **✅ Backup System**: 100% complete - Incremental backups with verification
+- **🔄 Network Protocol**: 70% complete - P2P communication, peer discovery, message serialization
+- **🔄 Peer Management**: 80% complete - Connection handling, scoring, diversity management
+- **🔄 Transaction Propagation**: 65% complete - Efficient broadcasting, announcement optimization
+- **🔄 Block Synchronization**: 50% complete - Headers-first sync, parallel block downloading
 - **🔒 Cryptographic features**: 60% complete - Basic cryptography implemented, quantum features in progress
 - **🌱 Environmental system**: 80% complete - Emissions tracking implemented, incentives need work
 - **🛡️ Security system**: 40% complete - Basic security features in place, advanced mitigations planned
 - **📊 Monitoring system**: 60% complete - Basic metrics collection implemented, alerts need work
-- **🌐 Network layer**: 50% complete - Basic networking implemented, peer management needs improvement
 - **💰 Mining**: 40% complete - Basic mining implemented, difficulty adjustment needs work
-- **🔄 Chain sync**: 30% complete - Basic synchronization, needs headers-first implementation
 - **👛 Wallet**: 70% complete - Transaction creation/signing implemented, HD wallet in progress
 - **⚡ Lightning Network**: 10% complete - Basic design, implementation in progress
 - **🔌 API services**: 50% complete - API structure in place, endpoints being implemented
 
 A detailed roadmap with implementation priorities and timelines is available in [PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md). We welcome contributions from the community to help complete these components.
 
-Current development is focused on moving to Phase 2: Network and Transaction Propagation after successfully completing Phase 1: Core Blockchain Foundations.
+Current development is focused on completing Phase 2: Network and Transaction Propagation. For details on the network implementation, see [NETWORK_IMPLEMENTATION.md](docs/NETWORK_IMPLEMENTATION.md).
 
 Refer to the [SuperNova Overview](SuperNova%20Overview.md) for the vision of the completed project.
 
@@ -599,11 +601,25 @@ The project roadmap includes:
 
 3. **Long-term (6+ months)**: Managed service offerings, advanced developer tools, AI-assisted monitoring, and next-generation consensus enhancements.
 
-## Recent Updates (May 2025)
+## Recent Updates (June 2025)
 
-The project has recently completed Phase 1 of the implementation plan:
+### Phase 2 Progress: Network and Transaction Propagation
 
-### Phase 1: Core Blockchain Foundations - 100% Complete
+We've made significant progress on Phase 2, implementing a robust peer-to-peer network layer:
+
+- **Advanced P2P Networking**: Implemented libp2p-based networking with multiple discovery mechanisms
+- **Connection Management**: Created a comprehensive connection manager with diversity measures to prevent attacks
+- **Protocol Implementation**: Developed efficient message serialization and handling for blockchain data
+- **Transaction Propagation**: Implemented gossipsub-based transaction broadcasting with optimization
+- **Block Synchronization**: Created a headers-first synchronization protocol with parallel downloading
+- **Security Features**: Added protection against Sybil, Eclipse, and other common network attacks
+
+These network enhancements build upon the solid foundation established in Phase 1, providing a robust and secure communication layer for the blockchain.
+
+### Phase 1 Completed: Core Blockchain Foundations
+
+We successfully completed all Phase 1 components:
+
 - **Transaction Processing**: Implemented multiple signature scheme support, fee prioritization, and transaction dependency tracking
 - **Mempool Management**: Created a thread-safe transaction pool with expiration, conflict resolution, and replace-by-fee functionality
 - **Block Validation**: Developed comprehensive validation including structure, timestamps, proof of work, and transaction validity checks
@@ -613,8 +629,6 @@ The project has recently completed Phase 1 of the implementation plan:
 - **Block Storage**: Developed efficient block persistence with integrity verification and organized file management
 - **Bloom Filters**: Implemented for fast membership testing of UTXOs and transactions
 - **Backup System**: Created incremental backup system with data integrity verification
-
-The project is now moving into Phase 2 focusing on networking, transaction propagation, and peer-to-peer communication.
 
 ## Contributing
 
