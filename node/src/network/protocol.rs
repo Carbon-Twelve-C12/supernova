@@ -11,6 +11,9 @@ use bincode;
 use std::fmt;
 use std::error::Error as StdError;
 use tracing::debug;
+use std::collections::HashMap;
+use rand;
+use thiserror::Error;
 
 // Topic constants
 const BLOCKS_TOPIC: &str = "blocks";
@@ -140,6 +143,28 @@ pub enum Message {
     
     /// Pong response with original timestamp
     Pong(u64),
+    
+    /// Identity verification challenge
+    IdentityChallenge(Vec<u8>),
+    
+    /// Response to identity verification challenge
+    IdentityChallengeResponse(Vec<u8>),
+    
+    /// Quantum-resistant signature announcement
+    QuantumSignatureAnnouncement {
+        /// Signature type (Dilithium, Falcon, SPHINCS+, Hybrid)
+        signature_type: String,
+        /// Security level
+        security_level: u8,
+        /// Public key data
+        public_key: Vec<u8>,
+    },
+    
+    /// Quantum-resistant signature query
+    QuantumSignatureQuery {
+        /// Peer ID to query
+        peer_id: String,
+    },
 }
 
 /// Checkpoint information for validation
@@ -151,10 +176,46 @@ pub struct Checkpoint {
     pub signature: Option<Vec<u8>>, // Optional trusted signature
 }
 
+/// Signature verification mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SignatureVerificationMode {
+    /// Standard ECDSA signatures
+    Standard,
+    /// Quantum-resistant signatures
+    QuantumResistant,
+    /// Hybrid signatures (both classical and quantum)
+    Hybrid,
+}
+
+/// Protocol configuration
+#[derive(Debug, Clone)]
+pub struct ProtocolConfig {
+    /// Signature verification mode
+    pub signature_verification_mode: SignatureVerificationMode,
+    
+    /// Whether to require identity verification
+    pub require_identity_verification: bool,
+    
+    /// Challenge difficulty for identity verification
+    pub challenge_difficulty: u8,
+}
+
+impl Default for ProtocolConfig {
+    fn default() -> Self {
+        Self {
+            signature_verification_mode: SignatureVerificationMode::Standard,
+            require_identity_verification: true,
+            challenge_difficulty: 16,
+        }
+    }
+}
+
 /// Main protocol implementation
 pub struct Protocol {
     gossipsub: gossipsub::Gossipsub,
     local_peer_id: PeerId,
+    config: ProtocolConfig,
+    identity_challenges: HashMap<PeerId, Vec<u8>>,
 }
 
 impl Protocol {
@@ -179,6 +240,8 @@ impl Protocol {
         Ok(Self {
             gossipsub,
             local_peer_id,
+            config: ProtocolConfig::default(),
+            identity_challenges: HashMap::new(),
         })
     }
     
@@ -301,6 +364,122 @@ impl Protocol {
         match self.gossipsub.publish(topic, encoded) {
             Ok(id) => Ok(id),
             Err(err) => Err(PublishError::Gossipsub(err.to_string())),
+        }
+    }
+    
+    /// Create a new protocol instance with custom configuration
+    pub fn with_config(keypair: Keypair, config: ProtocolConfig) -> Result<Self, ProtocolError> {
+        let local_peer_id = PeerId::from(keypair.public());
+        
+        // Configure gossipsub with appropriate parameters
+        let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
+            .heartbeat_interval(Duration::from_secs(10))
+            .validation_mode(gossipsub::ValidationMode::Strict)
+            .message_id_fn(message_id_from_content)
+            .build()
+            .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
+        
+        // Create gossipsub behavior
+        let gossipsub = gossipsub::Gossipsub::new(
+            gossipsub::MessageAuthenticity::Signed(keypair),
+            gossipsub_config,
+        )?;
+        
+        Ok(Self {
+            gossipsub,
+            local_peer_id,
+            config,
+            identity_challenges: HashMap::new(),
+        })
+    }
+    
+    /// Set the signature verification mode
+    pub fn set_signature_verification_mode(&mut self, mode: SignatureVerificationMode) {
+        self.config.signature_verification_mode = mode;
+    }
+    
+    /// Generate an identity challenge for a peer
+    pub fn generate_identity_challenge(&mut self, peer_id: &PeerId) -> Vec<u8> {
+        // Generate 32 bytes of random data
+        let mut challenge_bytes = [0u8; 32];
+        rand::thread_rng().fill(&mut challenge_bytes);
+        
+        // Store the challenge
+        self.identity_challenges.insert(peer_id.clone(), challenge_bytes.to_vec());
+        
+        challenge_bytes.to_vec()
+    }
+    
+    /// Verify an identity challenge response
+    pub fn verify_identity_challenge(&self, peer_id: &PeerId, response: &[u8]) -> Result<bool, ProtocolError> {
+        // Get the challenge
+        let challenge = match self.identity_challenges.get(peer_id) {
+            Some(c) => c,
+            None => return Err(ProtocolError::InvalidOperation("No challenge found for peer".to_string())),
+        };
+        
+        // Verify the response (hash of challenge + response should have required leading zeros)
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(challenge);
+        hasher.update(response);
+        let hash = hasher.finalize();
+        
+        // Count leading zero bits
+        let mut leading_zeros = 0;
+        for &byte in hash.as_slice() {
+            if byte == 0 {
+                leading_zeros += 8;
+            } else {
+                // Count leading zeros in this byte
+                let mut mask = 0x80;
+                while mask & byte == 0 && mask > 0 {
+                    leading_zeros += 1;
+                    mask >>= 1;
+                }
+                break;
+            }
+        }
+        
+        // Check if difficulty requirement is met
+        let success = leading_zeros >= self.config.challenge_difficulty;
+        
+        Ok(success)
+    }
+    
+    /// Handle a message with quantum signature verification
+    pub fn handle_message_with_quantum_verification(
+        &self,
+        peer_id: &PeerId,
+        message: &Message,
+        signature: &[u8],
+        public_key: &[u8],
+        signature_type: &str,
+    ) -> Result<bool, ProtocolError> {
+        // In a full implementation, this would use the btclib quantum signature verification
+        // Based on the signature_type (Dilithium, Falcon, SPHINCS+, Hybrid)
+        
+        // For now, we'll just return true as a placeholder
+        // In production code, we would do proper verification using the appropriate algorithm
+        
+        match signature_type {
+            "Dilithium" => {
+                // Use Dilithium verification
+                // Would use btclib::crypto::quantum::verify_quantum_signature
+                Ok(true)
+            },
+            "Falcon" => {
+                // Use Falcon verification
+                Ok(true)
+            },
+            "SPHINCS+" => {
+                // Use SPHINCS+ verification
+                Ok(true)
+            },
+            "Hybrid" => {
+                // Use Hybrid verification
+                Ok(true)
+            },
+            _ => Err(ProtocolError::InvalidSignature("Unknown quantum signature type".to_string())),
         }
     }
 }

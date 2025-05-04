@@ -9,7 +9,17 @@ use pqcrypto_dilithium::{dilithium2, dilithium3, dilithium5};
 use pqcrypto_traits::sign::{PublicKey as PQPublicKey, SecretKey as PQSecretKey, DetachedSignature};
 use thiserror::Error;
 
+// Adding SPHINCS+ dependencies
+use pqcrypto_sphincsplus::{
+    sphincssha256128frobust, sphincssha256192frobust, sphincssha256256frobust,
+    sphincssha256128ssimple, sphincssha256192ssimple, sphincssha256256ssimple
+};
+
 use crate::validation::SecurityLevel;
+
+// Add secp256k1 and ed25519 dependencies
+use secp256k1::{Secp256k1, Message as Secp256k1Message};
+use ed25519_dalek::{Keypair as Ed25519Keypair, Signer, Verifier, SignatureError as Ed25519Error};
 
 /// Quantum-resistant cryptographic schemes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -163,8 +173,12 @@ impl QuantumParameters {
                 Err(QuantumError::CryptoOperationFailed("Falcon signature length calculation not yet implemented".to_string()))
             },
             QuantumScheme::Sphincs => {
-                // Placeholder for Sphincs implementation
-                Err(QuantumError::CryptoOperationFailed("Sphincs signature length calculation not yet implemented".to_string()))
+                match SecurityLevel::from(self.security_level) {
+                    SecurityLevel::Low => Ok(sphincssha256128frobust::SIGNATUREBYTES),
+                    SecurityLevel::Medium => Ok(sphincssha256192frobust::SIGNATUREBYTES),
+                    SecurityLevel::High => Ok(sphincssha256256frobust::SIGNATUREBYTES),
+                    _ => Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
+                }
             },
             QuantumScheme::Hybrid(classical) => {
                 // For hybrid, combine classical and quantum signature lengths
@@ -302,18 +316,116 @@ impl QuantumKeyPair {
     // Generate SPHINCS+ key pair
     fn generate_sphincs<R: CryptoRng + RngCore>(
         _rng: &mut R,
-        _security_level: u8,
+        security_level: u8,
     ) -> Result<Self, QuantumError> {
-        Err(QuantumError::CryptoOperationFailed("SPHINCS+ key generation not yet implemented".to_string()))
+        match SecurityLevel::from(security_level) {
+            SecurityLevel::Low => {
+                // Use SHA-256, 128-bit security level, "fast" variant (f)
+                let (pk, sk) = sphincssha256128frobust::keypair();
+                
+                Ok(Self {
+                    public_key: pk.as_bytes().to_vec(),
+                    private_key: sk.as_bytes().to_vec(),
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Sphincs,
+                        security_level,
+                    },
+                })
+            },
+            SecurityLevel::Medium => {
+                // Use SHA-256, 192-bit security level, "fast" variant (f)
+                let (pk, sk) = sphincssha256192frobust::keypair();
+                
+                Ok(Self {
+                    public_key: pk.as_bytes().to_vec(),
+                    private_key: sk.as_bytes().to_vec(),
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Sphincs,
+                        security_level,
+                    },
+                })
+            },
+            SecurityLevel::High => {
+                // Use SHA-256, 256-bit security level, "fast" variant (f)
+                let (pk, sk) = sphincssha256256frobust::keypair();
+                
+                Ok(Self {
+                    public_key: pk.as_bytes().to_vec(),
+                    private_key: sk.as_bytes().to_vec(),
+                    parameters: QuantumParameters {
+                        scheme: QuantumScheme::Sphincs,
+                        security_level,
+                    },
+                })
+            },
+            _ => Err(QuantumError::UnsupportedSecurityLevel(security_level)),
+        }
     }
     
     // Generate hybrid key pair
     fn generate_hybrid<R: CryptoRng + RngCore>(
-        _rng: &mut R,
-        _security_level: u8,
-        _classical: ClassicalScheme,
+        rng: &mut R,
+        security_level: u8,
+        classical: ClassicalScheme,
     ) -> Result<Self, QuantumError> {
-        Err(QuantumError::CryptoOperationFailed("Hybrid key generation not yet implemented".to_string()))
+        // Generate quantum part - use Dilithium for the quantum component
+        let quantum_keypair = match security_level {
+            // Low security
+            1 | 2 => {
+                let (pk, sk) = dilithium2::keypair();
+                (pk.as_bytes().to_vec(), sk.as_bytes().to_vec())
+            },
+            // Medium security (default)
+            3 | 4 => {
+                let (pk, sk) = dilithium3::keypair();
+                (pk.as_bytes().to_vec(), sk.as_bytes().to_vec())
+            },
+            // High security
+            5 => {
+                let (pk, sk) = dilithium5::keypair();
+                (pk.as_bytes().to_vec(), sk.as_bytes().to_vec())
+            },
+            _ => return Err(QuantumError::UnsupportedSecurityLevel(security_level)),
+        };
+        
+        // Generate classical part
+        let classical_keypair = match classical {
+            ClassicalScheme::Secp256k1 => {
+                let secp = Secp256k1::new();
+                let (secret_key, public_key) = secp.generate_keypair(rng);
+                (secret_key.secret_bytes().to_vec(), public_key.serialize().to_vec())
+            },
+            ClassicalScheme::Ed25519 => {
+                let mut seed = [0u8; 32];
+                rng.fill_bytes(&mut seed);
+                let keypair = Ed25519Keypair::generate(rng);
+                (keypair.secret.as_bytes().to_vec(), keypair.public.as_bytes().to_vec())
+            },
+        };
+        
+        // Combine keys
+        // Format: [classical_public_key_length (2 bytes)][classical_public_key][quantum_public_key]
+        let mut combined_public_key = Vec::new();
+        let classical_pk_len = classical_keypair.1.len() as u16;
+        combined_public_key.extend_from_slice(&classical_pk_len.to_be_bytes());
+        combined_public_key.extend_from_slice(&classical_keypair.1);
+        combined_public_key.extend_from_slice(&quantum_keypair.0);
+        
+        // Format: [classical_private_key_length (2 bytes)][classical_private_key][quantum_private_key]
+        let mut combined_private_key = Vec::new();
+        let classical_sk_len = classical_keypair.0.len() as u16;
+        combined_private_key.extend_from_slice(&classical_sk_len.to_be_bytes());
+        combined_private_key.extend_from_slice(&classical_keypair.0);
+        combined_private_key.extend_from_slice(&quantum_keypair.1);
+        
+        Ok(Self {
+            public_key: combined_public_key,
+            private_key: combined_private_key,
+            parameters: QuantumParameters {
+                scheme: QuantumScheme::Hybrid(classical),
+                security_level,
+            },
+        })
     }
     
     /// Sign a message using the quantum-resistant secret key.
@@ -358,30 +470,123 @@ impl QuantumKeyPair {
                     .map_err(|e| QuantumError::CryptoOperationFailed(format!("Falcon signing failed: {}", e)))
             },
             QuantumScheme::Sphincs => {
-                // Implementation for SPHINCS+ would go here
-                // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed("SPHINCS+ signature implementation pending".to_string()))
+                match SecurityLevel::from(self.parameters.security_level) {
+                    SecurityLevel::Low => {
+                        let sk = sphincssha256128frobust::SecretKey::from_bytes(&self.private_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ secret key: {}", e)))?;
+                        let signature = sphincssha256128frobust::detached_sign(message, &sk);
+                        Ok(signature.as_bytes().to_vec())
+                    },
+                    SecurityLevel::Medium => {
+                        let sk = sphincssha256192frobust::SecretKey::from_bytes(&self.private_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ secret key: {}", e)))?;
+                        let signature = sphincssha256192frobust::detached_sign(message, &sk);
+                        Ok(signature.as_bytes().to_vec())
+                    },
+                    SecurityLevel::High => {
+                        let sk = sphincssha256256frobust::SecretKey::from_bytes(&self.private_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ secret key: {}", e)))?;
+                        let signature = sphincssha256256frobust::detached_sign(message, &sk);
+                        Ok(signature.as_bytes().to_vec())
+                    },
+                    _ => Err(QuantumError::UnsupportedSecurityLevel(self.parameters.security_level)),
+                }
             },
-            QuantumScheme::Hybrid(_) => {
-                // Implementation for hybrid schemes would go here
-                // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed("Hybrid signature implementation pending".to_string()))
+            QuantumScheme::Hybrid(classical_scheme) => {
+                // Split the private key into classical and quantum parts
+                if self.private_key.len() < 2 {
+                    return Err(QuantumError::InvalidKey("Invalid hybrid private key format".to_string()));
+                }
+                
+                let classical_sk_len = u16::from_be_bytes([self.private_key[0], self.private_key[1]]) as usize;
+                if self.private_key.len() < 2 + classical_sk_len {
+                    return Err(QuantumError::InvalidKey("Invalid hybrid private key format".to_string()));
+                }
+                
+                let classical_sk = &self.private_key[2..(2 + classical_sk_len)];
+                let quantum_sk = &self.private_key[(2 + classical_sk_len)..];
+                
+                // Generate classical signature
+                let classical_sig = match classical_scheme {
+                    ClassicalScheme::Secp256k1 => {
+                        // Create ECDSA signature with secp256k1
+                        let secp = Secp256k1::new();
+                        let secret_key = secp256k1::SecretKey::from_slice(classical_sk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid secp256k1 key: {}", e)))?;
+                        
+                        let message_hash = Sha256::digest(message);
+                        let secp_msg = Secp256k1Message::from_slice(&message_hash)
+                            .map_err(|e| QuantumError::CryptoOperationFailed(format!("Invalid message hash: {}", e)))?;
+                            
+                        let sig = secp.sign_ecdsa(&secp_msg, &secret_key);
+                        sig.serialize_der().to_vec()
+                    },
+                    ClassicalScheme::Ed25519 => {
+                        // Use ed25519 for signing
+                        if classical_sk.len() != 32 {
+                            return Err(QuantumError::InvalidKey("Invalid Ed25519 private key length".to_string()));
+                        }
+                        let mut expanded_key = [0u8; 64];
+                        expanded_key[..32].copy_from_slice(classical_sk);
+                        
+                        let expanded_secret = ed25519_dalek::ExpandedSecretKey::from_bytes(&expanded_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Ed25519 key: {}", e)))?;
+                            
+                        let public_key = {
+                            // Extract public key from combined public key
+                            if self.public_key.len() < 2 {
+                                return Err(QuantumError::InvalidKey("Invalid hybrid public key format".to_string()));
+                            }
+                            let classical_pk_len = u16::from_be_bytes([self.public_key[0], self.public_key[1]]) as usize;
+                            if self.public_key.len() < 2 + classical_pk_len || classical_pk_len != 32 {
+                                return Err(QuantumError::InvalidKey("Invalid hybrid public key format".to_string()));
+                            }
+                            ed25519_dalek::PublicKey::from_bytes(&self.public_key[2..2+classical_pk_len])
+                                .map_err(|e| QuantumError::InvalidKey(format!("Invalid Ed25519 public key: {}", e)))?
+                        };
+                        
+                        let sig = expanded_secret.sign(message, &public_key);
+                        sig.to_bytes().to_vec()
+                    },
+                };
+                
+                // Generate quantum signature
+                let quantum_sig = match SecurityLevel::from(self.parameters.security_level) {
+                    SecurityLevel::Low => {
+                        let sk = dilithium2::SecretKey::from_bytes(quantum_sk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium secret key: {}", e)))?;
+                        let sig = dilithium2::detached_sign(message, &sk);
+                        sig.as_bytes().to_vec()
+                    },
+                    SecurityLevel::Medium => {
+                        let sk = dilithium3::SecretKey::from_bytes(quantum_sk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium secret key: {}", e)))?;
+                        let sig = dilithium3::detached_sign(message, &sk);
+                        sig.as_bytes().to_vec()
+                    },
+                    SecurityLevel::High => {
+                        let sk = dilithium5::SecretKey::from_bytes(quantum_sk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium secret key: {}", e)))?;
+                        let sig = dilithium5::detached_sign(message, &sk);
+                        sig.as_bytes().to_vec()
+                    },
+                    _ => return Err(QuantumError::UnsupportedSecurityLevel(self.parameters.security_level)),
+                };
+                
+                // Combine signatures with length prefixes
+                let mut combined_sig = Vec::new();
+                let classical_sig_len = classical_sig.len() as u16;
+                combined_sig.extend_from_slice(&classical_sig_len.to_be_bytes());
+                combined_sig.extend_from_slice(&classical_sig);
+                combined_sig.extend_from_slice(&quantum_sig);
+                
+                Ok(combined_sig)
             },
         }
     }
     
     /// Verify a signature using the quantum-resistant public key.
     pub fn verify(&self, message: &[u8], signature: &[u8]) -> Result<bool, QuantumError> {
-        // Verify that the signature length matches what's expected for this scheme & security level
-        let expected_len = self.parameters.expected_signature_length()?;
-        if signature.len() != expected_len {
-            return Err(QuantumError::InvalidSignature(format!(
-                "Invalid signature length: expected {}, got {}",
-                expected_len,
-                signature.len()
-            )));
-        }
-        
         match self.parameters.scheme {
             QuantumScheme::Dilithium => {
                 match SecurityLevel::from(self.parameters.security_level) {
@@ -437,14 +642,135 @@ impl QuantumKeyPair {
                     .map_err(|e| QuantumError::CryptoOperationFailed(format!("Falcon verification failed: {}", e)))
             },
             QuantumScheme::Sphincs => {
-                // Implementation for SPHINCS+ would go here
-                // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed("SPHINCS+ verification implementation pending".to_string()))
+                match SecurityLevel::from(self.parameters.security_level) {
+                    SecurityLevel::Low => {
+                        let pk = sphincssha256128frobust::PublicKey::from_bytes(&self.public_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ public key: {}", e)))?;
+                        let sig = sphincssha256128frobust::DetachedSignature::from_bytes(signature)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid SPHINCS+ signature: {}", e)))?;
+                        
+                        match sphincssha256128frobust::verify_detached_signature(&sig, message, &pk) {
+                            Ok(_) => Ok(true),
+                            Err(_) => Ok(false),
+                        }
+                    },
+                    SecurityLevel::Medium => {
+                        let pk = sphincssha256192frobust::PublicKey::from_bytes(&self.public_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ public key: {}", e)))?;
+                        let sig = sphincssha256192frobust::DetachedSignature::from_bytes(signature)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid SPHINCS+ signature: {}", e)))?;
+                        
+                        match sphincssha256192frobust::verify_detached_signature(&sig, message, &pk) {
+                            Ok(_) => Ok(true),
+                            Err(_) => Ok(false),
+                        }
+                    },
+                    SecurityLevel::High => {
+                        let pk = sphincssha256256frobust::PublicKey::from_bytes(&self.public_key)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ public key: {}", e)))?;
+                        let sig = sphincssha256256frobust::DetachedSignature::from_bytes(signature)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid SPHINCS+ signature: {}", e)))?;
+                        
+                        match sphincssha256256frobust::verify_detached_signature(&sig, message, &pk) {
+                            Ok(_) => Ok(true),
+                            Err(_) => Ok(false),
+                        }
+                    },
+                    _ => Err(QuantumError::UnsupportedSecurityLevel(self.parameters.security_level)),
+                }
             },
-            QuantumScheme::Hybrid(_) => {
-                // Implementation for hybrid schemes would go here
-                // For now, return CryptoOperationFailed error with an informative message
-                Err(QuantumError::CryptoOperationFailed("Hybrid verification implementation pending".to_string()))
+            QuantumScheme::Hybrid(classical_scheme) => {
+                // Split the signature into classical and quantum parts
+                if signature.len() < 2 {
+                    return Err(QuantumError::InvalidSignature("Invalid hybrid signature format".to_string()));
+                }
+                
+                let classical_sig_len = u16::from_be_bytes([signature[0], signature[1]]) as usize;
+                if signature.len() < 2 + classical_sig_len {
+                    return Err(QuantumError::InvalidSignature("Invalid hybrid signature format".to_string()));
+                }
+                
+                let classical_sig = &signature[2..(2 + classical_sig_len)];
+                let quantum_sig = &signature[(2 + classical_sig_len)..];
+                
+                // Split the public key into classical and quantum parts
+                if self.public_key.len() < 2 {
+                    return Err(QuantumError::InvalidKey("Invalid hybrid public key format".to_string()));
+                }
+                
+                let classical_pk_len = u16::from_be_bytes([self.public_key[0], self.public_key[1]]) as usize;
+                if self.public_key.len() < 2 + classical_pk_len {
+                    return Err(QuantumError::InvalidKey("Invalid hybrid public key format".to_string()));
+                }
+                
+                let classical_pk = &self.public_key[2..(2 + classical_pk_len)];
+                let quantum_pk = &self.public_key[(2 + classical_pk_len)..];
+                
+                // Verify classical signature
+                let classical_valid = match classical_scheme {
+                    ClassicalScheme::Secp256k1 => {
+                        // Verify ECDSA signature with secp256k1
+                        let secp = Secp256k1::new();
+                        
+                        let message_hash = Sha256::digest(message);
+                        let secp_msg = Secp256k1Message::from_slice(&message_hash)
+                            .map_err(|e| QuantumError::CryptoOperationFailed(format!("Invalid message hash: {}", e)))?;
+                            
+                        let public_key = secp256k1::PublicKey::from_slice(classical_pk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid secp256k1 public key: {}", e)))?;
+                            
+                        let sig = secp256k1::ecdsa::Signature::from_der(classical_sig)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid secp256k1 signature: {}", e)))?;
+                            
+                        secp.verify_ecdsa(&secp_msg, &sig, &public_key).is_ok()
+                    },
+                    ClassicalScheme::Ed25519 => {
+                        // Verify Ed25519 signature
+                        if classical_pk.len() != 32 || classical_sig.len() != 64 {
+                            return Err(QuantumError::InvalidSignature("Invalid Ed25519 signature format".to_string()));
+                        }
+                        
+                        let public_key = ed25519_dalek::PublicKey::from_bytes(classical_pk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Ed25519 public key: {}", e)))?;
+                            
+                        let sig = ed25519_dalek::Signature::from_bytes(classical_sig)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid Ed25519 signature: {}", e)))?;
+                            
+                        public_key.verify(message, &sig).is_ok()
+                    },
+                };
+                
+                // Verify quantum signature
+                let quantum_valid = match SecurityLevel::from(self.parameters.security_level) {
+                    SecurityLevel::Low => {
+                        let pk = dilithium2::PublicKey::from_bytes(quantum_pk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium public key: {}", e)))?;
+                        let sig = dilithium2::DetachedSignature::from_bytes(quantum_sig)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid Dilithium signature: {}", e)))?;
+                        
+                        dilithium2::verify_detached_signature(&sig, message, &pk).is_ok()
+                    },
+                    SecurityLevel::Medium => {
+                        let pk = dilithium3::PublicKey::from_bytes(quantum_pk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium public key: {}", e)))?;
+                        let sig = dilithium3::DetachedSignature::from_bytes(quantum_sig)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid Dilithium signature: {}", e)))?;
+                        
+                        dilithium3::verify_detached_signature(&sig, message, &pk).is_ok()
+                    },
+                    SecurityLevel::High => {
+                        let pk = dilithium5::PublicKey::from_bytes(quantum_pk)
+                            .map_err(|e| QuantumError::InvalidKey(format!("Invalid Dilithium public key: {}", e)))?;
+                        let sig = dilithium5::DetachedSignature::from_bytes(quantum_sig)
+                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid Dilithium signature: {}", e)))?;
+                        
+                        dilithium5::verify_detached_signature(&sig, message, &pk).is_ok()
+                    },
+                    _ => return Err(QuantumError::UnsupportedSecurityLevel(self.parameters.security_level)),
+                };
+                
+                // Both signatures must be valid
+                Ok(classical_valid && quantum_valid)
             },
         }
     }
@@ -542,41 +868,56 @@ mod tests {
     }
     
     #[test]
-    fn test_sphincs_not_implemented() {
+    fn test_sphincs_signing_and_verification() {
         let mut rng = OsRng;
-        let params = QuantumParameters::with_security_level(QuantumScheme::Sphincs, SecurityLevel::Medium.into());
+        let parameters = QuantumParameters {
+            scheme: QuantumScheme::Sphincs,
+            security_level: SecurityLevel::Low as u8,
+        };
         
-        let result = QuantumKeyPair::generate(&mut rng, params);
-        assert!(result.is_err(), "SPHINCS+ should return not implemented error");
+        let keypair = QuantumKeyPair::generate(&mut rng, parameters).expect("SPHINCS+ key generation failed");
         
-        if let Err(err) = result {
-            match err {
-                QuantumError::CryptoOperationFailed(msg) => {
-                    assert!(msg.contains("not yet implemented"), "Error should mention implementation pending");
-                },
-                _ => panic!("Expected CryptoOperationFailed error"),
-            }
-        }
+        let message = b"Test message for SPHINCS+ signatures";
+        let signature = keypair.sign(message).expect("SPHINCS+ signing failed");
+        
+        let result = keypair.verify(message, &signature).expect("SPHINCS+ verification failed");
+        assert!(result, "SPHINCS+ signature verification should succeed");
+        
+        // Modify message to test failed verification
+        let modified_message = b"Modified message for SPHINCS+ signatures";
+        let modified_result = keypair.verify(modified_message, &signature).expect("SPHINCS+ verification operation failed");
+        assert!(!modified_result, "SPHINCS+ signature verification should fail for modified message");
     }
     
     #[test]
-    fn test_hybrid_not_implemented() {
+    fn test_hybrid_signing_and_verification() {
         let mut rng = OsRng;
-        let params = QuantumParameters::with_security_level(
-            QuantumScheme::Hybrid(ClassicalScheme::Secp256k1), 
-            SecurityLevel::Medium.into()
-        );
         
-        let result = QuantumKeyPair::generate(&mut rng, params);
-        assert!(result.is_err(), "Hybrid should return not implemented error");
+        // Test both hybrid schemes
+        let test_schemes = [
+            (ClassicalScheme::Secp256k1, SecurityLevel::Low as u8),
+            (ClassicalScheme::Ed25519, SecurityLevel::Medium as u8),
+        ];
         
-        if let Err(err) = result {
-            match err {
-                QuantumError::CryptoOperationFailed(msg) => {
-                    assert!(msg.contains("not yet implemented"), "Error should mention implementation pending");
-                },
-                _ => panic!("Expected CryptoOperationFailed error"),
-            }
+        for (classical_scheme, security_level) in test_schemes.iter() {
+            let parameters = QuantumParameters {
+                scheme: QuantumScheme::Hybrid(*classical_scheme),
+                security_level: *security_level,
+            };
+            
+            let keypair = QuantumKeyPair::generate(&mut rng, parameters)
+                .expect("Hybrid key generation failed");
+            
+            let message = b"Test message for hybrid signatures";
+            let signature = keypair.sign(message).expect("Hybrid signing failed");
+            
+            let result = keypair.verify(message, &signature).expect("Hybrid verification failed");
+            assert!(result, "Hybrid signature verification should succeed");
+            
+            // Modify message to test failed verification
+            let modified_message = b"Modified message for hybrid signatures";
+            let modified_result = keypair.verify(modified_message, &signature).expect("Hybrid verification operation failed");
+            assert!(!modified_result, "Hybrid signature verification should fail for modified message");
         }
     }
 } 

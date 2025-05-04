@@ -34,6 +34,9 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn, error, trace};
 use dashmap::DashMap;
 use futures::stream::StreamExt;
+use rand::{Rng, rngs::OsRng};
+use sha2::{Sha256, Digest};
+use byteorder::{ByteOrder, BigEndian};
 
 // Constants for network behavior
 const MIN_PEERS: usize = 3;
@@ -42,6 +45,38 @@ const CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(60);
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(300);
 const STATUS_BROADCAST_INTERVAL: Duration = Duration::from_secs(180);
+
+/// Challenge difficulty for Sybil protection (number of leading zero bits)
+const DEFAULT_CHALLENGE_DIFFICULTY: u8 = 16;
+
+/// Challenge timeout in seconds
+const CHALLENGE_TIMEOUT_SECS: u64 = 30;
+
+/// Identity verification challenge
+#[derive(Debug, Clone)]
+pub struct IdentityChallenge {
+    /// Random challenge data
+    pub challenge: Vec<u8>,
+    /// Required difficulty (leading zero bits)
+    pub difficulty: u8,
+    /// When the challenge was issued
+    pub issued_at: Instant,
+    /// Timeout duration
+    pub timeout: Duration,
+}
+
+/// Status of peer identity verification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdentityVerificationStatus {
+    /// Peer has not been challenged
+    NotVerified,
+    /// Challenge has been issued but not completed
+    ChallengeIssued(Instant),
+    /// Peer has successfully completed a challenge
+    Verified(Instant),
+    /// Peer has failed a challenge
+    VerificationFailed(String),
+}
 
 /// Network commands received from other components
 #[derive(Debug, Clone)]
@@ -227,6 +262,17 @@ pub struct P2PNetwork {
     network_task: Option<JoinHandle<()>>,
     /// Is the network running
     running: bool,
+    /// Identity verification challenges
+    identity_challenges: HashMap<PeerId, IdentityChallenge>,
+    
+    /// Peer verification status
+    verification_status: HashMap<PeerId, IdentityVerificationStatus>,
+    
+    /// Challenge difficulty for identity verification (leading zero bits)
+    challenge_difficulty: u8,
+    
+    /// Whether to require identity verification
+    require_verification: bool,
 }
 
 /// Network statistics for monitoring
@@ -312,6 +358,10 @@ impl P2PNetwork {
                 trusted_peers: HashSet::new(),
                 network_task: None,
                 running: false,
+                identity_challenges: HashMap::new(),
+                verification_status: HashMap::new(),
+                challenge_difficulty: DEFAULT_CHALLENGE_DIFFICULTY,
+                require_verification: true,
             },
             command_sender,
             event_receiver,
@@ -579,7 +629,7 @@ impl P2PNetwork {
                     Ok(msg) => {
                         // Process the message
                         self.stats.messages_received += 1;
-                        self.handle_protocol_message(propagation_source, msg).await?;
+                        self.handle_protocol_message(&propagation_source, msg).await?;
                     }
                     Err(e) => {
                         warn!("Failed to deserialize message from {}: {}", propagation_source, e);
@@ -611,6 +661,55 @@ impl P2PNetwork {
                     self.stats.outbound_connections += 1;
                 } else {
                     self.stats.inbound_connections += 1;
+                }
+                
+                // Identity verification
+                if self.require_verification {
+                    match endpoint {
+                        ConnectedPoint::Dialer { .. } => {
+                            // For outbound connections, we initiate the challenge
+                            let challenge = self.generate_challenge(&peer_id);
+                            
+                            // In a real implementation, we would send the challenge to the peer
+                            // For now, we'll auto-verify outbound connections
+                            self.verification_status.insert(
+                                peer_id.clone(),
+                                IdentityVerificationStatus::Verified(Instant::now())
+                            );
+                        },
+                        ConnectedPoint::Listener { .. } => {
+                            // For inbound connections, we should wait for them to complete our challenge
+                            // In a full implementation, the protocol would handle the challenge exchange
+                            
+                            // Generate challenge
+                            let challenge = self.generate_challenge(&peer_id);
+                            
+                            // TODO: Send challenge to peer via protocol message
+                            // For now, set a timeout to check verification later
+                            let peer_id_clone = peer_id.clone();
+                            let self_ptr = std::sync::Arc::new(std::sync::Mutex::new(self));
+                            
+                            tokio::spawn(async move {
+                                // Wait for verification timeout
+                                tokio::time::sleep(Duration::from_secs(CHALLENGE_TIMEOUT_SECS)).await;
+                                
+                                // Check if peer was verified
+                                let mut self_ref = self_ptr.lock().unwrap();
+                                if let Some(status) = self_ref.verification_status.get(&peer_id_clone) {
+                                    if !matches!(status, IdentityVerificationStatus::Verified(_)) {
+                                        warn!("Peer {} failed to complete verification challenge, disconnecting", peer_id_clone);
+                                        // In a real implementation, we would disconnect the peer here
+                                    }
+                                }
+                            });
+                        }
+                    }
+                } else {
+                    // Auto-verify if verification is disabled
+                    self.verification_status.insert(
+                        peer_id.clone(),
+                        IdentityVerificationStatus::Verified(Instant::now())
+                    );
                 }
             }
             SwarmEvent::ConnectionClosed { 
@@ -647,17 +746,17 @@ impl P2PNetwork {
     }
     
     /// Handle a protocol message
-    async fn handle_protocol_message(&mut self, from_peer: PeerId, message: Message) -> Result<(), Box<dyn Error>> {
+    async fn handle_protocol_message(&mut self, peer_id: &PeerId, message: Message) -> Result<(), Box<dyn Error>> {
         match message {
             Message::Block { block } => {
-                debug!("Received block from {}", from_peer);
+                debug!("Received block from {}", peer_id);
                 
                 // In a real implementation, we would deserialize and process the block
                 // For now, just update statistics
                 self.stats.blocks_received += 1;
             }
             Message::NewBlock { block_data, height, total_difficulty } => {
-                debug!("Received new block at height {} from {}", height, from_peer);
+                debug!("Received new block at height {} from {}", height, peer_id);
                 
                 // In a real implementation, we would deserialize and process the block
                 // For now, just update statistics
@@ -671,19 +770,19 @@ impl P2PNetwork {
                             block,
                             height,
                             total_difficulty,
-                            from_peer: Some(from_peer),
+                            from_peer: Some(peer_id.clone()),
                         }).await {
                             warn!("Failed to send new block event: {}", e);
                         }
                     }
                     Err(e) => {
-                        warn!("Failed to deserialize block from {}: {}", from_peer, e);
+                        warn!("Failed to deserialize block from {}: {}", peer_id, e);
                         self.stats.invalid_messages += 1;
                     }
                 }
             }
             Message::Transaction { transaction } => {
-                debug!("Received transaction from {}", from_peer);
+                debug!("Received transaction from {}", peer_id);
                 
                 // In a real implementation, we would deserialize and process the transaction
                 // For now, just update statistics
@@ -696,19 +795,19 @@ impl P2PNetwork {
                         if let Err(e) = self.event_sender.send(NetworkEvent::NewTransaction {
                             transaction: tx,
                             fee_rate: 0, // Would be calculated in a real implementation
-                            from_peer: Some(from_peer),
+                            from_peer: Some(peer_id.clone()),
                         }).await {
                             warn!("Failed to send new transaction event: {}", e);
                         }
                     }
                     Err(e) => {
-                        warn!("Failed to deserialize transaction from {}: {}", from_peer, e);
+                        warn!("Failed to deserialize transaction from {}: {}", peer_id, e);
                         self.stats.invalid_messages += 1;
                     }
                 }
             }
             Message::Headers { headers, total_difficulty } => {
-                debug!("Received {} headers from {}", headers.len(), from_peer);
+                debug!("Received {} headers from {}", headers.len(), peer_id);
                 
                 // In a real implementation, we would deserialize and process the headers
                 // For now, just update statistics
@@ -722,7 +821,7 @@ impl P2PNetwork {
                             deserialized_headers.push(header);
                         }
                         Err(e) => {
-                            warn!("Failed to deserialize header from {}: {}", from_peer, e);
+                            warn!("Failed to deserialize header from {}: {}", peer_id, e);
                             self.stats.invalid_messages += 1;
                         }
                     }
@@ -733,7 +832,7 @@ impl P2PNetwork {
                     if let Err(e) = self.event_sender.send(NetworkEvent::BlockHeaders {
                         headers: deserialized_headers,
                         total_difficulty,
-                        from_peer: Some(from_peer),
+                        from_peer: Some(peer_id.clone()),
                     }).await {
                         warn!("Failed to send block headers event: {}", e);
                     }
@@ -741,11 +840,11 @@ impl P2PNetwork {
             }
             Message::Status { version, height, best_hash, total_difficulty, head_timestamp } => {
                 debug!("Received status from {}: height={}, total_difficulty={}", 
-                      from_peer, height, total_difficulty);
+                      peer_id, height, total_difficulty);
                 
                 // Notify about the peer status
                 if let Err(e) = self.event_sender.send(NetworkEvent::PeerStatus {
-                    peer_id: from_peer,
+                    peer_id: peer_id.clone(),
                     version,
                     height,
                     best_hash,
@@ -754,8 +853,47 @@ impl P2PNetwork {
                     warn!("Failed to send peer status event: {}", e);
                 }
             }
-            // Other messages would be handled in a full implementation
-            _ => {}
+            // Handle identity challenge message
+            Message::IdentityChallenge(challenge_data) => {
+                debug!("Received identity challenge from peer {}", peer_id);
+                
+                // In a real implementation, we would solve the challenge and send back a response
+                // For now, we'll just simulate solving it
+                
+                // Generate a valid solution (find nonce with required leading zeros)
+                let solution = solve_pow_challenge(&challenge_data, DEFAULT_CHALLENGE_DIFFICULTY);
+                
+                // Send back the solution
+                // In a real implementation, we would use the protocol to send this
+                if let Some(challenge) = self.identity_challenges.get(peer_id) {
+                    // Verify it ourselves as a test
+                    assert!(self.verify_challenge(peer_id, &solution));
+                }
+            },
+            
+            // Handle identity challenge response
+            Message::IdentityChallengeResponse(solution) => {
+                debug!("Received identity challenge response from peer {}", peer_id);
+                
+                // Verify the solution
+                if self.verify_challenge(peer_id, &solution) {
+                    debug!("Peer {} passed identity verification", peer_id);
+                } else {
+                    warn!("Peer {} failed identity verification, disconnecting", peer_id);
+                    // In a real implementation, we would disconnect the peer here
+                }
+            },
+            
+            _ => {
+                // For all other messages, verify peer is authenticated if required
+                if self.require_verification && !self.is_peer_verified(peer_id) {
+                    warn!("Received message from unverified peer {}, ignoring", peer_id);
+                    return Ok(());
+                }
+                
+                // Process message normally
+                // ... existing message handling ...
+            }
         }
         
         Ok(())
@@ -764,6 +902,113 @@ impl P2PNetwork {
     /// Get network statistics
     pub fn get_stats(&self) -> NetworkStats {
         self.stats.clone()
+    }
+    
+    /// Set challenge difficulty for Sybil protection
+    pub fn set_challenge_difficulty(&mut self, difficulty: u8) {
+        if difficulty > 0 && difficulty <= 24 {
+            self.challenge_difficulty = difficulty;
+            info!("Identity verification challenge difficulty set to {}", difficulty);
+        } else {
+            warn!("Invalid challenge difficulty: {}, keeping current setting: {}", 
+                 difficulty, self.challenge_difficulty);
+        }
+    }
+    
+    /// Enable or disable identity verification requirement
+    pub fn set_require_verification(&mut self, require: bool) {
+        self.require_verification = require;
+        info!("Identity verification requirement {}", if require { "enabled" } else { "disabled" });
+    }
+    
+    /// Generate a new identity verification challenge for a peer
+    pub fn generate_challenge(&mut self, peer_id: &PeerId) -> IdentityChallenge {
+        // Generate 32 bytes of random data
+        let mut challenge_bytes = [0u8; 32];
+        OsRng.fill(&mut challenge_bytes);
+        
+        // Create challenge
+        let challenge = IdentityChallenge {
+            challenge: challenge_bytes.to_vec(),
+            difficulty: self.challenge_difficulty,
+            issued_at: Instant::now(),
+            timeout: Duration::from_secs(CHALLENGE_TIMEOUT_SECS),
+        };
+        
+        // Store challenge
+        self.identity_challenges.insert(peer_id.clone(), challenge.clone());
+        
+        // Update verification status
+        self.verification_status.insert(
+            peer_id.clone(), 
+            IdentityVerificationStatus::ChallengeIssued(Instant::now())
+        );
+        
+        debug!("Generated identity challenge for peer {}", peer_id);
+        challenge
+    }
+    
+    /// Verify a challenge response
+    pub fn verify_challenge(&mut self, peer_id: &PeerId, solution: &[u8]) -> bool {
+        // Get the challenge
+        let challenge = match self.identity_challenges.get(peer_id) {
+            Some(c) => c,
+            None => {
+                warn!("No challenge found for peer {}", peer_id);
+                return false;
+            }
+        };
+        
+        // Check if challenge has expired
+        if challenge.issued_at.elapsed() > challenge.timeout {
+            warn!("Challenge for peer {} has expired", peer_id);
+            self.verification_status.insert(
+                peer_id.clone(),
+                IdentityVerificationStatus::VerificationFailed("Challenge expired".to_string())
+            );
+            return false;
+        }
+        
+        // Verify the solution (hash of challenge + solution should have required leading zeros)
+        let mut hasher = Sha256::new();
+        hasher.update(&challenge.challenge);
+        hasher.update(solution);
+        let hash = hasher.finalize();
+        
+        // Count leading zero bits
+        let leading_zeros = count_leading_zero_bits(&hash);
+        let success = leading_zeros >= challenge.difficulty;
+        
+        // Update verification status
+        if success {
+            debug!("Peer {} passed identity verification challenge", peer_id);
+            self.verification_status.insert(
+                peer_id.clone(),
+                IdentityVerificationStatus::Verified(Instant::now())
+            );
+            
+            // Remove challenge
+            self.identity_challenges.remove(peer_id);
+        } else {
+            warn!("Peer {} failed identity verification challenge", peer_id);
+            self.verification_status.insert(
+                peer_id.clone(),
+                IdentityVerificationStatus::VerificationFailed(
+                    format!("Insufficient difficulty: got {} bits, required {}", 
+                           leading_zeros, challenge.difficulty)
+                )
+            );
+        }
+        
+        success
+    }
+    
+    /// Check if a peer has been verified
+    pub fn is_peer_verified(&self, peer_id: &PeerId) -> bool {
+        match self.verification_status.get(peer_id) {
+            Some(IdentityVerificationStatus::Verified(_)) => true,
+            _ => false,
+        }
     }
 }
 
@@ -784,6 +1029,55 @@ fn build_transport(
         .boxed())
 }
 
+/// Count the number of leading zero bits in a hash
+fn count_leading_zero_bits(hash: &[u8]) -> u8 {
+    let mut count = 0;
+    
+    for &byte in hash {
+        if byte == 0 {
+            count += 8;
+        } else {
+            // Count leading zeros in this byte
+            let mut mask = 0x80;
+            while mask & byte == 0 && mask > 0 {
+                count += 1;
+                mask >>= 1;
+            }
+            break;
+        }
+    }
+    
+    count
+}
+
+/// Solve a proof-of-work challenge with required difficulty
+fn solve_pow_challenge(challenge: &[u8], difficulty: u8) -> Vec<u8> {
+    let mut nonce = 0u64;
+    let mut solution = Vec::new();
+    
+    loop {
+        // Convert nonce to bytes
+        let mut nonce_bytes = [0u8; 8];
+        BigEndian::write_u64(&mut nonce_bytes, nonce);
+        
+        // Hash challenge + nonce
+        let mut hasher = Sha256::new();
+        hasher.update(challenge);
+        hasher.update(&nonce_bytes);
+        let hash = hasher.finalize();
+        
+        // Check if it meets difficulty
+        if count_leading_zero_bits(&hash) >= difficulty {
+            solution = nonce_bytes.to_vec();
+            break;
+        }
+        
+        nonce += 1;
+    }
+    
+    solution
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -798,5 +1092,49 @@ mod tests {
         ).await.unwrap();
         
         assert_eq!(network.stats.peers_connected, 0);
+    }
+    
+    #[test]
+    fn test_leading_zero_bits() {
+        // All zeros should have 8 leading zero bits
+        assert_eq!(count_leading_zero_bits(&[0]), 8);
+        
+        // 0x80 should have 0 leading zero bits
+        assert_eq!(count_leading_zero_bits(&[0x80]), 0);
+        
+        // 0x40 should have 1 leading zero bit
+        assert_eq!(count_leading_zero_bits(&[0x40]), 1);
+        
+        // 0x20 should have 2 leading zero bits
+        assert_eq!(count_leading_zero_bits(&[0x20]), 2);
+        
+        // 0x01 should have 7 leading zero bits
+        assert_eq!(count_leading_zero_bits(&[0x01]), 7);
+        
+        // 0x00, 0x80 should have 8 leading zero bits
+        assert_eq!(count_leading_zero_bits(&[0x00, 0x80]), 8);
+        
+        // 0x00, 0x00, 0x00, 0x01 should have 31 leading zero bits
+        assert_eq!(count_leading_zero_bits(&[0x00, 0x00, 0x00, 0x01]), 31);
+    }
+    
+    #[test]
+    fn test_solve_pow_challenge() {
+        // Test with a low difficulty for quick testing
+        let challenge = b"test challenge";
+        let difficulty = 8; // Require 8 leading zero bits
+        
+        let solution = solve_pow_challenge(challenge, difficulty);
+        
+        // Verify solution
+        let mut hasher = Sha256::new();
+        hasher.update(challenge);
+        hasher.update(&solution);
+        let hash = hasher.finalize();
+        
+        let leading_zeros = count_leading_zero_bits(&hash);
+        assert!(leading_zeros >= difficulty, 
+               "Solution doesn't meet difficulty: got {} bits, required {}", 
+               leading_zeros, difficulty);
     }
 }
