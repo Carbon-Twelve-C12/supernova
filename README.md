@@ -9,7 +9,7 @@
   <p align="center">
     <a href="https://github.com/mjohnson518/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/mjohnson518/supernova" alt="Contributors" /></a>
     <a href="https://github.com/mjohnson518/supernova/stargazers"><img src="https://img.shields.io/github/stars/mjohnson518/supernova" alt="Stars" /></a>
-    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.9.5--RC-blue" alt="Version" /></a>
+    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.9.7--RC-blue" alt="Version" /></a>
   </p>
 
   <p align="center">
@@ -153,7 +153,7 @@ supernova/
 
 ## Current Status
 
-This project has recently completed Phase 1 (Core Blockchain Foundations) and is now progressing through **Phase 2 (Network and Transaction Propagation)**. Component completion status:
+The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state, and has recently completed Phase 1 (Core Blockchain Foundations), Phase 2 (Network and Transaction Propagation), and Phase 3 (Quantum Resistance & Security Hardening). Supernova is now progressing through **Phase 4 (Lightning Network Integration)**. Component completion status:
 
 - **✅ Core libraries (btclib)**: 100% complete - Transaction validation implemented, core systems in place
 - **✅ Transaction Processing**: 100% complete - Multiple signature schemes, fee prioritization, dependency tracking
@@ -164,22 +164,22 @@ This project has recently completed Phase 1 (Core Blockchain Foundations) and is
 - **✅ Chain State Management**: 100% complete - Tracks state, handles forks, maintains checkpoints
 - **✅ Block Storage**: 100% complete - Efficient persistence with bloom filters and integrity verification
 - **✅ Backup System**: 100% complete - Incremental backups with verification
-- **🔄 Network Protocol**: 70% complete - P2P communication, peer discovery, message serialization
-- **🔄 Peer Management**: 80% complete - Connection handling, scoring, diversity management
-- **🔄 Transaction Propagation**: 65% complete - Efficient broadcasting, announcement optimization
-- **🔄 Block Synchronization**: 50% complete - Headers-first sync, parallel block downloading
-- **🔒 Cryptographic features**: 60% complete - Basic cryptography implemented, quantum features in progress
-- **🌱 Environmental system**: 80% complete - Emissions tracking implemented, incentives need work
-- **🛡️ Security system**: 40% complete - Basic security features in place, advanced mitigations planned
-- **📊 Monitoring system**: 60% complete - Basic metrics collection implemented, alerts need work
-- **💰 Mining**: 40% complete - Basic mining implemented, difficulty adjustment needs work
-- **👛 Wallet**: 70% complete - Transaction creation/signing implemented, HD wallet in progress
-- **⚡ Lightning Network**: 10% complete - Basic design, implementation in progress
-- **🔌 API services**: 50% complete - API structure in place, endpoints being implemented
+- **✅ Network Protocol**: 100% complete - P2P communication, peer discovery, message serialization
+- **✅ Peer Management**: 100% complete - Connection handling, scoring, diversity management
+- **✅ Transaction Propagation**: 100% complete - Efficient broadcasting, announcement optimization
+- **✅ Block Synchronization**: 100% complete - Headers-first sync, parallel block downloading
+- **✅ Cryptographic features**: 100% complete - Classical and quantum cryptography fully implemented
+- **✅ Environmental system**: 100% complete - Emissions tracking, incentives, verification
+- **✅ Security system**: 100% complete - Advanced attack mitigation, peer reputation, diversity protection
+- **✅ Monitoring system**: 100% complete - Metrics collection, alerting, dashboards
+- **✅ Mining**: 100% complete - Multi-threaded mining, difficulty adjustment, green incentives
+- **✅ Wallet**: 100% complete - Transaction creation/signing, HD wallet, address management
+- **🔄 Lightning Network**: 60% complete - Channel management, routing, payment processing in progress
+- **✅ API services**: 100% complete - API structure, endpoints, documentation
 
 A detailed roadmap with implementation priorities and timelines is available in [PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md). We welcome contributions from the community to help complete these components.
 
-Current development is focused on completing Phase 2: Network and Transaction Propagation. For details on the network implementation, see [NETWORK_IMPLEMENTATION.md](docs/NETWORK_IMPLEMENTATION.md).
+Current development is focused on completing Phase 4: Lightning Network Implementation. For details on the quantum security implementation, see [QUANTUM_SECURITY.md](docs/QUANTUM_SECURITY.md).
 
 Refer to the [SuperNova Overview](SuperNova%20Overview.md) for the vision of the completed project.
 
@@ -571,6 +571,7 @@ Comprehensive documentation is still a work-in-progress. Please refer to these o
 - [Environmental Features](btclib/src/docs/environmental.md)
 - [Cryptographic Features](btclib/src/docs/crypto.md)
 - [Security Mitigation](btclib/src/docs/security_mitigation.md)
+- [Quantum Security](docs/QUANTUM_SECURITY.md)
 - [Tokenomics & Launch Strategy](btclib/src/docs/tokenomics.md)
 - [Integration Guide](btclib/src/docs/integration_guide.md)
 - [Lightning Network](btclib/src/docs/lightning.md)
@@ -591,19 +592,31 @@ The current implementation has a few remaining items to address:
 
 ## Project Status
 
-Supernova is currently at version 0.9.5 (release candidate). All core components are fully functional and stable, with only client libraries, additional tooling, and expanded documentation remaining before a 1.0 release.
+Supernova is currently at version 0.9.7 (release candidate). All core components are fully functional and stable, with only client libraries, additional tooling, and expanded documentation remaining before a 1.0 release.
 
 The project roadmap includes:
 
-1. **Short-term (0-3 months)**: Development of client libraries, comprehensive API documentation, production deployment guides, and enhanced monitoring capabilities.
+1. **Short-term (0-3 months)**: Completion of Lightning Network implementation, comprehensive API documentation, production deployment guides, and enhanced monitoring capabilities.
 
 2. **Medium-term (3-6 months)**: Mobile wallet applications, enterprise integration frameworks, cross-chain interoperability features, and internationalization.
 
 3. **Long-term (6+ months)**: Managed service offerings, advanced developer tools, AI-assisted monitoring, and next-generation consensus enhancements.
 
-## Recent Updates (June 2025)
+## Recent Updates (May 2025)
 
-### Phase 2 Progress: Network and Transaction Propagation
+### Phase 3 Completed: Quantum Resistance & Security Hardening
+
+We've successfully completed Phase 3, implementing quantum-resistant cryptography and advanced security features:
+
+- **Quantum-Resistant Cryptography**: Implemented multiple post-quantum signature schemes (CRYSTALS-Dilithium, SPHINCS+, Falcon) with configurable security levels
+- **Hybrid Signature Scheme**: Created a defense-in-depth approach combining classical (Secp256k1/Ed25519) and quantum-resistant signatures
+- **Sybil Attack Protection**: Enhanced the P2P network with proof-of-work identity challenges and reputation scoring
+- **Eclipse Attack Prevention**: Implemented forced peer rotation, connection diversity management, and advanced subnet diversity tracking
+- **Network Security Enhancements**: Added comprehensive attack detection, rate limiting, and secure peer reputation systems
+
+These improvements make Supernova resilient against both current threats and future quantum computing challenges, ensuring long-term security for the blockchain network.
+
+### Phase 2 Completed: Network and Transaction Propagation
 
 We've made significant progress on Phase 2, implementing a robust peer-to-peer network layer:
 
@@ -654,6 +667,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Cambridge Bitcoin Electricity Consumption Index](https://ccaf.io/cbeci/index) for emissions calculation methodology
 - [Crypto Climate Accord Carbon Accounting Guidance](https://cryptoclimate.org/wp-content/uploads/2021/12/RMI-CIP-CCA-Guidance-Documentation-Dec15.pdf) for carbon accounting methodology
 - [Lightning Network whitepaper](https://lightning.network/lightning-network-paper.pdf) for off-chain payment channels
+- [NIST Post-Quantum Cryptography](https://csrc.nist.gov/projects/post-quantum-cryptography) for quantum-resistant algorithms
 
 
 
