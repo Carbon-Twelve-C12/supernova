@@ -904,7 +904,7 @@ mod tests {
                 scheme: QuantumScheme::Hybrid(*classical_scheme),
                 security_level: *security_level,
             };
-            
+        
             let keypair = QuantumKeyPair::generate(&mut rng, parameters)
                 .expect("Hybrid key generation failed");
             

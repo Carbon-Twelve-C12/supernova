@@ -10,9 +10,9 @@ The project has recently completed Phase 3 (Quantum Resistance & Security Harden
 
 The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state with the following component statuses:
 
-**Overall Progress: Phase 3 Complete, Phase 4 In Progress**
+**Overall Progress: Phase 4 Complete, Phase 5 In Progress**
 
-The project has successfully completed Phase 1 (Core Blockchain Foundations), Phase 2 (Network and Transaction Propagation), and Phase 3 (Quantum Resistance & Security Hardening), and is now moving into Phase 4 (Lightning Network Implementation). This marks another significant milestone in our development roadmap, establishing the security foundations necessary for a robust, future-proof blockchain.
+The project has successfully completed Phase 1 (Core Blockchain Foundations), Phase 2 (Network and Transaction Propagation), Phase 3 (Quantum Resistance & Security Hardening), and Phase 4 (Environmental Features), and is now moving into Phase 5 (Lightning Network Implementation). This marks another significant milestone in our development roadmap, establishing comprehensive environmental features for a sustainable, future-proof blockchain.
 
 Component breakdown:
 
@@ -131,7 +131,20 @@ Component breakdown:
 
 ## Recent Improvements (May 2025)
 
-The project has recently completed **Phase 1: Core Blockchain Foundations**, a major milestone in our development roadmap:
+The project has recently completed **Phase 4: Environmental Features**, a major milestone in our development roadmap:
+
+### Phase 4 Completion: Environmental Features
+- **Emissions Tracking Framework**: Implemented methodology for calculating energy consumption and carbon emissions based on network activity, geographic distribution, and hardware efficiency.
+- **Regional Emissions Database**: Created a comprehensive database of emissions factors for different regions, allowing for accurate geographic attribution of emissions.
+- **Transaction-Level Attribution**: Implemented systems to calculate the carbon footprint of individual transactions.
+- **Environmental Treasury**: Created a treasury funded by a portion of transaction fees dedicated to environmental initiatives.
+- **Green Mining Incentives**: Implemented fee discounts for miners using verified renewable energy sources.
+- **Reporting Dashboard**: Developed a comprehensive dashboard for environmental metrics with real-time updates.
+- **Governance System**: Built a proposal and voting system for community management of environmental treasury funds.
+
+These environmental features make Supernova one of the most environmentally conscious blockchain implementations, capable of tracking, reporting, and mitigating its carbon footprint.
+
+The project continues to build on previous improvements:
 
 ### Phase 1 Completion: Core Blockchain Foundations
 - **Transaction Processing**: Implemented multiple signature scheme support, fee prioritization, and transaction dependency tracking
@@ -143,10 +156,6 @@ The project has recently completed **Phase 1: Core Blockchain Foundations**, a m
 - **Block Storage**: Developed efficient block persistence with integrity verification and organized file management
 - **Bloom Filters**: Implemented for fast membership testing of UTXOs and transactions
 - **Backup System**: Created incremental backup system with data integrity verification
-
-These foundational components establish a robust core for the SuperNova blockchain, providing the necessary infrastructure for the network, wallet, and application layers to follow in Phases 2 and 3. The implementation prioritized thread safety, performance optimization, and data integrity while maintaining the modular architecture of the system.
-
-The project continues to build on previous improvements:
 
 ### Advanced Cryptographic Features
 - Implemented quantum-resistant signature schemes (Dilithium, Falcon, SPHINCS+)

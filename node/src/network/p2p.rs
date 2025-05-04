@@ -596,7 +596,7 @@ impl P2PNetwork {
                 
                 // Broadcast it
                 self.handle_command(NetworkCommand::Broadcast(message)).await?;
-                self.stats.blocks_announced += 1;
+                        self.stats.blocks_announced += 1;
             }
             NetworkCommand::AnnounceTransaction { transaction, fee_rate } => {
                 // Create the message
@@ -786,7 +786,7 @@ impl P2PNetwork {
                 
                 // In a real implementation, we would deserialize and process the transaction
                 // For now, just update statistics
-                self.stats.transactions_announced += 1;
+                        self.stats.transactions_announced += 1;
                 
                 // Try to deserialize the transaction
                 match bincode::deserialize::<Transaction>(&transaction) {
@@ -1036,7 +1036,7 @@ fn count_leading_zero_bits(hash: &[u8]) -> u8 {
     for &byte in hash {
         if byte == 0 {
             count += 8;
-        } else {
+    } else {
             // Count leading zeros in this byte
             let mut mask = 0x80;
             while mask & byte == 0 && mask > 0 {
