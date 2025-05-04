@@ -11,7 +11,7 @@ use std::time::Instant;
 fn main() {
     println!("Supernova Quantum-Resistant Signatures Demo");
     println!("===========================================\n");
-    
+
     let mut rng = OsRng;
     
     // Test all signature schemes

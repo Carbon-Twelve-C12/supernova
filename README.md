@@ -153,7 +153,7 @@ supernova/
 
 ## Current Status
 
-The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state, and has recently completed Phase 1 (Core Blockchain Foundations), Phase 2 (Network and Transaction Propagation), and Phase 3 (Quantum Resistance & Security Hardening). Supernova is now progressing through **Phase 4 (Lightning Network Integration)**. Component completion status:
+The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state, and has recently completed Phase 1 (Core Blockchain Foundations), Phase 2 (Network and Transaction Propagation), Phase 3 (Quantum Resistance & Security Hardening), and Phase 4 (Environmental Features). Supernova is now progressing through **Phase 5 (Lightning Network Integration)**. Component completion status:
 
 - **✅ Core libraries (btclib)**: 100% complete - Transaction validation implemented, core systems in place
 - **✅ Transaction Processing**: 100% complete - Multiple signature schemes, fee prioritization, dependency tracking
@@ -169,7 +169,7 @@ The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state, and 
 - **✅ Transaction Propagation**: 100% complete - Efficient broadcasting, announcement optimization
 - **✅ Block Synchronization**: 100% complete - Headers-first sync, parallel block downloading
 - **✅ Cryptographic features**: 100% complete - Classical and quantum cryptography fully implemented
-- **✅ Environmental system**: 100% complete - Emissions tracking, incentives, verification
+- **✅ Environmental system**: 100% complete - Emissions tracking, incentives, verification, governance
 - **✅ Security system**: 100% complete - Advanced attack mitigation, peer reputation, diversity protection
 - **✅ Monitoring system**: 100% complete - Metrics collection, alerting, dashboards
 - **✅ Mining**: 100% complete - Multi-threaded mining, difficulty adjustment, green incentives
@@ -179,7 +179,7 @@ The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state, and 
 
 A detailed roadmap with implementation priorities and timelines is available in [PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md). We welcome contributions from the community to help complete these components.
 
-Current development is focused on completing Phase 4: Lightning Network Implementation. For details on the quantum security implementation, see [QUANTUM_SECURITY.md](docs/QUANTUM_SECURITY.md).
+Current development is focused on completing Phase 5: Lightning Network Implementation. For details on the environmental features implementation, see [ENVIRONMENTAL_FEATURES.md](docs/ENVIRONMENTAL_FEATURES.md).
 
 Refer to the [SuperNova Overview](SuperNova%20Overview.md) for the vision of the completed project.
 
@@ -568,7 +568,7 @@ The JSON-RPC API can be accessed via HTTP or WebSocket connections for real-time
 Comprehensive documentation is still a work-in-progress. Please refer to these overview documents for more details:
 
 - [SuperNova Overview](SuperNova%20Overview.md)
-- [Environmental Features](btclib/src/docs/environmental.md)
+- [Environmental Features](docs/ENVIRONMENTAL_FEATURES.md)
 - [Cryptographic Features](btclib/src/docs/crypto.md)
 - [Security Mitigation](btclib/src/docs/security_mitigation.md)
 - [Quantum Security](docs/QUANTUM_SECURITY.md)
@@ -603,6 +603,20 @@ The project roadmap includes:
 3. **Long-term (6+ months)**: Managed service offerings, advanced developer tools, AI-assisted monitoring, and next-generation consensus enhancements.
 
 ## Recent Updates (May 2025)
+
+### Phase 4 Completed: Environmental Features
+
+We've successfully completed Phase 4, implementing comprehensive environmental impact measurement and mitigation systems:
+
+- **Emissions Tracking Framework**: Implemented methodology for calculating energy consumption and carbon emissions based on network activity, geographic distribution, and hardware efficiency.
+- **Regional Emissions Database**: Created a comprehensive database of emissions factors for different regions, allowing for accurate geographic attribution of emissions.
+- **Transaction-Level Attribution**: Implemented systems to calculate the carbon footprint of individual transactions.
+- **Environmental Treasury**: Created a treasury funded by a portion of transaction fees dedicated to environmental initiatives.
+- **Green Mining Incentives**: Implemented fee discounts for miners using verified renewable energy sources.
+- **Reporting Dashboard**: Developed a comprehensive dashboard for environmental metrics with real-time updates.
+- **Governance System**: Built a proposal and voting system for community management of environmental treasury funds.
+
+These environmental features make Supernova one of the most environmentally conscious blockchain implementations, capable of tracking, reporting, and mitigating its carbon footprint.
 
 ### Phase 3 Completed: Quantum Resistance & Security Hardening
 

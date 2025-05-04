@@ -48,7 +48,7 @@ pub const CONNECTION_TIMEOUT_SECS: u64 = 30;
 /// Initialize the network stack with proper configuration
 pub async fn initialize_network(
     config: &crate::config::NetworkConfig,
-    genesis_hash: [u8; 32],
+        genesis_hash: [u8; 32],
 ) -> Result<(P2PNetwork, mpsc::Sender<NetworkCommand>, mpsc::Receiver<NetworkEvent>), Box<dyn std::error::Error>> {
     info!("Initializing P2P network stack");
     
@@ -63,7 +63,7 @@ pub async fn initialize_network(
         // Generate a new keypair
         libp2p::identity::Keypair::generate_ed25519()
     };
-    
+        
     // Initialize P2P network with the keypair
     let (network, command_tx, event_rx) = P2PNetwork::new(
         Some(keypair),
@@ -72,7 +72,7 @@ pub async fn initialize_network(
     ).await?;
     
     info!("P2P network initialized with peer ID: {}", network.local_peer_id());
-    
+        
     Ok((network, command_tx, event_rx))
 }
 
