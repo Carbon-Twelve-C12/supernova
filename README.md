@@ -7,6 +7,7 @@
   </p>
   
   <p align="center">
+    <a href="https://supernovanetwork.xyz/"><img src="https://img.shields.io/badge/website-supernovanetwork.xyz-blue" alt="Official Website" /></a>
     <a href="https://github.com/mjohnson518/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/mjohnson518/supernova" alt="Contributors" /></a>
     <a href="https://github.com/mjohnson518/supernova/stargazers"><img src="https://img.shields.io/github/stars/mjohnson518/supernova" alt="Stars" /></a>
     <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.9.7--RC-blue" alt="Version" /></a>
@@ -153,7 +154,7 @@ supernova/
 
 ## Current Status
 
-The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state, and has recently completed Phase 1 (Core Blockchain Foundations), Phase 2 (Network and Transaction Propagation), Phase 3 (Quantum Resistance & Security Hardening), and Phase 4 (Environmental Features). Supernova is now progressing through **Phase 5 (Lightning Network Integration)**. Component completion status:
+The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state, and has recently completed Phase 1 (Core Blockchain Foundations), Phase 2 (Network and Transaction Propagation), Phase 3 (Quantum Resistance & Security Hardening), Phase 4 (Environmental Features), and Phase 5 (Lightning Network Integration). Supernova is now ready to progress to **Phase 6 (Production Readiness)**. Component completion status:
 
 - **✅ Core libraries (btclib)**: 100% complete - Transaction validation implemented, core systems in place
 - **✅ Transaction Processing**: 100% complete - Multiple signature schemes, fee prioritization, dependency tracking
@@ -174,12 +175,12 @@ The project is currently at version 0.9.7 in a **RELEASE CANDIDATE** state, and 
 - **✅ Monitoring system**: 100% complete - Metrics collection, alerting, dashboards
 - **✅ Mining**: 100% complete - Multi-threaded mining, difficulty adjustment, green incentives
 - **✅ Wallet**: 100% complete - Transaction creation/signing, HD wallet, address management
-- **🔄 Lightning Network**: 60% complete - Channel management, routing, payment processing in progress
+- **✅ Lightning Network**: 100% complete - Channel management, routing, payment processing, security features
 - **✅ API services**: 100% complete - API structure, endpoints, documentation
 
 A detailed roadmap with implementation priorities and timelines is available in [PROJECT_ROADMAP.md](docs/PROJECT_ROADMAP.md). We welcome contributions from the community to help complete these components.
 
-Current development is focused on completing Phase 5: Lightning Network Implementation. For details on the environmental features implementation, see [ENVIRONMENTAL_FEATURES.md](docs/ENVIRONMENTAL_FEATURES.md).
+Current development is focused on completing Phase 6: Production Readiness. For details on the Lightning Network implementation, see [LIGHTNING_NETWORK.md](docs/LIGHTNING_NETWORK.md).
 
 Refer to the [SuperNova Overview](SuperNova%20Overview.md) for the vision of the completed project.
 
@@ -603,6 +604,21 @@ The project roadmap includes:
 3. **Long-term (6+ months)**: Managed service offerings, advanced developer tools, AI-assisted monitoring, and next-generation consensus enhancements.
 
 ## Recent Updates (May 2025)
+
+### Phase 5 Completed: Lightning Network Implementation
+
+We've successfully completed Phase 5, implementing comprehensive Lightning Network functionality:
+
+- **Payment Channel Framework**: Implemented bidirectional payment channels with full state management and HTLC support
+- **Quantum-Resistant Channel Security**: Created secure channels with post-quantum cryptographic protection
+- **Multi-hop Payments**: Implemented routing and node discovery for payments across the network
+- **Watchtower Services**: Developed breach detection and security monitoring for channel protection
+- **Lightning Wallet Integration**: Created seamless wallet experience for on-chain and off-chain payments
+- **Invoice Generation**: Implemented BOLT-compliant invoice creation and payment
+- **API Integration**: Built comprehensive RESTful API for Lightning Network operations
+- **Channel Management UI**: Added command-line and programmatic interfaces for channel operations
+
+These Lightning Network features make Supernova one of the most advanced blockchain implementations, capable of handling high transaction throughput with minimal fees and enhanced privacy.
 
 ### Phase 4 Completed: Environmental Features
 

@@ -9,6 +9,7 @@ use std::fmt;
 use thiserror::Error;
 use sha2::{Sha256, Digest};
 use rand::{thread_rng, Rng};
+use std::collections::{HashMap, HashSet};
 
 /// Error types for invoice operations
 #[derive(Debug, Error)]
@@ -107,6 +108,11 @@ impl PaymentPreimage {
         Self(preimage)
     }
     
+    /// Generate a random payment preimage for testing
+    pub fn new_random() -> Self {
+        Self::random()
+    }
+    
     /// Get payment hash from preimage
     pub fn hash(&self) -> PaymentHash {
         let mut hasher = Sha256::new();
@@ -122,6 +128,11 @@ impl PaymentPreimage {
     /// Get the raw preimage bytes
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+    
+    /// Get inner value
+    pub fn into_inner(self) -> [u8; 32] {
+        self.0
     }
 }
 
@@ -347,5 +358,458 @@ impl fmt::Display for Invoice {
             Ok(s) => write!(f, "{}", s),
             Err(_) => write!(f, "Invoice({})", self.payment_hash),
         }
+    }
+}
+
+/// Invoice with enhanced features
+#[derive(Debug, Clone)]
+pub struct EnhancedInvoice {
+    /// Base invoice
+    invoice: Invoice,
+    
+    /// Features bit vector
+    features: u64,
+    
+    /// Payment secrets for secure multi-hop payments
+    payment_secret: [u8; 32],
+    
+    /// Payment metadata
+    metadata: Vec<u8>,
+    
+    /// Fallback on-chain address
+    fallback_address: Option<String>,
+    
+    /// Invoice state
+    state: InvoiceState,
+    
+    /// Payment attempts
+    attempts: u32,
+}
+
+/// State of an invoice
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvoiceState {
+    /// Invoice is open and can be paid
+    Open,
+    
+    /// Invoice has been paid
+    Paid,
+    
+    /// Invoice has expired
+    Expired,
+    
+    /// Invoice has been canceled
+    Canceled,
+}
+
+/// Payment metadata for invoice
+#[derive(Debug, Clone)]
+pub struct PaymentMetadata {
+    /// Payer's wallet name
+    pub payer_name: Option<String>,
+    
+    /// Payer's note
+    pub payment_note: Option<String>,
+    
+    /// Payment purpose
+    pub purpose: Option<String>,
+    
+    /// Payment ID for correlation
+    pub payment_id: Option<[u8; 16]>,
+    
+    /// Additional custom data
+    pub custom_data: HashMap<String, String>,
+}
+
+/// Invoice feature flags
+pub mod feature_bits {
+    pub const BASIC_MPP: u64 = 1 << 0;            // Multi-path payments
+    pub const PAYMENT_SECRET: u64 = 1 << 1;       // Payment secret required
+    pub const PAYMENT_METADATA: u64 = 1 << 2;     // Payment metadata
+    pub const VAR_ONION: u64 = 1 << 3;            // Variable-length onion
+    pub const FALLBACK_ADDRESS: u64 = 1 << 4;     // Fallback on-chain address
+    pub const ROUTE_BLINDING: u64 = 1 << 5;       // Route blinding
+    pub const KEYSEND: u64 = 1 << 6;              // Spontaneous payments
+    pub const TRAMPOLINE: u64 = 1 << 7;           // Trampoline routing
+    pub const QUERY_FEATURES: u64 = 1 << 8;       // Feature query
+    pub const PAYMENT_CONSTRAINTS: u64 = 1 << 9;  // Advanced payment constraints
+}
+
+impl EnhancedInvoice {
+    /// Create a new enhanced invoice
+    pub fn new(
+        payment_hash: PaymentHash,
+        amount_msat: u64,
+        description: String,
+        expiry: u32,
+        features: u64,
+    ) -> Result<Self, InvoiceError> {
+        // Create the base invoice
+        let invoice = Invoice::new(payment_hash, amount_msat, description, expiry)?;
+        
+        // Generate a random payment secret
+        let mut rng = thread_rng();
+        let mut payment_secret = [0u8; 32];
+        rng.fill(&mut payment_secret);
+        
+        Ok(Self {
+            invoice,
+            features,
+            payment_secret,
+            metadata: Vec::new(),
+            fallback_address: None,
+            state: InvoiceState::Open,
+            attempts: 0,
+        })
+    }
+    
+    /// Create an invoice from parts
+    pub fn from_parts(
+        invoice: Invoice,
+        features: u64,
+        payment_secret: [u8; 32],
+    ) -> Self {
+        Self {
+            invoice,
+            features,
+            payment_secret,
+            metadata: Vec::new(),
+            fallback_address: None,
+            state: InvoiceState::Open,
+            attempts: 0,
+        }
+    }
+    
+    /// Set the fallback on-chain address
+    pub fn set_fallback_address(&mut self, address: String) {
+        self.fallback_address = Some(address);
+        self.features |= feature_bits::FALLBACK_ADDRESS;
+    }
+    
+    /// Add metadata to the invoice
+    pub fn add_metadata(&mut self, metadata: &[u8]) {
+        self.metadata = metadata.to_vec();
+        self.features |= feature_bits::PAYMENT_METADATA;
+    }
+    
+    /// Add payment metadata
+    pub fn add_payment_metadata(&mut self, metadata: &PaymentMetadata) -> Result<(), InvoiceError> {
+        // In a real implementation, this would serialize the metadata to a binary format
+        // For simplicity, we'll just use a placeholder
+        let mut data = Vec::new();
+        
+        if let Some(name) = &metadata.payer_name {
+            data.extend_from_slice(name.as_bytes());
+        }
+        
+        if let Some(note) = &metadata.payment_note {
+            data.extend_from_slice(note.as_bytes());
+        }
+        
+        self.add_metadata(&data);
+        
+        Ok(())
+    }
+    
+    /// Check if the invoice supports a feature
+    pub fn supports_feature(&self, feature_bit: u64) -> bool {
+        (self.features & feature_bit) != 0
+    }
+    
+    /// Get the payment hash
+    pub fn payment_hash(&self) -> PaymentHash {
+        self.invoice.payment_hash()
+    }
+    
+    /// Get the payment secret
+    pub fn payment_secret(&self) -> &[u8; 32] {
+        &self.payment_secret
+    }
+    
+    /// Get the amount in millisatoshis
+    pub fn amount_msat(&self) -> u64 {
+        self.invoice.amount_msat()
+    }
+    
+    /// Get the description
+    pub fn description(&self) -> &str {
+        self.invoice.description()
+    }
+    
+    /// Get the expiry time in seconds
+    pub fn expiry(&self) -> u32 {
+        self.invoice.expiry()
+    }
+    
+    /// Check if the invoice is expired
+    pub fn is_expired(&self) -> bool {
+        self.invoice.is_expired()
+    }
+    
+    /// Mark the invoice as paid
+    pub fn mark_as_paid(&mut self) {
+        self.state = InvoiceState::Paid;
+    }
+    
+    /// Mark the invoice as expired
+    pub fn mark_as_expired(&mut self) {
+        if self.state == InvoiceState::Open {
+            self.state = InvoiceState::Expired;
+        }
+    }
+    
+    /// Cancel the invoice
+    pub fn cancel(&mut self) {
+        if self.state == InvoiceState::Open {
+            self.state = InvoiceState::Canceled;
+        }
+    }
+    
+    /// Get the invoice state
+    pub fn state(&self) -> &InvoiceState {
+        &self.state
+    }
+    
+    /// Record a payment attempt
+    pub fn record_attempt(&mut self) {
+        self.attempts += 1;
+    }
+    
+    /// Get the number of payment attempts
+    pub fn attempts(&self) -> u32 {
+        self.attempts
+    }
+    
+    /// Get the route hints
+    pub fn route_hints(&self) -> &[RouteHint] {
+        self.invoice.route_hints()
+    }
+    
+    /// Get the destination (node ID)
+    pub fn destination(&self) -> &str {
+        self.invoice.destination()
+    }
+    
+    /// Get the min final CLTV expiry delta
+    pub fn min_final_cltv_expiry(&self) -> u32 {
+        self.invoice.min_final_cltv_expiry()
+    }
+    
+    /// Get the base invoice
+    pub fn base_invoice(&self) -> &Invoice {
+        &self.invoice
+    }
+    
+    /// Get the features
+    pub fn features(&self) -> u64 {
+        self.features
+    }
+    
+    /// Encode the invoice as a BOLT-11 string
+    pub fn to_bolt11(&self) -> Result<String, InvoiceError> {
+        // In a real implementation, this would encode a BOLT-11 invoice
+        // For simplicity, we'll just create a placeholder string
+        let invoice_str = format!(
+            "lnbc{}m{}{}{}{}",
+            self.amount_msat() / 1_000_000,
+            hex::encode(&self.payment_hash().into_inner()[0..4]),
+            self.features,
+            self.invoice.timestamp(),
+            if self.supports_feature(feature_bits::FALLBACK_ADDRESS) {
+                "1"
+            } else {
+                "0"
+            }
+        );
+        
+        Ok(invoice_str)
+    }
+}
+
+/// Invoice database for managing payment invoices
+pub struct InvoiceDatabase {
+    /// Invoices by payment hash
+    invoices: HashMap<PaymentHash, EnhancedInvoice>,
+    
+    /// Invoices by description (for lookup)
+    invoices_by_description: HashMap<String, PaymentHash>,
+    
+    /// Paid invoices
+    paid_invoices: HashSet<PaymentHash>,
+    
+    /// Last update time
+    last_update: u64,
+}
+
+impl InvoiceDatabase {
+    /// Create a new invoice database
+    pub fn new() -> Self {
+        Self {
+            invoices: HashMap::new(),
+            invoices_by_description: HashMap::new(),
+            paid_invoices: HashSet::new(),
+            last_update: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::from_secs(0))
+                .as_secs(),
+        }
+    }
+    
+    /// Add an invoice to the database
+    pub fn add_invoice(&mut self, invoice: EnhancedInvoice) -> Result<(), InvoiceError> {
+        let payment_hash = invoice.payment_hash();
+        
+        // Check if invoice already exists
+        if self.invoices.contains_key(&payment_hash) {
+            return Err(InvoiceError::InvalidFormat(
+                format!("Invoice with payment hash {} already exists", payment_hash)
+            ));
+        }
+        
+        // Add to invoices by description
+        let description = invoice.description().to_string();
+        self.invoices_by_description.insert(description, payment_hash);
+        
+        // Add to invoices
+        self.invoices.insert(payment_hash, invoice);
+        
+        // Update last update time
+        self.last_update = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+            
+        Ok(())
+    }
+    
+    /// Get an invoice by payment hash
+    pub fn get_invoice(&self, payment_hash: &PaymentHash) -> Option<&EnhancedInvoice> {
+        self.invoices.get(payment_hash)
+    }
+    
+    /// Get an invoice by description
+    pub fn get_invoice_by_description(&self, description: &str) -> Option<&EnhancedInvoice> {
+        if let Some(payment_hash) = self.invoices_by_description.get(description) {
+            self.invoices.get(payment_hash)
+        } else {
+            None
+        }
+    }
+    
+    /// Mark an invoice as paid
+    pub fn mark_invoice_paid(&mut self, payment_hash: &PaymentHash) -> Result<(), InvoiceError> {
+        if let Some(invoice) = self.invoices.get_mut(payment_hash) {
+            // Check if the invoice is expired
+            if invoice.is_expired() {
+                return Err(InvoiceError::Expired);
+            }
+            
+            // Check if the invoice is already paid
+            if matches!(invoice.state(), InvoiceState::Paid) {
+                return Err(InvoiceError::InvalidFormat(
+                    format!("Invoice with payment hash {} is already paid", payment_hash)
+                ));
+            }
+            
+            // Mark as paid
+            invoice.mark_as_paid();
+            self.paid_invoices.insert(*payment_hash);
+            
+            // Update last update time
+            self.last_update = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::from_secs(0))
+                .as_secs();
+                
+            Ok(())
+        } else {
+            Err(InvoiceError::InvalidHash(
+                format!("Invoice with payment hash {} not found", payment_hash)
+            ))
+        }
+    }
+    
+    /// Check if an invoice is paid
+    pub fn is_invoice_paid(&self, payment_hash: &PaymentHash) -> bool {
+        self.paid_invoices.contains(payment_hash)
+    }
+    
+    /// Get all invoices
+    pub fn get_all_invoices(&self) -> Vec<&EnhancedInvoice> {
+        self.invoices.values().collect()
+    }
+    
+    /// Get all paid invoices
+    pub fn get_paid_invoices(&self) -> Vec<&EnhancedInvoice> {
+        self.invoices.values()
+            .filter(|i| matches!(i.state(), InvoiceState::Paid))
+            .collect()
+    }
+    
+    /// Get all open invoices
+    pub fn get_open_invoices(&self) -> Vec<&EnhancedInvoice> {
+        self.invoices.values()
+            .filter(|i| matches!(i.state(), InvoiceState::Open))
+            .collect()
+    }
+    
+    /// Expire old invoices
+    pub fn expire_old_invoices(&mut self) -> usize {
+        let mut expired_count = 0;
+        
+        for invoice in self.invoices.values_mut() {
+            if invoice.is_expired() && matches!(invoice.state(), InvoiceState::Open) {
+                invoice.mark_as_expired();
+                expired_count += 1;
+            }
+        }
+        
+        if expired_count > 0 {
+            // Update last update time
+            self.last_update = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::from_secs(0))
+                .as_secs();
+        }
+        
+        expired_count
+    }
+    
+    /// Delete old paid and expired invoices
+    pub fn prune_old_invoices(&mut self, max_age_seconds: u64) -> usize {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+            
+        let mut to_remove = Vec::new();
+        
+        for (payment_hash, invoice) in &self.invoices {
+            let invoice_age = now.saturating_sub(invoice.base_invoice().timestamp());
+            
+            if invoice_age > max_age_seconds {
+                if matches!(invoice.state(), InvoiceState::Paid | InvoiceState::Expired | InvoiceState::Canceled) {
+                    to_remove.push(*payment_hash);
+                }
+            }
+        }
+        
+        // Remove from all collections
+        for payment_hash in &to_remove {
+            if let Some(invoice) = self.invoices.remove(payment_hash) {
+                self.invoices_by_description.retain(|_, ph| ph != payment_hash);
+                self.paid_invoices.remove(payment_hash);
+            }
+        }
+        
+        if !to_remove.is_empty() {
+            // Update last update time
+            self.last_update = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::from_secs(0))
+                .as_secs();
+        }
+        
+        to_remove.len()
     }
 } 

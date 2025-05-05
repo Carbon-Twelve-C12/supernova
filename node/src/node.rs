@@ -4,6 +4,16 @@ use crate::storage::{
     RecoveryManager, StorageError, UTXOSet
 };
 use crate::api::{ApiServer, ApiConfig};
+use crate::network::NetworkManager;
+use crate::storage::StorageManager;
+use crate::mempool::MempoolManager;
+use crate::config::NodeConfig;
+use crate::environmental::EnvironmentalTracker;
+use btclib::crypto::quantum::QuantumScheme;
+use btclib::lightning::{LightningNetwork, LightningConfig, LightningNetworkError};
+use btclib::lightning::wallet::LightningWallet;
+use std::sync::{Arc, Mutex};
+use tracing::{info, error, warn};
 
 pub struct Node {
     pub config: NodeConfig,
@@ -21,6 +31,8 @@ pub struct Node {
     pub mem_pool: Arc<RwLock<MemPool>>,
     /// API server instance
     pub api_server: Option<ApiServer>,
+    /// Lightning Network integration
+    lightning: Option<Arc<Mutex<LightningNetwork>>>,
 }
 
 impl Node {
@@ -62,6 +74,7 @@ impl Node {
             is_running: Arc::new(AtomicBool::new(false)),
             mem_pool,
             api_server: None,
+            lightning: None,
         })
     }
 
@@ -136,5 +149,188 @@ impl Node {
         Ok(())
     }
 
-    // ... existing code ...
+    /// Initialize Lightning Network functionality
+    pub fn init_lightning(&mut self) -> Result<(), String> {
+        info!("Initializing Lightning Network functionality");
+        
+        // Create Lightning wallet from node wallet
+        let wallet = match LightningWallet::from_node_wallet(&self.wallet) {
+            Ok(wallet) => wallet,
+            Err(e) => {
+                error!("Failed to create Lightning wallet: {}", e);
+                return Err(format!("Failed to create Lightning wallet: {}", e));
+            }
+        };
+        
+        // Create Lightning configuration from node config
+        let config = LightningConfig {
+            use_quantum_signatures: self.config.use_quantum_signatures,
+            quantum_scheme: self.config.quantum_scheme.clone(),
+            quantum_security_level: self.config.quantum_security_level,
+            ..LightningConfig::default()
+        };
+        
+        // Create Lightning Network manager
+        let lightning = LightningNetwork::new(config, wallet);
+        
+        // Store in node
+        self.lightning = Some(Arc::new(Mutex::new(lightning)));
+        
+        info!("Lightning Network functionality initialized successfully");
+        
+        Ok(())
+    }
+    
+    /// Get the Lightning Network manager
+    pub fn lightning(&self) -> Option<Arc<Mutex<LightningNetwork>>> {
+        self.lightning.clone()
+    }
+    
+    /// Register the Lightning Network manager
+    pub fn register_lightning(&mut self, lightning: LightningNetwork) {
+        self.lightning = Some(Arc::new(Mutex::new(lightning)));
+    }
+    
+    /// Open a payment channel
+    pub async fn open_payment_channel(
+        &self,
+        peer_id: &str,
+        capacity: u64,
+        push_amount: u64,
+    ) -> Result<String, String> {
+        let lightning = match &self.lightning {
+            Some(lightning) => lightning,
+            None => return Err("Lightning Network not initialized".to_string()),
+        };
+        
+        let lightning = lightning.lock().unwrap();
+        
+        match lightning.open_channel(peer_id, capacity, push_amount, None).await {
+            Ok(channel_id) => Ok(format!("{}", channel_id)),
+            Err(e) => Err(format!("Failed to open payment channel: {}", e)),
+        }
+    }
+    
+    /// Close a payment channel
+    pub async fn close_payment_channel(
+        &self,
+        channel_id: &str,
+        force_close: bool,
+    ) -> Result<String, String> {
+        let lightning = match &self.lightning {
+            Some(lightning) => lightning,
+            None => return Err("Lightning Network not initialized".to_string()),
+        };
+        
+        let lightning = lightning.lock().unwrap();
+        
+        // Parse channel ID from string
+        let channel_id = match channel_id.parse() {
+            Ok(id) => id,
+            Err(_) => return Err("Invalid channel ID format".to_string()),
+        };
+        
+        match lightning.close_channel(&channel_id, force_close).await {
+            Ok(tx) => Ok(format!("{}", hex::encode(tx.hash()))),
+            Err(e) => Err(format!("Failed to close payment channel: {}", e)),
+        }
+    }
+    
+    /// Create a payment invoice
+    pub fn create_invoice(
+        &self,
+        amount_msat: u64,
+        description: &str,
+        expiry_seconds: u32,
+    ) -> Result<String, String> {
+        let lightning = match &self.lightning {
+            Some(lightning) => lightning,
+            None => return Err("Lightning Network not initialized".to_string()),
+        };
+        
+        let lightning = lightning.lock().unwrap();
+        
+        match lightning.create_invoice(amount_msat, description, expiry_seconds) {
+            Ok(invoice) => {
+                // In a real implementation, this would encode as BOLT11
+                Ok(format!("{}", invoice))
+            },
+            Err(e) => Err(format!("Failed to create invoice: {}", e)),
+        }
+    }
+    
+    /// Pay an invoice
+    pub async fn pay_invoice(
+        &self,
+        invoice_str: &str,
+    ) -> Result<String, String> {
+        let lightning = match &self.lightning {
+            Some(lightning) => lightning,
+            None => return Err("Lightning Network not initialized".to_string()),
+        };
+        
+        let lightning = lightning.lock().unwrap();
+        
+        // Parse invoice from string (in a real implementation, this would parse BOLT11)
+        let invoice = match invoice_str.parse() {
+            Ok(invoice) => invoice,
+            Err(_) => return Err("Invalid invoice format".to_string()),
+        };
+        
+        match lightning.pay_invoice(&invoice).await {
+            Ok(preimage) => Ok(format!("{}", hex::encode(preimage.into_inner()))),
+            Err(e) => Err(format!("Failed to pay invoice: {}", e)),
+        }
+    }
+    
+    /// List all active channels
+    pub fn list_channels(&self) -> Result<Vec<String>, String> {
+        let lightning = match &self.lightning {
+            Some(lightning) => lightning,
+            None => return Err("Lightning Network not initialized".to_string()),
+        };
+        
+        let lightning = lightning.lock().unwrap();
+        
+        let channels = lightning.list_channels();
+        let channel_ids = channels.iter().map(|id| format!("{}", id)).collect();
+        
+        Ok(channel_ids)
+    }
+    
+    /// Get information about a specific channel
+    pub fn get_channel_info(&self, channel_id: &str) -> Result<serde_json::Value, String> {
+        let lightning = match &self.lightning {
+            Some(lightning) => lightning,
+            None => return Err("Lightning Network not initialized".to_string()),
+        };
+        
+        let lightning = lightning.lock().unwrap();
+        
+        // Parse channel ID from string
+        let channel_id = match channel_id.parse() {
+            Ok(id) => id,
+            Err(_) => return Err("Invalid channel ID format".to_string()),
+        };
+        
+        match lightning.get_channel_info(&channel_id) {
+            Some(info) => {
+                // Convert channel info to JSON
+                let json = serde_json::json!({
+                    "id": channel_id.to_string(),
+                    "state": format!("{:?}", info.state),
+                    "capacity": info.capacity,
+                    "local_balance_msat": info.local_balance_msat,
+                    "remote_balance_msat": info.remote_balance_msat,
+                    "is_public": info.is_public,
+                    "pending_htlcs": info.pending_htlcs,
+                    "uptime_seconds": info.uptime_seconds,
+                    "update_count": info.update_count,
+                });
+                
+                Ok(json)
+            },
+            None => Err(format!("Channel {} not found", channel_id)),
+        }
+    }
 } 
