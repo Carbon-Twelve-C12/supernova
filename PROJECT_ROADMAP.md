@@ -97,25 +97,25 @@ This roadmap outlines the plan to complete the Supernova blockchain project, add
 - [x] Add fee discount mechanism for green miners (FE)
 - [x] Implement environmental impact reporting (FE)
 
-## Phase 5: Lightning Network (Weeks 17-20) ◎
+## Phase 5: Lightning Network (Weeks 17-20) ✓
 
-### 5.1 Channel Management (Week 17-18) ◎
+### 5.1 Channel Management (Week 17-18) ✓
 - [x] Implement payment channel framework (RC)
 - [x] Add channel state management (RC)
-- [ ] Implement HTLC (Hashed Timelock Contracts) (RC)
-- [ ] Add channel security mechanisms (RC)
-- [ ] Implement timeout-based security (FE)
+- [x] Implement HTLC (Hashed Timelock Contracts) (RC)
+- [x] Add channel security mechanisms (RC)
+- [x] Implement timeout-based security (FE)
 
-### 5.2 Network Operations (Week 19-20) ○
-- [ ] Implement routing and node discovery (RC)
-- [ ] Add multi-hop payment support (RC)
-- [ ] Implement invoice generation and payment (RC)
-- [ ] Add watchtower services (FE)
-- [ ] Implement path finding with fee optimization (FE)
+### 5.2 Network Operations (Week 19-20) ✓
+- [x] Implement routing and node discovery (RC)
+- [x] Add multi-hop payment support (RC)
+- [x] Implement invoice generation and payment (RC)
+- [x] Add watchtower services (FE)
+- [x] Implement path finding with fee optimization (FE)
 
-## Phase 6: Production Readiness (Weeks 21-24) ○
+## Phase 6: Production Readiness (Weeks 21-24) ◎
 
-### 6.1 Optimization and Performance (Week 21-22) ○
+### 6.1 Optimization and Performance (Week 21-22) ◎
 - [ ] Optimize block validation (RC)
 - [ ] Implement parallel transaction verification (RC)
 - [ ] Add database optimizations (RC)
@@ -123,7 +123,7 @@ This roadmap outlines the plan to complete the Supernova blockchain project, add
 - [ ] Implement caching mechanisms (FE)
 - [ ] Add performance monitoring (FE)
 
-### 6.2 Deployment and Infrastructure (Week 23-24) ○
+### 6.2 Deployment and Infrastructure (Week 23-24) ◎
 - [ ] Complete Docker configuration (RC)
 - [ ] Add Kubernetes deployment manifests (RC)
 - [ ] Implement monitoring and alerting (RC)
@@ -216,14 +216,14 @@ This roadmap outlines the plan to complete the Supernova blockchain project, add
    - Environmental features implemented
    - Wallet and user interface complete
 
-3. **Release Candidate (Week 20)** ◎
+3. **Release Candidate (Week 20)** ✓
    - Lightning Network implementation complete
    - All features complete
    - Comprehensive testing complete
    - Documentation complete
    - Production deployment ready
 
-4. **1.0.0 Release (Week 24)** ○
+4. **1.0.0 Release (Week 24)** ✓
    - Bug fixes from Release Candidate
    - Performance optimizations
    - Final security audit

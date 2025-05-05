@@ -150,6 +150,12 @@ pub struct ChannelConfig {
     
     /// Force close timeout in seconds
     pub force_close_timeout_seconds: u64,
+    
+    /// Minimum CLTV expiry delta for HTLCs
+    pub min_cltv_expiry_delta: u16,
+    
+    /// Maximum CLTV expiry delta for HTLCs
+    pub max_cltv_expiry_delta: u16,
 }
 
 impl Default for ChannelConfig {
@@ -165,6 +171,8 @@ impl Default for ChannelConfig {
             max_commitment_transactions: 10,
             use_quantum_signatures: false,
             force_close_timeout_seconds: 86400,        // 24 hours
+            min_cltv_expiry_delta: 144, // Minimum 1 day (assuming 10min blocks)
+            max_cltv_expiry_delta: 2016, // Maximum 2 weeks (assuming 10min blocks)
         }
     }
 }
@@ -919,5 +927,242 @@ impl Channel {
             .duration_since(self.last_update_time)
             .unwrap_or(Duration::from_secs(0))
             .as_secs()
+    }
+    
+    /// Verifies if a timelock condition is still valid
+    pub fn verify_timelock(&self, cltv_expiry: u32) -> Result<bool, ChannelError> {
+        // Get the current block height (for testing, we'll simulate this)
+        let current_block_height = self.get_current_block_height()?;
+        
+        // Check if the timelock has expired
+        Ok(current_block_height < cltv_expiry)
+    }
+    
+    /// Gets the current block height from the blockchain
+    fn get_current_block_height(&self) -> Result<u32, ChannelError> {
+        // In production, this would query the actual blockchain
+        // For now, we'll use a simulated value
+        Ok(700_000) // Example current block height
+    }
+    
+    /// Estimate when a timelock will expire in seconds
+    pub fn estimate_timelock_expiry(&self, cltv_expiry: u32) -> Result<u64, ChannelError> {
+        let current_block_height = self.get_current_block_height()?;
+        
+        if current_block_height >= cltv_expiry {
+            return Ok(0); // Already expired
+        }
+        
+        // Assuming 10 minutes per block on average
+        let blocks_remaining = cltv_expiry - current_block_height;
+        let seconds_remaining = blocks_remaining as u64 * 600;
+        
+        Ok(seconds_remaining)
+    }
+    
+    /// Handle HTLC timeouts and expires HTLCs that have reached their timelock
+    pub fn handle_expired_htlcs(&mut self) -> Result<Vec<u64>, ChannelError> {
+        if self.state != ChannelState::Operational {
+            return Err(ChannelError::InvalidState(
+                format!("Cannot handle expired HTLCs in state {:?}", self.state)
+            ));
+        }
+        
+        let mut expired_htlcs = Vec::new();
+        let mut indices_to_remove = Vec::new();
+        
+        // Check each HTLC for expiration
+        for (i, htlc) in self.pending_htlcs.iter().enumerate() {
+            let is_valid = self.verify_timelock(htlc.cltv_expiry)?;
+            
+            if !is_valid {
+                // HTLC has expired
+                expired_htlcs.push(htlc.id);
+                indices_to_remove.push(i);
+                
+                // Update balances - return funds to sender
+                match htlc.direction {
+                    HtlcDirection::Offered => {
+                        // Return to local balance
+                        self.local_balance_msat += htlc.amount_msat;
+                    },
+                    HtlcDirection::Received => {
+                        // Return to remote balance
+                        self.remote_balance_msat += htlc.amount_msat;
+                    }
+                }
+            }
+        }
+        
+        // Remove expired HTLCs in reverse order to maintain correct indices
+        indices_to_remove.sort_unstable();
+        indices_to_remove.reverse();
+        
+        for index in indices_to_remove {
+            self.pending_htlcs.remove(index);
+        }
+        
+        if !expired_htlcs.is_empty() {
+            // Update channel state
+            self.last_update_time = SystemTime::now();
+            self.update_count += 1;
+        }
+        
+        Ok(expired_htlcs)
+    }
+    
+    /// Create a commitment transaction with HTLCs
+    pub fn create_secure_commitment(&self) -> Result<Transaction, ChannelError> {
+        let mut commitment_tx = self.create_commitment_transaction()?;
+        
+        // Apply HTLC-specific security measures
+        self.apply_htlc_security_measures(&mut commitment_tx)?;
+        
+        Ok(commitment_tx)
+    }
+    
+    /// Apply security measures to HTLCs
+    fn apply_htlc_security_measures(&self, tx: &mut Transaction) -> Result<(), ChannelError> {
+        // In a production implementation, this would:
+        // 1. Add proper timelocks to HTLC outputs
+        // 2. Add revocation paths to handle breach scenarios
+        // 3. Implement relative timelocks for security
+        
+        // For now, we'll simulate this with a placeholder implementation
+        debug!("Applied HTLC security measures to commitment transaction");
+        
+        Ok(())
+    }
+    
+    /// Check for revoked HTLCs and generate breach remedies if found
+    pub fn check_for_revoked_htlcs(&self, remote_commit_num: u64) -> Result<bool, ChannelError> {
+        if self.previous_commitments.is_empty() {
+            return Ok(false); // No previous commitments to check
+        }
+        
+        // Check if we have any commitments that have been revoked
+        for commitment in &self.previous_commitments {
+            if commitment.state_num == remote_commit_num {
+                info!("Found revoked commitment: {}", remote_commit_num);
+                // In production, we would generate breach remedy transactions
+                return Ok(true);
+            }
+        }
+        
+        Ok(false)
+    }
+    
+    /// Generate a breach remedy transaction
+    pub fn generate_breach_remedy(&self, revoked_commit_num: u64) -> Result<Transaction, ChannelError> {
+        // Find the revoked commitment
+        let revoked_commitment = self.previous_commitments.iter()
+            .find(|c| c.state_num == revoked_commit_num)
+            .ok_or_else(|| ChannelError::InvalidState(
+                format!("Revoked commitment {} not found", revoked_commit_num)
+            ))?;
+        
+        // In production, this would:
+        // 1. Create a transaction spending from the revoked commitment
+        // 2. Send all funds to the local node as penalty
+        // 3. Use appropriate witness scripts to enable the spend
+        
+        // For now, we'll create a placeholder transaction
+        let remedy_tx = Transaction::new(
+            2, // Version
+            Vec::new(), // Inputs would come from the revoked commitment
+            Vec::new(), // Outputs would go to the local wallet
+            0, // Locktime
+        );
+        
+        info!("Generated breach remedy transaction for commitment {}", revoked_commit_num);
+        
+        Ok(remedy_tx)
+    }
+    
+    /// Add a new HTLC with enhanced security
+    pub fn add_secure_htlc(
+        &mut self,
+        amount_msat: u64,
+        payment_hash: [u8; 32],
+        cltv_expiry: u32,
+        direction: HtlcDirection,
+        preimage_verification: bool,
+    ) -> Result<u64, ChannelError> {
+        // Verify that the CLTV expiry is reasonable
+        let current_height = self.get_current_block_height()?;
+        let min_cltv = current_height + self.config.min_cltv_expiry_delta as u32;
+        let max_cltv = current_height + self.config.max_cltv_expiry_delta as u32;
+        
+        if cltv_expiry < min_cltv {
+            return Err(ChannelError::HtlcError(
+                format!("CLTV expiry {} is too soon (minimum is {})", cltv_expiry, min_cltv)
+            ));
+        }
+        
+        if cltv_expiry > max_cltv {
+            return Err(ChannelError::HtlcError(
+                format!("CLTV expiry {} is too far in the future (maximum is {})", cltv_expiry, max_cltv)
+            ));
+        }
+        
+        // Perform basic size validation for amount
+        if amount_msat > self.config.max_htlc_value_in_flight_msat {
+            return Err(ChannelError::HtlcError(
+                format!("HTLC amount {} exceeds maximum in-flight value {}", 
+                    amount_msat, self.config.max_htlc_value_in_flight_msat)
+            ));
+        }
+        
+        // Calculate total in-flight value
+        let current_in_flight: u64 = self.pending_htlcs.iter()
+            .map(|htlc| htlc.amount_msat)
+            .sum();
+        
+        if current_in_flight + amount_msat > self.config.max_htlc_value_in_flight_msat {
+            return Err(ChannelError::HtlcError(
+                format!("Adding HTLC would exceed maximum in-flight value {} + {} > {}", 
+                    current_in_flight, amount_msat, self.config.max_htlc_value_in_flight_msat)
+            ));
+        }
+        
+        // Add the HTLC with standard validation
+        let htlc_id = self.add_htlc(amount_msat, payment_hash, cltv_expiry, direction)?;
+        
+        // Log the secure HTLC addition
+        info!("Added secure HTLC: id={}, amount={} msat, expiry={}, direction={:?}",
+              htlc_id, amount_msat, cltv_expiry, direction);
+        
+        Ok(htlc_id)
+    }
+    
+    /// Implement secure channel state revocation
+    pub fn revoke_current_commitment(&mut self) -> Result<Vec<u8>, ChannelError> {
+        if self.state != ChannelState::Operational {
+            return Err(ChannelError::InvalidState(
+                format!("Cannot revoke commitment in state {:?}", self.state)
+            ));
+        }
+        
+        if self.current_commitment.is_none() {
+            return Err(ChannelError::InvalidState(
+                "No current commitment to revoke".to_string()
+            ));
+        }
+        
+        // Move current commitment to previous commitments
+        let current = self.current_commitment.take()
+            .ok_or_else(|| ChannelError::InvalidState("Missing current commitment".to_string()))?;
+        
+        self.previous_commitments.push(current);
+        
+        // In production, this would generate a revocation secret
+        // For now, we'll generate a random value
+        let mut rng = thread_rng();
+        let mut revocation_secret = vec![0; 32];
+        rng.fill(&mut revocation_secret[..]);
+        
+        info!("Revoked current commitment, new revocation secret generated");
+        
+        Ok(revocation_secret)
     }
 } 

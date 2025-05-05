@@ -10,6 +10,12 @@ mod server;
 pub mod routes;
 pub mod middleware;
 pub mod docs;
+pub mod blockchain_api;
+pub mod wallet_api;
+pub mod mempool_api;
+pub mod network_api;
+pub mod environmental_api;
+pub mod lightning_api;
 
 pub use error::{ApiError, Result};
 pub use types::*;

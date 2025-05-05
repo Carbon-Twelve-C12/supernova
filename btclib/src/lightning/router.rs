@@ -703,4 +703,587 @@ impl Router {
     pub fn channel_count(&self, include_private: bool) -> usize {
         self.graph.channel_count(include_private)
     }
+    
+    /// Find multiple alternative routes to a destination
+    pub fn find_alternative_routes(
+        &self,
+        destination: &str,
+        amount_msat: u64,
+        route_hints: &[RouteHint],
+        num_routes: usize,
+    ) -> Result<Vec<PaymentPath>, RoutingError> {
+        let mut routes = Vec::with_capacity(num_routes);
+        
+        // First, try to find the best route
+        let first_route = self.find_route(destination, amount_msat, route_hints)?;
+        routes.push(first_route);
+        
+        // Create a set of avoided channels and nodes for finding alternative routes
+        let mut avoid_channels = self.preferences.avoid_channels.clone();
+        let mut avoid_nodes = self.preferences.avoid_nodes.clone();
+        
+        // Add channels and nodes from the first route to avoided sets
+        for hop in &routes[0].hops {
+            avoid_channels.insert(hop.channel_id.clone());
+            avoid_nodes.insert(hop.node_id.clone());
+        }
+        
+        // Create modified preferences for alternative routes
+        let mut alt_preferences = self.preferences.clone();
+        alt_preferences.avoid_channels = avoid_channels;
+        alt_preferences.avoid_nodes = avoid_nodes;
+        
+        // Try to find additional routes
+        for _ in 1..num_routes {
+            let mut router_copy = self.clone();
+            router_copy.preferences = alt_preferences.clone();
+            
+            match router_copy.find_route(destination, amount_msat, route_hints) {
+                Ok(route) => {
+                    // Add this route to the list
+                    routes.push(route.clone());
+                    
+                    // Add channels and nodes from this route to avoided sets
+                    for hop in &route.hops {
+                        alt_preferences.avoid_channels.insert(hop.channel_id.clone());
+                        alt_preferences.avoid_nodes.insert(hop.node_id.clone());
+                    }
+                },
+                Err(_) => {
+                    // No more routes found
+                    break;
+                }
+            }
+        }
+        
+        Ok(routes)
+    }
+    
+    /// Split a payment across multiple routes for better reliability
+    pub fn split_payment(
+        &self,
+        destination: &str,
+        total_amount_msat: u64,
+        route_hints: &[RouteHint],
+        num_parts: usize,
+    ) -> Result<Vec<(PaymentPath, u64)>, RoutingError> {
+        if num_parts <= 1 {
+            // No splitting needed
+            let route = self.find_route(destination, total_amount_msat, route_hints)?;
+            return Ok(vec![(route, total_amount_msat)]);
+        }
+        
+        // Calculate amount per part (ensure it's above minimum)
+        let min_amount = 1000; // 1 sat minimum
+        let amount_per_part = std::cmp::max(total_amount_msat / num_parts as u64, min_amount);
+        
+        // Adjust num_parts if necessary
+        let adjusted_num_parts = if amount_per_part * num_parts as u64 > total_amount_msat {
+            (total_amount_msat / amount_per_part) as usize
+        } else {
+            num_parts
+        };
+        
+        // Find multiple routes
+        let routes = self.find_alternative_routes(
+            destination, 
+            amount_per_part,
+            route_hints,
+            adjusted_num_parts,
+        )?;
+        
+        if routes.is_empty() {
+            return Err(RoutingError::NoRouteFound);
+        }
+        
+        let mut result = Vec::with_capacity(adjusted_num_parts);
+        let mut remaining_amount = total_amount_msat;
+        
+        // Distribute amount across routes
+        for i in 0..adjusted_num_parts {
+            if i == adjusted_num_parts - 1 {
+                // Last part gets any remainder
+                result.push((routes[i % routes.len()].clone(), remaining_amount));
+                break;
+            }
+            
+            result.push((routes[i % routes.len()].clone(), amount_per_part));
+            remaining_amount -= amount_per_part;
+        }
+        
+        Ok(result)
+    }
+    
+    /// Find optimal path based on channel capacity constraints
+    pub fn find_capacity_constrained_path(
+        &self,
+        destination: &str,
+        amount_msat: u64,
+        route_hints: &[RouteHint],
+        min_channel_capacity: u64,
+    ) -> Result<PaymentPath, RoutingError> {
+        // Create modified preferences with capacity constraints
+        let mut capacity_preferences = self.preferences.clone();
+        
+        // Create a custom scoring function that prioritizes channels with sufficient capacity
+        let capacity_scorer = ChannelScorer::new(ScoringFunction::Custom(
+            |channel| {
+                if channel.capacity < min_channel_capacity {
+                    1 // Very low score for channels with insufficient capacity
+                } else {
+                    // Score based on capacity margin
+                    let capacity_margin = channel.capacity - min_channel_capacity;
+                    1_000_000 - std::cmp::min(1_000_000, capacity_margin as u32)
+                }
+            }
+        ));
+        
+        // Find route with capacity constraints
+        let mut router_copy = self.clone();
+        router_copy.preferences = capacity_preferences;
+        router_copy.scorer = capacity_scorer;
+        
+        router_copy.find_route(destination, amount_msat, route_hints)
+    }
+    
+    /// Calculate reliability score for a path
+    pub fn calculate_path_reliability(&self, path: &PaymentPath) -> f64 {
+        if path.hops.is_empty() {
+            return 0.0;
+        }
+        
+        // Calculate individual hop success probabilities
+        let mut hop_probabilities = Vec::with_capacity(path.hops.len());
+        
+        for hop in &path.hops {
+            // Get channel success probability from scorer
+            let prob = self.scorer.success_probability.get(&hop.channel_id)
+                .cloned()
+                .unwrap_or(0.9); // Default 90% if no data
+                
+            hop_probabilities.push(prob);
+        }
+        
+        // Calculate overall path reliability (product of individual hop probabilities)
+        hop_probabilities.iter().fold(1.0, |acc, &p| acc * p)
+    }
+    
+    /// Update routing table with gossip information
+    pub fn update_from_gossip(
+        &mut self,
+        channels: Vec<ChannelInfo>,
+    ) -> Result<usize, RoutingError> {
+        let mut updated_count = 0;
+        
+        for channel in channels {
+            // Update the channel in the graph
+            self.graph.add_channel(channel.clone(), false);
+            updated_count += 1;
+        }
+        
+        info!("Updated {} channels from gossip information", updated_count);
+        
+        Ok(updated_count)
+    }
+    
+    /// Discover and add new nodes to the routing graph
+    pub fn discover_nodes(&mut self, seed_nodes: &[NodeId]) -> Result<usize, RoutingError> {
+        let mut discovered_count = 0;
+        
+        // In a real implementation, this would:
+        // 1. Connect to seed nodes
+        // 2. Request their known nodes and channels
+        // 3. Recursively explore the network up to a certain depth
+        
+        for node_id in seed_nodes {
+            self.graph.add_node(node_id.clone());
+            discovered_count += 1;
+        }
+        
+        info!("Discovered {} new nodes", discovered_count);
+        
+        Ok(discovered_count)
+    }
+    
+    /// Optimize a route for lower fees
+    pub fn optimize_route_for_fees(&self, path: &PaymentPath) -> Result<PaymentPath, RoutingError> {
+        if path.hops.len() <= 1 {
+            return Ok(path.clone()); // No optimization needed for single-hop paths
+        }
+        
+        // Create a new path with the same endpoints
+        let mut optimized = PaymentPath::new();
+        let amount_msat = path.total_amount_msat;
+        
+        // Get start and end nodes
+        let source = &path.hops.first().unwrap().node_id;
+        let destination = &path.hops.last().unwrap().node_id;
+        
+        // Create modified preferences that optimize for fees
+        let mut fee_preferences = self.preferences.clone();
+        
+        // Set a custom scoring function that prioritizes lower fees
+        let fee_scorer = ChannelScorer::new(ScoringFunction::LowestFee);
+        
+        // Find route with fee optimization
+        let mut router_copy = self.clone();
+        router_copy.preferences = fee_preferences;
+        router_copy.scorer = fee_scorer;
+        
+        let destination_str = destination.as_str().to_string();
+        router_copy.find_route(&destination_str, amount_msat, &[])
+    }
+    
+    /// Find a path optimized for reliability
+    pub fn find_reliable_path(
+        &self,
+        destination: &str,
+        amount_msat: u64,
+        min_reliability: f64,
+    ) -> Result<PaymentPath, RoutingError> {
+        // Try to find a path with standard algorithm
+        let path = self.find_route(destination, amount_msat, &[])?;
+        
+        // Calculate reliability
+        let reliability = self.calculate_path_reliability(&path);
+        
+        if reliability >= min_reliability {
+            return Ok(path);
+        }
+        
+        // If reliability is too low, try to find alternative paths
+        let alt_paths = self.find_alternative_routes(destination, amount_msat, &[], 5)?;
+        
+        // Find the most reliable path
+        let mut most_reliable_path = path;
+        let mut highest_reliability = reliability;
+        
+        for alt_path in alt_paths {
+            let alt_reliability = self.calculate_path_reliability(&alt_path);
+            
+            if alt_reliability > highest_reliability {
+                most_reliable_path = alt_path;
+                highest_reliability = alt_reliability;
+                
+                if highest_reliability >= min_reliability {
+                    break; // Found a path with sufficient reliability
+                }
+            }
+        }
+        
+        if highest_reliability < min_reliability {
+            warn!("Could not find path with required reliability {} (best: {})",
+                min_reliability, highest_reliability);
+        }
+        
+        Ok(most_reliable_path)
+    }
+}
+
+/// Payment tracker for multi-hop payments
+pub struct PaymentTracker {
+    /// Payment hash
+    payment_hash: [u8; 32],
+    
+    /// Payment parts
+    parts: Vec<PaymentPart>,
+    
+    /// Total amount
+    total_amount_msat: u64,
+    
+    /// Status
+    status: PaymentStatus,
+    
+    /// Creation time
+    creation_time: u64,
+    
+    /// Completion time
+    completion_time: Option<u64>,
+}
+
+/// Status of a payment
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PaymentStatus {
+    /// Payment is pending
+    Pending,
+    
+    /// Payment succeeded
+    Succeeded,
+    
+    /// Payment failed
+    Failed(String),
+    
+    /// Payment is in progress
+    InProgress,
+}
+
+/// Part of a split payment
+#[derive(Debug, Clone)]
+pub struct PaymentPart {
+    /// Part ID
+    id: u64,
+    
+    /// Amount in millisatoshis
+    amount_msat: u64,
+    
+    /// Payment path
+    path: PaymentPath,
+    
+    /// Status
+    status: PaymentStatus,
+    
+    /// Attempt count
+    attempts: u32,
+    
+    /// Last attempted time
+    last_attempt: u64,
+}
+
+impl PaymentTracker {
+    /// Create a new payment tracker
+    pub fn new(payment_hash: [u8; 32], total_amount_msat: u64) -> Self {
+        Self {
+            payment_hash,
+            parts: Vec::new(),
+            total_amount_msat,
+            status: PaymentStatus::Pending,
+            creation_time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::from_secs(0))
+                .as_secs(),
+            completion_time: None,
+        }
+    }
+    
+    /// Add a payment part
+    pub fn add_part(&mut self, path: PaymentPath, amount_msat: u64) -> u64 {
+        let id = self.parts.len() as u64;
+        
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+            
+        let part = PaymentPart {
+            id,
+            amount_msat,
+            path,
+            status: PaymentStatus::Pending,
+            attempts: 0,
+            last_attempt: now,
+        };
+        
+        self.parts.push(part);
+        
+        id
+    }
+    
+    /// Update the status of a payment part
+    pub fn update_part_status(&mut self, part_id: u64, status: PaymentStatus) {
+        if let Some(part) = self.parts.iter_mut().find(|p| p.id == part_id) {
+            part.status = status.clone();
+            part.attempts += 1;
+            
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::from_secs(0))
+                .as_secs();
+                
+            part.last_attempt = now;
+        }
+        
+        // Check if all parts are complete
+        self.update_overall_status();
+    }
+    
+    /// Update the overall payment status
+    fn update_overall_status(&mut self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+            
+        // Count succeeded and failed parts
+        let succeeded = self.parts.iter().filter(|p| p.status == PaymentStatus::Succeeded).count();
+        let failed = self.parts.iter().filter(|p| matches!(p.status, PaymentStatus::Failed(_))).count();
+        
+        if succeeded == self.parts.len() {
+            // All parts succeeded
+            self.status = PaymentStatus::Succeeded;
+            self.completion_time = Some(now);
+        } else if failed > 0 && failed + succeeded == self.parts.len() {
+            // All parts are complete, but some failed
+            self.status = PaymentStatus::Failed("Some payment parts failed".to_string());
+            self.completion_time = Some(now);
+        } else if failed > 0 || succeeded > 0 {
+            // Some parts are complete
+            self.status = PaymentStatus::InProgress;
+        }
+    }
+    
+    /// Get all failed payment parts
+    pub fn get_failed_parts(&self) -> Vec<&PaymentPart> {
+        self.parts.iter()
+            .filter(|p| matches!(p.status, PaymentStatus::Failed(_)))
+            .collect()
+    }
+    
+    /// Get the overall payment status
+    pub fn status(&self) -> &PaymentStatus {
+        &self.status
+    }
+    
+    /// Get the payment hash
+    pub fn payment_hash(&self) -> &[u8; 32] {
+        &self.payment_hash
+    }
+    
+    /// Get the total amount
+    pub fn total_amount_msat(&self) -> u64 {
+        self.total_amount_msat
+    }
+    
+    /// Get the successful amount
+    pub fn successful_amount_msat(&self) -> u64 {
+        self.parts.iter()
+            .filter(|p| p.status == PaymentStatus::Succeeded)
+            .map(|p| p.amount_msat)
+            .sum()
+    }
+    
+    /// Get elapsed time in seconds
+    pub fn elapsed_seconds(&self) -> u64 {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+            
+        now - self.creation_time
+    }
+}
+
+/// Multi-path payment coordinator
+pub struct MultiPathPaymentCoordinator {
+    /// Active payments
+    payments: HashMap<[u8; 32], PaymentTracker>,
+    
+    /// Router for finding paths
+    router: Arc<RwLock<Router>>,
+}
+
+impl MultiPathPaymentCoordinator {
+    /// Create a new multi-path payment coordinator
+    pub fn new(router: Arc<RwLock<Router>>) -> Self {
+        Self {
+            payments: HashMap::new(),
+            router,
+        }
+    }
+    
+    /// Start a new multi-path payment
+    pub fn start_payment(
+        &mut self,
+        payment_hash: [u8; 32],
+        destination: &str,
+        amount_msat: u64,
+        num_parts: usize,
+    ) -> Result<Vec<PaymentPart>, RoutingError> {
+        // Create a new payment tracker
+        let mut tracker = PaymentTracker::new(payment_hash, amount_msat);
+        
+        // Get the router
+        let router = self.router.read().unwrap();
+        
+        // Split the payment across multiple routes
+        let split_payment = router.split_payment(destination, amount_msat, &[], num_parts)?;
+        
+        // Add each part to the tracker
+        for (path, part_amount) in split_payment {
+            tracker.add_part(path, part_amount);
+        }
+        
+        // Register the payment
+        let parts = tracker.parts.clone();
+        self.payments.insert(payment_hash, tracker);
+        
+        Ok(parts)
+    }
+    
+    /// Update the status of a payment part
+    pub fn update_part_status(
+        &mut self,
+        payment_hash: &[u8; 32],
+        part_id: u64,
+        status: PaymentStatus,
+    ) -> Result<PaymentStatus, RoutingError> {
+        // Find the payment
+        let tracker = self.payments.get_mut(payment_hash)
+            .ok_or_else(|| RoutingError::InvalidDestination(
+                format!("Payment with hash {:x?} not found", &payment_hash[0..4])
+            ))?;
+            
+        // Update the part status
+        tracker.update_part_status(part_id, status);
+        
+        // Return the overall payment status
+        Ok(tracker.status().clone())
+    }
+    
+    /// Get the status of a payment
+    pub fn get_payment_status(&self, payment_hash: &[u8; 32]) -> Result<PaymentStatus, RoutingError> {
+        // Find the payment
+        let tracker = self.payments.get(payment_hash)
+            .ok_or_else(|| RoutingError::InvalidDestination(
+                format!("Payment with hash {:x?} not found", &payment_hash[0..4])
+            ))?;
+            
+        Ok(tracker.status().clone())
+    }
+    
+    /// Retry failed payment parts
+    pub fn retry_failed_parts(
+        &mut self,
+        payment_hash: &[u8; 32],
+        max_attempts: u32,
+    ) -> Result<Vec<PaymentPart>, RoutingError> {
+        // Find the payment
+        let tracker = self.payments.get_mut(payment_hash)
+            .ok_or_else(|| RoutingError::InvalidDestination(
+                format!("Payment with hash {:x?} not found", &payment_hash[0..4])
+            ))?;
+            
+        // Find failed parts that haven't exceeded max attempts
+        let failed_parts: Vec<_> = tracker.parts.iter()
+            .filter(|p| matches!(p.status, PaymentStatus::Failed(_)) && p.attempts < max_attempts)
+            .collect();
+            
+        let mut retried_parts = Vec::new();
+        
+        // Get the router
+        let router = self.router.read().unwrap();
+        
+        for failed_part in failed_parts {
+            // Try to find a new route for this part
+            let destination = failed_part.path.hops.last()
+                .map(|h| h.node_id.as_str().to_string())
+                .unwrap_or_default();
+                
+            // Find a different route
+            match router.find_route(&destination, failed_part.amount_msat, &[]) {
+                Ok(new_path) => {
+                    // Add a new part with the new path
+                    let part_id = tracker.add_part(new_path, failed_part.amount_msat);
+                    
+                    if let Some(new_part) = tracker.parts.iter().find(|p| p.id == part_id) {
+                        retried_parts.push(new_part.clone());
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to find alternative route for payment part: {}", e);
+                }
+            }
+        }
+        
+        Ok(retried_parts)
+    }
 } 
