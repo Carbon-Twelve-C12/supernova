@@ -1,0 +1,140 @@
+{{- if .Values.fullNode.enabled }}
+{{- if not .Values.fullNode.persistence.data.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-fullnode-data
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.fullNode.persistence.data.size }}
+---
+{{- end }}
+{{- if not .Values.fullNode.persistence.checkpoints.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-fullnode-checkpoints
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.fullNode.persistence.checkpoints.size }}
+---
+{{- end }}
+{{- if not .Values.fullNode.persistence.backups.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-fullnode-backups
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.fullNode.persistence.backups.size }}
+---
+{{- end }}
+{{- if not .Values.fullNode.persistence.logs.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-fullnode-logs
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.fullNode.persistence.logs.size }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.miner.enabled }}
+{{- if not .Values.miner.persistence.data.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-miner-data
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.miner.persistence.data.size }}
+---
+{{- end }}
+{{- if not .Values.miner.persistence.checkpoints.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-miner-checkpoints
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.miner.persistence.checkpoints.size }}
+---
+{{- end }}
+{{- if not .Values.miner.persistence.backups.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-miner-backups
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.miner.persistence.backups.size }}
+---
+{{- end }}
+{{- if not .Values.miner.persistence.logs.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-miner-logs
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.miner.persistence.logs.size }}
+{{- end }}
+{{- end }} 

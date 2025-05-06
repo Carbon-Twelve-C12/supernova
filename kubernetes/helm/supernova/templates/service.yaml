@@ -1,0 +1,83 @@
+{{- if .Values.fullNode.enabled }}
+# Service for SuperNova Full Nodes P2P
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "supernova.fullname" . }}-p2p
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+spec:
+  type: {{ .Values.fullNode.service.p2p.type }}
+  ports:
+  - port: {{ .Values.fullNode.service.p2p.port }}
+    targetPort: p2p
+    {{- if and (eq .Values.fullNode.service.p2p.type "NodePort") .Values.fullNode.service.p2p.nodePort }}
+    nodePort: {{ .Values.fullNode.service.p2p.nodePort }}
+    {{- end }}
+    protocol: TCP
+    name: p2p
+  selector:
+    {{- include "supernova.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+---
+# Service for SuperNova RPC
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "supernova.fullname" . }}-rpc
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+spec:
+  type: {{ .Values.fullNode.service.rpc.type }}
+  ports:
+  - port: {{ .Values.fullNode.service.rpc.port }}
+    targetPort: rpc
+    protocol: TCP
+    name: rpc
+  selector:
+    {{- include "supernova.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: full-node
+{{- end }}
+
+{{- if .Values.miner.enabled }}
+---
+# Service for SuperNova Miner P2P
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "supernova.fullname" . }}-miner-p2p
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+spec:
+  type: {{ .Values.miner.service.p2p.type }}
+  ports:
+  - port: {{ .Values.miner.service.p2p.port }}
+    targetPort: p2p
+    protocol: TCP
+    name: p2p
+  selector:
+    {{- include "supernova.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+---
+# Service for SuperNova Miner RPC
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "supernova.fullname" . }}-miner-rpc
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+spec:
+  type: {{ .Values.miner.service.rpc.type }}
+  ports:
+  - port: {{ .Values.miner.service.rpc.port }}
+    targetPort: rpc
+    protocol: TCP
+    name: rpc
+  selector:
+    {{- include "supernova.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+{{- end }} 

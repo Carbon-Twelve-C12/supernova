@@ -16,6 +16,10 @@ pub mod mempool_api;
 pub mod network_api;
 pub mod environmental_api;
 pub mod lightning_api;
+pub mod blockchain;
+pub mod wallet;
+pub mod node;
+pub mod metrics;
 
 pub use error::{ApiError, Result};
 pub use types::*;
@@ -30,6 +34,19 @@ pub const API_VERSION: &str = "v1";
 /// Creates a new API server instance
 pub fn create_api_server(node: Arc<Node>, bind_address: &str, port: u16) -> ApiServer {
     ApiServer::new(node, bind_address, port)
+}
+
+impl ApiServer {
+    /// Configure API routes
+    pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+        cfg.service(
+            web::scope("/api/v1")
+                .configure(blockchain::configure)
+                .configure(wallet::configure)
+                .configure(node::configure)
+                .configure(metrics::configure)
+        );
+    }
 }
 
 #[cfg(test)]

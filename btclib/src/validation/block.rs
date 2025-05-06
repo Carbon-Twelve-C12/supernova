@@ -1,5 +1,6 @@
 use thiserror::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
+use rayon::prelude::*;
 
 use crate::types::block::{Block, BlockHeader};
 use crate::types::transaction::Transaction;
@@ -63,6 +64,15 @@ pub struct BlockValidationConfig {
     
     /// Whether to perform full transaction validation
     pub full_transaction_validation: bool,
+    
+    /// Whether to use parallel validation for transactions
+    pub parallel_validation: bool,
+    
+    /// Minimum number of transactions before using parallel validation
+    pub parallel_threshold: usize,
+    
+    /// Number of threads to use for parallel validation (0 = auto)
+    pub thread_count: usize,
 }
 
 impl Default for BlockValidationConfig {
@@ -72,6 +82,9 @@ impl Default for BlockValidationConfig {
             max_future_time_offset: 7200, // 2 hours
             min_block_version: 1,
             full_transaction_validation: true,
+            parallel_validation: true,
+            parallel_threshold: 10,
+            thread_count: 0, // Auto-detect
         }
     }
 }
@@ -226,22 +239,81 @@ impl BlockValidator {
         // Track txids to prevent duplicates
         let mut tx_ids = std::collections::HashSet::new();
         
-        // Validate each transaction
-        for (i, tx) in transactions.iter().enumerate() {
-            // Skip detailed validation of coinbase
-            if i > 0 || self.config.full_transaction_validation {
-                match self.transaction_validator.validate(tx) {
-                    ValidationResult::Valid => {},
-                    ValidationResult::Invalid(err) => return Err(BlockValidationError::TransactionValidation(err)),
-                    // Soft failures are allowed in the mempool but not in blocks
-                    ValidationResult::SoftFail(err) => return Err(BlockValidationError::TransactionValidation(err)),
-                }
+        // Add the coinbase transaction id
+        tx_ids.insert(transactions[0].hash());
+        
+        // Get non-coinbase transactions
+        let non_coinbase = &transactions[1..];
+        
+        // Decide whether to use parallel validation
+        if self.config.parallel_validation && non_coinbase.len() >= self.config.parallel_threshold {
+            self.validate_transactions_parallel(non_coinbase, &mut tx_ids)?;
+        } else {
+            self.validate_transactions_sequential(non_coinbase, &mut tx_ids)?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Validate transactions in parallel
+    fn validate_transactions_parallel(
+        &self,
+        transactions: &[Transaction],
+        tx_ids: &mut std::collections::HashSet<[u8; 32]>
+    ) -> BlockValidationResult {
+        // Pre-compute all transaction hashes in parallel
+        let tx_with_hash: Vec<_> = transactions.par_iter()
+            .map(|tx| (tx, tx.hash()))
+            .collect();
+        
+        // Check for duplicates (this must be done sequentially to maintain thread safety)
+        for (_tx, tx_id) in &tx_with_hash {
+            if !tx_ids.insert(*tx_id) {
+                return Err(BlockValidationError::DuplicateTransaction(*tx_id));
             }
-            
+        }
+        
+        // Validate all transactions in parallel
+        let validation_results: Vec<Result<(), ValidationError>> = tx_with_hash.par_iter()
+            .map(|(tx, _)| {
+                match self.transaction_validator.validate(tx) {
+                    ValidationResult::Valid => Ok(()),
+                    ValidationResult::Invalid(err) => Err(err),
+                    // Soft failures are allowed in the mempool but not in blocks
+                    ValidationResult::SoftFail(err) => Err(err),
+                }
+            })
+            .collect();
+        
+        // Check results sequentially
+        for result in validation_results {
+            if let Err(err) = result {
+                return Err(BlockValidationError::TransactionValidation(err));
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Validate transactions sequentially
+    fn validate_transactions_sequential(
+        &self,
+        transactions: &[Transaction],
+        tx_ids: &mut std::collections::HashSet<[u8; 32]>
+    ) -> BlockValidationResult {
+        for tx in transactions {
             // Check for duplicate transactions
             let tx_id = tx.hash();
             if !tx_ids.insert(tx_id) {
                 return Err(BlockValidationError::DuplicateTransaction(tx_id));
+            }
+            
+            // Validate the transaction
+            match self.transaction_validator.validate(tx) {
+                ValidationResult::Valid => {},
+                ValidationResult::Invalid(err) => return Err(BlockValidationError::TransactionValidation(err)),
+                // Soft failures are allowed in the mempool but not in blocks
+                ValidationResult::SoftFail(err) => return Err(BlockValidationError::TransactionValidation(err)),
             }
         }
         
@@ -389,5 +461,44 @@ mod tests {
         let result = validator.validate_block(&block, None);
         
         assert!(matches!(result, Err(BlockValidationError::DuplicateTransaction(_))));
+    }
+    
+    #[test]
+    fn test_parallel_vs_sequential_validation() {
+        // Create a block with many transactions to test parallel validation
+        let coinbase = create_coinbase_tx(50_000_000);
+        
+        // Create 100 regular transactions
+        let mut transactions = vec![coinbase];
+        for i in 0..100 {
+            let mut tx = create_regular_tx();
+            // Make each transaction unique by modifying the output script
+            tx.outputs_mut()[0].script_mut().push(i as u8);
+            transactions.push(tx);
+        }
+        
+        let block = Block::new(1, [0u8; 32], transactions, u32::MAX);
+        
+        // Create validators with different configurations
+        let parallel_config = BlockValidationConfig {
+            parallel_validation: true,
+            parallel_threshold: 10,
+            ..BlockValidationConfig::default()
+        };
+        let parallel_validator = BlockValidator::with_config(parallel_config);
+        
+        let sequential_config = BlockValidationConfig {
+            parallel_validation: false,
+            ..BlockValidationConfig::default()
+        };
+        let sequential_validator = BlockValidator::with_config(sequential_config);
+        
+        // Validate using both methods
+        let parallel_result = parallel_validator.validate_block(&block, None);
+        let sequential_result = sequential_validator.validate_block(&block, None);
+        
+        // Both should succeed and give the same result
+        assert!(parallel_result.is_ok());
+        assert!(sequential_result.is_ok());
     }
 } 

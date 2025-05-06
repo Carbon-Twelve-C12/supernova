@@ -1,0 +1,255 @@
+# Production values for Supernova Helm chart
+global:
+  environment: production
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: "standard"
+
+image:
+  repository: supernova
+  tag: "0.9.8"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+  runAsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+
+network:
+  networkName: "supernova-mainnet"
+  p2pPort: 9333
+  rpcPort: 9332
+  maxConnections: 128
+  dnsSeeds:
+    - "seed1.supernova.network"
+    - "seed2.supernova.network"
+    - "seed3.supernova.network"
+  isTestnet: false
+
+consensus:
+  targetBlockTime: 600
+  initialDifficulty: 1000
+  difficultyAdjustmentWindow: 2016
+
+storage:
+  dbPath: "/data/supernova"
+  pruneMode: "archive"
+
+telemetry:
+  metricsEnabled: true
+  metricsPort: 9090
+  logLevel: "info"
+
+checkpoint:
+  checkpointsEnabled: true
+  checkpointInterval: 86400
+  checkpointType: "Regular"
+  dataDir: "/checkpoints"
+  maxCheckpoints: 7
+
+backup:
+  backupDir: "/backups"
+  maxBackups: 5
+  backupInterval: 3600
+  enableAutomatedBackups: true
+  verifyOnStartup: true
+
+fullNode:
+  enabled: true
+  replicaCount: 5
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  service:
+    p2p:
+      type: NodePort
+      port: 9333
+      nodePort: 30333
+    rpc:
+      type: ClusterIP
+      port: 9332
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  persistence:
+    data:
+      size: 500Gi
+    checkpoints:
+      size: 100Gi
+    backups:
+      size: 200Gi
+    logs:
+      size: 50Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - full-node
+          topologyKey: kubernetes.io/hostname
+
+miner:
+  enabled: true
+  replicaCount: 2
+  autoscaling:
+    enabled: false
+  service:
+    p2p:
+      type: ClusterIP
+      port: 9333
+    rpc:
+      type: ClusterIP
+      port: 9332
+  resources:
+    requests:
+      cpu: 4000m
+      memory: 8Gi
+    limits:
+      cpu: 8000m
+      memory: 16Gi
+  persistence:
+    data:
+      size: 300Gi
+    checkpoints:
+      size: 50Gi
+    backups:
+      size: 100Gi
+    logs:
+      size: 30Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+explorer:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8080
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: explorer.supernova.network
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: explorer-tls
+        hosts:
+          - explorer.supernova.network
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  persistence:
+    data:
+      size: 200Gi
+    logs:
+      size: 20Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+prometheus:
+  enabled: true
+  service:
+    type: ClusterIP
+    port: 9090
+  persistence:
+    size: 50Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+grafana:
+  enabled: true
+  adminPassword: "supernova-admin-password"
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: metrics.supernova.network
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - metrics.supernova.network
+  persistence:
+    size: 10Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+backupManager:
+  enabled: true
+  schedule: "0 0 * * *"  # Daily at midnight
+  retentionDays: 30
+  persistence:
+    size: 500Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+alertManager:
+  enabled: true
+  receivers:
+    email:
+      enabled: true
+      to: "ops@supernova.network"
+    slack:
+      enabled: true
+      webhookUrl: "https://hooks.slack.com/services/XXXX/YYYY/ZZZZ"
+      channel: "#alerts"
+  persistence:
+    size: 10Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {} 
