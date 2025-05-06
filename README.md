@@ -10,7 +10,7 @@
     <a href="https://supernovanetwork.xyz/"><img src="https://img.shields.io/badge/website-supernovanetwork.xyz-blue" alt="Official Website" /></a>
     <a href="https://github.com/mjohnson518/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/mjohnson518/supernova" alt="Contributors" /></a>
     <a href="https://github.com/mjohnson518/supernova/stargazers"><img src="https://img.shields.io/github/stars/mjohnson518/supernova" alt="Stars" /></a>
-    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.9.7--RC-blue" alt="Version" /></a>
+    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.9.9--RC-blue" alt="Version" /></a>
   </p>
 
   <p align="center">
@@ -184,7 +184,7 @@ Component completion status:
 
 A detailed roadmap with implementation priorities and timelines is available in [PROJECT_ROADMAP.md](PROJECT_ROADMAP.md). We welcome contributions from the community to help complete these components.
 
-Current development is focused on completing Phase 6: Production Readiness by finalizing deployment infrastructure and documentation.
+Current development is focused on preparing for the 1.0.0 final release, which will incorporate user feedback and polish all existing functionality.
 
 ## Getting Started
 
