@@ -1,0 +1,112 @@
+{{- if .Values.backupManager.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "supernova.fullname" . }}-backup
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backupManager.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "supernova.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          serviceAccountName: {{ include "supernova.serviceAccountName" . }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+          - name: backup-manager
+            image: alpine:latest
+            imagePullPolicy: IfNotPresent
+            command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              set -e
+              
+              timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+              
+              # Create directories
+              mkdir -p /storage/fullnode /storage/miner
+              
+              echo "Starting backup at $timestamp"
+              
+              # Backup full node data
+              if [ -d "/backups/fullnode" ] && [ "$(ls -A /backups/fullnode 2>/dev/null)" ]; then
+                echo "Creating full node backup..."
+                tar -czf "/storage/fullnode/fullnode_backup_$timestamp.tar.gz" -C "/backups/fullnode" .
+                echo "Full node backup complete."
+              else
+                echo "No full node backup data found."
+              fi
+              
+              # Backup miner data
+              if [ -d "/backups/miner" ] && [ "$(ls -A /backups/miner 2>/dev/null)" ]; then
+                echo "Creating miner backup..."
+                tar -czf "/storage/miner/miner_backup_$timestamp.tar.gz" -C "/backups/miner" .
+                echo "Miner backup complete."
+              else
+                echo "No miner backup data found."
+              fi
+              
+              # Clean up old backups
+              echo "Cleaning up old backups..."
+              find /storage -name "*.tar.gz" -type f -mtime +{{ .Values.backupManager.retentionDays }} -delete
+              
+              echo "Backup process completed successfully."
+            volumeMounts:
+            - name: fullnode-backups
+              mountPath: /backups/fullnode
+              readOnly: true
+            - name: miner-backups
+              mountPath: /backups/miner
+              readOnly: true
+            - name: backup-storage
+              mountPath: /storage
+          volumes:
+          - name: fullnode-backups
+            persistentVolumeClaim:
+              claimName: {{ include "supernova.fullname" . }}-fullnode-backups
+          - name: miner-backups
+            persistentVolumeClaim:
+              claimName: {{ include "supernova.fullname" . }}-miner-backups
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: {{ include "supernova.fullname" . }}-backup-storage
+          restartPolicy: OnFailure
+          {{- with .Values.backupManager.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backupManager.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backupManager.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "supernova.fullname" . }}-backup-storage
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.backupManager.persistence.size }}
+{{- end }} 

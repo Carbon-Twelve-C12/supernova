@@ -14,6 +14,7 @@ use btclib::lightning::{LightningNetwork, LightningConfig, LightningNetworkError
 use btclib::lightning::wallet::LightningWallet;
 use std::sync::{Arc, Mutex};
 use tracing::{info, error, warn};
+use crate::metrics::performance::{PerformanceMonitor, MetricType};
 
 pub struct Node {
     pub config: NodeConfig,
@@ -33,6 +34,8 @@ pub struct Node {
     pub api_server: Option<ApiServer>,
     /// Lightning Network integration
     lightning: Option<Arc<Mutex<LightningNetwork>>>,
+    /// Performance monitor
+    pub performance_monitor: Arc<PerformanceMonitor>,
 }
 
 impl Node {
@@ -57,6 +60,9 @@ impl Node {
             None
         };
 
+        // Initialize performance monitor
+        let performance_monitor = Arc::new(PerformanceMonitor::new(1000)); // Store 1000 data points per metric
+
         // ... existing code ...
 
         Ok(Self {
@@ -75,6 +81,7 @@ impl Node {
             mem_pool,
             api_server: None,
             lightning: None,
+            performance_monitor,
         })
     }
 
@@ -85,6 +92,15 @@ impl Node {
         if let Some(checkpoint_manager) = &self.checkpoint_manager {
             checkpoint_manager.start()?;
         }
+
+        // Start performance monitoring
+        let monitor_clone = Arc::clone(&self.performance_monitor);
+        tokio::spawn(async move {
+            monitor_clone.start_periodic_collection(10000); // Collect system metrics every 10 seconds
+        });
+        
+        // Optimize database for performance
+        self.optimize_database_for_performance()?;
 
         // ... existing code ...
         
@@ -332,5 +348,67 @@ impl Node {
             },
             None => Err(format!("Channel {} not found", channel_id)),
         }
+    }
+
+    pub fn optimize_database_for_performance(&self) -> Result<(), NodeError> {
+        // Wrap in performance monitor to track how long optimization takes
+        self.performance_monitor.record_execution_time(
+            MetricType::Custom("database_optimization".to_string()),
+            None,
+            || {
+                // Optimize the database
+                if let Err(e) = self.blockchain_db.optimize_for_performance() {
+                    error!("Database optimization failed: {}", e);
+                    return Err(NodeError::StorageError(e));
+                }
+                
+                // Preload critical data
+                if let Err(e) = self.blockchain_db.preload_critical_data() {
+                    error!("Failed to preload critical data: {}", e);
+                    return Err(NodeError::StorageError(e));
+                }
+                
+                // Configure memory usage for optimal performance
+                let available_memory = self.get_available_memory();
+                let cache_budget_mb = (available_memory * 0.7) as usize; // Use up to 70% of available memory
+                
+                if let Err(e) = self.blockchain_db.optimize_caching(cache_budget_mb) {
+                    error!("Failed to optimize caching: {}", e);
+                    return Err(NodeError::StorageError(e));
+                }
+                
+                info!("Database optimized for performance with {}MB cache budget", cache_budget_mb);
+                Ok(())
+            }
+        )?;
+        
+        Ok(())
+    }
+
+    fn get_available_memory(&self) -> usize {
+        // This is a simplified implementation
+        // In a real implementation, use platform-specific APIs
+
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
+                for line in content.lines() {
+                    if line.starts_with("MemAvailable:") {
+                        if let Some(kb_str) = line.split_whitespace().nth(1) {
+                            if let Ok(kb) = kb_str.parse::<usize>() {
+                                return kb / 1024; // Convert KB to MB
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Default to 1GB if can't determine
+        1024
+    }
+
+    pub fn get_performance_metrics(&self) -> serde_json::Value {
+        self.performance_monitor.get_report()
     }
 } 

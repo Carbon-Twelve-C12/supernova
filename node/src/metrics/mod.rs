@@ -174,6 +174,12 @@ where
     Some(TimedOperation::new(callback))
 }
 
+pub mod prometheus;
+pub mod performance;
+
+pub use prometheus::*;
+pub use performance::*;
+
 #[cfg(test)]
 mod tests {
     use super::*;

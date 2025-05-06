@@ -1,0 +1,16 @@
+apiVersion: v2
+name: supernova
+description: A Helm chart for Supernova Blockchain
+type: application
+version: 0.1.0
+appVersion: "0.9.8"
+home: https://supernovanetwork.xyz/
+sources:
+  - https://github.com/mjohnson518/supernova
+maintainers:
+  - name: Supernova Team
+    email: dev@supernovanetwork.xyz
+keywords:
+  - blockchain
+  - supernova
+  - cryptocurrency 

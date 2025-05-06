@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "supernova.fullname" . }}-config
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+data:
+  node.toml: |
+    {{- include "supernova.nodeConfig" . | nindent 4 }}
+  
+  prometheus-config.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      
+    scrape_configs:
+      - job_name: supernova-nodes
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: (\d+)
+            target_label: __metrics_path__
+            replacement: /metrics
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+  
+  alertmanager-config.yml: |
+    global:
+      resolve_timeout: 5m
+      
+    route:
+      group_by: ['alertname', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+      receiver: 'default-receiver'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'critical-receiver'
+          continue: true
+          
+    receivers:
+      - name: 'default-receiver'
+        {{- if .Values.alertManager.receivers.email.enabled }}
+        email_configs:
+          - to: {{ .Values.alertManager.receivers.email.to | quote }}
+            send_resolved: true
+        {{- end }}
+        {{- if .Values.alertManager.receivers.slack.enabled }}
+        slack_configs:
+          - api_url: {{ .Values.alertManager.receivers.slack.webhookUrl | quote }}
+            channel: {{ .Values.alertManager.receivers.slack.channel | quote }}
+            send_resolved: true
+        {{- end }}
+      
+      - name: 'critical-receiver'
+        {{- if .Values.alertManager.receivers.email.enabled }}
+        email_configs:
+          - to: {{ .Values.alertManager.receivers.email.to | quote }}
+            send_resolved: true
+        {{- end }}
+        {{- if .Values.alertManager.receivers.slack.enabled }}
+        slack_configs:
+          - api_url: {{ .Values.alertManager.receivers.slack.webhookUrl | quote }}
+            channel: {{ .Values.alertManager.receivers.slack.channel | quote }}
+            send_resolved: true
+        {{- end }} 

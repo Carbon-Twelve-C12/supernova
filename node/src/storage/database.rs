@@ -9,6 +9,8 @@ use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use serde::{Serialize, Deserialize};
 use std::sync::RwLock;
 use sha2::{Digest, Sha256};
+use lru::LruCache;
+use std::num::NonZeroUsize;
 
 const BLOCKS_TREE: &str = "blocks";
 const TXNS_TREE: &str = "transactions";
@@ -68,7 +70,54 @@ impl PendingBlockMetadata {
     }
 }
 
-/// Configuration for the blockchain database
+/// LRU cache implementation for database objects
+#[derive(Debug)]
+struct DatabaseCache<T> {
+    cache: RwLock<LruCache<Vec<u8>, T>>,
+    capacity: usize,
+}
+
+impl<T: Clone> DatabaseCache<T> {
+    /// Create a new database cache with specified capacity
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            cache: RwLock::new(LruCache::new(NonZeroUsize::new(capacity.max(1)).unwrap())),
+            capacity,
+        }
+    }
+    
+    /// Get an item from cache
+    pub fn get(&self, key: &[u8]) -> Option<T> {
+        let mut cache = self.cache.write().unwrap();
+        cache.get(&key.to_vec()).cloned()
+    }
+    
+    /// Insert an item into cache
+    pub fn insert(&self, key: &[u8], value: T) {
+        let mut cache = self.cache.write().unwrap();
+        cache.put(key.to_vec(), value);
+    }
+    
+    /// Remove an item from cache
+    pub fn remove(&self, key: &[u8]) {
+        let mut cache = self.cache.write().unwrap();
+        cache.pop(&key.to_vec());
+    }
+    
+    /// Clear the cache
+    pub fn clear(&self) {
+        let mut cache = self.cache.write().unwrap();
+        cache.clear();
+    }
+    
+    /// Resize the cache
+    pub fn resize(&self, new_capacity: usize) {
+        let mut cache = self.cache.write().unwrap();
+        cache.resize(NonZeroUsize::new(new_capacity.max(1)).unwrap());
+    }
+}
+
+/// Enhanced configuration for the blockchain database
 #[derive(Debug, Clone)]
 pub struct BlockchainDBConfig {
     /// Cache size in bytes
@@ -87,6 +136,16 @@ pub struct BlockchainDBConfig {
     pub bloom_filter_fpr: f64,
     /// Bloom filter expected item count
     pub bloom_filter_capacity: usize,
+    /// Whether to use LRU caching
+    pub use_lru_cache: bool,
+    /// Block cache capacity (number of blocks)
+    pub block_cache_capacity: usize,
+    /// Transaction cache capacity (number of transactions)
+    pub tx_cache_capacity: usize,
+    /// UTXO cache capacity (number of UTXOs)
+    pub utxo_cache_capacity: usize,
+    /// Header cache capacity (number of headers)
+    pub header_cache_capacity: usize,
 }
 
 impl Default for BlockchainDBConfig {
@@ -100,6 +159,11 @@ impl Default for BlockchainDBConfig {
             use_bloom_filters: true,
             bloom_filter_fpr: 0.01, // 1% false positive rate
             bloom_filter_capacity: 1_000_000, // Expect 1 million items
+            use_lru_cache: true,
+            block_cache_capacity: 1000, // Cache 1000 blocks
+            tx_cache_capacity: 10000, // Cache 10000 transactions
+            utxo_cache_capacity: 100000, // Cache 100000 UTXOs
+            header_cache_capacity: 10000, // Cache 10000 headers
         }
     }
 }
@@ -200,6 +264,15 @@ enum BatchOp {
     },
 }
 
+impl BatchOp {
+    fn tree(&self) -> &str {
+        match self {
+            BatchOp::Insert { tree, .. } => tree,
+            BatchOp::Remove { tree, .. } => tree,
+        }
+    }
+}
+
 impl BatchOperation {
     pub fn new() -> Self {
         Self {
@@ -261,6 +334,14 @@ pub struct BlockchainDB {
     tx_filter: Arc<RwLock<BloomFilter>>,
     /// Database configuration
     config: BlockchainDBConfig,
+    /// Block cache
+    block_cache: Option<Arc<DatabaseCache<Block>>>,
+    /// Transaction cache
+    tx_cache: Option<Arc<DatabaseCache<Transaction>>>,
+    /// Block header cache
+    header_cache: Option<Arc<DatabaseCache<BlockHeader>>>,
+    /// UTXO cache
+    utxo_cache: Option<Arc<DatabaseCache<Vec<u8>>>>,
 }
 
 impl BlockchainDB {
@@ -268,7 +349,7 @@ impl BlockchainDB {
         Self::with_config(path, BlockchainDBConfig::default())
     }
     
-    pub fn with_config<P: AsRef<Path>>(path: P, db_config: BlockchainDBConfig) -> Result<Self, StorageError> {
+    pub fn with_config<P: AsRef<Path>>(path: P, mut db_config: BlockchainDBConfig) -> Result<Self, StorageError> {
         let path_buf = path.as_ref().to_path_buf();
         
         // Configure sled database with optimized settings
@@ -300,6 +381,18 @@ impl BlockchainDB {
             )
         };
         
+        // Create LRU caches if enabled
+        let (block_cache, tx_cache, header_cache, utxo_cache) = if db_config.use_lru_cache {
+            (
+                Some(Arc::new(DatabaseCache::new(db_config.block_cache_capacity))),
+                Some(Arc::new(DatabaseCache::new(db_config.tx_cache_capacity))),
+                Some(Arc::new(DatabaseCache::new(db_config.header_cache_capacity))),
+                Some(Arc::new(DatabaseCache::new(db_config.utxo_cache_capacity))),
+            )
+        } else {
+            (None, None, None, None)
+        };
+        
         let mut blockchain_db = Self {
             blocks: db.open_tree(BLOCKS_TREE)?,
             transactions: db.open_tree(TXNS_TREE)?,
@@ -318,11 +411,36 @@ impl BlockchainDB {
             block_filter,
             tx_filter,
             config: db_config,
+            block_cache,
+            tx_cache,
+            header_cache,
+            utxo_cache,
         };
         
         // Initialize bloom filters with existing data if enabled
-        if db_config.use_bloom_filters {
+        if blockchain_db.config.use_bloom_filters {
             blockchain_db.init_bloom_filters()?;
+        }
+        
+        // Warm up caches with critical data
+        if blockchain_db.config.use_lru_cache {
+            // Preload best chain headers
+            let current_height = blockchain_db.get_height().unwrap_or(0);
+            let start_height = current_height.saturating_sub(1000); // Last 1000 blocks
+            
+            for height in start_height..=current_height {
+                let height_key = height.to_be_bytes();
+                if let Some(hash) = blockchain_db.block_height_index.get(&height_key)? {
+                    // Warm up header cache
+                    if let Some(header_data) = blockchain_db.headers.get(&hash)? {
+                        if let Some(header_cache) = &blockchain_db.header_cache {
+                            if let Ok(header) = bincode::deserialize::<BlockHeader>(&header_data) {
+                                header_cache.insert(&hash, header);
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         Ok(blockchain_db)
@@ -361,12 +479,27 @@ impl BlockchainDB {
             block_filter.insert(block_hash);
         }
         
+        // Update cache if enabled
+        if let Some(block_cache) = &self.block_cache {
+            // Deserialize and cache the block
+            if let Ok(block) = bincode::deserialize::<Block>(block_data) {
+                block_cache.insert(block_hash, block);
+            }
+        }
+        
         Ok(())
     }
 
-    /// Retrieve a block by its hash
+    /// Retrieve a block by its hash, using cache if available
     pub fn get_block(&self, block_hash: &[u8; 32]) -> Result<Option<Block>, StorageError> {
-        // Check bloom filter first for fast negative lookups
+        // Check cache first if enabled
+        if let Some(block_cache) = &self.block_cache {
+            if let Some(block) = block_cache.get(block_hash) {
+                return Ok(Some(block));
+            }
+        }
+        
+        // Check bloom filter for fast negative lookups
         if self.config.use_bloom_filters {
             let block_filter = self.block_filter.read().unwrap();
             if !block_filter.contains(block_hash) {
@@ -374,8 +507,15 @@ impl BlockchainDB {
             }
         }
         
+        // Retrieve from database
         if let Some(data) = self.blocks.get(block_hash)? {
             let block: Block = bincode::deserialize(&data)?;
+            
+            // Cache the block if caching is enabled
+            if let Some(block_cache) = &self.block_cache {
+                block_cache.insert(block_hash, block.clone());
+            }
+            
             Ok(Some(block))
         } else {
             Ok(None)
@@ -385,13 +525,36 @@ impl BlockchainDB {
     /// Store a block header in the database
     pub fn store_block_header(&self, header_hash: &[u8; 32], header_data: &[u8]) -> Result<(), StorageError> {
         self.headers.insert(header_hash, header_data)?;
+        
+        // Update cache if enabled
+        if let Some(header_cache) = &self.header_cache {
+            // Deserialize and cache the header
+            if let Ok(header) = bincode::deserialize::<BlockHeader>(header_data) {
+                header_cache.insert(header_hash, header);
+            }
+        }
+        
         Ok(())
     }
 
-    /// Retrieve a block header by its hash
+    /// Retrieve a block header by its hash, using cache if available
     pub fn get_block_header(&self, header_hash: &[u8; 32]) -> Result<Option<BlockHeader>, StorageError> {
+        // Check cache first if enabled
+        if let Some(header_cache) = &self.header_cache {
+            if let Some(header) = header_cache.get(header_hash) {
+                return Ok(Some(header));
+            }
+        }
+        
+        // Retrieve from database
         if let Some(data) = self.headers.get(header_hash)? {
             let header: BlockHeader = bincode::deserialize(&data)?;
+            
+            // Cache the header if caching is enabled
+            if let Some(header_cache) = &self.header_cache {
+                header_cache.insert(header_hash, header.clone());
+            }
+            
             Ok(Some(header))
         } else {
             Ok(None)
@@ -641,12 +804,27 @@ impl BlockchainDB {
             tx_filter.insert(tx_hash);
         }
         
+        // Update cache if enabled
+        if let Some(tx_cache) = &self.tx_cache {
+            // Deserialize and cache the transaction
+            if let Ok(tx) = bincode::deserialize::<Transaction>(tx_data) {
+                tx_cache.insert(tx_hash, tx);
+            }
+        }
+        
         Ok(())
     }
 
-    /// Retrieve a transaction by its hash
+    /// Retrieve a transaction by its hash, using cache if available
     pub fn get_transaction(&self, tx_hash: &[u8; 32]) -> Result<Option<Transaction>, StorageError> {
-        // Check bloom filter first for fast negative lookups
+        // Check cache first if enabled
+        if let Some(tx_cache) = &self.tx_cache {
+            if let Some(tx) = tx_cache.get(tx_hash) {
+                return Ok(Some(tx));
+            }
+        }
+        
+        // Check bloom filter for fast negative lookups
         if self.config.use_bloom_filters {
             let tx_filter = self.tx_filter.read().unwrap();
             if !tx_filter.contains(tx_hash) {
@@ -654,8 +832,15 @@ impl BlockchainDB {
             }
         }
         
+        // Retrieve from database
         if let Some(data) = self.transactions.get(tx_hash)? {
             let tx: Transaction = bincode::deserialize(&data)?;
+            
+            // Cache the transaction if caching is enabled
+            if let Some(tx_cache) = &self.tx_cache {
+                tx_cache.insert(tx_hash, tx.clone());
+            }
+            
             Ok(Some(tx))
         } else {
             Ok(None)
@@ -1749,6 +1934,224 @@ impl BlockchainDB {
     pub fn store_integrity_check_result(&self, result: &IntegrityCheckResult) -> Result<(), StorageError> {
         let data = bincode::serialize(result)?;
         self.metadata.insert("latest_integrity_check".as_bytes(), &data)?;
+        Ok(())
+    }
+
+    /// Optimize database performance
+    pub fn optimize_for_performance(&self) -> Result<(), StorageError> {
+        // Flush any pending writes to ensure a clean state
+        self.db.flush()?;
+        
+        // Compact the database to reclaim space and optimize on-disk structure
+        self.compact()?;
+        
+        // Optimize each tree separately
+        for tree_name in self.list_trees()? {
+            let tree = self.open_tree(&tree_name)?;
+            
+            // Perform tree-specific optimizations
+            match tree_name.as_str() {
+                BLOCKS_TREE => {
+                    // Blocks are rarely accessed in random order, optimize for sequential reads
+                    tree.set_merge_operator(|_k, old_v: Option<&[u8]>, _new_v: Option<&[u8]>| old_v.map(|v| v.to_vec()));
+                }
+                TXNS_TREE => {
+                    // Transactions are frequently accessed by hash, optimize for random reads
+                    // Keep merge operator as default to optimize space
+                }
+                UTXO_TREE => {
+                    // UTXOs are frequently accessed and modified, optimize for both reads and writes
+                    // Use a custom merge operator that preserves the latest version
+                    tree.set_merge_operator(|_k, _old_v: Option<&[u8]>, new_v: Option<&[u8]>| new_v.map(|v| v.to_vec()));
+                }
+                _ => {
+                    // Use default optimization for other trees
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Optimize caching strategy
+    pub fn optimize_caching(&mut self, memory_budget_mb: usize) -> Result<(), StorageError> {
+        // Allocate memory budget across different components based on their importance
+        let total_budget_bytes = memory_budget_mb * 1024 * 1024;
+        
+        // Allocate memory budget based on importance:
+        // - UTXO set: 40% (most frequently accessed)
+        // - Blocks: 20% (less frequently accessed but large)
+        // - Transactions: 25% (frequently accessed)
+        // - Others: 15% (headers, metadata, etc.)
+        
+        let utxo_budget = (total_budget_bytes as f64 * 0.4) as usize;
+        let blocks_budget = (total_budget_bytes as f64 * 0.2) as usize;
+        let tx_budget = (total_budget_bytes as f64 * 0.25) as usize;
+        let others_budget = total_budget_bytes - utxo_budget - blocks_budget - tx_budget;
+        
+        // Update bloom filter capacities based on available memory
+        if self.config.use_bloom_filters {
+            let block_filter_capacity = (blocks_budget / 100) as usize; // Each block requires ~100 bytes in filter
+            let tx_filter_capacity = (tx_budget / 50) as usize; // Each tx requires ~50 bytes in filter
+            
+            let mut block_filter = self.block_filter.write().unwrap();
+            *block_filter = BloomFilter::new(
+                block_filter_capacity.max(1000), // At least 1000 items
+                self.config.bloom_filter_fpr,
+            );
+            
+            let mut tx_filter = self.tx_filter.write().unwrap();
+            *tx_filter = BloomFilter::new(
+                tx_filter_capacity.max(10000), // At least 10000 items
+                self.config.bloom_filter_fpr,
+            );
+        }
+        
+        // Update the configuration
+        self.config.cache_size = total_budget_bytes;
+        self.config.bloom_filter_capacity = (utxo_budget / 30) as usize; // Each UTXO requires ~30 bytes in filter
+        
+        // Reinitialize bloom filters with existing data
+        if self.config.use_bloom_filters {
+            self.init_bloom_filters()?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Initialize and preload frequently accessed data to improve performance
+    pub fn preload_critical_data(&self) -> Result<(), StorageError> {
+        // Preload UTXO set into memory (this can be expensive but speeds up future operations)
+        let mut utxo_count = 0;
+        for result in self.utxos.iter() {
+            let (key, _value) = result?;
+            
+            // Add to bloom filter
+            if self.config.use_bloom_filters {
+                let mut tx_filter = self.tx_filter.write().unwrap();
+                tx_filter.insert(&key);
+            }
+            
+            utxo_count += 1;
+            
+            // Limit preloading to avoid excessive memory usage
+            if utxo_count > 1_000_000 {
+                break;
+            }
+        }
+        
+        // Preload recent blocks (last 1000 blocks)
+        let current_height = self.get_height()?;
+        let start_height = if current_height > 1000 { current_height - 1000 } else { 0 };
+        
+        for height in start_height..=current_height {
+            let height_key = height.to_be_bytes();
+            if let Some(hash) = self.block_height_index.get(&height_key)? {
+                // This will load the block into sled's internal cache
+                self.blocks.get(&hash)?;
+                
+                // Also preload the header
+                self.headers.get(&hash)?;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Optimize batch operations with enhanced batching efficiency
+    pub fn execute_optimized_batch(&self, batch: BatchOperation) -> Result<(), StorageError> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        
+        // Group operations by tree for better efficiency
+        let mut tree_operations: std::collections::HashMap<String, Vec<BatchOp>> = std::collections::HashMap::new();
+        
+        for op in batch.operations {
+            tree_operations.entry(op.tree().to_string())
+                .or_insert_with(Vec::new)
+                .push(op);
+        }
+        
+        // Execute operations tree by tree to reduce context switching
+        for (tree_name, ops) in tree_operations {
+            let tree = self.open_tree(&tree_name)?;
+            
+            // Create a tree-specific batch for better performance
+            let mut tree_batch = sled::Batch::default();
+            
+            for op in ops {
+                match op {
+                    BatchOp::Insert { key, value, .. } => {
+                        tree_batch.insert(&key, value.as_slice());
+                        
+                        // Update bloom filters if enabled
+                        if self.config.use_bloom_filters {
+                            if tree_name == BLOCKS_TREE {
+                                let mut block_filter = self.block_filter.write().unwrap();
+                                block_filter.insert(&key);
+                            } else if tree_name == TXNS_TREE {
+                                let mut tx_filter = self.tx_filter.write().unwrap();
+                                tx_filter.insert(&key);
+                            }
+                        }
+                    },
+                    BatchOp::Remove { key, .. } => {
+                        tree_batch.remove(&key);
+                    },
+                }
+            }
+            
+            // Apply the batch to the tree
+            tree.apply_batch(tree_batch)?;
+        }
+        
+        Ok(())
+    }
+
+    /// Asynchronously flush database to disk, optimized for performance
+    pub async fn async_flush(&self) -> Result<(), StorageError> {
+        // Create a clone of the database reference to use in the async task
+        let db_clone = Arc::clone(&self.db);
+        
+        // Spawn a task to perform the flush
+        let task = tokio::task::spawn_blocking(move || {
+            db_clone.flush()
+        });
+        
+        // Await the result of the flush operation
+        task.await.map_err(|e| StorageError::DatabaseError(format!("Async flush failed: {}", e)))?
+    }
+
+    /// Invalidate caches when necessary (e.g., during chain reorganization)
+    pub fn invalidate_caches(&self) -> Result<(), StorageError> {
+        if let Some(block_cache) = &self.block_cache {
+            block_cache.clear();
+        }
+        
+        if let Some(tx_cache) = &self.tx_cache {
+            tx_cache.clear();
+        }
+        
+        if let Some(header_cache) = &self.header_cache {
+            header_cache.clear();
+        }
+        
+        if let Some(utxo_cache) = &self.utxo_cache {
+            utxo_cache.clear();
+        }
+        
+        if self.config.use_bloom_filters {
+            let mut block_filter = self.block_filter.write().unwrap();
+            block_filter.clear();
+            
+            let mut tx_filter = self.tx_filter.write().unwrap();
+            tx_filter.clear();
+            
+            // Reinitialize bloom filters
+            self.init_bloom_filters()?;
+        }
+        
         Ok(())
     }
 }

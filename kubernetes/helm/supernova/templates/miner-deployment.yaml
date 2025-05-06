@@ -1,0 +1,170 @@
+{{- if .Values.miner.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supernova.fullname" . }}-miner
+  labels:
+    {{- include "supernova.labels" . | nindent 4 }}
+    app.kubernetes.io/component: miner
+spec:
+  replicas: {{ .Values.miner.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "supernova.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: miner
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "supernova.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: miner
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "supernova.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+      - name: init-dirs
+        image: busybox:latest
+        command: ['sh', '-c', 'mkdir -p /data /checkpoints /backups /logs && chown -R 1000:1000 /data /checkpoints /backups /logs']
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: checkpoints
+          mountPath: /checkpoints
+        - name: backups
+          mountPath: /backups
+        - name: logs
+          mountPath: /logs
+      containers:
+      - name: supernova-miner
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args: ["--config", "/config/node.toml", "--mine"]
+        ports:
+        - containerPort: {{ .Values.network.p2pPort }}
+          name: p2p
+        - containerPort: {{ .Values.network.rpcPort }}
+          name: rpc
+        - containerPort: {{ .Values.telemetry.metricsPort }}
+          name: metrics
+        resources:
+          {{- toYaml .Values.miner.resources | nindent 12 }}
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.network.rpcPort }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.network.rpcPort }}
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        volumeMounts:
+        - name: data
+          mountPath: {{ .Values.storage.dbPath | dirname }}
+        - name: checkpoints
+          mountPath: {{ .Values.checkpoint.dataDir }}
+        - name: backups
+          mountPath: {{ .Values.backup.backupDir }}
+        - name: logs
+          mountPath: /logs
+        - name: config
+          mountPath: /config
+        env:
+        - name: RUST_BACKTRACE
+          value: "1"
+        - name: RUST_LOG
+          value: {{ .Values.telemetry.logLevel | quote }}
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: SUPERNOVA_DATA_DIR
+          value: {{ .Values.storage.dbPath | dirname | quote }}
+        - name: SUPERNOVA_CONFIG_DIR
+          value: "/config"
+        - name: SUPERNOVA_CHECKPOINTS_DIR
+          value: {{ .Values.checkpoint.dataDir | quote }}
+        - name: SUPERNOVA_BACKUPS_DIR
+          value: {{ .Values.backup.backupDir | quote }}
+        - name: SUPERNOVA_LOGS_DIR
+          value: "/logs"
+        - name: MINE
+          value: "true"
+        - name: TZ
+          value: "UTC"
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "supernova.fullname" . }}-config
+      {{- if .Values.miner.persistence.data.existingClaim }}
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ .Values.miner.persistence.data.existingClaim }}
+      {{- else }}
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ include "supernova.fullname" . }}-miner-data
+      {{- end }}
+      {{- if .Values.miner.persistence.checkpoints.existingClaim }}
+      - name: checkpoints
+        persistentVolumeClaim:
+          claimName: {{ .Values.miner.persistence.checkpoints.existingClaim }}
+      {{- else }}
+      - name: checkpoints
+        persistentVolumeClaim:
+          claimName: {{ include "supernova.fullname" . }}-miner-checkpoints
+      {{- end }}
+      {{- if .Values.miner.persistence.backups.existingClaim }}
+      - name: backups
+        persistentVolumeClaim:
+          claimName: {{ .Values.miner.persistence.backups.existingClaim }}
+      {{- else }}
+      - name: backups
+        persistentVolumeClaim:
+          claimName: {{ include "supernova.fullname" . }}-miner-backups
+      {{- end }}
+      {{- if .Values.miner.persistence.logs.existingClaim }}
+      - name: logs
+        persistentVolumeClaim:
+          claimName: {{ .Values.miner.persistence.logs.existingClaim }}
+      {{- else }}
+      - name: logs
+        persistentVolumeClaim:
+          claimName: {{ include "supernova.fullname" . }}-miner-logs
+      {{- end }}
+      {{- with .Values.miner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.miner.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.miner.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }} 
