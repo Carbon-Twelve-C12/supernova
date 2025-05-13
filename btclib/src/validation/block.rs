@@ -289,9 +289,9 @@ impl BlockValidator {
         for result in validation_results {
             if let Err(err) = result {
                 return Err(BlockValidationError::TransactionValidation(err));
+                }
             }
-        }
-        
+            
         Ok(())
     }
     
