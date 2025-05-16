@@ -484,11 +484,12 @@ The security system includes:
 SuperNova implements a transparent and balanced tokenomics model:
 
 - **Total Supply**: 42,000,000 NOVA tokens
-- **Distribution**: Mining (40%), Foundation (13.5%), Ecosystem Development (15%), Team & Advisors (15%), Environmental Treasury (10%), Community & Airdrops (4.5%), and Liquidity Reserve (2%)
+- **Distribution**: Mining (40%), Foundation (13.5%), Ecosystem Development (15%), Team & Advisors (10%), Environmental Treasury (10%), Community & Airdrops (7.5%), and Liquidity Reserve (4%)
 - **Launch Mechanism**: 7-day Liquidity Bootstrapping Pool (LBP) for fair price discovery
 - **Strategic Investors**: Dedicated framework for partners aligned with environmental and technical mission
 - **Market Stability**: Comprehensive liquidity strategy with professional market making
 - **Environmental Impact**: Carbon-negative by design with dedicated treasury and fee allocation
+- **Exchange Strategy**: Phased approach with mid-tier exchanges first, followed by tier-1 platforms
 
 For detailed tokenomics information, see [SuperNova Tokenomics](btclib/src/docs/tokenomics.md).
 

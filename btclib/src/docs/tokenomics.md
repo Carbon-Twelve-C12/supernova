@@ -37,10 +37,10 @@ The total supply of 42,000,000 NOVA tokens is allocated as follows:
 | Mining Rewards | 40% | 16,800,000 | Network security incentives |
 | Foundation Reserve | 13.5% | 5,670,000 | Long-term ecosystem development |
 | Ecosystem Development | 15% | 6,300,000 | Grants, partnerships, and marketing |
-| Team & Advisors | 15% | 6,300,000 | Team compensation and advisory services |
+| Team & Advisors | 10% | 4,200,000 | Team compensation and advisory services |
 | Environmental Treasury | 10% | 4,200,000 | Ensuring carbon negativity |
-| Community & Airdrops | 4.5% | 1,890,000 | Community building and adoption |
-| Liquidity Reserve | 2% | 840,000 | Market making and liquidity provision |
+| Community & Airdrops | 7.5% | 3,150,000 | Community building and adoption |
+| Liquidity Reserve | 4% | 1,680,000 | Market making and liquidity provision |
 
 The Liquidity Reserve is a dedicated allocation managed by the Treasury Committee to ensure stable, deep markets for NOVA tokens. This allocation reduces selling pressure on the Foundation Reserve while providing professional market making services.
 
@@ -48,11 +48,12 @@ The Liquidity Reserve is a dedicated allocation managed by the Treasury Committe
 
 ```
 Mining Rewards       [████████████████████████                            ] 40%
-Foundation Reserve   [████████▌                                           ] 15%
 Ecosystem Development[████████▌                                           ] 15%
-Team & Advisors      [████████▌                                           ] 15%
-Environmental        [█████                                               ] 10%
-Community & Airdrops [██▌                                                 ] 5%
+Foundation Reserve   [████████▌                                           ] 13.5%
+Team & Advisors      [██████                                              ] 10%
+Environmental        [██████                                              ] 10%
+Community & Airdrops [████▌                                               ] 7.5%
+Liquidity Reserve    [██▌                                                 ] 4%
 ```
 
 ## 3. Mining Rewards & Emissions Schedule
@@ -92,21 +93,16 @@ SuperNova implements a unique environmental reward system:
 
 ### 4.1 Team & Advisors Vesting
 
-The 6,300,000 NOVA allocated to Team & Advisors follows varying vesting schedules:
+The 4,200,000 NOVA allocated to Team & Advisors follows a simplified vesting schedule:
 
-- **Vesting Period**: 48 months total for all allocations
-- **Cliff Periods**: Varies by role (6-12 months)
-- **Release Schedule**: Linear monthly vesting after cliff
-- **Monthly Release Rate**: Varies by allocation
+- **Initial Release**: 50% at token generation (2,100,000 NOVA)
+- **Remaining Allocation**: 50% (2,100,000 NOVA) vests linearly over 2 years
+- **Cliff Period**: 6 months (no tokens released during this period)
+- **Release Schedule**: After cliff, linear monthly vesting over remaining 18 months
+- **Monthly Release Rate**: ~116,667 NOVA per month after cliff
 - **Vesting Start**: Network mainnet launch
 
-The specific allocation within the Team & Advisors category is:
-
-| Category | Allocation | NOVA Tokens | Vesting |
-|----------|------------|-------------|---------|
-| Core Development Team | 8% of total supply | 3,360,000 | 4-year with 1-year cliff |
-| Founding Team | 4% of total supply | 1,680,000 | 4-year with 6-month cliff |
-| Advisors & Contributors | 3% of total supply | 1,260,000 | 4-year with 1-year cliff |
+This revised vesting schedule provides immediate utility while ensuring long-term alignment through the remaining vested tokens.
 
 ### 4.2 Foundation Reserve Vesting
 
@@ -211,7 +207,7 @@ Supernova will implement a Liquidity Bootstrapping Pool (LBP) for fair and effic
 - **Initial Pool Structure**: 
   - Starting weight: 90% NOVA / 10% USDC
   - Ending weight: 50% NOVA / 50% USDC
-  - Initial NOVA allocation: 1,050,000 tokens (1/2 of initial Community & Airdrop allocation)
+  - Initial NOVA allocation: 1,575,000 tokens (1/2 of initial Community & Airdrop allocation)
   
 - **Price Parameters**:
   - Starting price ceiling: $6.30 USDC
@@ -291,15 +287,15 @@ Supernova will implement a comprehensive liquidity strategy to ensure market sta
 
 ### 5.8 Liquidity Reserve Management
 
-The 840,000 NOVA (2% of total supply) allocated to the Liquidity Reserve follows strict guidelines for market stability:
+The 1,680,000 NOVA (4% of total supply) allocated to the Liquidity Reserve follows strict guidelines for market stability:
 
 - **Allocation Breakdown**:
-  - DEX Liquidity: 50% (420,000 NOVA)
-  - CEX Market Making: 40% (336,000 NOVA)
-  - Volatility Reserve: 10% (84,000 NOVA)
+  - DEX Liquidity: 50% (840,000 NOVA)
+  - CEX Market Making: 40% (672,000 NOVA)
+  - Volatility Reserve: 10% (168,000 NOVA)
 
 - **Vesting Schedule**: 
-  - 30% available at launch (252,000 NOVA)
+  - 30% available at launch (504,000 NOVA)
   - Remaining 70% released linearly over 24 months
 
 - **Utilization Guidelines**:
@@ -399,7 +395,7 @@ Beyond transaction fees and governance, NOVA tokens serve additional purposes:
 
 | Project | Total Supply | Initial Circulating | Mining % | Team % | Launch Date |
 |---------|--------------|---------------------|----------|--------|-------------|
-| SuperNova | 42,000,000 | 2,520,000 (6.0%) | 40% | 15% | 2025 (est.) |
+| SuperNova | 42,000,000 | 2,520,000 (6.0%) | 40% | 10% | 2025 (est.) |
 | Bitcoin | 21,000,000 | 50 (0.00024%) | 100% | 0% | 2009 |
 | Ethereum | ~120,000,000 | 72,000,000 (60%) | ~10% | ~15% | 2015 |
 | Cardano | 45,000,000,000 | 25,927,070,538 (57.6%) | 0% | 13.54% | 2017 |
