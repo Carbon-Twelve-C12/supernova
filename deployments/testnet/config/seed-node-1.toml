@@ -1,0 +1,51 @@
+# SuperNova Seed Node 1 Configuration
+[network]
+network_name = "supernova-testnet"
+p2p_port = 9333
+rpc_port = 9332
+max_connections = 256
+dns_seeds = []
+is_testnet = true
+node_id = "seed-node-1"
+allow_private_addresses = true
+
+[consensus]
+target_block_time = 60        # 1 minute blocks for testnet (faster than mainnet)
+initial_difficulty = 100000   # Low difficulty for testnet
+difficulty_adjustment_window = 24  # Adjust every 24 blocks (approximately every 24 minutes)
+
+[mining]
+enabled = false
+
+[storage]
+db_path = "/data/supernova"
+prune_mode = "archive"
+
+[telemetry]
+metrics_enabled = true
+metrics_port = 9090
+log_level = "info"
+
+[checkpoint]
+checkpoints_enabled = true
+checkpoint_interval = 3600  # Hourly
+checkpoint_type = "Regular"
+data_dir = "/data/checkpoints"
+max_checkpoints = 24
+
+[backup]
+backup_dir = "/data/backups"
+max_backups = 5
+backup_interval = 3600
+enable_automated_backups = true
+verify_on_startup = true
+
+[security]
+enable_quantum_resistance = true
+preferred_quantum_scheme = "Dilithium"
+hybrid_quantum_signatures = true
+
+[environmental]
+track_emissions = true
+emissions_api_key = "testnet_emissions_key"
+enable_reporting = true 
