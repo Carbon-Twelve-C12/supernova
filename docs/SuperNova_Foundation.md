@@ -79,10 +79,10 @@ SuperNova features a total supply of 42,000,000 NOVA tokens allocated as follows
 | **Mining Rewards** | 40% | 16,800,000 | Released through mining over ~20 years |
 | **Foundation Reserve** | 13.5% | 5,670,000 | 10% at launch, 90% with 5-year vesting and 1-year cliff |
 | **Ecosystem Development** | 15% | 6,300,000 | 4-year vesting with 6-month cliff |
-| **Team & Advisors** | 15% | 6,300,000 | 4-year vesting with 6-month cliff |
+| **Team & Advisors** | 10% | 4,200,000 | 50% at launch, 50% over 2 years with 6-month cliff |
 | **Environmental Treasury** | 10% | 4,200,000 | 20% at launch, 80% released based on carbon metrics |
-| **Community & Airdrops** | 4.5% | 1,890,000 | 50% at launch, 50% over 2 years |
-| **Liquidity Reserve** | 2% | 840,000 | 30% at launch, 70% over 2 years |
+| **Community & Airdrops** | 7.5% | 3,150,000 | 50% at launch, 50% over 2 years |
+| **Liquidity Reserve** | 4% | 1,680,000 | 30% at launch, 70% over 2 years |
 
 ### 2.2 Mining Rewards Distribution
 
@@ -116,13 +116,13 @@ The 15% allocated to Ecosystem Development is used for:
 
 ### 2.5 Team & Advisors Allocation
 
-The 15% allocated to Team & Advisors is distributed to:
+The 10% allocated to Team & Advisors is distributed to:
 
-- Core development team (8%)
-- Founding team (4%)
-- Advisors and early contributors (3%)
+- Core development team
+- Founding team
+- Advisors and early contributors
 
-This allocation follows varying vesting schedules over a 4-year period, with cliff periods ranging from 6 months (founding team) to 1 year (core development team and advisors). Team members departing before their vesting period completes will have their unvested tokens returned to the Foundation Reserve.
+This allocation follows a vesting schedule where 50% of tokens vest immediately upon token generation, and the remaining 50% vest linearly over 2 years with a 6-month cliff. A "6-month cliff" means that no tokens are released during the first 6 months of the vesting period. After 6 months, a portion of tokens becomes available, and the remainder vests linearly over the following 18 months. Team members departing before their vesting period completes will have their unvested tokens returned to the Foundation Reserve.
 
 ### 2.6 Environmental Treasury
 
@@ -138,7 +138,7 @@ Tokens are released from this allocation based on verified carbon negativity met
 
 ### 2.7 Community & Airdrops
 
-The 4.5% allocated to Community & Airdrops is distributed through:
+The 7.5% allocated to Community & Airdrops is distributed through:
 
 - Community incentive programs
 - User adoption campaigns
@@ -148,7 +148,7 @@ The 4.5% allocated to Community & Airdrops is distributed through:
 
 ### 2.8 Liquidity Reserve
 
-The 2% allocated to the Liquidity Reserve is managed by the Treasury Committee and is used for:
+The 4% allocated to the Liquidity Reserve is managed by the Treasury Committee and is used for:
 
 - Initial liquidity provision on DEXes
 - Professional market making
@@ -198,7 +198,7 @@ The Foundation will implement a fair and transparent token launch through a Liqu
 - **Initial Pool Structure**: 
   - Starting weight: 90% NOVA / 10% USDC
   - Ending weight: 50% NOVA / 50% USDC
-  - Initial NOVA allocation: 1,050,000 tokens from Community allocation
+  - Initial NOVA allocation: 1,575,000 tokens from Community allocation
   
 - **Participation**: Open to public, with KYC requirements for larger purchases
 - **Anti-whale Measures**: Maximum individual contribution caps in the first 24 hours
@@ -228,7 +228,7 @@ Prior to public launch, the Foundation will secure strategic investors who align
 
 The Foundation will implement a comprehensive liquidity strategy to ensure market stability:
 
-- **Dedicated Liquidity Reserve**: 2% of total supply (840,000 NOVA) allocated specifically for liquidity provision
+- **Dedicated Liquidity Reserve**: 4% of total supply (1,680,000 NOVA) allocated specifically for liquidity provision
 - **DEX Strategy**: Initial liquidity on major DEXes with professional position management
 - **Market Making**: Partnerships with professional market makers with strict performance requirements
 - **Oversight**: Treasury Committee manages liquidity deployments with Foundation Council approval
