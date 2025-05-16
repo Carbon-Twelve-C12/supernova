@@ -10,6 +10,7 @@ pub mod environmental;
 pub mod lightning;
 pub mod node;
 pub mod wallet;
+pub mod faucet;
 
 use actix_web::web;
 
@@ -26,6 +27,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .configure(lightning::configure)
             .configure(node::configure)
             .configure(wallet::configure)
+            .configure(faucet::configure)
     );
     
     // Add health check endpoint at root

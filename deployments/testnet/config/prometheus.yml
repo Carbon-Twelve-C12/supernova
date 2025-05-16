@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'supernova-nodes'
+    static_configs:
+      - targets: ['seed-node-1:9090', 'seed-node-2:9090', 'miner-node:9090', 'faucet:9090']
+        labels:
+          network: 'testnet'
+
+  - job_name: 'supernova-seed-1'
+    static_configs:
+      - targets: ['seed-node-1:9090']
+        labels:
+          node: 'seed-1'
+          role: 'seed'
+          network: 'testnet'
+
+  - job_name: 'supernova-seed-2'
+    static_configs:
+      - targets: ['seed-node-2:9090']
+        labels:
+          node: 'seed-2'
+          role: 'seed'
+          network: 'testnet'
+
+  - job_name: 'supernova-miner'
+    static_configs:
+      - targets: ['miner-node:9090']
+        labels:
+          node: 'miner'
+          role: 'miner'
+          network: 'testnet'
+
+  - job_name: 'supernova-faucet'
+    static_configs:
+      - targets: ['faucet:9090']
+        labels:
+          node: 'faucet'
+          role: 'faucet'
+          network: 'testnet' 
