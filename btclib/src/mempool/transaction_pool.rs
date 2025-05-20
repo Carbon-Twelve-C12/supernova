@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock, Mutex};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use dashmap::DashMap;
+use std::fmt;
 
 use crate::types::transaction::{Transaction, TransactionOutput};
 use crate::types::transaction_dependency::TransactionDependencyGraph;
@@ -365,7 +366,7 @@ impl TransactionPool {
         
         {
             let mut orphans = self.orphans.write().unwrap();
-            let mut to_process = Vec::new();
+            let mut to_process: Vec<Transaction> = Vec::new();
             
             // This is inefficient but simple - we check all orphans
             // A more efficient implementation would maintain an index of orphans by input
@@ -582,6 +583,17 @@ impl TransactionPool {
             
             None
         }
+    }
+}
+
+impl fmt::Debug for TransactionPool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TransactionPool")
+            .field("config", &self.config)
+            .field("transactions_count", &self.transactions.len())
+            .field("orphans_count", &self.orphans.read().unwrap().len())
+            .field("size_bytes", &*self.size_bytes.read().unwrap())
+            .finish()
     }
 }
 

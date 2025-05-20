@@ -105,6 +105,23 @@ pub struct NetworkSimulationConfig {
     pub disruption_schedule: Option<DisruptionSchedule>,
 }
 
+impl Default for NetworkSimulationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            latency_ms_mean: 100,
+            latency_ms_std_dev: 50,
+            packet_loss_percent: 0,
+            bandwidth_limit_kbps: 0,
+            simulate_clock_drift: false,
+            max_clock_drift_ms: 500,
+            jitter_ms: 20,
+            topology: NetworkTopology::FullyConnected,
+            disruption_schedule: None,
+        }
+    }
+}
+
 /// Network topology configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NetworkTopology {

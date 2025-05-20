@@ -851,6 +851,171 @@ impl EnvironmentalTreasury {
         // Update the current fee percentage
         *self.current_fee_percentage.write().unwrap() = new_percentage;
     }
+
+    /// Transfer funds between treasury accounts
+    pub fn transfer_between_accounts(
+        &mut self,
+        from_account: TreasuryAccountType,
+        to_account: TreasuryAccountType,
+        amount: u64
+    ) -> Result<(), TreasuryError> {
+        let mut accounts = self.accounts.write().unwrap();
+        self.distribute_funds(
+            from_account,
+            to_account,
+            amount,
+            "Manual transfer between accounts",
+            &mut accounts
+        )
+    }
+
+    /// Update the fee allocation percentage
+    pub fn update_fee_allocation_percentage(&mut self, percentage: f64) -> Result<(), TreasuryError> {
+        if percentage < 0.0 || percentage > 100.0 {
+            return Err(TreasuryError::InvalidAllocation(
+                "Fee allocation percentage must be between 0 and 100".to_string()
+            ));
+        }
+
+        let mut config = self.config.write().unwrap();
+        config.base_fee_allocation_percentage = percentage;
+        *self.current_fee_percentage.write().unwrap() = percentage;
+
+        Ok(())
+    }
+
+    /// Purchase renewable energy certificates - wrapper for the existing purchase_certificate method
+    pub fn purchase_renewable_certificates(
+        &self,
+        provider: &str,
+        amount_mwh: f64,
+        cost: u64
+    ) -> Result<String, TreasuryError> {
+        self.purchase_certificate(
+            provider,
+            amount_mwh,
+            cost,
+            "Manually purchased renewable energy certificate"
+        )
+    }
+
+    /// Purchase carbon offsets - wrapper for the existing purchase_offset method
+    pub fn purchase_carbon_offsets(
+        &self,
+        provider: &str,
+        amount_tons_co2e: f64,
+        cost: u64
+    ) -> Result<String, TreasuryError> {
+        self.purchase_offset(
+            provider,
+            amount_tons_co2e,
+            cost,
+            "Manually purchased carbon offset"
+        )
+    }
+
+    /// Fund an environmental project from the Grants account
+    pub fn fund_project(
+        &self,
+        project_name: &str,
+        amount: u64,
+        description: &str
+    ) -> Result<String, TreasuryError> {
+        // Check available funds
+        let mut accounts = self.accounts.write().unwrap();
+        let grants_account = accounts.get_mut(&TreasuryAccountType::Grants).unwrap();
+        
+        if grants_account.balance < amount {
+            return Err(TreasuryError::InsufficientFundsInTreasury(format!(
+                "Insufficient funds for project funding: {} < {}",
+                grants_account.balance, amount
+            )));
+        }
+        
+        // Deduct funds
+        grants_account.balance -= amount;
+        
+        // Generate project ID
+        let project_id = format!("project_{}", generate_id());
+        
+        // Record transaction
+        grants_account.transactions.push(TreasuryTransaction {
+            id: format!("fund_{}", generate_id()),
+            timestamp: current_timestamp(),
+            amount,
+            description: format!("Project funding: {} - {}", project_name, description),
+            certificate_id: None,
+            offset_id: None,
+            category: TreasuryTransactionCategory::Grant,
+        });
+        
+        Ok(project_id)
+    }
+
+    /// Get renewable energy certificates - alias for get_certificates for backward compatibility
+    pub fn get_rec_certificates(&self) -> Vec<RenewableCertificate> {
+        self.get_certificates()
+    }
+
+    /// Get carbon offsets - alias for get_offsets for backward compatibility
+    pub fn get_carbon_offsets(&self) -> Vec<CarbonOffset> {
+        self.get_offsets()
+    }
+
+    /// Get balance of a specific account
+    pub fn get_balance(&self, account_type: TreasuryAccountType) -> u64 {
+        let accounts = self.accounts.read().unwrap();
+        match accounts.get(&account_type) {
+            Some(account) => account.balance,
+            None => 0,
+        }
+    }
+
+    /// Get the current allocation configuration
+    pub fn get_allocation(&self) -> TreasuryAllocation {
+        self.config.read().unwrap().allocation.clone()
+    }
+
+    /// Get recent purchases of environmental assets
+    pub fn get_recent_purchases(&self, limit: usize) -> Vec<EnvironmentalAssetPurchase> {
+        let mut purchases = Vec::new();
+        
+        // Get certificate purchases
+        let certificates = self.certificates.read().unwrap();
+        for cert in certificates.iter().take(limit) {
+            purchases.push(EnvironmentalAssetPurchase {
+                asset_type: EnvironmentalAssetType::RenewableEnergyCertificate,
+                amount: cert.amount_mwh,
+                cost: cert.cost,
+                date: DateTime::<Utc>::from_timestamp(cert.timestamp as i64, 0).unwrap_or_default(),
+                provider: cert.provider.clone(),
+                reference: cert.id.clone(),
+                impact_score: cert.amount_mwh * 0.1, // Simple impact score calculation
+            });
+        }
+        
+        // Get offset purchases
+        let offsets = self.offsets.read().unwrap();
+        for offset in offsets.iter().take(limit) {
+            purchases.push(EnvironmentalAssetPurchase {
+                asset_type: EnvironmentalAssetType::CarbonOffset,
+                amount: offset.amount_tons_co2e,
+                cost: offset.cost,
+                date: DateTime::<Utc>::from_timestamp(offset.timestamp as i64, 0).unwrap_or_default(),
+                provider: offset.provider.clone(),
+                reference: offset.id.clone(),
+                impact_score: offset.amount_tons_co2e * 0.5, // Simple impact score calculation
+            });
+        }
+        
+        // Sort by date (most recent first)
+        purchases.sort_by(|a, b| b.date.cmp(&a.date));
+        
+        // Limit to requested number
+        purchases.truncate(limit);
+        
+        purchases
+    }
 }
 
 /// Generate a unique ID for treasury operations

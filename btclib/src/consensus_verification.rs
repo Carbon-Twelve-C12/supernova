@@ -183,7 +183,7 @@ impl ConsensusVerificationFramework {
         
         let mut report = ModelCheckingReport::new();
         report.add_message(format!("Model checking to depth {}", depth));
-        report.add_message("Verifying invariants and safety properties");
+        report.add_message("Verifying invariants and safety properties".to_string());
         
         // Filter invariant and safety properties
         let properties: Vec<_> = self.properties.iter()
@@ -562,7 +562,7 @@ impl VerificationPredicate for InputVerificationPredicate {
     fn verify_transaction(&self, tx: &Transaction, chain_state: &ChainState) -> Result<bool, ConsensusVerificationError> {
         // Check each input references a valid UTXO
         for input in tx.inputs() {
-            let utxo_key = format!("{}:{}", hex::encode(input.prev_tx), input.prev_idx);
+            let utxo_key = format!("{}:{}", hex::encode(&input.txid), input.vout);
             
             if !chain_state.utxo_set.contains_key(&utxo_key) {
                 return Ok(false);
