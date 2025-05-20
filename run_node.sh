@@ -17,4 +17,4 @@ mkdir -p backups
 
 # Run the node
 echo "Starting SuperNova node..."
-cargo run --release --bin node 
+cargo run --release --bin node -- --with-animation 

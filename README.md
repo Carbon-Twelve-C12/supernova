@@ -562,3 +562,23 @@ Each API includes robust authentication, rate limiting, and detailed documentati
 The JSON-RPC API provides Bitcoin-compatible methods for seamless integration with existing tools:
 
 - **Blockchain Methods**: `getblock`, `
+
+## Testnet with ASCII Art Animation
+
+When launching the testnet, you can enable a cool ASCII art animation by using the `--with-animation` flag:
+
+```bash
+# Start node with ASCII animation
+./run_node.sh --with-animation
+```
+
+Or run the standalone ASCII art banner tool:
+
+```bash
+# Display various SuperNova ASCII art animations
+cargo run --bin supernova-banner -- static
+cargo run --bin supernova-banner -- slide-in
+cargo run --bin supernova-banner -- dissolve-out
+cargo run --bin supernova-banner -- complete
+cargo run --bin supernova-banner -- testnet
+```
