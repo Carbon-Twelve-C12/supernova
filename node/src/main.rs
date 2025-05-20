@@ -15,6 +15,16 @@ use node::network::sync::{ChainSync, DefaultSyncMetrics};
 use hex;
 use std::thread::JoinHandle;
 use btclib::monitoring::mempool::MempoolMetrics;
+use clap::Parser;
+
+// Command-line arguments
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Start with animation
+    #[arg(long)]
+    with_animation: bool,
+}
 
 // Add NodeCommand enum for safe communication with the node
 enum NodeCommand {
@@ -425,11 +435,42 @@ struct NodeHandle {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Parse command-line arguments
+    let args = Args::parse();
+
+    // Show animation if requested
+    if args.with_animation {
+        // Use our ASCII art animation for testnet
+        if let Err(e) = btclib::util::ascii_art::testnet_startup_animation() {
+            eprintln!("Failed to display startup animation: {}", e);
+        }
+    }
+
     // Initialize logging
     tracing_subscriber::fmt::init();
 
     // Create node instance
     let node = Node::new().await?;
+    
+    // Check if this is a testnet deployment
+    let is_testnet = {
+        let config = node.config.lock().await;
+        config.node.network_name.to_lowercase().contains("test")
+    };
+    
+    // If this is a testnet, print additional information
+    if is_testnet {
+        info!("Starting SuperNova Testnet node...");
+        
+        // Display regular logo if animation was not requested or failed
+        if !args.with_animation {
+            if let Err(e) = btclib::util::ascii_art::display_logo() {
+                eprintln!("Failed to display logo: {}", e);
+            }
+        }
+    } else {
+        info!("Starting SuperNova node...");
+    }
     
     // Create a NodeHandle to store clones of data needed by various tasks
     let node_handle = NodeHandle {
