@@ -185,7 +185,7 @@ pub struct DashboardData {
     renewable_percentage: f64,
     total_miners: usize,
     green_miners: usize,
-    hardware_distribution: HashMap<HardwareType, usize>,
+    hardware_distribution: HashMap<String, usize>,
     region_distribution: HashMap<String, usize>,
     recent_asset_purchases: Vec<AssetPurchaseRecord>,
     treasury_balance: f64,
@@ -674,14 +674,18 @@ impl EnvironmentalDashboard {
         for miner in &miners {
             // For each hardware type in the miner's hardware types
             for hardware in &miner.hardware_types {
-                *hardware_distribution.entry(hardware.clone()).or_insert(0) += 1;
+                // Convert TypesHardwareType to String
+                let hw_str = format!("{:?}", hardware);
+                *hardware_distribution.entry(hw_str).or_insert(0) += 1;
             }
         }
         
         // Region distribution
         let mut region_distribution = HashMap::new();
         for miner in miners {
-            *region_distribution.entry(miner.region.clone()).or_insert(0) += 1;
+            // Convert Region to String
+            let region_str = miner.region.to_string();
+            *region_distribution.entry(region_str).or_insert(0) += 1;
         }
 
         // Get recent asset purchases
@@ -740,12 +744,13 @@ impl EnvironmentalDashboard {
 
         let mut distribution = HashMap::new();
         for miner in miners {
-            let status = match miner.verification_status.as_str() {
-                "Verified" => MinerVerificationStatus::Verified,
-                "Pending" => MinerVerificationStatus::Pending,
-                "Rejected" => MinerVerificationStatus::Rejected,
-                _ => MinerVerificationStatus::Unverified
+            // Extract status from verification field if present
+            let status = if let Some(verification) = &miner.verification {
+                verification.status
+            } else {
+                MinerVerificationStatus::Unverified
             };
+            
             *distribution.entry(status).or_insert(0) += 1;
         }
 

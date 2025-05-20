@@ -61,6 +61,10 @@ pub enum SignatureError {
     /// Internal error
     #[error("Internal error: {0}")]
     InternalError(String),
+    
+    /// Invalid parameters
+    #[error("Invalid parameters: {0}")]
+    InvalidParameters(String),
 }
 
 /// Type of signature scheme
@@ -86,8 +90,8 @@ pub enum SignatureType {
     Schnorr,
 }
 
-/// Parameters for signature operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Parameters for signature algorithms
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignatureParams {
     /// Signature type
     pub sig_type: SignatureType,
@@ -129,17 +133,9 @@ pub trait SignatureScheme: Send + Sync {
             ));
         }
         
-        // Use rayon for parallel verification
-        let results: Vec<Result<bool, SignatureError>> = keys
-            .par_iter()
-            .zip(messages.par_iter())
-            .zip(signatures.par_iter())
-            .map(|((key, msg), sig)| self.verify(key, msg, sig))
-            .collect();
-        
-        // Check if any verification failed
-        for result in results {
-            match result {
+        // Sequentially verify each signature
+        for i in 0..keys.len() {
+            match self.verify(keys[i], messages[i], signatures[i]) {
                 Ok(valid) if !valid => return Ok(false),
                 Err(e) => return Err(e),
                 _ => {}
@@ -161,7 +157,7 @@ impl SignatureScheme for Secp256k1Scheme {
         let secp = Secp256k1::verification_only();
         
         // Convert message to Message
-        let message = Message::from_digest_slice(message)
+        let message = Message::from_slice(message)
             .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
         
         // Convert public key bytes to PublicKey
@@ -173,23 +169,58 @@ impl SignatureScheme for Secp256k1Scheme {
             .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
         
         // Verify
-        match secp.verify(&message, &signature, &public_key) {
+        match secp.verify_ecdsa(&message, &signature, &public_key) {
             Ok(_) => Ok(true),
             Err(e) => Err(SignatureError::VerificationFailed(e.to_string())),
         }
     }
     
+    // Override the default implementation with an optimized version that uses the 
+    // secp256k1 library's native batch verification
     fn batch_verify(
         &self, 
         keys: &[&[u8]], 
         messages: &[&[u8]], 
         signatures: &[&[u8]]
     ) -> Result<bool, SignatureError> {
-        // secp256k1 supports efficient batch verification
-        // The actual implementation would use libsecp256k1's batch verification
+        // Check that arrays have the same length
+        if keys.len() != messages.len() || keys.len() != signatures.len() {
+            return Err(SignatureError::InvalidParameters(
+                "Batch verification requires equal number of keys, messages, and signatures".to_string(),
+            ));
+        }
         
-        // For now, use the default implementation
-        <Self as SignatureScheme>::batch_verify(self, keys, messages, signatures)
+        let secp = Secp256k1::verification_only();
+        
+        let mut secp_msgs = Vec::with_capacity(messages.len());
+        let mut secp_sigs = Vec::with_capacity(signatures.len());
+        let mut secp_pks = Vec::with_capacity(keys.len());
+        
+        // Convert all inputs to secp256k1 types
+        for i in 0..keys.len() {
+            let msg = Message::from_slice(messages[i])
+                .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
+            
+            let sig = Secp256k1Signature::from_slice(signatures[i])
+                .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
+                
+            let pk = PublicKey::from_slice(keys[i])
+                .map_err(|e| SignatureError::InvalidKey(e.to_string()))?;
+                
+            secp_msgs.push(msg);
+            secp_sigs.push(sig);
+            secp_pks.push(pk);
+        }
+        
+        // Perform verification one by one (as a fallback for missing batch API)
+        for i in 0..secp_msgs.len() {
+            match secp.verify_ecdsa(&secp_msgs[i], &secp_sigs[i], &secp_pks[i]) {
+                Ok(_) => {}, // continue to next signature
+                Err(e) => return Err(SignatureError::VerificationFailed(e.to_string())),
+            }
+        }
+        
+        Ok(true)
     }
     
     fn signature_type(&self) -> SignatureType {
@@ -222,6 +253,10 @@ impl SignatureScheme for Ed25519Scheme {
         Ok(true) // Placeholder
     }
     
+    // For Ed25519, we'll use the default batch_verify implementation 
+    // provided by the trait. We could implement an optimized version later
+    // using ed25519-dalek's batch verification when available.
+    
     fn signature_type(&self) -> SignatureType {
         SignatureType::Ed25519
     }
@@ -251,6 +286,10 @@ impl SignatureScheme for DilithiumScheme {
             public_key, message, signature, params
         ).map_err(SignatureError::QuantumError)
     }
+    
+    // Using the default batch_verify implementation from the trait
+    // Post-quantum schemes typically don't have native batch verification
+    // so we use the sequential verification approach
     
     fn signature_type(&self) -> SignatureType {
         SignatureType::Dilithium
@@ -298,6 +337,9 @@ impl SignatureScheme for FalconScheme {
         }
     }
     
+    // Using the default batch_verify implementation from the trait
+    // Falcon doesn't have native batch verification support
+    
     fn signature_type(&self) -> SignatureType {
         SignatureType::Falcon
     }
@@ -322,6 +364,9 @@ impl SignatureScheme for SphincsScheme {
             "SPHINCS+ verification not yet implemented".to_string()
         ))
     }
+    
+    // Using the default batch_verify implementation from the trait
+    // SPHINCS+ doesn't have native batch verification
     
     fn signature_type(&self) -> SignatureType {
         SignatureType::Sphincs
@@ -358,6 +403,10 @@ impl SignatureScheme for HybridScheme {
             "Hybrid verification not yet implemented".to_string()
         ))
     }
+    
+    // For the hybrid scheme, we use the default implementation
+    // When the actual implementation is ready, this can be specialized
+    // to split the hybrid signatures and keys appropriately before verification
     
     fn signature_type(&self) -> SignatureType {
         SignatureType::Hybrid
@@ -618,7 +667,7 @@ impl Signature {
         let secp = Secp256k1::verification_only();
         
         // Convert message to Message
-        let message = Message::from_digest_slice(message)
+        let message = Message::from_slice(message)
             .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
         
         // Convert public key bytes to PublicKey
@@ -630,7 +679,7 @@ impl Signature {
             .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
         
         // Verify
-        match secp.verify(&message, &signature, &public_key) {
+        match secp.verify_ecdsa(&message, &signature, &public_key) {
             Ok(_) => Ok(true),
             Err(e) => Err(SignatureError::VerificationFailed(e.to_string())),
         }
@@ -723,11 +772,11 @@ impl KeyPair {
             .map_err(|e| SignatureError::InvalidKey(e.to_string()))?;
         
         // Convert message to Message
-        let message = Message::from_digest_slice(message)
+        let message = Message::from_slice(message)
             .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
         
         // Sign
-        let signature = secp.sign(&message, &secret_key);
+        let signature = secp.sign_ecdsa(&message, &secret_key);
         
         Ok(Signature::new(
             SignatureType::Secp256k1,

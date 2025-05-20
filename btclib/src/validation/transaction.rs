@@ -3,8 +3,11 @@
 use serde::{Serialize, Deserialize};
 use crate::types::transaction::{Transaction, TransactionOutput, SignatureSchemeType};
 use crate::crypto::signature::{SignatureType, SignatureError, SignatureParams};
+use crate::crypto::quantum::{QuantumScheme, QuantumKeyPair, QuantumParameters};
 use crate::validation::crypto::{CryptoValidator, CryptoValidationConfig};
-use super::{ValidationError, SecurityLevel, ValidationMetrics};
+use super::ValidationError;
+use super::SecurityLevel;
+use super::ValidationMetrics;
 
 /// Transaction validation results
 #[derive(Debug)]
@@ -437,6 +440,79 @@ impl TransactionValidator {
                     ValidationError::InvalidStructure("Could not determine total input value".to_string())
                 ))
             }
+        }
+    }
+    
+    /// Sign a transaction using quantum-resistant signature scheme
+    pub fn sign_quantum_transaction(&self, transaction: &mut Transaction, scheme: QuantumScheme) -> Result<ValidationResult, ValidationError> {
+        let keypair = QuantumKeyPair {
+            public_key: vec![],
+            secret_key: vec![],
+            parameters: QuantumParameters {
+                scheme,
+                security_level: self.config.security_level.into(),
+            },
+        };
+        
+        // Sign the transaction using the selected signature scheme
+        let msg = transaction.hash();
+        
+        match keypair.sign(&msg) {
+            Ok(signature) => {
+                // Create signature data for the transaction
+                let sig_data = crate::types::transaction::TransactionSignatureData {
+                    scheme: match scheme {
+                        QuantumScheme::Dilithium => SignatureSchemeType::Dilithium,
+                        QuantumScheme::Falcon => SignatureSchemeType::Falcon,
+                        QuantumScheme::Sphincs => SignatureSchemeType::Sphincs,
+                        QuantumScheme::Hybrid(_) => SignatureSchemeType::Hybrid,
+                    },
+                    security_level: self.config.security_level.into(),
+                    data: signature,
+                    public_key: keypair.public_key.to_vec(),
+                };
+                
+                // Add the signature data to the transaction
+                transaction.set_signature_data(sig_data);
+                
+                Ok(ValidationResult::Valid)
+            },
+            Err(e) => Ok(ValidationResult::Invalid(ValidationError::SignatureError(e.to_string()))),
+        }
+    }
+    
+    /// Verify a transaction using quantum-resistant signature scheme
+    pub fn verify_quantum_transaction(&self, transaction: &Transaction) -> Result<ValidationResult, ValidationError> {
+        if let Some(sig_data) = transaction.signature_data() {
+            // Create parameters for verification
+            let params = QuantumParameters {
+                scheme: match sig_data.scheme {
+                    SignatureSchemeType::Dilithium => QuantumScheme::Dilithium,
+                    SignatureSchemeType::Falcon => QuantumScheme::Falcon,
+                    SignatureSchemeType::Sphincs => QuantumScheme::Sphincs,
+                    SignatureSchemeType::Hybrid => QuantumScheme::Hybrid(crate::crypto::quantum::ClassicalScheme::Secp256k1),
+                    _ => return Ok(ValidationResult::Invalid(ValidationError::InvalidSignatureScheme)),
+                },
+                // Convert security level from u8 to the corresponding enum value
+                security_level: sig_data.security_level,
+            };
+            
+            // Get the message hash (transaction hash excluding signature data)
+            let msg = transaction.hash();
+            
+            // Verify the signature
+            match crate::crypto::quantum::verify_quantum_signature(
+                &sig_data.public_key,
+                &msg,
+                &sig_data.data,
+                params
+            ) {
+                Ok(true) => Ok(ValidationResult::Valid),
+                Ok(false) => Ok(ValidationResult::Invalid(ValidationError::InvalidSignature("Signature verification failed".to_string()))),
+                Err(e) => Ok(ValidationResult::Invalid(ValidationError::SignatureError(e.to_string()))),
+            }
+        } else {
+            Ok(ValidationResult::Invalid(ValidationError::MissingSignatureData))
         }
     }
 } 

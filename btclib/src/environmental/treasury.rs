@@ -746,14 +746,8 @@ impl EnvironmentalTreasury {
     
     /// Update environmental impact metrics
     fn update_environmental_impact(&self) {
-        // Get current network emissions
-        let network_emissions = match self.emissions_calculator.calculate_network_emissions() {
-            Ok(emissions) => emissions,
-            Err(e) => {
-                eprintln!("Failed to calculate network emissions: {}", e);
-                return;
-            }
-        };
+        // Get current network emissions - direct call, not a Result
+        let network_emissions = self.emissions_calculator.calculate_network_emissions();
         
         // Calculate total renewable energy
         let renewable_energy_mwh: f64 = self.certificates.read().unwrap()
@@ -1011,7 +1005,10 @@ impl EnvironmentalTreasury {
                 asset_type: EnvironmentalAssetType::RenewableEnergyCertificate,
                 amount: cert.amount_mwh,
                 cost: cert.cost,
-                date: DateTime::<Utc>::from_timestamp(cert.timestamp as i64, 0).unwrap_or_default(),
+                date: DateTime::<Utc>::from_naive_utc_and_offset(
+                    NaiveDateTime::from_timestamp_opt(cert.timestamp as i64, 0).unwrap_or_default(),
+                    Utc,
+                ),
                 provider: cert.provider.clone(),
                 reference: cert.id.clone(),
                 impact_score: cert.amount_mwh * 0.1, // Simple impact score calculation
@@ -1025,7 +1022,10 @@ impl EnvironmentalTreasury {
                 asset_type: EnvironmentalAssetType::CarbonOffset,
                 amount: offset.amount_tons_co2e,
                 cost: offset.cost,
-                date: DateTime::<Utc>::from_timestamp(offset.timestamp as i64, 0).unwrap_or_default(),
+                date: DateTime::<Utc>::from_naive_utc_and_offset(
+                    NaiveDateTime::from_timestamp_opt(offset.timestamp as i64, 0).unwrap_or_default(),
+                    Utc,
+                ),
                 provider: offset.provider.clone(),
                 reference: offset.id.clone(),
                 impact_score: offset.amount_tons_co2e * 0.5, // Simple impact score calculation
@@ -1139,7 +1139,7 @@ impl EnvironmentalTreasury {
                         asset_type: EnvironmentalAssetType::RenewableEnergyCertificate,
                         amount: cert.amount_mwh,
                         cost: cert.cost,
-                        date: DateTime::<Utc>::from_utc(
+                        date: DateTime::<Utc>::from_naive_utc_and_offset(
                             NaiveDateTime::from_timestamp_opt(cert.timestamp as i64, 0).unwrap_or_default(),
                             Utc,
                         ),
@@ -1167,7 +1167,7 @@ impl EnvironmentalTreasury {
                         asset_type: EnvironmentalAssetType::CarbonOffset,
                         amount: offset.amount_tons_co2e,
                         cost: offset.cost,
-                        date: DateTime::<Utc>::from_utc(
+                        date: DateTime::<Utc>::from_naive_utc_and_offset(
                             NaiveDateTime::from_timestamp_opt(offset.timestamp as i64, 0).unwrap_or_default(),
                             Utc,
                         ),

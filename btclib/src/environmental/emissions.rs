@@ -918,36 +918,6 @@ impl Default for EmissionsTracker {
     }
 }
 
-/// Network-wide emissions data
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkEmissions {
-    /// Total energy consumption in MWh
-    pub total_energy_mwh: f64,
-    /// Total emissions in tons CO2e
-    pub total_emissions_tons_co2e: f64,
-    /// Percentage of renewable energy
-    pub renewable_percentage: f64,
-    /// Emissions per transaction in kg CO2e
-    pub emissions_per_tx: f64,
-    /// Timestamp of calculation
-    pub timestamp: u64,
-}
-
-impl Default for NetworkEmissions {
-    fn default() -> Self {
-        Self {
-            total_energy_mwh: 0.0,
-            total_emissions_tons_co2e: 0.0,
-            renewable_percentage: 0.0,
-            emissions_per_tx: 0.0,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        }
-    }
-}
-
 /// Calculator for network-wide emissions
 pub struct EmissionsCalculator {
     /// Current network hashrate in TH/s

@@ -189,22 +189,21 @@ fn test_parallel_vs_sequential_verification() {
     // Create verifier
     let verifier = btclib::crypto::signature::DilithiumScheme::new(security_level);
     
+    // Create tuples for verification
+    let verification_tuples: Vec<_> = public_keys.iter().zip(&messages).zip(&signatures).collect();
+    
     // Test parallel verification (using rayon)
     let parallel_start = Instant::now();
-    let parallel_results: Vec<Result<bool, SignatureError>> = public_keys
-        .par_iter()
-        .zip(messages.par_iter())
-        .zip(signatures.par_iter())
+    let parallel_results: Vec<Result<bool, SignatureError>> = verification_tuples
+        .par_iter() // Using par_iter on the tuples
         .map(|((pk, msg), sig)| verifier.verify(pk, msg, sig))
         .collect();
     let parallel_duration = parallel_start.elapsed();
     
     // Test sequential verification
     let sequential_start = Instant::now();
-    let sequential_results: Vec<Result<bool, SignatureError>> = public_keys
+    let sequential_results: Vec<Result<bool, SignatureError>> = verification_tuples
         .iter()
-        .zip(messages.iter())
-        .zip(signatures.iter())
         .map(|((pk, msg), sig)| verifier.verify(pk, msg, sig))
         .collect();
     let sequential_duration = sequential_start.elapsed();
