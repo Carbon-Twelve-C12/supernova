@@ -34,11 +34,12 @@ bytes = { version = "1.4.0", optional = true }
 crossterm = "0.26.1"
 
 [features]
-default = ["quantum", "environmental", "monitoring"]
-quantum = []
+default = ["environmental", "quantum", "monitoring"]
 environmental = []
+lightning = []
 monitoring = []
-lightning = ["dep:priority-queue", "dep:bitvec", "dep:bytes"]
+quantum = []
+freeze = []
 
 [[example]]
 name = "environmental_demo"

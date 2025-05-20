@@ -1,132 +1,165 @@
-use crate::crypto::{
-    signature::{SignatureType, SignatureError, SignatureVerifier},
-    quantum::{QuantumScheme, ClassicalScheme}
-};
+// Cryptographic validation module
+//
+// This module provides validation for cryptographic primitives.
 
-use std::collections::HashMap;
+use crate::crypto::signature::{SignatureType, SignatureError, SignatureParams, SignatureScheme};
+use crate::crypto::quantum::{QuantumScheme, ClassicalScheme};
+use super::{ValidationError, SecurityLevel};
 
-/// Modes for signature validation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ValidationMode {
-    /// Standard validation for each signature
-    Standard,
-    /// Strict mode that requires quantum resistance
-    StrictQuantumResistant,
-    /// Performance mode that prioritizes speed over security
-    Performance,
+/// Configuration for cryptographic validation
+#[derive(Debug, Clone)]
+pub struct CryptoValidationConfig {
+    /// Security level for validation
+    pub security_level: SecurityLevel,
+    
+    /// Whether quantum resistance is required 
+    pub require_quantum_resistance: bool,
+    
+    /// Minimum signature security level
+    pub min_signature_security_level: u8,
+    
+    /// Allowed signature types
+    pub allowed_signature_types: Vec<SignatureType>,
 }
 
-impl Default for ValidationMode {
+impl Default for CryptoValidationConfig {
     fn default() -> Self {
-        ValidationMode::Standard
-    }
-}
-
-/// Validates cryptographic signatures with support for batch verification
-pub struct SignatureValidator {
-    mode: ValidationMode,
-    verifier: SignatureVerifier,
-    acceptable_schemes: Vec<SignatureType>,
-}
-
-impl SignatureValidator {
-    /// Create a new signature validator with default settings
-    pub fn new() -> Self {
         Self {
-            mode: ValidationMode::default(),
-            verifier: SignatureVerifier::new(),
-            acceptable_schemes: vec![
+            security_level: SecurityLevel::Standard,
+            require_quantum_resistance: false,
+            min_signature_security_level: 2,
+            allowed_signature_types: vec![
+                SignatureType::Secp256k1,
+                SignatureType::Ed25519,
                 SignatureType::Classical(ClassicalScheme::Secp256k1),
                 SignatureType::Classical(ClassicalScheme::Ed25519),
+                SignatureType::Dilithium,
+                SignatureType::Falcon,
+                SignatureType::Sphincs,
                 SignatureType::Quantum(QuantumScheme::Dilithium),
                 SignatureType::Quantum(QuantumScheme::Falcon),
+                SignatureType::Quantum(QuantumScheme::Sphincs),
             ],
         }
     }
-    
-    /// Create a validator with a specific validation mode
-    pub fn with_mode(mode: ValidationMode) -> Self {
-        let mut validator = Self::new();
-        validator.mode = mode;
-        
-        // Adjust acceptable schemes based on mode
-        match mode {
-            ValidationMode::StrictQuantumResistant => {
-                validator.acceptable_schemes = vec![
-                    SignatureType::Quantum(QuantumScheme::Dilithium),
-                    SignatureType::Quantum(QuantumScheme::Falcon),
-                    SignatureType::Quantum(QuantumScheme::Sphincs),
-                ];
-            },
-            ValidationMode::Performance => {
-                // Prioritize faster signature schemes
-                validator.acceptable_schemes = vec![
+}
+
+/// Create a security level configuration based on a security level
+pub fn create_config_for_security_level(level: SecurityLevel) -> CryptoValidationConfig {
+    match level {
+        SecurityLevel::Low => CryptoValidationConfig {
+            security_level: level,
+            require_quantum_resistance: false,
+            min_signature_security_level: 1,
+            allowed_signature_types: vec![
+                SignatureType::Secp256k1,
+                SignatureType::Ed25519,
+                SignatureType::Classical(ClassicalScheme::Secp256k1),
+                SignatureType::Classical(ClassicalScheme::Ed25519),
+                SignatureType::Dilithium,
+                SignatureType::Falcon,
+                SignatureType::Quantum(QuantumScheme::Dilithium),
+                SignatureType::Quantum(QuantumScheme::Falcon),
+            ],
+        },
+        SecurityLevel::Standard => CryptoValidationConfig::default(),
+        SecurityLevel::Medium => CryptoValidationConfig {
+            security_level: level,
+            require_quantum_resistance: false,
+            min_signature_security_level: 3,
+            allowed_signature_types: vec![
                     SignatureType::Classical(ClassicalScheme::Ed25519),
                     SignatureType::Classical(ClassicalScheme::Secp256k1),
                     SignatureType::Quantum(QuantumScheme::Falcon), // Falcon is typically faster than Dilithium
-                ];
-            },
-            _ => {} // Keep defaults for standard mode
-        }
-        
-        validator
+                    SignatureType::Quantum(QuantumScheme::Dilithium),
+                    SignatureType::Quantum(QuantumScheme::Sphincs),
+                    SignatureType::Dilithium,
+                    SignatureType::Falcon,
+                    SignatureType::Sphincs,
+            ],
+        },
+        SecurityLevel::High => CryptoValidationConfig {
+            security_level: level,
+            require_quantum_resistance: true,
+            min_signature_security_level: 5,
+            allowed_signature_types: vec![
+                SignatureType::Quantum(QuantumScheme::Dilithium),
+                SignatureType::Quantum(QuantumScheme::Sphincs),
+                SignatureType::Dilithium,
+                SignatureType::Sphincs,
+            ],
+        },
+        SecurityLevel::Maximum => CryptoValidationConfig {
+            security_level: level,
+            require_quantum_resistance: true,
+            min_signature_security_level: 5,
+            allowed_signature_types: vec![
+                SignatureType::Quantum(QuantumScheme::Sphincs),
+                SignatureType::Sphincs,
+            ],
+        },
+        _ => CryptoValidationConfig::default(),
+    }
+}
+
+/// Crypto validator
+pub struct CryptoValidator {
+    config: CryptoValidationConfig,
+}
+
+impl CryptoValidator {
+    /// Create a new crypto validator
+    pub fn new(config: CryptoValidationConfig) -> Self {
+        Self { config }
     }
     
-    /// Set custom acceptable signature schemes
-    pub fn with_schemes(mut self, schemes: Vec<SignatureType>) -> Self {
-        self.acceptable_schemes = schemes;
-        self
-    }
-    
-    /// Validate a single signature
-    pub fn validate(
-        &self,
-        signature_type: SignatureType,
-        public_key: &[u8],
-        message: &[u8],
-        signature: &[u8],
-    ) -> Result<bool, SignatureError> {
-        // Check if signature type is acceptable based on mode
-        if !self.acceptable_schemes.contains(&signature_type) {
+    /// Validate a signature type against security requirements
+    pub fn validate_signature_type(&self, sig_type: SignatureType) -> Result<(), SignatureError> {
+        if !self.config.allowed_signature_types.contains(&sig_type) {
             return Err(SignatureError::UnsupportedSignatureType);
         }
         
-        // In strict mode, verify quantum resistance
-        if self.mode == ValidationMode::StrictQuantumResistant {
-            match signature_type {
+        // Check if quantum resistance is required
+        if self.config.require_quantum_resistance {
+            match sig_type {
                 SignatureType::Quantum(_) => {}, // Quantum signature is acceptable
+                SignatureType::Dilithium |
+                SignatureType::Falcon |
+                SignatureType::Sphincs => {}, // These are also quantum resistant
                 _ => return Err(SignatureError::QuantumResistanceRequired),
             }
         }
         
-        // Verify the signature
-        self.verifier.verify(signature_type, public_key, message, signature)
+        Ok(())
     }
     
-    /// Batch verify multiple signatures for efficiency
-    /// 
-    /// Returns a map of (signature_index -> validation_result)
-    pub fn batch_validate(
+    /// Validate a signature with the given parameters
+    pub fn validate_signature(
         &self,
-        signatures: Vec<(SignatureType, &[u8], &[u8], &[u8])>,
-    ) -> HashMap<usize, Result<bool, SignatureError>> {
-        let mut results = HashMap::new();
+        signature: &[u8],
+        public_key: &[u8],
+        message: &[u8],
+        params: SignatureParams,
+    ) -> Result<bool, ValidationError> {
+        // Check signature type
+        self.validate_signature_type(params.sig_type)
+            .map_err(|e| ValidationError::CryptoError(format!("Invalid signature type: {}", e)))?;
         
-        for (index, (sig_type, public_key, message, signature)) in signatures.into_iter().enumerate() {
-            let result = self.validate(sig_type, public_key, message, signature);
-            results.insert(index, result);
+        // Check security level
+        if params.security_level < self.config.min_signature_security_level {
+            return Err(ValidationError::CryptoError(format!(
+                "Signature security level too low: {} (minimum: {})",
+                params.security_level, self.config.min_signature_security_level
+            )));
         }
         
-        results
-    }
-    
-    /// Get the current validation mode
-    pub fn mode(&self) -> ValidationMode {
-        self.mode
-    }
-    
-    /// Get the list of acceptable signature schemes
-    pub fn acceptable_schemes(&self) -> &[SignatureType] {
-        &self.acceptable_schemes
+        // Create a verifier
+        let verifier = crate::crypto::signature::SignatureVerifier::new();
+        
+        // Verify the signature
+        match verifier.verify(params.sig_type, public_key, message, signature) {
+            Ok(valid) => Ok(valid),
+            Err(e) => Err(ValidationError::CryptoError(format!("Signature verification error: {}", e))),
+        }
     }
 } 

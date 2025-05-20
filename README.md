@@ -10,7 +10,7 @@
     <a href="https://supernovanetwork.xyz/"><img src="https://img.shields.io/badge/website-supernovanetwork.xyz-blue" alt="Official Website" /></a>
     <a href="https://github.com/mjohnson518/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/mjohnson518/supernova" alt="Contributors" /></a>
     <a href="https://github.com/mjohnson518/supernova/stargazers"><img src="https://img.shields.io/github/stars/mjohnson518/supernova" alt="Stars" /></a>
-    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.9.9--RC-blue" alt="Version" /></a>
+    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.5.0--DEV-blue" alt="Version" /></a>
      <a href="https://deepwiki.com/mjohnson518/supernova"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
 
@@ -26,9 +26,9 @@
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/CI"><img src="https://img.shields.io/github/workflow/status/supernova-labs/supernova/CI?label=CI&style=for-the-badge" alt="CI" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/Docker"><img src="https://img.shields.io/github/workflow/status/supernova-labs/supernova/Docker?label=Docker&style=for-the-badge" alt="Docker" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/license"><img src="https://img.shields.io/github/license/supernova-labs/supernova?style=for-the-badge" alt="License" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/version"><img src="https://img.shields.io/badge/Version-0.1.0-brightgreen?style=for-the-badge" alt="Version" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/tests"><img src="https://img.shields.io/badge/Tests-passing-brightgreen?style=for-the-badge" alt="Tests" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/testnet"><img src="https://img.shields.io/badge/Testnet-running-brightgreen?style=for-the-badge" alt="Testnet" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/version"><img src="https://img.shields.io/badge/Version-0.5.0-yellow?style=for-the-badge" alt="Version" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/tests"><img src="https://img.shields.io/badge/Tests-in_progress-yellow?style=for-the-badge" alt="Tests" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/testnet"><img src="https://img.shields.io/badge/Testnet-simulation-yellow?style=for-the-badge" alt="Testnet" /></a>
   </p>
 </div>
 
@@ -164,37 +164,41 @@ supernova/
 
 ## Current Status
 
-The project is currently at version 0.9.9 in a **FINAL RELEASE CANDIDATE** state, and has successfully completed Phase 1 (Core Blockchain Foundations), Phase 2 (Network and Transaction Propagation), Phase 3 (Quantum Resistance & Security Hardening), Phase 4 (Environmental Features), Phase 5 (Lightning Network Integration), and Phase 6 (Production Readiness). Supernova is now ready for production deployment with full optimization, monitoring, scaling, and disaster recovery capabilities.
+The project is currently at version 0.5.0 in a **DEVELOPMENT** state. While the architecture and core components have been designed, many features are still in development or have stub implementations. The codebase has undergone significant fixes to address compilation issues, and a testnet simulation environment has been implemented.
 
 Component completion status:
 
-- **✅ Core libraries (btclib)**: 100% complete 
-- **✅ Transaction Processing**: 100% complete
-- **✅ Mempool Management**: 100% complete
-- **✅ Block Validation**: 100% complete
+- **⚠️ Core libraries (btclib)**: ~70% complete (basic structures implemented, some advanced features are stubs)
+- **⚠️ Transaction Processing**: ~75% complete
+- **⚠️ Mempool Management**: ~60% complete
+- **⚠️ Block Validation**: ~65% complete
 - **✅ Merkle Tree Implementation**: 100% complete
-- **✅ Difficulty Adjustment**: 100% complete
-- **✅ Chain State Management**: 100% complete
-- **✅ Block Storage**: 100% complete
-- **✅ Backup System**: 100% complete
-- **✅ Network Protocol**: 100% complete
-- **✅ Peer Management**: 100% complete
-- **✅ Transaction Propagation**: 100% complete
-- **✅ Block Synchronization**: 100% complete
-- **✅ Cryptographic features**: 100% complete
-- **✅ Environmental system**: 100% complete
-- **✅ Security system**: 100% complete
-- **✅ Monitoring system**: 100% complete
-- **✅ Mining**: 100% complete
-- **✅ Wallet**: 100% complete
-- **✅ Lightning Network**: 100% complete
-- **✅ API services**: 100% complete
-- **✅ Optimization & Performance**: 100% complete
-- **✅ Deployment & Infrastructure**: 100% complete
+- **⚠️ Difficulty Adjustment**: ~80% complete
+- **⚠️ Chain State Management**: ~70% complete
+- **⚠️ Block Storage**: ~65% complete
+- **⚠️ Backup System**: ~50% complete
+- **⚠️ Network Protocol**: ~40% complete
+- **⚠️ Peer Management**: ~35% complete
+- **⚠️ Transaction Propagation**: ~45% complete
+- **⚠️ Block Synchronization**: ~30% complete
+- **⚠️ Cryptographic features**: ~60% complete
+- **⚠️ Environmental system**: ~40% complete
+- **⚠️ Security system**: ~35% complete
+- **⚠️ Monitoring system**: ~30% complete
+- **⚠️ Mining**: ~55% complete
+- **⚠️ Wallet**: ~45% complete
+- **⚠️ Lightning Network**: ~20% complete
+- **⚠️ API services**: ~35% complete
+- **⚠️ Optimization & Performance**: ~30% complete
+- **✅ Testnet Simulation**: 100% complete
 
 A detailed roadmap with implementation priorities and timelines is available in [PROJECT_ROADMAP.md](PROJECT_ROADMAP.md). We welcome contributions from the community to help complete these components.
 
-Current development is focused on preparing for the 1.0.0 final release, which will incorporate user feedback and polish all existing functionality.
+Current development is focused on:
+1. Addressing remaining compilation issues
+2. Implementing core blockchain functionality
+3. Replacing stub implementations with fully functional code
+4. Enhancing the testnet environment to use actual blockchain nodes rather than simulations
 
 ## Getting Started
 
@@ -312,300 +316,69 @@ use_quantum_signatures = true
 watchtower_enabled = true
 ```
 
-## Wallet CLI Usage
+## Testnet Environment
 
-The Supernova wallet provides a command-line interface for managing NOVA tokens and creating transactions.
+A Docker-based testnet environment is available for development and testing:
 
-```bash
-# Create a new wallet
-./target/release/wallet new
-
-# Get wallet address
-./target/release/wallet address
-
-# Check wallet balance
-./target/release/wallet balance
-
-# Send NOVA tokens
-./target/release/wallet send --to <RECIPIENT_ADDRESS> --amount <AMOUNT> --fee <FEE>
-
-# List Unspent Transaction Outputs (UTXOs)
-./target/release/wallet list-utxos
-
-# View transaction history
-./target/release/wallet history
-
-# Create a new address (HD wallet)
-./target/release/wallet new-address
-
-# List all addresses
-./target/release/wallet list-addresses
-
-# Label a transaction
-./target/release/wallet label-tx --txid <TRANSACTION_ID> --label "Grocery payment"
-```
-
-### Available Commands
-
-| Command | Description |
-|---------|-------------|
-| `new` | Creates a new wallet and generates a key pair |
-| `address` | Displays the wallet's current public address |
-| `new-address` | Generates a new address for the wallet |
-| `list-addresses` | Shows all addresses in the wallet |
-| `balance` | Shows current wallet balance in NOVA |
-| `send` | Creates and signs a new transaction |
-| `list-utxos` | Shows all unspent transaction outputs owned by the wallet |
-| `history` | Displays transaction history |
-| `label-tx` | Add or update a label for a transaction |
-| `export` | Export wallet (encrypted) |
-| `import` | Import wallet from file |
-
-## Lightning Network
-
-Supernova includes a complete Lightning Network implementation for off-chain payments.
+### Running the Testnet
 
 ```bash
-# Open a lightning channel
-./target/release/wallet lightning open-channel --node <NODE_ID> --capacity <AMOUNT> --push <PUSH_AMOUNT>
+# Start the testnet
+./run_testnet.sh start
 
-# Create a lightning invoice
-./target/release/wallet lightning create-invoice --amount <AMOUNT> --description "Coffee payment"
+# Check status
+./run_testnet.sh status
 
-# Pay a lightning invoice
-./target/release/wallet lightning pay-invoice --invoice <INVOICE_STRING>
+# View logs
+./run_testnet.sh logs
 
-# List active channels
-./target/release/wallet lightning list-channels
-
-# Close a channel
-./target/release/wallet lightning close-channel --channel-id <CHANNEL_ID>
-
-# Get lightning network information
-./target/release/wallet lightning network-info
+# Stop the testnet
+./run_testnet.sh stop
 ```
 
-### Lightning Network Features
+### Interacting with the Testnet
 
-- **Payment Channels**: Create bidirectional payment channels with configurable capacity
-- **Instant Payments**: Make millisecond payments without blockchain confirmation
-- **Routing**: Route payments through multiple channels for enhanced privacy
-- **Quantum Security**: Optional quantum-resistant signatures for channel security
-- **Watchtower Service**: Protection against malicious channel closures
-- **Cross-Chain Support**: Support for atomic swaps across compatible blockchains
-- **Environmental Tracking**: Emissions calculation for Lightning Network payments
-
-## Mining
-
-The Supernova miner can be run as a standalone process or integrated with a node.
+The testnet comes with a CLI client for interaction:
 
 ```bash
-# Start mining with default settings
-./target/release/miner --threads 4 --address <YOUR_WALLET_ADDRESS>
+# Run the CLI client
+cargo run --package supernova-cli
 
-# Advanced options
-./target/release/miner --threads 8 --address <YOUR_WALLET_ADDRESS> --node-url http://localhost:9000 --intensity high
-
-# Green mining registration
-./target/release/miner register-green --renewable-percentage 75 --provider "GreenEnergy Inc" --certificate "CERT-12345"
+# Use specific commands
+cargo run --package supernova-cli -- status
+cargo run --package supernova-cli -- balance 0x123456789abcdef
 ```
 
-## Environmental Features
+Note: The current testnet implementation uses simulated nodes rather than actual blockchain nodes. It provides a realistic environment for basic testing but doesn't fully implement all blockchain features.
 
-Supernova includes comprehensive tools for measuring and mitigating the environmental impact of blockchain operations.
+## Development Roadmap
 
-### Emissions Tracking
+Our current development priorities are:
 
-```bash
-# View current network emissions
-./target/release/node env-metrics
+1. **Phase 1 (In Progress)**: Core Blockchain Functionality
+   - Complete implementation of core data structures
+   - Implement fully functional transaction validation
+   - Develop robust chain state management
+   - Fix remaining compilation issues
 
-# View transaction carbon footprint
-./target/release/node tx-emissions --txid <TRANSACTION_ID>
+2. **Phase 2 (Planned)**: Networking and Consensus
+   - Implement P2P networking with libp2p
+   - Develop block synchronization protocol
+   - Create peer discovery and management
+   - Implement fork resolution
 
-# Export environmental report (daily)
-./target/release/node env-report --period daily --output report.txt
+3. **Phase 3 (Planned)**: Advanced Features
+   - Implement quantum-resistant cryptography
+   - Develop environmental impact tracking
+   - Create security hardening mechanisms
+   - Implement Lightning Network functionality
 
-# View mining pool energy sources
-./target/release/node pool-energy
+4. **Phase 4 (Planned)**: Production Readiness
+   - Develop monitoring and observability
+   - Implement disaster recovery
+   - Create deployment tools
+   - Optimize performance
 
-# View Lightning Network emissions savings
-./target/release/node lightning-emissions-report
-```
+## License
 
-### Green Mining Incentives
-
-Miners using renewable energy can register for fee discounts:
-
-| Renewable Percentage | Fee Discount |
-|----------------------|--------------|
-| 95-100%              | 10%          |
-| 75-94%               | 7%           |
-| 50-74%               | 5%           |
-| 25-49%               | 2%           |
-| 0-24%                | 0%           |
-
-### Environmental Dashboard
-
-The environmental dashboard provides real-time metrics on:
-
-- Network energy consumption
-- Carbon emissions by region
-- Renewable energy percentage
-- Transaction-level emissions
-- Environmental treasury balance
-- Carbon offsets purchased
-- Lightning Network emissions savings
-
-## Advanced Features
-
-### Security Mitigation
-
-Supernova includes a comprehensive security system to protect against common attack vectors:
-
-```bash
-# View network security metrics
-./target/release/node security-metrics
-
-# View network diversity score
-./target/release/node diversity-score
-
-# Monitor banned peers
-./target/release/node banned-peers
-
-# View peer reputation scores
-./target/release/node peer-scores
-
-# Set custom security parameters
-./target/release/node configure-security --min-diversity 0.8 --rotation-interval 3600
-```
-
-The security system includes:
-
-- **Sybil Attack Protection**: Uses proof-of-work identity challenges and reputation scoring
-- **Eclipse Attack Prevention**: Forced peer rotation and connection diversity management
-- **Network Partitioning Resistance**: Subnet diversity enforcement and outbound connection enforcement
-- **Peer Reputation System**: Multi-factor scoring based on behavior, stability, and diversity contribution
-- **Connection Rate Limiting**: IP-based and subnet-based connection limits with adaptive banning
-
-### Tokenomics & Launch Strategy
-
-SuperNova implements a transparent and balanced tokenomics model:
-
-- **Total Supply**: 42,000,000 NOVA tokens
-- **Distribution**: Mining (40%), Foundation (13.5%), Ecosystem Development (15%), Team & Advisors (10%), Environmental Treasury (10%), Community & Airdrops (7.5%), and Liquidity Reserve (4%)
-- **Launch Mechanism**: 7-day Liquidity Bootstrapping Pool (LBP) for fair price discovery
-- **Strategic Investors**: Dedicated framework for partners aligned with environmental and technical mission
-- **Market Stability**: Comprehensive liquidity strategy with professional market making
-- **Environmental Impact**: Carbon-negative by design with dedicated treasury and fee allocation
-- **Exchange Strategy**: Phased approach with mid-tier exchanges first, followed by tier-1 platforms
-
-For detailed tokenomics information, see [SuperNova Tokenomics](btclib/src/docs/tokenomics.md).
-
-### Disaster Recovery
-
-Supernova includes a comprehensive disaster recovery system:
-
-```bash
-# Verify database integrity
-./target/release/node verify-integrity
-
-# Create a manual backup
-./target/release/node create-backup
-
-# Restore from backup
-./target/release/node restore --backup-file ./backups/supernova_backup_1678912345.db
-
-# Check repair status
-./target/release/node repair-status
-```
-
-### Monitoring
-
-Supernova exports Prometheus metrics on the configured metrics port:
-
-```bash
-# Check basic node status
-./target/release/node status
-
-# View detailed metrics (if you have Prometheus/Grafana setup)
-open http://localhost:9000/metrics
-```
-
-### API Services
-
-Supernova provides comprehensive API services through both RESTful and JSON-RPC interfaces:
-
-```bash
-# Access the RESTful API
-curl -X GET "http://localhost:8080/api/v1/blockchain/info" \
-  -H "Authorization: Bearer YOUR_API_KEY"
-
-# Access the JSON-RPC API
-curl -X POST "http://localhost:8332" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": "1",
-    "method": "getblockchaininfo",
-    "params": []
-  }'
-```
-
-#### RESTful API
-
-The RESTful API is organized into logical modules:
-
-- **Blockchain API**: Access blocks, transactions, and chain information
-- **Wallet API**: Manage wallets, addresses, transactions, and UTXOs
-- **Admin API**: Control node administration and configuration
-- **Statistics API**: Monitor blockchain analytics and performance metrics
-- **Environmental API**: Track environmental impact and emissions
-- **Lightning API**: Manage Lightning Network channels and payments
-
-Each API includes robust authentication, rate limiting, and detailed documentation. For complete API reference, see [API Reference](docs/api_reference.md).
-
-#### JSON-RPC API
-
-The JSON-RPC API provides Bitcoin-compatible methods for seamless integration with existing tools:
-
-- **Blockchain Methods**: `getblock`, `
-
-## Testnet with ASCII Art Animation
-
-When launching the testnet, you can enable a cool ASCII art animation by using the `--with-animation` flag:
-
-```bash
-# Start node with ASCII animation
-./run_node.sh --with-animation
-```
-
-Or run the standalone ASCII art banner tool:
-
-```bash
-# Display various SuperNova ASCII art animations
-cargo run --bin supernova-banner -- static
-cargo run --bin supernova-banner -- slide-in
-cargo run --bin supernova-banner -- dissolve-out
-cargo run --bin supernova-banner -- complete
-cargo run --bin supernova-banner -- testnet
-```
-
-## Quick Start for Testnet Deployment
-
-For a streamlined testnet deployment that bypasses compilation issues, use our Docker-based setup:
-
-```bash
-# Clone the repository
-git clone https://github.com/supernova-labs/supernova.git
-cd supernova
-
-# Make the Docker setup script executable
-chmod +x docker_setup.sh
-
-# Run the Docker setup script
-./docker_setup.sh
-```
-
-This will deploy a simulated testnet environment with all required services. For more details, see [TESTNET_FIXES_UPDATED.md](TESTNET_FIXES_UPDATED.md).
+SuperNova is licensed under MIT License.

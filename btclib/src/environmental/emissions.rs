@@ -70,15 +70,19 @@ impl Region {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmissionFactor {
     /// Grid carbon intensity in grams CO2e per kWh
-    pub g_co2e_per_kwh: f64,
+    pub grid_emissions_factor: f64,
     /// Year for this emissions factor
-    pub year: u16,
+    pub year: Option<u16>,
     /// Source of the emissions factor data
-    pub source: EmissionsFactorSource,
+    pub data_source: EmissionsDataSource,
     /// Region name
     pub region_name: String,
     /// Type of emission factor
     pub factor_type: EmissionsFactorType,
+    /// Timestamp of the data
+    pub timestamp: Option<DateTime<Utc>>,
+    /// Confidence level (0-1) of the data
+    pub confidence: Option<f64>,
 }
 
 /// Source of emissions factor data
@@ -410,7 +414,7 @@ impl EmissionsTracker {
             };
             
             // Update emission factors
-            for factor in factors {
+            for factor in factors.iter() {
                 let region_name = factor.region_name.clone();
                 let region_parts: Vec<&str> = region_name.split('-').collect();
                 
@@ -422,10 +426,10 @@ impl EmissionsTracker {
                 
                 match factor.factor_type {
                     EmissionsFactorType::GridAverage => {
-                        self.region_emission_factors.insert(region.clone(), factor);
+                        self.region_emission_factors.insert(region.clone(), factor.clone());
                     },
                     _ => {
-                        self.alt_emission_factors.insert((region, factor.factor_type), factor);
+                        self.alt_emission_factors.insert((region, factor.factor_type), factor.clone());
                     }
                 }
             }
@@ -535,7 +539,7 @@ impl EmissionsTracker {
             
             // Get emission factor for this region
             let emission_factor = match self.get_best_emissions_factor(region) {
-                Some(factor) => factor.g_co2e_per_kwh,
+                Some(factor) => factor.grid_emissions_factor * 1000.0, // Convert tonnes/MWh to kg/kWh
                 None => self.config.default_emission_factor / 1000.0, // Convert g to kg
             };
             
@@ -546,7 +550,7 @@ impl EmissionsTracker {
             // If enabled, get marginal emissions factor
             if self.config.use_marginal_emissions {
                 let marginal_factor = match self.get_marginal_emissions_factor(region) {
-                    Some(factor) => factor.g_co2e_per_kwh,
+                    Some(factor) => factor.grid_emissions_factor * 1000.0, // Convert tonnes/MWh to kg/kWh
                     None => emission_factor, // Fall back to average if no marginal data
                 };
                 
@@ -713,10 +717,10 @@ impl EmissionsTracker {
         
         for (region, hashrate) in &self.region_hashrates {
             if let Some(factor) = self.get_best_emissions_factor(region) {
-                weighted_emission_factor += factor.g_co2e_per_kwh * 1000.0 * hashrate.0; // Convert to g/kWh
+                weighted_emission_factor += factor.grid_emissions_factor * 1000.0 * hashrate.0; // Convert to g/kWh
                 total_weight += hashrate.0;
                 
-                let confidence = 0.7; // Default confidence level
+                let confidence = factor.confidence.unwrap_or(0.7); // Default confidence level
                 confidence_sum += confidence;
                 confidence_count += 1;
             }
@@ -746,10 +750,10 @@ impl EmissionsTracker {
         
         for (region, hashrate) in &self.region_hashrates {
             if let Some(factor) = self.get_marginal_emissions_factor(region) {
-                weighted_emission_factor += factor.g_co2e_per_kwh * 1000.0 * hashrate.0; // Convert to g/kWh
+                weighted_emission_factor += factor.grid_emissions_factor * 1000.0 * hashrate.0; // Convert to g/kWh
                 total_weight += hashrate.0;
                 
-                let confidence = 0.6; // Lower confidence for marginal by default
+                let confidence = factor.confidence.unwrap_or(0.6); // Lower confidence for marginal by default
                 confidence_sum += confidence;
                 confidence_count += 1;
             }
@@ -808,43 +812,58 @@ impl EmissionsTracker {
 }
 
 impl EmissionFactor {
-    /// Create default emission factors for common regions
+    /// Create default emission factors for common regions (compatibility override)
     pub fn default_factors() -> Vec<Self> {
         vec![
             // Global average
             Self {
-                g_co2e_per_kwh: 450.0,
-                year: 2023,
-                source: EmissionsFactorSource::IEA,
+                grid_emissions_factor: 0.45, // tonnes CO2e per MWh
                 region_name: "GLOBAL".to_string(),
+                data_source: EmissionsDataSource::IEA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2023),
+                timestamp: None,
+                confidence: None,
             },
             // USA
             Self {
-                g_co2e_per_kwh: 380.0, 
-                year: 2023,
-                source: EmissionsFactorSource::EPA,
+                grid_emissions_factor: 0.38,
                 region_name: "US".to_string(),
+                data_source: EmissionsDataSource::EPA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2023),
+                timestamp: None,
+                confidence: None,
             },
             // Europe
             Self {
-                g_co2e_per_kwh: 275.0,
-                year: 2023,
-                source: EmissionsFactorSource::EEA,
+                grid_emissions_factor: 0.275,
                 region_name: "EU".to_string(),
+                data_source: EmissionsDataSource::EEA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2023),
+                timestamp: None,
+                confidence: None,
             },
             // China
             Self {
-                g_co2e_per_kwh: 550.0,
-                year: 2023,
-                source: EmissionsFactorSource::IEA,
+                grid_emissions_factor: 0.55,
                 region_name: "CN".to_string(),
+                data_source: EmissionsDataSource::IEA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2023),
+                timestamp: None,
+                confidence: None,
             },
             // Canada
             Self {
-                g_co2e_per_kwh: 120.0,
-                year: 2023,
-                source: EmissionsFactorSource::Other,
+                grid_emissions_factor: 0.12,
                 region_name: "CA".to_string(),
+                data_source: EmissionsDataSource::IEA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2023),
+                timestamp: None,
+                confidence: None,
             },
         ]
     }

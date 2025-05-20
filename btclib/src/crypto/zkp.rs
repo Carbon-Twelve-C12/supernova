@@ -107,7 +107,9 @@ impl Default for PedersenGenerators {
         
         // Create h as a hash-to-point of g to ensure discrete log relation is unknown
         let mut hasher = Sha256::new();
-        let g_bytes = g.compress().as_bytes();
+        // Convert g to bytes for hashing
+        let g_compressed = g.compress();
+        let g_bytes = g_compressed.as_bytes();
         hasher.update(g_bytes);
         hasher.update(b"h_generator");
         let h_seed = hasher.finalize();
@@ -116,8 +118,10 @@ impl Default for PedersenGenerators {
         let mut h_bytes = [0u8; 32];
         h_bytes.copy_from_slice(&h_seed[0..32]);
         
-        // Make sure it's a valid point
-        let h = RistrettoPoint::from_uniform_bytes(&h_bytes);
+        // Convert to a RistrettoPoint
+        let mut h_bytes_extended = [0u8; 64];
+        h_bytes_extended[..32].copy_from_slice(&h_bytes);
+        let h = RistrettoPoint::from_uniform_bytes(&h_bytes_extended);
         
         Self { g, h }
     }

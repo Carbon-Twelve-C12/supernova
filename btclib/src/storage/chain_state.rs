@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 use crate::types::block::{Block, BlockHeader};
-use crate::types::transaction::Transaction;
+use crate::types::transaction::{Transaction, OutPoint};
 use crate::storage::utxo_set::{UtxoSet, UtxoEntry, UtxoCommitment};
 
 /// Errors that can occur in chain state operations
@@ -179,7 +179,7 @@ impl ChainState {
         
         // Process genesis outputs to UTXO set
         for (index, output) in genesis.transactions()[0].outputs().iter().enumerate() {
-            let outpoint = crate::types::transaction::OutPoint {
+            let outpoint = OutPoint {
                 txid: genesis.transactions()[0].hash(),
                 vout: index as u32,
             };
@@ -292,7 +292,7 @@ impl ChainState {
             match self.config.fork_resolution_policy {
                 ForkResolutionPolicy::MostWork => {
                     // Compare accumulated work (simplified - use target as proxy)
-                    block.header().target() < self.get_header(&current_tip)?.unwrap().target()
+                    block.header().bits() < self.get_header(&current_tip)?.unwrap().bits()
                 },
                 ForkResolutionPolicy::FirstSeen => false, // Stick with what we saw first
                 ForkResolutionPolicy::MostBlocks => false, // Equal blocks, stick with current
@@ -373,7 +373,7 @@ impl ChainState {
             }
             
             // Move to previous block
-            current = fork_header.prev_block_hash();
+            current = *fork_header.prev_block_hash();
             fork_header = self.get_header(&current)?.ok_or_else(|| 
                 ChainStateError::BlockNotFound(hex::encode(current)))?;
             fork_height = fork_header.height();

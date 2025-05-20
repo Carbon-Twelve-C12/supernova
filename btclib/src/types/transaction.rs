@@ -2,7 +2,23 @@ use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use crate::environmental::emissions::{EmissionsError, EmissionsTracker, Emissions};
 use crate::crypto::signature::{SignatureType, SignatureVerifier, SignatureError};
-use crate::crypto::quantum::{QuantumParameters, QuantumScheme};
+use crate::crypto::quantum::{QuantumParameters, QuantumScheme, QuantumKeyPair};
+use std::fmt;
+
+/// Reference to a transaction output
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutPoint {
+    /// Transaction ID (hash)
+    pub txid: [u8; 32],
+    /// Output index in the transaction
+    pub vout: u32,
+}
+
+impl fmt::Display for OutPoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", hex::encode(self.txid), self.vout)
+    }
+}
 
 /// Represents a transaction input referencing a previous output
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,7 +39,7 @@ pub struct TransactionOutput {
     /// Amount of coins in this output
     amount: u64,
     /// Public key script that must be satisfied to spend this output
-    pub_key_script: Vec<u8>,
+    pub pub_key_script: Vec<u8>,
 }
 
 /// Type of signature scheme used in a transaction
@@ -541,10 +557,10 @@ impl Transaction {
                 vec![0u8; 64] // Placeholder
             },
             SignatureSchemeType::Dilithium => {
-                // Create a quantum keypair from the provided keys
-                let keypair = crate::crypto::quantum::QuantumKeyPair {
+                // Create a quantum keypair for signing
+                let mut quantum_keypair = QuantumKeyPair {
                     public_key: public_key.to_vec(),
-                    private_key: private_key.to_vec(),
+                    secret_key: private_key.to_vec(),
                     parameters: QuantumParameters {
                         scheme: QuantumScheme::Dilithium,
                         security_level,
@@ -552,14 +568,14 @@ impl Transaction {
                 };
                 
                 // Sign with Dilithium
-                keypair.sign(&tx_hash)
+                quantum_keypair.sign(&tx_hash)
                     .map_err(|e| SignatureError::CryptoOperationFailed(format!("Dilithium signing failed: {}", e)))?
             },
             SignatureSchemeType::Falcon => {
-                // Create a quantum keypair from the provided keys
-                let keypair = crate::crypto::quantum::QuantumKeyPair {
+                // Create a quantum keypair for signing
+                let mut quantum_keypair = QuantumKeyPair {
                     public_key: public_key.to_vec(),
-                    private_key: private_key.to_vec(),
+                    secret_key: private_key.to_vec(),
                     parameters: QuantumParameters {
                         scheme: QuantumScheme::Falcon,
                         security_level,
@@ -567,7 +583,7 @@ impl Transaction {
                 };
                 
                 // Sign with Falcon
-                keypair.sign(&tx_hash)
+                quantum_keypair.sign(&tx_hash)
                     .map_err(|e| SignatureError::CryptoOperationFailed(format!("Falcon signing failed: {}", e)))?
             },
             SignatureSchemeType::Sphincs => {

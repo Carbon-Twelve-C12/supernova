@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, NaiveDateTime};
 use crate::types::transaction::Transaction;
 use crate::environmental::emissions::{EmissionsCalculator, NetworkEmissions};
 use crate::environmental::verification::{RenewableCertificate, CarbonOffset};
@@ -309,7 +309,6 @@ impl Default for TreasuryConfig {
 }
 
 /// Environmental treasury system for managing carbon negativity
-#[derive(Clone)]
 pub struct EnvironmentalTreasury {
     /// Treasury configuration
     config: RwLock<TreasuryConfig>,
@@ -325,6 +324,24 @@ pub struct EnvironmentalTreasury {
     emissions_calculator: Arc<EmissionsCalculator>,
     /// Current fee allocation percentage (may be dynamically adjusted)
     current_fee_percentage: RwLock<f64>,
+}
+
+// Manual implementation of Clone for EnvironmentalTreasury
+impl Clone for EnvironmentalTreasury {
+    fn clone(&self) -> Self {
+        // Create a new instance with cloned data
+        Self {
+            // Clone the inner values by acquiring read locks
+            config: RwLock::new(self.config.read().unwrap().clone()),
+            accounts: RwLock::new(self.accounts.read().unwrap().clone()),
+            impact: RwLock::new(self.impact.read().unwrap().clone()),
+            certificates: RwLock::new(self.certificates.read().unwrap().clone()),
+            offsets: RwLock::new(self.offsets.read().unwrap().clone()),
+            // Arc can be cloned directly
+            emissions_calculator: self.emissions_calculator.clone(),
+            current_fee_percentage: RwLock::new(*self.current_fee_percentage.read().unwrap()),
+        }
+    }
 }
 
 impl EnvironmentalTreasury {
@@ -865,13 +882,7 @@ impl EnvironmentalTreasury {
         amount: u64
     ) -> Result<(), TreasuryError> {
         let mut accounts = self.accounts.write().unwrap();
-        self.distribute_funds(
-            from_account,
-            to_account,
-            amount,
-            "Manual transfer between accounts",
-            &mut accounts
-        )
+        self.distribute_funds(from_account, to_account, amount, "Manual transfer", &mut accounts)
     }
 
     /// Update the fee allocation percentage
@@ -1050,6 +1061,117 @@ impl EnvironmentalTreasury {
         } else {
             0.0 // No discount for <25% renewable
         }
+    }
+
+    /// Register a miner that uses renewable energy
+    pub fn register_green_miner(
+        &mut self,
+        miner_id: &str,
+        renewable_percentage: f64,
+        verification: Option<VerificationInfo>
+    ) -> Result<(), TreasuryError> {
+        // Validate parameters
+        if renewable_percentage < 0.0 || renewable_percentage > 100.0 {
+            return Err(TreasuryError::InvalidMinerRegistration(
+                "Renewable percentage must be between 0 and 100".to_string()
+            ));
+        }
+        
+        // In a full implementation, we would register this miner in a database
+        // For now, just log it
+        println!("Registered green miner {} with {}% renewable energy", 
+                 miner_id, renewable_percentage);
+        
+        // Return success
+        Ok(())
+    }
+    
+    /// Process block allocation for the environmental treasury
+    pub fn process_block_allocation(&mut self, total_fees: u64) -> TreasuryAllocation {
+        // Process transaction fees, which updates all the internal accounts
+        if let Ok(amount) = self.process_transaction_fees(total_fees) {
+            println!("Allocated {} satoshis to environmental treasury", amount);
+        }
+        
+        // Return the current allocation percentages
+        self.get_allocation()
+    }
+    
+    /// Purchase prioritized environmental assets based on current impact
+    pub fn purchase_prioritized_assets(
+        &mut self,
+        total_amount: u64,
+        rec_allocation_percentage: f64
+    ) -> Result<Vec<EnvironmentalAssetPurchase>, TreasuryError> {
+        if rec_allocation_percentage < 0.0 || rec_allocation_percentage > 100.0 {
+            return Err(TreasuryError::InvalidAssetPurchase(
+                "REC allocation percentage must be between 0 and 100".to_string()
+            ));
+        }
+        
+        let mut purchases = Vec::new();
+        
+        // Calculate amounts for RECs and carbon offsets
+        let rec_amount = (total_amount as f64 * rec_allocation_percentage / 100.0) as u64;
+        let offset_amount = total_amount - rec_amount;
+        
+        // Process REC purchase if applicable
+        if rec_amount > 0 {
+            let rec_mwh = (rec_amount as f64 / 100_000.0).max(1.0); // Simple conversion
+            if let Ok(cert_id) = self.purchase_certificate(
+                "Renewable Energy Marketplace",
+                rec_mwh,
+                rec_amount,
+                "Prioritized purchase of renewable energy certificates"
+            ) {
+                // Find the certificate in our registry
+                let certificates = self.certificates.read().unwrap();
+                if let Some(cert) = certificates.iter().find(|c| c.id == cert_id) {
+                    purchases.push(EnvironmentalAssetPurchase {
+                        asset_type: EnvironmentalAssetType::RenewableEnergyCertificate,
+                        amount: cert.amount_mwh,
+                        cost: cert.cost,
+                        date: DateTime::<Utc>::from_utc(
+                            NaiveDateTime::from_timestamp_opt(cert.timestamp as i64, 0).unwrap_or_default(),
+                            Utc,
+                        ),
+                        provider: cert.provider.clone(),
+                        reference: cert.id.clone(),
+                        impact_score: 1.0,
+                    });
+                }
+            }
+        }
+        
+        // Process carbon offset purchase if applicable
+        if offset_amount > 0 {
+            let offset_tons = (offset_amount as f64 / 200_000.0).max(0.5); // Simple conversion
+            if let Ok(offset_id) = self.purchase_offset(
+                "Verified Carbon Standard",
+                offset_tons,
+                offset_amount,
+                "Prioritized purchase of carbon offsets"
+            ) {
+                // Find the offset in our registry
+                let offsets = self.offsets.read().unwrap();
+                if let Some(offset) = offsets.iter().find(|o| o.id == offset_id) {
+                    purchases.push(EnvironmentalAssetPurchase {
+                        asset_type: EnvironmentalAssetType::CarbonOffset,
+                        amount: offset.amount_tons_co2e,
+                        cost: offset.cost,
+                        date: DateTime::<Utc>::from_utc(
+                            NaiveDateTime::from_timestamp_opt(offset.timestamp as i64, 0).unwrap_or_default(),
+                            Utc,
+                        ),
+                        provider: offset.provider.clone(),
+                        reference: offset.id.clone(),
+                        impact_score: 1.0,
+                    });
+                }
+            }
+        }
+        
+        Ok(purchases)
     }
 }
 

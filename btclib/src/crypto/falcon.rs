@@ -8,7 +8,7 @@ use sha2::{Sha256, Digest};
 
 use crate::validation::SecurityLevel;
 
-/// Error type for Falcon operations
+/// Errors that can occur during Falcon operations
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum FalconError {
     /// The key is invalid or corrupted
@@ -26,26 +26,34 @@ pub enum FalconError {
     /// A cryptographic operation failed
     #[error("Falcon cryptographic operation failed: {0}")]
     CryptoOperationFailed(String),
+    
+    /// Invalid public key
+    #[error("Invalid public key")]
+    InvalidPublicKey,
+    
+    /// Invalid secret key
+    #[error("Invalid secret key")]
+    InvalidSecretKey,
 }
 
-/// Parameters for Falcon signatures
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Parameters for the Falcon signature scheme
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FalconParameters {
-    /// Security level (higher = more secure but larger signatures)
+    /// Security level (1-5)
     pub security_level: u8,
 }
 
 impl FalconParameters {
-    /// Create new Falcon parameters with default values
-    pub fn new() -> Self {
-        Self {
-            security_level: 3, // Medium security by default (Falcon-512)
+    /// Create new parameters with the given security level
+    pub fn with_security_level(security_level: u8) -> Result<Self, FalconError> {
+        // Validate security level
+        if security_level < 1 || security_level > 5 {
+            return Err(FalconError::UnsupportedSecurityLevel(security_level));
         }
-    }
-    
-    /// Create new Falcon parameters with specified security level
-    pub fn with_security_level(security_level: u8) -> Self {
-        Self { security_level }
+        
+        Ok(Self {
+            security_level,
+        })
     }
     
     /// Get the NIST security level as string
@@ -87,54 +95,73 @@ impl FalconParameters {
 
 impl Default for FalconParameters {
     fn default() -> Self {
-        Self::new()
+        Self {
+            security_level: 3, // Medium security by default (Falcon-512)
+        }
     }
 }
 
-/// A Falcon key pair
-#[derive(Clone, Serialize, Deserialize)]
+/// Falcon key pair consisting of public and private keys
 pub struct FalconKeyPair {
-    /// The public key
+    /// Public key
     pub public_key: Vec<u8>,
-    /// The private key (sensitive information)
-    private_key: Vec<u8>,
-    /// Parameters used for this key pair
+    /// Secret key
+    pub secret_key: Vec<u8>,
+    /// Algorithm parameters
     pub parameters: FalconParameters,
 }
 
 impl FalconKeyPair {
-    /// Generate a new Falcon key pair
+    /// Generate a new Falcon key pair with the given parameters
     pub fn generate<R: CryptoRng + RngCore>(
         rng: &mut R,
         parameters: FalconParameters,
     ) -> Result<Self, FalconError> {
-        // This is a placeholder implementation until the pqcrypto-falcon crate is available
-        // Real implementation would use the PQClean Falcon implementation
+        // In a real implementation, we would use a Falcon library to generate the keypair
+        // For now, simulate the key generation
+
+        // Deterministic key generation (for testing only)
+        let mut seed = [0u8; 32];
+        rng.fill_bytes(&mut seed);
         
-        // For now, just return dummy keys of the expected length
-        match SecurityLevel::from(parameters.security_level) {
-            SecurityLevel::Low => {
-                let public_key = vec![0u8; 897];
-                let private_key = vec![0u8; 1281];
-                
-                Ok(Self {
-                    public_key,
-                    private_key,
-                    parameters,
-                })
-            },
-            SecurityLevel::Medium => {
-                let public_key = vec![0u8; 1793];
-                let private_key = vec![0u8; 2305];
-                
-                Ok(Self {
-                    public_key,
-                    private_key,
-                    parameters,
-                })
-            },
-            _ => Err(FalconError::UnsupportedSecurityLevel(parameters.security_level)),
+        // Simulate key generation
+        let mut hasher = Sha256::new();
+        hasher.update(&seed);
+        let key_hash = hasher.finalize();
+        
+        // For public key, use the full hash
+        let public_key = key_hash.to_vec();
+        
+        // For secret key, combine with parameters to simulate a different value
+        let mut hasher = Sha256::new();
+        hasher.update(&key_hash);
+        hasher.update(&[parameters.security_level]);
+        let secret_hash = hasher.finalize();
+        let secret_key = secret_hash.to_vec();
+        
+        Ok(Self {
+            public_key,
+            secret_key,
+            parameters,
+        })
+    }
+    
+    /// Create a FalconKeyPair from public key bytes only
+    pub fn from_public_bytes(
+        public_key: Vec<u8>,
+        parameters: FalconParameters,
+    ) -> Result<Self, FalconError> {
+        // Validate the public key
+        if public_key.len() != 32 {
+            return Err(FalconError::InvalidPublicKey);
         }
+        
+        // Create a public-key only keypair (with empty secret key)
+        Ok(Self {
+            public_key,
+            secret_key: vec![],
+            parameters,
+        })
     }
     
     /// Sign a message using the Falcon private key
@@ -144,7 +171,7 @@ impl FalconKeyPair {
         // Use message hash as a deterministic signature for now
         let mut hasher = Sha256::new();
         hasher.update(message);
-        hasher.update(&self.private_key);
+        hasher.update(&self.secret_key);
         let hash = hasher.finalize();
         
         // Expand hash to signature size
@@ -194,7 +221,7 @@ impl std::fmt::Debug for FalconKeyPair {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FalconKeyPair")
             .field("public_key", &format!("[{} bytes]", self.public_key.len()))
-            .field("private_key", &"[REDACTED]")
+            .field("secret_key", &"[REDACTED]")
             .field("parameters", &self.parameters)
             .finish()
     }
@@ -210,7 +237,7 @@ pub fn verify_falcon_signature(
     // Create a keypair with just the public key for verification
     let keypair = FalconKeyPair {
         public_key: public_key.to_vec(),
-        private_key: vec![],  // Empty private key since we're only verifying
+        secret_key: vec![],  // Empty secret key since we're only verifying
         parameters,
     };
     
@@ -227,11 +254,11 @@ mod tests {
         let params = FalconParameters::new();
         assert_eq!(params.security_level, 3); // Default should be Medium
         
-        let params_low = FalconParameters::with_security_level(SecurityLevel::Low as u8);
+        let params_low = FalconParameters::with_security_level(SecurityLevel::Low as u8).expect("Low security level should be valid");
         assert_eq!(params_low.security_level, SecurityLevel::Low as u8);
         assert_eq!(params_low.get_nist_level(), "Falcon-512 (Level 1)");
         
-        let params_medium = FalconParameters::with_security_level(SecurityLevel::Medium as u8);
+        let params_medium = FalconParameters::with_security_level(SecurityLevel::Medium as u8).expect("Medium security level should be valid");
         assert_eq!(params_medium.security_level, SecurityLevel::Medium as u8);
         assert_eq!(params_medium.get_nist_level(), "Falcon-1024 (Level 5)");
     }
@@ -241,24 +268,24 @@ mod tests {
         let mut rng = OsRng;
         
         // Test key generation with low security level
-        let params_low = FalconParameters::with_security_level(SecurityLevel::Low as u8);
+        let params_low = FalconParameters::with_security_level(SecurityLevel::Low as u8).expect("Low security level should be valid");
         let keypair_low = FalconKeyPair::generate(&mut rng, params_low).expect("Key generation should succeed");
         
         assert_eq!(keypair_low.public_key.len(), 897);
-        assert_eq!(keypair_low.private_key.len(), 1281);
+        assert_eq!(keypair_low.secret_key.len(), 1281);
         
         // Test key generation with medium security level
-        let params_medium = FalconParameters::with_security_level(SecurityLevel::Medium as u8);
+        let params_medium = FalconParameters::with_security_level(SecurityLevel::Medium as u8).expect("Medium security level should be valid");
         let keypair_medium = FalconKeyPair::generate(&mut rng, params_medium).expect("Key generation should succeed");
         
         assert_eq!(keypair_medium.public_key.len(), 1793);
-        assert_eq!(keypair_medium.private_key.len(), 2305);
+        assert_eq!(keypair_medium.secret_key.len(), 2305);
     }
     
     #[test]
     fn test_falcon_sign_verify() {
         let mut rng = OsRng;
-        let params = FalconParameters::with_security_level(SecurityLevel::Low as u8);
+        let params = FalconParameters::with_security_level(SecurityLevel::Low as u8).expect("Low security level should be valid");
         
         let keypair = FalconKeyPair::generate(&mut rng, params).expect("Key generation should succeed");
         let message = b"This is a test message for Falcon signature";

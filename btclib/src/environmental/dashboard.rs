@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc, Duration};
-use crate::environmental::emissions::{Emissions, EmissionsTracker, Region, EmissionFactor, EmissionsFactorType};
+use crate::environmental::emissions::{Emissions, EmissionsTracker, Region, EmissionFactor};
+use crate::environmental::types::EmissionsFactorType;
 use crate::environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetPurchase, EnvironmentalAssetType};
 use crate::environmental::miner_reporting::{MinerReportingManager, MinerEnvironmentalReport};
 use std::fmt;

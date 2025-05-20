@@ -1,0 +1,8 @@
+[package]
+name = "supernova-cli"
+version = "0.1.0"
+edition = "2021"
+description = "SuperNova Blockchain CLI Client"
+
+[dependencies]
+clap = "3.2" 

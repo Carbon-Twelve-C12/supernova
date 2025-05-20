@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
-use crate::crypto::quantum::{QuantumScheme, QuantumParameters, QuantumError};
+use crate::crypto::quantum::{QuantumScheme, QuantumParameters, QuantumError, ClassicalScheme};
 use crate::crypto::zkp::{Commitment, ZeroKnowledgeProof, ZkpParams};
 use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 

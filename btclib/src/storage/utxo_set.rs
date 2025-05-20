@@ -33,6 +33,13 @@ pub struct UtxoEntry {
     pub is_confirmed: bool,
 }
 
+impl UtxoEntry {
+    /// Get the amount from the output
+    pub fn amount(&self) -> u64 {
+        self.output.value
+    }
+}
+
 /// UTXO hash commitment for validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UtxoCommitment {
@@ -203,7 +210,7 @@ impl UtxoSet {
     /// Remove a UTXO from the set
     pub fn remove(&self, outpoint: &OutPoint) -> Result<Option<UtxoEntry>, String> {
         let start_time = Instant::now();
-        let mut removed_entry = None;
+        let mut removed_entry: Option<UtxoEntry> = None;
 
         // Try to remove from cache first
         {
@@ -232,7 +239,12 @@ impl UtxoSet {
         if let Some(entry) = &removed_entry {
             let mut commitment = self.commitment.write().map_err(|e| e.to_string())?;
             commitment.utxo_count = commitment.utxo_count.saturating_sub(1);
-            commitment.total_value = commitment.total_value.saturating_sub(entry.output.amount());
+            
+            // Get the amount
+            let amount = entry.amount();
+            commitment.total_value = commitment.total_value.saturating_sub(amount);
+            
+
             // Full merkle tree update would be done periodically
         }
 
@@ -373,8 +385,9 @@ impl UtxoSet {
         let mut hasher = Sha256::new();
         
         for entry in utxos {
-            // Hash outpoint
-            hasher.update(entry.outpoint.txid.as_bytes());
+            // Hash the entry
+            let mut hasher = Sha256::new();
+            hasher.update(&entry.outpoint.txid);
             hasher.update(&entry.outpoint.vout.to_le_bytes());
             
             // Hash value
