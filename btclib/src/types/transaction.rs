@@ -639,6 +639,23 @@ impl Transaction {
         // Higher priority comes first
         other_priority.cmp(&self_priority)
     }
+
+    /// Check if this transaction is a coinbase transaction
+    pub fn is_coinbase(&self) -> bool {
+        // A coinbase transaction has exactly one input
+        if self.inputs.len() != 1 {
+            return false;
+        }
+        
+        // The input's previous transaction hash is all zeros
+        let is_zero_hash = self.inputs[0].prev_tx_hash.iter().all(|&b| b == 0);
+        
+        // The input's previous output index is usually 0xFFFFFFFF or 0
+        let is_special_index = self.inputs[0].prev_output_index == 0xFFFFFFFF || 
+                              self.inputs[0].prev_output_index == 0;
+        
+        is_zero_hash && is_special_index
+    }
 }
 
 // Helper function to calculate variable integer size

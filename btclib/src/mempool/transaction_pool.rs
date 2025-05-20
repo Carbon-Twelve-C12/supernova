@@ -99,7 +99,6 @@ impl Default for TransactionPoolConfig {
 }
 
 /// Thread-safe transaction pool (mempool)
-#[derive(Debug)]
 pub struct TransactionPool {
     /// Configuration for the pool
     config: TransactionPoolConfig,
@@ -593,6 +592,7 @@ impl fmt::Debug for TransactionPool {
             .field("transactions_count", &self.transactions.len())
             .field("orphans_count", &self.orphans.read().unwrap().len())
             .field("size_bytes", &*self.size_bytes.read().unwrap())
+            .field("get_utxo", &std::any::type_name_of_val(&self.get_utxo))
             .finish()
     }
 }

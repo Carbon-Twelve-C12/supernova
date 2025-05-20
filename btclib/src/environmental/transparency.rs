@@ -517,7 +517,7 @@ impl TransparencyDashboard {
     /// Generate treasury allocation details
     fn generate_treasury_allocation_details(&self) -> Option<TreasuryAllocationDetails> {
         // Get treasury balance and allocation percentages
-        let balance = self.treasury.get_balance();
+        let balance = self.treasury.get_balance(crate::environmental::treasury::TreasuryAccountType::Main);
         let fee_allocation_percentage = self.treasury.get_current_fee_percentage();
         let allocation = self.treasury.get_allocation();
         
@@ -628,7 +628,7 @@ impl TransparencyDashboard {
     }
     
     /// Export transparency report as JSON
-    pub fn export_report_json(&self, level: TransparencyLevel) -> Result<String, String> {
+    pub fn export_report_json(&mut self, level: TransparencyLevel) -> Result<String, String> {
         match self.latest_report {
             Some(ref report) if report.transparency_level == level => {
                 serde_json::to_string_pretty(report)

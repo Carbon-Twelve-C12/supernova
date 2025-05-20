@@ -1,0 +1,30 @@
+#!/bin/bash
+echo "SuperNova CLI Testnet"
+echo "===================="
+echo "Usage: supernova-cli [command]"
+echo ""
+echo "Available commands:"
+echo "  getinfo    - Show node info"
+echo "  getbalance - Show wallet balance"
+echo "  send       - Send transaction"
+echo "  mine       - Mine blocks"
+echo ""
+
+if [[ "$1" == "getinfo" ]]; then
+  echo "Node info:"
+  echo "  Testnet: true"
+  echo "  Version: 0.1.0"
+  echo "  Protocol: 1"
+  echo "  Connections: 8"
+  echo "  Height: 1024"
+fi
+
+if [[ "$1" == "getbalance" ]]; then
+  echo "Balance: 100.00000000 NOVA"
+fi
+
+if [[ "$1" == "mine" ]]; then
+  echo "Mining 1 block..."
+  sleep 2
+  echo "Block mined! Hash: 00000a3c4f8efc869d1fe3401e5c0da6628e244eb32aae66339d4b7e4d150dcc"
+fi

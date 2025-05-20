@@ -557,8 +557,9 @@ impl MinerReportingManager {
             return Err(format!("Miner with ID {} is already registered", info.miner_id));
         }
 
-        self.miners.insert(info.miner_id.clone(), info);
-        info!("Registered miner: {}", info.miner_id);
+        let miner_id = info.miner_id.clone();
+        self.miners.insert(miner_id.clone(), info);
+        info!("Registered miner: {}", miner_id);
 
         Ok(())
     }
@@ -569,8 +570,9 @@ impl MinerReportingManager {
             return Err(format!("Miner with ID {} is not registered", info.miner_id));
         }
 
-        self.miners.insert(info.miner_id.clone(), info);
-        info!("Updated miner: {}", info.miner_id);
+        let miner_id = info.miner_id.clone();
+        self.miners.insert(miner_id.clone(), info);
+        info!("Updated miner: {}", miner_id);
 
         Ok(())
     }
@@ -659,42 +661,78 @@ impl MinerReportingManager {
         Ok(efficiency / baseline)
     }
 
-    /// Generate a report of all miners' environmental status
+    /// Generate a network-wide environmental report
     pub fn generate_report(&self) -> MinerEnvironmentalReport {
-        let total_miners = self.miners.len();
-        let verified_miners = self.miners.values()
-            .filter(|info| info.is_verification_valid())
+        let miners = self.list_miners();
+        
+        // Count verified miners
+        let verified_miners = miners.iter()
+            .filter(|miner| miner.is_verification_valid())
             .count();
-
-        let renewable_percentage = if total_miners > 0 {
-            self.miners.values()
-                .map(|info| info.renewable_percentage)
-                .sum::<f64>() / total_miners as f64
+        
+        // Calculate average renewable percentage
+        let average_renewable_percentage = if !miners.is_empty() {
+            miners.iter()
+                .map(|miner| miner.renewable_percentage)
+                .sum::<f64>() / miners.len() as f64
         } else {
             0.0
         };
-
-        let total_hashrate = self.miners.values()
-            .map(|info| info.total_hashrate)
+        
+        // Calculate total hashrate
+        let total_hashrate = miners.iter()
+            .map(|miner| miner.total_hashrate)
             .sum();
-
-        let total_energy = self.miners.values()
-            .map(|info| info.energy_consumption_kwh_day)
+        
+        // Calculate total energy consumption
+        let total_energy_consumption = miners.iter()
+            .map(|miner| miner.energy_consumption_kwh_day)
             .sum();
-
-        let green_miners = self.get_verified_green_miners().len();
-        let offset_miners = self.get_offset_miners().len();
-
+        
+        // Count miners with verified RECs
+        let green_miners = miners.iter()
+            .filter(|miner| miner.has_verified_recs())
+            .count();
+        
+        // Count miners with offsets
+        let offset_miners = miners.iter()
+            .filter(|miner| miner.has_verified_offsets())
+            .count();
+        
+        // Calculate average efficiency
+        let efficiency_values: Vec<f64> = miners.iter()
+            .filter_map(|miner| miner.calculate_energy_efficiency())
+            .collect();
+        
+        let average_efficiency = if !efficiency_values.is_empty() {
+            Some(efficiency_values.iter().sum::<f64>() / efficiency_values.len() as f64)
+        } else {
+            None
+        };
+        
+        // Calculate REC coverage percentage
+        let rec_coverage_percentage = if total_energy_consumption > 0.0 {
+            let total_verified_recs_mwh: f64 = miners.iter()
+                .map(|miner| miner.total_verified_recs_mwh())
+                .sum();
+            
+            let annual_energy_mwh = total_energy_consumption * 365.0 / 1000.0;
+            Some(f64::min(total_verified_recs_mwh / annual_energy_mwh * 100.0, 100.0))
+        } else {
+            None
+        };
+        
         MinerEnvironmentalReport {
             timestamp: chrono::Utc::now(),
-            total_miners,
+            total_miners: miners.len(),
             verified_miners,
-            average_renewable_percentage: renewable_percentage,
+            average_renewable_percentage,
             total_hashrate,
-            total_energy_consumption_kwh_day: total_energy,
+            total_energy_consumption_kwh_day: total_energy_consumption,
             green_miners,
             offset_miners,
-            average_efficiency: self.calculate_average_efficiency(),
+            average_efficiency,
+            rec_coverage_percentage,
         }
     }
 
@@ -900,55 +938,78 @@ impl MinerReportingManager {
             .collect()
     }
     
-    /// Generate metrics report with REC prioritization
+    /// Generate a network-wide environmental report with REC prioritization
     pub fn generate_report_with_rec_priority(&self) -> MinerEnvironmentalReport {
-        let total_miners = self.miners.len();
-        let verified_miners = self.miners.values()
-            .filter(|info| info.is_verification_valid())
+        let miners = self.list_miners();
+        
+        // Count verified miners
+        let verified_miners = miners.iter()
+            .filter(|miner| miner.is_verification_valid())
             .count();
-
-        let renewable_percentage = if total_miners > 0 {
-            self.miners.values()
-                .map(|info| info.renewable_percentage)
-                .sum::<f64>() / total_miners as f64
+        
+        // Calculate average renewable percentage
+        let average_renewable_percentage = if !miners.is_empty() {
+            miners.iter()
+                .map(|miner| miner.renewable_percentage)
+                .sum::<f64>() / miners.len() as f64
         } else {
             0.0
         };
-
-        let total_hashrate = self.miners.values()
-            .map(|info| info.total_hashrate)
-            .sum();
-
-        let total_energy = self.miners.values()
-            .map(|info| info.energy_consumption_kwh_day)
-            .sum();
-
-        let rec_miners = self.get_verified_rec_miners().len();
-        let offset_miners = self.get_offset_miners().len();
         
-        // Calculate REC coverage
-        let total_annual_energy_mwh = total_energy * 365.0 / 1000.0;
-        let total_verified_recs: f64 = self.miners.values()
-            .map(|info| info.total_verified_recs_mwh())
+        // Calculate total hashrate
+        let total_hashrate = miners.iter()
+            .map(|miner| miner.total_hashrate)
             .sum();
         
-        let rec_coverage_percentage = if total_annual_energy_mwh > 0.0 {
-            (total_verified_recs / total_annual_energy_mwh * 100.0).min(100.0)
+        // Calculate total energy consumption
+        let total_energy_consumption = miners.iter()
+            .map(|miner| miner.energy_consumption_kwh_day)
+            .sum();
+        
+        // Count miners with verified RECs
+        let green_miners = miners.iter()
+            .filter(|miner| miner.has_verified_recs())
+            .count();
+        
+        // Count miners with offsets
+        let offset_miners = miners.iter()
+            .filter(|miner| miner.has_verified_offsets())
+            .count();
+        
+        // Calculate average efficiency
+        let efficiency_values: Vec<f64> = miners.iter()
+            .filter_map(|miner| miner.calculate_energy_efficiency())
+            .collect();
+        
+        let average_efficiency = if !efficiency_values.is_empty() {
+            Some(efficiency_values.iter().sum::<f64>() / efficiency_values.len() as f64)
         } else {
-            0.0
+            None
         };
-
+        
+        // Calculate REC coverage percentage with priority to verified RECs
+        let rec_coverage_percentage = if total_energy_consumption > 0.0 {
+            let total_verified_recs_mwh: f64 = miners.iter()
+                .map(|miner| miner.total_verified_recs_mwh())
+                .sum();
+            
+            let annual_energy_mwh = total_energy_consumption * 365.0 / 1000.0;
+            Some(f64::min(total_verified_recs_mwh / annual_energy_mwh * 100.0, 100.0))
+        } else {
+            None
+        };
+        
         MinerEnvironmentalReport {
             timestamp: chrono::Utc::now(),
-            total_miners,
+            total_miners: miners.len(),
             verified_miners,
-            average_renewable_percentage: renewable_percentage,
+            average_renewable_percentage,
             total_hashrate,
-            total_energy_consumption_kwh_day: total_energy,
-            green_miners: rec_miners,
+            total_energy_consumption_kwh_day: total_energy_consumption,
+            green_miners,
             offset_miners,
-            average_efficiency: self.calculate_average_efficiency(),
-            rec_coverage_percentage: Some(rec_coverage_percentage),
+            average_efficiency,
+            rec_coverage_percentage,
         }
     }
 }

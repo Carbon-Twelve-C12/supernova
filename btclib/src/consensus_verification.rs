@@ -562,7 +562,8 @@ impl VerificationPredicate for InputVerificationPredicate {
     fn verify_transaction(&self, tx: &Transaction, chain_state: &ChainState) -> Result<bool, ConsensusVerificationError> {
         // Check each input references a valid UTXO
         for input in tx.inputs() {
-            let utxo_key = format!("{}:{}", hex::encode(&input.txid), input.vout);
+            // Access the input using the correct field names
+            let utxo_key = format!("{}:{}", hex::encode(&input.prev_tx_hash()), input.prev_output_index());
             
             if !chain_state.utxo_set.contains_key(&utxo_key) {
                 return Ok(false);
@@ -601,12 +602,12 @@ impl TimestampPredicate {
 impl VerificationPredicate for TimestampPredicate {
     fn verify_block(&self, block: &Block, chain_state: &ChainState) -> Result<bool, ConsensusVerificationError> {
         // Block timestamp must not be too far in the future
-        if block.header().timestamp > chain_state.current_timestamp + self.max_future_time {
+        if block.header().timestamp() > chain_state.current_timestamp + self.max_future_time {
             return Ok(false);
         }
         
         // Block timestamp must be greater than median of previous blocks (simplified here)
-        if block.header().timestamp <= chain_state.current_timestamp / 2 {
+        if block.header().timestamp() <= chain_state.current_timestamp / 2 {
             return Ok(false);
         }
         

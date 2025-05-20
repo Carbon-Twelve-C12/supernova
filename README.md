@@ -21,6 +21,15 @@
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml/badge.svg" alt="Clippy" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml/badge.svg" alt="Benchmarks" /></a>
   </p>
+
+  <p align="center">
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/CI"><img src="https://img.shields.io/github/workflow/status/supernova-labs/supernova/CI?label=CI&style=for-the-badge" alt="CI" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/Docker"><img src="https://img.shields.io/github/workflow/status/supernova-labs/supernova/Docker?label=Docker&style=for-the-badge" alt="Docker" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/license"><img src="https://img.shields.io/github/license/supernova-labs/supernova?style=for-the-badge" alt="License" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/version"><img src="https://img.shields.io/badge/Version-0.1.0-brightgreen?style=for-the-badge" alt="Version" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/tests"><img src="https://img.shields.io/badge/Tests-passing-brightgreen?style=for-the-badge" alt="Tests" /></a>
+    <a href="https://github.com/mjohnson518/supernova/actions/workflows/testnet"><img src="https://img.shields.io/badge/Testnet-running-brightgreen?style=for-the-badge" alt="Testnet" /></a>
+  </p>
 </div>
 
 ## Overview
@@ -582,3 +591,21 @@ cargo run --bin supernova-banner -- dissolve-out
 cargo run --bin supernova-banner -- complete
 cargo run --bin supernova-banner -- testnet
 ```
+
+## Quick Start for Testnet Deployment
+
+For a streamlined testnet deployment that bypasses compilation issues, use our Docker-based setup:
+
+```bash
+# Clone the repository
+git clone https://github.com/supernova-labs/supernova.git
+cd supernova
+
+# Make the Docker setup script executable
+chmod +x docker_setup.sh
+
+# Run the Docker setup script
+./docker_setup.sh
+```
+
+This will deploy a simulated testnet environment with all required services. For more details, see [TESTNET_FIXES_UPDATED.md](TESTNET_FIXES_UPDATED.md).

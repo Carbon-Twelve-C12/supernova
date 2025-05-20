@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
@@ -140,6 +141,13 @@ pub enum TreasuryAccountType {
     Operations,
     /// Emergency reserve
     Reserve,
+}
+
+impl Hash for TreasuryAccountType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Use the discriminant value for hashing
+        (*self as u8).hash(state);
+    }
 }
 
 /// Treasury allocation percentages
@@ -301,6 +309,7 @@ impl Default for TreasuryConfig {
 }
 
 /// Environmental treasury system for managing carbon negativity
+#[derive(Clone)]
 pub struct EnvironmentalTreasury {
     /// Treasury configuration
     config: RwLock<TreasuryConfig>,
@@ -770,10 +779,8 @@ impl EnvironmentalTreasury {
             let required_offset = impact.emissions_tons_co2e * impact.target_ratio - impact.offset_tons_co2e;
             if required_offset > 0.0 {
                 // Determine how many offsets we can buy with current funds
-                let offset_account = self.accounts.read().unwrap()
-                    .get(&TreasuryAccountType::CarbonOffsets)
-                    .unwrap();
-                    
+                let accounts_lock = self.accounts.read().unwrap();
+                let offset_account = accounts_lock.get(&TreasuryAccountType::CarbonOffsets).unwrap();
                 let available_funds = offset_account.balance;
                 
                 // Estimate cost per ton of CO2e (simplified)
@@ -798,10 +805,8 @@ impl EnvironmentalTreasury {
         }
         
         // Also allocate funds for renewable energy certificates
-        let cert_account = self.accounts.read().unwrap()
-            .get(&TreasuryAccountType::RenewableCertificates)
-            .unwrap();
-            
+        let accounts_lock = self.accounts.read().unwrap();
+        let cert_account = accounts_lock.get(&TreasuryAccountType::RenewableCertificates).unwrap();
         let available_funds = cert_account.balance;
         
         // Estimate cost per MWh of renewable energy (simplified)
@@ -1015,6 +1020,36 @@ impl EnvironmentalTreasury {
         purchases.truncate(limit);
         
         purchases
+    }
+
+    /// Get asset purchases - alias for get_recent_purchases
+    pub fn get_asset_purchases(&self, limit: usize) -> Vec<EnvironmentalAssetPurchase> {
+        self.get_recent_purchases(limit)
+    }
+
+    /// Calculate miner fee discount based on renewable energy percentage
+    pub fn calculate_miner_fee_discount(&self, miner_id: &str) -> f64 {
+        // Find certificates for this miner
+        let certificates = self.certificates.read().unwrap();
+        let miner_certificates: Vec<_> = certificates.iter()
+            .filter(|cert| cert.provider == miner_id && cert.verification_status)
+            .collect();
+            
+        // Calculate total renewable energy amount
+        let total_renewable_mwh: f64 = miner_certificates.iter()
+            .map(|cert| cert.amount_mwh)
+            .sum();
+            
+        // Apply discount tiers
+        if total_renewable_mwh >= 95.0 {
+            10.0 // 10% discount for 95%+ renewable
+        } else if total_renewable_mwh >= 75.0 {
+            5.0 // 5% discount for 75-94% renewable
+        } else if total_renewable_mwh >= 25.0 {
+            2.0 // 2% discount for 25-74% renewable
+        } else {
+            0.0 // No discount for <25% renewable
+        }
     }
 }
 

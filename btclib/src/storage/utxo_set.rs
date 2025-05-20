@@ -190,7 +190,7 @@ impl UtxoSet {
         {
             let mut commitment = self.commitment.write().map_err(|e| e.to_string())?;
             commitment.utxo_count += 1;
-            commitment.total_value += entry.output.value;
+            commitment.total_value += entry.output.amount();
             // Full merkle tree update would be done periodically, not on every add
         }
 
@@ -232,7 +232,7 @@ impl UtxoSet {
         if let Some(entry) = &removed_entry {
             let mut commitment = self.commitment.write().map_err(|e| e.to_string())?;
             commitment.utxo_count = commitment.utxo_count.saturating_sub(1);
-            commitment.total_value = commitment.total_value.saturating_sub(entry.output.value);
+            commitment.total_value = commitment.total_value.saturating_sub(entry.output.amount());
             // Full merkle tree update would be done periodically
         }
 
@@ -332,7 +332,7 @@ impl UtxoSet {
         let all_utxos = self.get_all_utxos()?;
         
         // Calculate total value
-        let total_value = all_utxos.iter().map(|entry| entry.output.value).sum();
+        let total_value = all_utxos.iter().map(|entry| entry.output.amount()).sum();
         
         // Build simplified Merkle tree (real implementation would be more complex)
         let root_hash = self.calculate_merkle_root(&all_utxos)?;
@@ -378,10 +378,12 @@ impl UtxoSet {
             hasher.update(&entry.outpoint.vout.to_le_bytes());
             
             // Hash value
-            hasher.update(&entry.output.value.to_le_bytes());
+            let amount = entry.output.amount();
+            hasher.update(&amount.to_le_bytes());
             
             // Hash script (simplified)
-            hasher.update(&entry.output.script_pubkey);
+            let script = &entry.output.pub_key_script;
+            hasher.update(script);
             
             // Hash metadata
             hasher.update(&entry.height.to_le_bytes());
@@ -570,12 +572,12 @@ mod tests {
         // Get the UTXO
         let result = utxo_set.get(&utxo.outpoint).unwrap();
         assert!(result.is_some());
-        assert_eq!(result.unwrap().output.value, 1000);
+        assert_eq!(result.unwrap().output.amount(), 1000);
         
         // Remove the UTXO
         let removed = utxo_set.remove(&utxo.outpoint).unwrap();
         assert!(removed.is_some());
-        assert_eq!(removed.unwrap().output.value, 1000);
+        assert_eq!(removed.unwrap().output.amount(), 1000);
         
         // Verify it's gone
         assert!(!utxo_set.contains(&utxo.outpoint).unwrap());

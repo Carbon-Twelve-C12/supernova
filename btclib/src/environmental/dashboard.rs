@@ -286,7 +286,7 @@ impl EnvironmentalDashboard {
         };
         
         // Get asset purchases from treasury
-        let asset_purchases = self.treasury.get_asset_purchases().to_vec();
+        let asset_purchases = self.treasury.get_asset_purchases(10);
         
         // Calculate total environmental assets
         let total_assets: f64 = asset_purchases.iter()

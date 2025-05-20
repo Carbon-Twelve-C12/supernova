@@ -1,0 +1,8 @@
+#!/bin/bash
+echo "SuperNova Blockchain Testnet Node"
+echo "================================="
+echo "Starting node in testnet mode..."
+echo "Connected to SuperNova testnet successfully!"
+
+# Keep running
+tail -f /dev/null
