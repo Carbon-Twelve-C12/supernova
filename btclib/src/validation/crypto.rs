@@ -2,9 +2,20 @@
 //
 // This module provides validation for cryptographic primitives.
 
-use crate::crypto::signature::{SignatureType, SignatureError, SignatureParams, SignatureScheme};
-use crate::crypto::quantum::{QuantumScheme, ClassicalScheme};
+use crate::crypto::signature::{SignatureType, SignatureError, SignatureParams, SignatureVerifier};
+use crate::crypto::quantum::{QuantumScheme, ClassicalScheme, QuantumParameters, verify_quantum_signature};
 use super::{ValidationError, SecurityLevel};
+
+/// Validation mode for cryptographic operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValidationMode {
+    /// Standard validation mode
+    Standard,
+    /// Permissive validation mode (allow some non-critical errors)
+    Permissive,
+    /// Strict validation mode (fail on any error)
+    Strict,
+}
 
 /// Configuration for cryptographic validation
 #[derive(Debug, Clone)]
@@ -102,7 +113,7 @@ pub fn create_config_for_security_level(level: SecurityLevel) -> CryptoValidatio
     }
 }
 
-/// Crypto validator
+/// Cryptographic validator for verifying signatures and other cryptographic operations
 pub struct CryptoValidator {
     config: CryptoValidationConfig,
 }
@@ -153,13 +164,36 @@ impl CryptoValidator {
             )));
         }
         
-        // Create a verifier
-        let verifier = crate::crypto::signature::SignatureVerifier::new();
-        
-        // Verify the signature
-        match verifier.verify(params.sig_type, public_key, message, signature) {
-            Ok(valid) => Ok(valid),
-            Err(e) => Err(ValidationError::CryptoError(format!("Signature verification error: {}", e))),
+        // Determine the verification method based on the signature type
+        match params.sig_type {
+            SignatureType::Quantum(scheme) => {
+                // For quantum signatures, use the dedicated verification function
+                let quantum_params = QuantumParameters {
+                    scheme,
+                    security_level: params.security_level,
+                };
+                
+                match verify_quantum_signature(public_key, message, signature, quantum_params) {
+                    Ok(valid) => Ok(valid),
+                    Err(e) => Err(ValidationError::CryptoError(
+                        format!("Quantum signature verification error: {}", e)
+                    )),
+                }
+            },
+            // For classical or other signature types, use the general verifier
+            _ => {
+                let verifier = SignatureVerifier::new();
+                
+                match verifier.verify(params.sig_type, public_key, message, signature) {
+                    Ok(valid) => Ok(valid),
+                    Err(e) => Err(ValidationError::CryptoError(
+                        format!("Signature verification error: {}", e)
+                    )),
+                }
+            }
         }
     }
-} 
+}
+
+/// Alias for backward compatibility
+pub type SignatureValidator = CryptoValidator; 

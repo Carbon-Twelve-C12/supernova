@@ -3,23 +3,24 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use chrono::{DateTime, Utc};
+use thiserror::Error;
+use crate::environmental::types::{EnergySource as TypesEnergySource, EmissionFactor, HardwareType as TypesHardwareType, Region};
+use crate::environmental::treasury::VerificationStatus as TreasuryVerificationStatus;
+use std::sync::{Arc, RwLock};
+use url::Url;
+use std::fmt;
 
-use crate::environmental::types::{EnergySource, EmissionFactor, HardwareType, Region};
-use crate::environmental::treasury::VerificationStatus;
-
-/// Status of an environmental claim verification
+/// Status of miner verification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum VerificationStatus {
-    /// Claim has been submitted but not yet verified
-    Pending,
-    /// Claim has been verified by a trusted authority
+pub enum MinerVerificationStatus {
+    /// Miner has been verified
     Verified,
-    /// Claim verification has failed
-    Failed,
-    /// Claim has expired and needs renewal
-    Expired,
-    /// Claim is in dispute or under review
-    Disputed,
+    /// Miner verification is pending
+    Pending,
+    /// Miner verification is rejected
+    Rejected,
+    /// Miner is unverified
+    Unverified,
 }
 
 /// Information about the verification of an environmental claim
@@ -32,7 +33,7 @@ pub struct VerificationInfo {
     /// Reference ID for the verification
     pub reference: String,
     /// Current status of the verification
-    pub status: VerificationStatus,
+    pub status: MinerVerificationStatus,
 }
 
 /// REC certificate information
@@ -51,9 +52,9 @@ pub struct RECCertificate {
     /// Location of renewable energy generation
     pub generation_location: Option<Region>,
     /// Type of renewable energy
-    pub energy_type: EnergySource,
+    pub energy_type: TypesEnergySource,
     /// Verification status
-    pub verification_status: VerificationStatus,
+    pub verification_status: MinerVerificationStatus,
     /// URL to certificate
     pub certificate_url: Option<String>,
     /// Last verification date
@@ -80,7 +81,7 @@ pub struct CarbonOffset {
     /// End date of offset period
     pub offset_end: DateTime<Utc>,
     /// Verification status
-    pub verification_status: VerificationStatus,
+    pub verification_status: MinerVerificationStatus,
     /// URL to offset certificate
     pub certificate_url: Option<String>,
     /// Last verification date
@@ -120,7 +121,7 @@ pub struct LocationVerification {
     /// Evidence reference
     pub evidence_reference: Option<String>,
     /// Verification status
-    pub status: VerificationStatus,
+    pub status: MinerVerificationStatus,
 }
 
 /// Information about a miner's environmental claims
@@ -135,9 +136,9 @@ pub struct MinerEnvironmentalInfo {
     /// Location verification information
     pub location_verification: Option<LocationVerification>,
     /// Types of hardware used by the miner
-    pub hardware_types: Vec<HardwareType>,
+    pub hardware_types: Vec<TypesHardwareType>,
     /// Energy sources with percentage breakdown
-    pub energy_sources: HashMap<EnergySource, f64>,
+    pub energy_sources: HashMap<TypesEnergySource, f64>,
     /// Renewable energy percentage (0-100)
     pub renewable_percentage: f64,
     /// Optional verification information
@@ -163,7 +164,7 @@ pub struct MinerEnvironmentalInfo {
     /// Environmental score (0-100)
     pub environmental_score: Option<f64>,
     /// Preferred renewable energy type
-    pub preferred_energy_type: Option<EnergySource>,
+    pub preferred_energy_type: Option<TypesEnergySource>,
 }
 
 impl MinerEnvironmentalInfo {
@@ -243,7 +244,7 @@ impl MinerEnvironmentalInfo {
     }
 
     /// Update the energy source mix
-    pub fn update_energy_sources(&mut self, sources: HashMap<EnergySource, f64>) -> Result<(), String> {
+    pub fn update_energy_sources(&mut self, sources: HashMap<TypesEnergySource, f64>) -> Result<(), String> {
         // Validate that percentages sum to approximately 100%
         let total: f64 = sources.values().sum();
         if (total - 100.0).abs() > 1.0 {
@@ -264,7 +265,7 @@ impl MinerEnvironmentalInfo {
     }
 
     /// Add hardware types used by the miner
-    pub fn add_hardware_types(&mut self, hardware: Vec<HardwareType>) {
+    pub fn add_hardware_types(&mut self, hardware: Vec<TypesHardwareType>) {
         for hw in hardware {
             if !self.hardware_types.contains(&hw) {
                 self.hardware_types.push(hw);
@@ -299,7 +300,7 @@ impl MinerEnvironmentalInfo {
         &mut self,
         provider: String,
         reference: String,
-        status: VerificationStatus,
+        status: MinerVerificationStatus,
     ) {
         self.verification = Some(VerificationInfo {
             provider,
@@ -332,7 +333,7 @@ impl MinerEnvironmentalInfo {
     pub fn is_verification_valid(&self) -> bool {
         if let Some(verification) = &self.verification {
             match verification.status {
-                VerificationStatus::Verified => {
+                MinerVerificationStatus::Verified => {
                     // Check if verification is less than 1 year old
                     let one_year_ago = chrono::Utc::now() - chrono::Duration::days(365);
                     verification.date > one_year_ago
@@ -384,7 +385,7 @@ impl MinerEnvironmentalInfo {
         // Add points for REC certificates (0-20 points)
         let rec_score = if self.has_rec_certificates {
             let verified_recs = self.rec_certificates.iter()
-                .filter(|rec| rec.verification_status == VerificationStatus::Verified)
+                .filter(|rec| rec.verification_status == MinerVerificationStatus::Verified)
                 .count();
             
             if verified_recs > 0 {
@@ -399,7 +400,7 @@ impl MinerEnvironmentalInfo {
         // Add points for carbon offsets (0-10 points)
         let offset_score = if self.has_carbon_offsets {
             let verified_offsets = self.carbon_offsets.iter()
-                .filter(|offset| offset.verification_status == VerificationStatus::Verified)
+                .filter(|offset| offset.verification_status == MinerVerificationStatus::Verified)
                 .count();
             
             if verified_offsets > 0 {
@@ -477,7 +478,7 @@ impl MinerEnvironmentalInfo {
         
         // First apply RECs (full reduction of covered portion)
         let rec_covered_mwh: f64 = self.rec_certificates.iter()
-            .filter(|cert| cert.verification_status == VerificationStatus::Verified)
+            .filter(|cert| cert.verification_status == MinerVerificationStatus::Verified)
             .map(|cert| cert.amount_mwh)
             .sum();
         
@@ -486,7 +487,7 @@ impl MinerEnvironmentalInfo {
         
         // Then apply carbon offsets to remaining footprint
         let offset_tonnes: f64 = self.carbon_offsets.iter()
-            .filter(|offset| offset.verification_status == VerificationStatus::Verified)
+            .filter(|offset| offset.verification_status == MinerVerificationStatus::Verified)
             .map(|offset| offset.amount_tonnes)
             .sum();
         
@@ -502,19 +503,19 @@ impl MinerEnvironmentalInfo {
     /// Check if miner has verified RECs
     pub fn has_verified_recs(&self) -> bool {
         self.rec_certificates.iter()
-            .any(|cert| cert.verification_status == VerificationStatus::Verified)
+            .any(|cert| cert.verification_status == MinerVerificationStatus::Verified)
     }
     
     /// Check if miner has verified carbon offsets
     pub fn has_verified_offsets(&self) -> bool {
         self.carbon_offsets.iter()
-            .any(|offset| offset.verification_status == VerificationStatus::Verified)
+            .any(|offset| offset.verification_status == MinerVerificationStatus::Verified)
     }
     
     /// Get total verified REC amount in MWh
     pub fn total_verified_recs_mwh(&self) -> f64 {
         self.rec_certificates.iter()
-            .filter(|cert| cert.verification_status == VerificationStatus::Verified)
+            .filter(|cert| cert.verification_status == MinerVerificationStatus::Verified)
             .map(|cert| cert.amount_mwh)
             .sum()
     }
@@ -522,7 +523,7 @@ impl MinerEnvironmentalInfo {
     /// Get total verified offset amount in tonnes CO2e
     pub fn total_verified_offsets_tonnes(&self) -> f64 {
         self.carbon_offsets.iter()
-            .filter(|offset| offset.verification_status == VerificationStatus::Verified)
+            .filter(|offset| offset.verification_status == MinerVerificationStatus::Verified)
             .map(|offset| offset.amount_tonnes)
             .sum()
     }
@@ -535,7 +536,7 @@ pub struct MinerReportingManager {
     /// Regional emission factors
     emission_factors: HashMap<Region, EmissionFactor>,
     /// Standard hardware efficiency baselines
-    hardware_baselines: HashMap<HardwareType, f64>,
+    hardware_baselines: HashMap<TypesHardwareType, f64>,
     /// Reports by miner ID
     reports: HashMap<String, MinerEnvironmentalReport>,
 }
@@ -593,7 +594,7 @@ impl MinerReportingManager {
     }
 
     /// Set hardware efficiency baselines
-    pub fn set_hardware_baselines(&mut self, baselines: HashMap<HardwareType, f64>) {
+    pub fn set_hardware_baselines(&mut self, baselines: HashMap<TypesHardwareType, f64>) {
         self.hardware_baselines = baselines;
     }
 
@@ -767,12 +768,12 @@ impl MinerReportingManager {
             
             // Determine report status based on verification status
             match verification.status {
-                VerificationStatus::Verified => {
+                MinerVerificationStatus::Verified => {
                     // Approve the report
                     self.update_miner_status(miner_id, true);
                     true
                 },
-                VerificationStatus::Failed => {
+                MinerVerificationStatus::Rejected => {
                     // Reject the report
                     self.update_miner_status(miner_id, false);
                     true
@@ -839,7 +840,7 @@ impl MinerReportingManager {
             confidence,
             verifier: None, // Would be set in a real implementation
             evidence_reference: evidence,
-            status: VerificationStatus::Verified,
+            status: MinerVerificationStatus::Verified,
         };
         
         // Update miner record
@@ -868,7 +869,7 @@ impl MinerReportingManager {
         // For now, we just simulate verification
         
         // Update verification status
-        miner.rec_certificates[cert_index].verification_status = VerificationStatus::Verified;
+        miner.rec_certificates[cert_index].verification_status = MinerVerificationStatus::Verified;
         miner.rec_certificates[cert_index].last_verified = Some(Utc::now());
         
         // Update miner's REC status
@@ -918,7 +919,7 @@ impl MinerReportingManager {
         
         // Location verification bonus
         let location_bonus = if let Some(verification) = &info.location_verification {
-            if verification.status == VerificationStatus::Verified {
+            if verification.status == MinerVerificationStatus::Verified {
                 verification.confidence * 3.0 // Up to 3% additional discount
             } else {
                 0.0
@@ -1041,7 +1042,7 @@ pub struct MinerEnvironmentalReport {
 
 /// Energy source for mining operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum EnergySource {
+pub enum TypesEnergySource {
     /// Solar power
     Solar,
     /// Wind power
@@ -1064,28 +1065,28 @@ pub enum EnergySource {
     Unknown,
 }
 
-impl EnergySource {
+impl TypesEnergySource {
     /// Check if the energy source is renewable
     pub fn is_renewable(&self) -> bool {
         match self {
-            EnergySource::Solar => true,
-            EnergySource::Wind => true,
-            EnergySource::Hydro => true,
-            EnergySource::Geothermal => true,
-            EnergySource::Biomass => true,
+            TypesEnergySource::Solar => true,
+            TypesEnergySource::Wind => true,
+            TypesEnergySource::Hydro => true,
+            TypesEnergySource::Geothermal => true,
+            TypesEnergySource::Biomass => true,
             // Nuclear is carbon-free but not classified as renewable
-            EnergySource::Nuclear => false,
-            EnergySource::NaturalGas => false,
-            EnergySource::Coal => false,
-            EnergySource::Oil => false,
-            EnergySource::Unknown => false,
+            TypesEnergySource::Nuclear => false,
+            TypesEnergySource::NaturalGas => false,
+            TypesEnergySource::Coal => false,
+            TypesEnergySource::Oil => false,
+            TypesEnergySource::Unknown => false,
         }
     }
 }
 
 /// Hardware type used for mining
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum HardwareType {
+pub enum TypesHardwareType {
     /// ASIC miner
     Asic,
     /// GPU miner
@@ -1124,9 +1125,9 @@ mod tests {
         
         // Update energy sources (50% renewable)
         let mut sources = HashMap::new();
-        sources.insert(EnergySource::Solar, 30.0);
-        sources.insert(EnergySource::Wind, 20.0);
-        sources.insert(EnergySource::Coal, 50.0);
+        sources.insert(TypesEnergySource::Solar, 30.0);
+        sources.insert(TypesEnergySource::Wind, 20.0);
+        sources.insert(TypesEnergySource::Coal, 50.0);
         miner.update_energy_sources(sources).unwrap();
         
         // Calculate carbon footprint
@@ -1165,9 +1166,9 @@ mod tests {
         
         // 80% renewable energy
         let mut sources = HashMap::new();
-        sources.insert(EnergySource::Hydro, 50.0);
-        sources.insert(EnergySource::Wind, 30.0);
-        sources.insert(EnergySource::NaturalGas, 20.0);
+        sources.insert(TypesEnergySource::Hydro, 50.0);
+        sources.insert(TypesEnergySource::Wind, 30.0);
+        sources.insert(TypesEnergySource::NaturalGas, 20.0);
         miner.update_energy_sources(sources).unwrap();
         
         // Calculate baseline footprint (without RECs or offsets)

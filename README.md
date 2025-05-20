@@ -10,7 +10,7 @@
     <a href="https://supernovanetwork.xyz/"><img src="https://img.shields.io/badge/website-supernovanetwork.xyz-blue" alt="Official Website" /></a>
     <a href="https://github.com/mjohnson518/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/mjohnson518/supernova" alt="Contributors" /></a>
     <a href="https://github.com/mjohnson518/supernova/stargazers"><img src="https://img.shields.io/github/stars/mjohnson518/supernova" alt="Stars" /></a>
-    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.5.0--DEV-blue" alt="Version" /></a>
+    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.6.0--DEV-blue" alt="Version" /></a>
      <a href="https://deepwiki.com/mjohnson518/supernova"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
 
@@ -155,43 +155,44 @@ supernova/
 
 ## Current Status
 
-The project is currently at version 0.5.0 in a **DEVELOPMENT** state. While the architecture and core components have been designed, many features are still in development or have stub implementations. The codebase has undergone significant fixes to address compilation issues, and a testnet simulation environment has been implemented.
+The project is currently at version 0.6.0 in **ACTIVE DEVELOPMENT** state. While the architecture and core components have been designed, many features are still in development or have stub implementations. We're actively fixing compilation issues and improving code quality.
 
-Component completion status:
+Key points:
 
-- **⚠️ Core libraries (btclib)**: ~70% complete (basic structures implemented, some advanced features are stubs)
-- **⚠️ Transaction Processing**: ~75% complete
-- **⚠️ Mempool Management**: ~60% complete
-- **⚠️ Block Validation**: ~65% complete
-- **✅ Merkle Tree Implementation**: 100% complete
-- **⚠️ Difficulty Adjustment**: ~80% complete
-- **⚠️ Chain State Management**: ~70% complete
-- **⚠️ Block Storage**: ~65% complete
-- **⚠️ Backup System**: ~50% complete
-- **⚠️ Network Protocol**: ~40% complete
-- **⚠️ Peer Management**: ~35% complete
-- **⚠️ Transaction Propagation**: ~45% complete
-- **⚠️ Block Synchronization**: ~30% complete
-- **⚠️ Cryptographic features**: ~60% complete
-- **⚠️ Environmental system**: ~40% complete
-- **⚠️ Security system**: ~35% complete
-- **⚠️ Monitoring system**: ~30% complete
-- **⚠️ Mining**: ~55% complete
-- **⚠️ Wallet**: ~45% complete
-- **⚠️ Lightning Network**: ~20% complete
-- **⚠️ API services**: ~35% complete
-- **⚠️ Optimization & Performance**: ~30% complete
-- **✅ Testnet Simulation**: 100% complete
 
-A detailed roadmap with implementation priorities and timelines is available in [PROJECT_ROADMAP.md](PROJECT_ROADMAP.md). We welcome contributions from the community to help complete these components.
+- **Compilation Issues**: The codebase currently has compilation errors being addressed incrementally.
+- **Quantum Resistance**: Post-quantum cryptography module is partially implemented using libraries like pqcrypto.
+- **Environmental Features**: A unique feature tracking energy usage and environmental impact of mining.
 
-Current development is focused on:
-1. Addressing remaining compilation issues
-2. Implementing core blockchain functionality
-3. Replacing stub implementations with fully functional code
-4. Enhancing the testnet environment to use actual blockchain nodes rather than simulations
+### Implementation Status
+
+Component statuses:
+
+- **Core libraries (btclib)**: ~75% complete (basic structures implemented, some advanced features are stubs)
+- **Transaction Processing**: ~70% complete (validation framework mostly implemented)
+- **Mempool Management**: ~60% complete (basic structure with partial functionality)
+- **Transaction Validation**: ~90% complete (recently improved with better error handling)
+- **Block Validation**: ~65% complete (basic validation with some advanced features missing)
+- **Merkle Tree Implementation**: 100% complete
+- **Network Layer**: ~40% complete (peer discovery and sync partially implemented)
+- **Storage**: ~75% complete (disk storage for blocks and UTXO set mostly complete)
+- **Consensus Engine**: ~60% complete (proof-of-work implementation with difficulty adjustment)
+- **RPC API**: ~30% complete (basic node control and query endpoints)
+- **Environmental Monitoring**: ~85% complete (unique feature for tracking energy usage)
+- **Wallet**: ~25% complete (basic functionality only)
+- **CLI**: ~35% complete
+
+### Development Roadmap
+
+1. **Current Phase**: Fixing compilation issues and implementing missing core features
+2. **Next Phase**: Completing validation and consensus modules
+3. **Future Phase**: Improving network stack and implementing advanced features
+
+For detailed information about the current development status and next steps, see [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md).
 
 ## Getting Started
+
+⚠️ **IMPORTANT**: This project is in active development and has compilation errors. It is not suitable for production use.
 
 ### Prerequisites
 

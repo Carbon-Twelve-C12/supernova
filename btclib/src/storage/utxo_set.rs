@@ -6,7 +6,7 @@ use memmap2::{MmapMut, MmapOptions};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::types::transaction::{OutPoint, TxOutput};
+use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
 use tracing::{debug, info, warn, error};
 
 /// Size of merkle tree leaf node in bytes
@@ -36,7 +36,7 @@ pub struct UtxoEntry {
 impl UtxoEntry {
     /// Get the amount from the output
     pub fn amount(&self) -> u64 {
-        self.output.value
+        self.output.amount()
     }
 }
 
@@ -197,7 +197,7 @@ impl UtxoSet {
         {
             let mut commitment = self.commitment.write().map_err(|e| e.to_string())?;
             commitment.utxo_count += 1;
-            commitment.total_value += entry.output.amount();
+            commitment.total_value += entry.amount();
             // Full merkle tree update would be done periodically, not on every add
         }
 
@@ -210,12 +210,12 @@ impl UtxoSet {
     /// Remove a UTXO from the set
     pub fn remove(&self, outpoint: &OutPoint) -> Result<Option<UtxoEntry>, String> {
         let start_time = Instant::now();
-        let mut removed_entry: Option<UtxoEntry> = None;
+        let mut result: Option<UtxoEntry> = None;
 
         // Try to remove from cache first
         {
             let mut cache = self.cache.write().map_err(|e| e.to_string())?;
-            removed_entry = cache.remove(outpoint);
+            result = cache.remove(outpoint);
 
             // Update cache statistics
             let mut stats = self.stats.write().map_err(|e| e.to_string())?;
@@ -224,7 +224,7 @@ impl UtxoSet {
         }
 
         // If not in cache, may be on disk
-        if removed_entry.is_none() && self.use_mmap {
+        if result.is_none() && self.use_mmap {
             // In a real implementation, would look up in index and load from disk
             // For simplicity, we'll just return None
         }
@@ -236,7 +236,7 @@ impl UtxoSet {
         }
 
         // Update commitment if we removed something
-        if let Some(entry) = &removed_entry {
+        if let Some(entry) = &result {
             let mut commitment = self.commitment.write().map_err(|e| e.to_string())?;
             commitment.utxo_count = commitment.utxo_count.saturating_sub(1);
             
@@ -244,11 +244,10 @@ impl UtxoSet {
             let amount = entry.amount();
             commitment.total_value = commitment.total_value.saturating_sub(amount);
             
-
             // Full merkle tree update would be done periodically
         }
 
-        Ok(removed_entry)
+        Ok(result)
     }
 
     /// Get a UTXO by outpoint
@@ -282,14 +281,14 @@ impl UtxoSet {
             // Look up in index
             let index = self.index.read().map_err(|e| e.to_string())?;
             
-            if let Some(&offset) = index.get(outpoint) {
-                // Load from mmap
-                if let Some(mmap_ref) = &self.mmap {
-                    let mmap = mmap_ref.lock().map_err(|e| e.to_string())?;
-                    
-                    // In a real implementation, deserialize from mmap at offset
-                    // For simplicity, we'll just return None
-                }
+            if index.contains_key(outpoint) {
+                // In a real implementation, we would:
+                // 1. Get the offset from the index
+                // 2. Load from mmap at that offset
+                // 3. Deserialize the entry
+                
+                // For the stub implementation, we just return None
+                // Note: In a real implementation, this would add the entry to cache
             }
         }
 
@@ -344,7 +343,7 @@ impl UtxoSet {
         let all_utxos = self.get_all_utxos()?;
         
         // Calculate total value
-        let total_value = all_utxos.iter().map(|entry| entry.output.amount()).sum();
+        let total_value = all_utxos.iter().map(|entry| entry.amount()).sum();
         
         // Build simplified Merkle tree (real implementation would be more complex)
         let root_hash = self.calculate_merkle_root(&all_utxos)?;
@@ -382,7 +381,7 @@ impl UtxoSet {
         
         // For simplicity, we'll hash all UTXOs together
         // A real implementation would build a proper Merkle tree
-        let mut hasher = Sha256::new();
+        let hasher = Sha256::new();
         
         for entry in utxos {
             // Hash the entry
@@ -391,7 +390,7 @@ impl UtxoSet {
             hasher.update(&entry.outpoint.vout.to_le_bytes());
             
             // Hash value
-            let amount = entry.output.amount();
+            let amount = entry.amount();
             hasher.update(&amount.to_le_bytes());
             
             // Hash script (simplified)
@@ -585,12 +584,12 @@ mod tests {
         // Get the UTXO
         let result = utxo_set.get(&utxo.outpoint).unwrap();
         assert!(result.is_some());
-        assert_eq!(result.unwrap().output.amount(), 1000);
+        assert_eq!(result.unwrap().amount(), 1000);
         
         // Remove the UTXO
         let removed = utxo_set.remove(&utxo.outpoint).unwrap();
         assert!(removed.is_some());
-        assert_eq!(removed.unwrap().output.amount(), 1000);
+        assert_eq!(removed.unwrap().amount(), 1000);
         
         // Verify it's gone
         assert!(!utxo_set.contains(&utxo.outpoint).unwrap());

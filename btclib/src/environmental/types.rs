@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 
 /// Energy source types for miners
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -27,6 +28,8 @@ pub enum EnergySource {
     Grid,
     /// Other or unspecified source
     Other,
+    /// Unknown source
+    Unknown,
 }
 
 impl EnergySource {
@@ -44,6 +47,7 @@ impl EnergySource {
             EnergySource::Oil => false,
             EnergySource::Grid => false, // Depends on regional mix, defaulting to false
             EnergySource::Other => false, // Conservative default
+            EnergySource::Unknown => false,
         }
     }
     
@@ -61,6 +65,7 @@ impl EnergySource {
             EnergySource::Oil => false,
             EnergySource::Grid => false,
             EnergySource::Other => false,
+            EnergySource::Unknown => false,
         }
     }
     
@@ -78,6 +83,7 @@ impl EnergySource {
             EnergySource::Oil => 0.65,
             EnergySource::Grid => 0.475, // Global average
             EnergySource::Other => 0.5, // Conservative estimate
+            EnergySource::Unknown => 0.0, // Default to zero for unknown sources
         }
     }
 }
@@ -96,75 +102,54 @@ impl fmt::Display for EnergySource {
             EnergySource::Biomass => write!(f, "Biomass"),
             EnergySource::Grid => write!(f, "Grid Mix"),
             EnergySource::Other => write!(f, "Other"),
+            EnergySource::Unknown => write!(f, "Unknown"),
         }
     }
 }
 
-/// Geographic regions for emissions calculations
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Region {
-    /// ISO country code
-    pub country_code: String,
-    /// Optional sub-region code (e.g., state, province)
-    pub sub_region: Option<String>,
-    /// Optional grid zone identifier
-    pub grid_zone: Option<String>,
-    /// Latitude coordinate
-    pub latitude: Option<f64>,
-    /// Longitude coordinate
-    pub longitude: Option<f64>,
+/// Geographic regions for environmental tracking
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Region {
+    /// North America
+    NorthAmerica,
+    /// Europe
+    Europe,
+    /// Asia-Pacific
+    AsiaPacific,
+    /// South America
+    SouthAmerica,
+    /// Africa
+    Africa,
+    /// Middle East
+    MiddleEast,
+    /// Global (not region-specific)
+    Global,
 }
 
 impl Region {
-    /// Create a new region with country code
+    /// Create a new region from country code
     pub fn new(country_code: &str) -> Self {
-        Self {
-            country_code: country_code.to_string(),
-            sub_region: None,
-            grid_zone: None,
-            latitude: None,
-            longitude: None,
+        match country_code.to_uppercase().as_str() {
+            "US" | "CA" => Self::NorthAmerica,
+            "GB" | "DE" | "FR" | "IT" | "ES" => Self::Europe,
+            "CN" | "JP" | "KR" | "IN" | "AU" => Self::AsiaPacific,
+            "BR" | "AR" | "CL" | "CO" | "PE" => Self::SouthAmerica,
+            "ZA" | "NG" | "KE" | "EG" | "MA" => Self::Africa,
+            "SA" | "AE" | "QA" | "IL" | "TR" => Self::MiddleEast,
+            _ => Self::Global,
         }
     }
     
-    /// Create a new region with country code and sub-region
-    pub fn with_sub_region(country_code: &str, sub_region: &str) -> Self {
-        Self {
-            country_code: country_code.to_string(),
-            sub_region: Some(sub_region.to_string()),
-            grid_zone: None,
-            latitude: None,
-            longitude: None,
-        }
-    }
-    
-    /// Create a new region with full details
-    pub fn with_details(
-        country_code: &str, 
-        sub_region: Option<&str>, 
-        grid_zone: Option<&str>,
-        latitude: Option<f64>,
-        longitude: Option<f64>
-    ) -> Self {
-        Self {
-            country_code: country_code.to_string(),
-            sub_region: sub_region.map(|s| s.to_string()),
-            grid_zone: grid_zone.map(|g| g.to_string()),
-            latitude,
-            longitude,
-        }
-    }
-    
-    /// Get a string representation of the region
+    /// Get ISO country code for region
     pub fn to_string(&self) -> String {
-        if let Some(sub_region) = &self.sub_region {
-            if let Some(grid_zone) = &self.grid_zone {
-                format!("{}-{}-{}", self.country_code, sub_region, grid_zone)
-            } else {
-                format!("{}-{}", self.country_code, sub_region)
-            }
-        } else {
-            self.country_code.clone()
+        match self {
+            Self::NorthAmerica => "NA".to_string(),
+            Self::Europe => "EU".to_string(),
+            Self::AsiaPacific => "APAC".to_string(),
+            Self::SouthAmerica => "SA".to_string(),
+            Self::Africa => "AF".to_string(),
+            Self::MiddleEast => "ME".to_string(),
+            Self::Global => "GLOBAL".to_string(),
         }
     }
 }
@@ -176,7 +161,7 @@ impl fmt::Display for Region {
 }
 
 /// Emissions data source provider
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EmissionsDataSource {
     /// International Energy Agency
     IEA,
@@ -194,6 +179,16 @@ pub enum EmissionsDataSource {
     ElectricityMaps,
     /// Custom or user-provided data
     Custom,
+    /// Data from a reliable third-party provider
+    ThirdPartyProvider(String),
+    /// Government-provided data
+    Government(String),
+    /// Self-reported data
+    SelfReported,
+    /// Default values from established sources
+    Default,
+    /// Real-time grid data
+    RealTimeGrid(String),
 }
 
 /// Emissions factor type
@@ -205,6 +200,16 @@ pub enum EmissionsFactorType {
     Marginal,
     /// Residual mix emissions
     ResidualMix,
+    /// Grid electricity emissions
+    GridElectricity,
+    /// Natural gas combustion
+    NaturalGas,
+    /// Diesel combustion
+    Diesel,
+    /// Coal combustion
+    Coal,
+    /// Renewable energy
+    Renewable,
 }
 
 /// Emissions factor for a specific region
@@ -264,130 +269,162 @@ impl EmissionFactor {
     /// Create default emission factors for all regions
     pub fn default_factors() -> Vec<Self> {
         vec![
-            Self::new(&Region::new("US"), 0.38, EmissionsDataSource::EPA),
-            Self::new(&Region::new("CA"), 0.12, EmissionsDataSource::IEA),
-            Self::new(&Region::new("EU"), 0.28, EmissionsDataSource::EEA),
-            Self::new(&Region::new("CN"), 0.63, EmissionsDataSource::IEA),
-            Self::new(&Region::new("IN"), 0.72, EmissionsDataSource::IEA),
-            Self::new(&Region::new("RU"), 0.50, EmissionsDataSource::IEA),
-            Self::new(&Region::new("AU"), 0.52, EmissionsDataSource::IEA),
-            Self::new(&Region::new("BR"), 0.09, EmissionsDataSource::IEA),
-            Self::new(&Region::new("ZA"), 0.85, EmissionsDataSource::IEA),
-            Self::new(&Region::with_sub_region("US", "CA"), 0.21, EmissionsDataSource::EPA),
-            Self::new(&Region::with_sub_region("US", "WA"), 0.09, EmissionsDataSource::EPA),
-            Self::new(&Region::with_sub_region("US", "TX"), 0.41, EmissionsDataSource::EPA),
-            Self::new(&Region::with_sub_region("US", "WY"), 0.79, EmissionsDataSource::EPA),
+            Self::new(&Region::NorthAmerica, 0.38, EmissionsDataSource::EPA),
+            Self::new(&Region::NorthAmerica, 0.12, EmissionsDataSource::IEA), // Canada
+            Self::new(&Region::Europe, 0.28, EmissionsDataSource::EEA),
+            Self::new(&Region::AsiaPacific, 0.63, EmissionsDataSource::IEA), // China
+            Self::new(&Region::AsiaPacific, 0.72, EmissionsDataSource::IEA), // India
+            Self::new(&Region::Global, 0.50, EmissionsDataSource::IEA), // Russia
+            Self::new(&Region::AsiaPacific, 0.52, EmissionsDataSource::IEA), // Australia
+            Self::new(&Region::SouthAmerica, 0.09, EmissionsDataSource::IEA), // Brazil
+            Self::new(&Region::Africa, 0.85, EmissionsDataSource::IEA), // South Africa
         ]
     }
     
     /// Create a global average factor
     pub fn global_average() -> Self {
-        Self::new(&Region::new("GLOBAL"), 0.475, EmissionsDataSource::IEA)
+        Self::new(&Region::Global, 0.475, EmissionsDataSource::IEA)
     }
 }
 
 /// Mining hardware types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HardwareType {
-    /// Antminer S9
-    AntminerS9,
-    /// Antminer S19
-    AntminerS19,
-    /// Antminer S19 Pro
-    AntminerS19Pro,
-    /// Antminer S19j Pro
-    AntminerS19jPro,
-    /// Antminer S19 XP
-    AntminerS19XP,
-    /// Whatsminer M30S
-    WhatsminerM30S,
-    /// Whatsminer M30S+
-    WhatsminerM30SPlus,
-    /// Whatsminer M30S++
-    WhatsminerM30SPlusPlus,
-    /// AvalonMiner 1246
-    AvalonMiner1246,
-    /// AvalonMiner 1066
-    AvalonMiner1066,
-    /// Custom ASIC
-    CustomASIC,
-    /// FPGA
-    FPGA,
-    /// GPU
-    GPU,
-    /// Other
+    /// ASIC miner
+    Asic,
+    /// GPU miner
+    Gpu,
+    /// CPU miner
+    Cpu,
+    /// Other hardware type
     Other,
 }
 
 impl HardwareType {
-    /// Get the typical energy efficiency for this hardware type in J/TH
-    pub fn typical_efficiency(&self) -> f64 {
+    /// Get typical power consumption in watts
+    pub fn power_consumption(&self) -> f64 {
         match self {
-            HardwareType::AntminerS9 => 98.0,
-            HardwareType::AntminerS19 => 34.5,
-            HardwareType::AntminerS19Pro => 29.5,
-            HardwareType::AntminerS19jPro => 29.5,
-            HardwareType::AntminerS19XP => 21.5,
-            HardwareType::WhatsminerM30S => 38.0,
-            HardwareType::WhatsminerM30SPlus => 34.0,
-            HardwareType::WhatsminerM30SPlusPlus => 31.0,
-            HardwareType::AvalonMiner1246 => 38.0,
-            HardwareType::AvalonMiner1066 => 65.0,
-            HardwareType::CustomASIC => 30.0, // Conservative estimate
-            HardwareType::FPGA => 120.0,
-            HardwareType::GPU => 200.0,
-            HardwareType::Other => 60.0, // Conservative average
+            Self::Asic => 3000.0,   // High power ASIC
+            Self::Gpu => 1200.0,    // High-end GPU mining rig
+            Self::Cpu => 200.0,     // Modern CPU
+            Self::Other => 400.0,   // Conservative default
         }
     }
     
-    /// Get the typical hashrate for this hardware type in TH/s
-    pub fn typical_hashrate(&self) -> f64 {
+    /// Get typical hashrate in TH/s for SHA-256
+    pub fn hashrate(&self) -> f64 {
         match self {
-            HardwareType::AntminerS9 => 14.0,
-            HardwareType::AntminerS19 => 95.0,
-            HardwareType::AntminerS19Pro => 110.0,
-            HardwareType::AntminerS19jPro => 104.0,
-            HardwareType::AntminerS19XP => 140.0,
-            HardwareType::WhatsminerM30S => 88.0,
-            HardwareType::WhatsminerM30SPlus => 100.0,
-            HardwareType::WhatsminerM30SPlusPlus => 112.0,
-            HardwareType::AvalonMiner1246 => 90.0,
-            HardwareType::AvalonMiner1066 => 55.0,
-            HardwareType::CustomASIC => 100.0, // Conservative estimate
-            HardwareType::FPGA => 10.0,
-            HardwareType::GPU => 0.1,
-            HardwareType::Other => 50.0, // Conservative average
+            Self::Asic => 100.0,    // Modern ASIC
+            Self::Gpu => 0.1,       // GPUs are inefficient for SHA-256
+            Self::Cpu => 0.001,     // CPUs are very inefficient for SHA-256
+            Self::Other => 50.0,    // Conservative estimate
         }
     }
     
     /// Calculate daily energy consumption for this hardware type in kWh/day
     pub fn daily_energy_consumption(&self) -> f64 {
-        let efficiency = self.typical_efficiency(); // J/TH
-        let hashrate = self.typical_hashrate(); // TH/s
+        let efficiency = self.energy_efficiency(); // J/TH
+        let hashrate = self.hashrate(); // TH/s
         
         // Convert J/TH to kWh/day
         // (J/TH) * (TH/s) * (seconds per day) / (Joules per kWh)
         efficiency * hashrate * 86400.0 / 3_600_000.0
     }
+
+    /// Get the energy efficiency in J/TH for this hardware type
+    pub fn energy_efficiency(&self) -> f64 {
+        let power_w = self.power_consumption();
+        let hashrate_ths = self.hashrate();
+        
+        if hashrate_ths > 0.0 {
+            // Convert W to J/s, then multiply by seconds per hour, divide by TH/s
+            // The result is Joules per TH
+            (power_w * 3600.0) / hashrate_ths
+        } else {
+            f64::MAX // Avoid division by zero
+        }
+    }
 }
 
+/// Implement Display for HardwareType
 impl fmt::Display for HardwareType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            HardwareType::AntminerS9 => write!(f, "Antminer S9"),
-            HardwareType::AntminerS19 => write!(f, "Antminer S19"),
-            HardwareType::AntminerS19Pro => write!(f, "Antminer S19 Pro"),
-            HardwareType::AntminerS19jPro => write!(f, "Antminer S19j Pro"),
-            HardwareType::AntminerS19XP => write!(f, "Antminer S19 XP"),
-            HardwareType::WhatsminerM30S => write!(f, "Whatsminer M30S"),
-            HardwareType::WhatsminerM30SPlus => write!(f, "Whatsminer M30S+"),
-            HardwareType::WhatsminerM30SPlusPlus => write!(f, "Whatsminer M30S++"),
-            HardwareType::AvalonMiner1246 => write!(f, "AvalonMiner 1246"),
-            HardwareType::AvalonMiner1066 => write!(f, "AvalonMiner 1066"),
-            HardwareType::CustomASIC => write!(f, "Custom ASIC"),
-            HardwareType::FPGA => write!(f, "FPGA"),
-            HardwareType::GPU => write!(f, "GPU"),
+            HardwareType::Asic => write!(f, "ASIC"),
+            HardwareType::Gpu => write!(f, "GPU"),
+            HardwareType::Cpu => write!(f, "CPU"),
             HardwareType::Other => write!(f, "Other"),
+        }
+    }
+}
+
+/// Default emissions factors for different regions
+#[derive(Debug, Clone)]
+pub struct DefaultEmissionsFactors {
+    /// Map of regions to emission factors
+    pub factors: HashMap<Region, EmissionFactor>,
+}
+
+impl DefaultEmissionsFactors {
+    /// Create a new set of default emissions factors
+    pub fn new() -> Self {
+        let mut factors = HashMap::new();
+        
+        // Add some default emission factors for common regions
+        factors.insert(
+            Region::NorthAmerica,
+            EmissionFactor {
+                grid_emissions_factor: 0.38, // US average in kg CO2e/kWh
+                region_name: "North America".to_string(),
+                data_source: EmissionsDataSource::EPA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2022),
+                timestamp: None,
+                confidence: Some(0.9),
+            }
+        );
+        
+        factors.insert(
+            Region::Europe,
+            EmissionFactor {
+                grid_emissions_factor: 0.23, // EU average in kg CO2e/kWh
+                region_name: "Europe".to_string(),
+                data_source: EmissionsDataSource::EEA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2022),
+                timestamp: None,
+                confidence: Some(0.9),
+            }
+        );
+        
+        factors.insert(
+            Region::AsiaPacific,
+            EmissionFactor {
+                grid_emissions_factor: 0.64, // Asia average in kg CO2e/kWh
+                region_name: "Asia-Pacific".to_string(),
+                data_source: EmissionsDataSource::IEA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2022),
+                timestamp: None,
+                confidence: Some(0.8),
+            }
+        );
+        
+        factors.insert(
+            Region::Global,
+            EmissionFactor {
+                grid_emissions_factor: 0.48, // Global average in kg CO2e/kWh
+                region_name: "Global".to_string(),
+                data_source: EmissionsDataSource::IEA,
+                factor_type: EmissionsFactorType::GridAverage,
+                year: Some(2022),
+                timestamp: None,
+                confidence: Some(0.7),
+            }
+        );
+        
+        Self {
+            factors
         }
     }
 } 

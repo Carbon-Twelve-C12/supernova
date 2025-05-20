@@ -347,10 +347,26 @@ impl Clone for EnvironmentalTreasury {
 impl EnvironmentalTreasury {
     /// Create a new environmental treasury
     pub fn new(
-        config: TreasuryConfig,
-        emissions_calculator: Arc<EmissionsCalculator>,
+        fee_allocation_percentage: f64,
+        authorized_signers: Vec<String>,
+        required_signatures: usize,
     ) -> Self {
-        // Initialize accounts
+        // Create basic configuration
+        let config = TreasuryConfig {
+            base_fee_allocation_percentage: fee_allocation_percentage,
+            enable_dynamic_fee_adjustment: true,
+            min_fee_allocation_percentage: 1.0,
+            max_fee_allocation_percentage: 10.0,
+            target_carbon_negative_ratio: 1.2,
+            allocation: TreasuryAllocation::default(),
+            authorized_signers,
+            required_signatures,
+            auto_purchase: true,
+            renewable_incentive_multiplier: 2.0,
+            offset_incentive_multiplier: 1.5,
+        };
+        
+        // Create initial accounts
         let mut accounts = HashMap::new();
         for account_type in [
             TreasuryAccountType::Main,
@@ -367,23 +383,15 @@ impl EnvironmentalTreasury {
             });
         }
         
-        let treasury = Self {
-            config: RwLock::new(config.clone()),
+        Self {
+            config: RwLock::new(config),
             accounts: RwLock::new(accounts),
-            impact: RwLock::new(EnvironmentalImpact {
-                target_ratio: config.target_carbon_negative_ratio,
-                ..Default::default()
-            }),
+            impact: RwLock::new(EnvironmentalImpact::default()),
             certificates: RwLock::new(Vec::new()),
             offsets: RwLock::new(Vec::new()),
-            emissions_calculator,
-            current_fee_percentage: RwLock::new(config.base_fee_allocation_percentage),
-        };
-        
-        // Initialize impact metrics
-        treasury.update_environmental_impact();
-        
-        treasury
+            emissions_calculator: Arc::new(EmissionsCalculator::new()),
+            current_fee_percentage: RwLock::new(fee_allocation_percentage),
+        }
     }
     
     /// Process transaction fees, allocating a portion to the environmental treasury
@@ -1175,6 +1183,17 @@ impl EnvironmentalTreasury {
     }
 }
 
+// Add Default implementation for EnvironmentalTreasury
+impl Default for EnvironmentalTreasury {
+    fn default() -> Self {
+        Self::new(
+            2.0, // Default fee allocation percentage
+            vec!["treasury_signer".to_string()], // Default signer
+            1 // Default threshold
+        )
+    }
+}
+
 /// Generate a unique ID for treasury operations
 fn generate_id() -> String {
     use rand::{thread_rng, Rng};
@@ -1198,6 +1217,91 @@ impl EnvironmentalAssetType {
             Self::RenewableEnergyCertificate => "REC".to_string(),
             Self::CarbonOffset => "CARBON".to_string(),
         }
+    }
+}
+
+/// Calculator for emissions based on network parameters
+pub struct EmissionsCalculator {
+    /// Current network hashrate
+    pub hashrate: f64,
+    /// Energy efficiency (Joules per terahash)
+    pub energy_efficiency: f64,
+    /// Carbon intensity (kg CO2e per kWh)
+    pub carbon_intensity: f64,
+    /// Renewable energy percentage
+    pub renewable_percentage: f64,
+}
+
+impl EmissionsCalculator {
+    /// Create a new emissions calculator with default values
+    pub fn new() -> Self {
+        Self {
+            hashrate: 350.0, // Exahash per second
+            energy_efficiency: 50.0, // J/TH
+            carbon_intensity: 0.5, // kg CO2e/kWh
+            renewable_percentage: 30.0, // 30% renewable
+        }
+    }
+    
+    /// Calculate daily emissions for the network
+    pub fn calculate_daily_emissions(&self) -> f64 {
+        // Convert hashrate from EH/s to TH/s
+        let hashrate_th_s = self.hashrate * 1_000_000.0;
+        
+        // Calculate energy in joules per second (watts)
+        let watts = hashrate_th_s * self.energy_efficiency;
+        
+        // Convert to kWh per day
+        let kwh_per_day = watts * 24.0 / 1000.0;
+        
+        // Apply carbon intensity, considering renewable percentage
+        let non_renewable_percentage = 100.0 - self.renewable_percentage;
+        let emissions_kg = kwh_per_day * self.carbon_intensity * (non_renewable_percentage / 100.0);
+        
+        // Return tonnes of CO2e per day
+        emissions_kg / 1000.0
+    }
+    
+    /// Calculate network emissions
+    pub fn calculate_network_emissions(&self) -> NetworkEmissions {
+        // Calculate daily emissions
+        let daily_emissions = self.calculate_daily_emissions();
+        
+        // Create the network emissions object
+        NetworkEmissions {
+            total_energy_mwh: self.calculate_total_energy_mwh(),
+            total_emissions_tons_co2e: daily_emissions,
+            renewable_percentage: self.renewable_percentage,
+            emissions_per_tx: self.calculate_emissions_per_tx(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }
+    }
+    
+    /// Calculate total energy consumption in MWh
+    fn calculate_total_energy_mwh(&self) -> f64 {
+        // Convert hashrate from EH/s to TH/s
+        let hashrate_th_s = self.hashrate * 1_000_000.0;
+        
+        // Calculate energy in joules per second (watts)
+        let watts = hashrate_th_s * self.energy_efficiency;
+        
+        // Convert to MWh per day
+        watts * 24.0 / 1_000_000.0
+    }
+    
+    /// Calculate emissions per transaction in kg CO2e
+    fn calculate_emissions_per_tx(&self) -> f64 {
+        // Assume 1,000,000 transactions per day
+        let transactions_per_day = 1_000_000.0;
+        
+        // Calculate daily emissions in kg
+        let daily_emissions_kg = self.calculate_daily_emissions() * 1000.0;
+        
+        // Return kg CO2e per transaction
+        daily_emissions_kg / transactions_per_day
     }
 }
 

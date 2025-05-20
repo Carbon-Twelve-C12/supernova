@@ -4,12 +4,27 @@ use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc, NaiveDateTime};
 use crate::types::transaction::Transaction;
 use crate::config::Config;
-use crate::environmental::types::{EmissionsDataSource, EmissionsFactorType, Region, EmissionFactor};
+use crate::environmental::types::{EmissionsDataSource, EmissionsFactorType, Region as TypesRegion, EmissionFactor as TypesEmissionFactor};
 use reqwest::Client;
 use tokio::sync::RwLock;
 use std::sync::Arc;
 use url::Url;
 use std::time::{Duration, SystemTime};
+
+/// Network-wide emissions data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkEmissions {
+    /// Total energy consumption in MWh
+    pub total_energy_mwh: f64,
+    /// Total emissions in tonnes CO2e
+    pub total_emissions_tons_co2e: f64,
+    /// Renewable energy percentage
+    pub renewable_percentage: f64,
+    /// Emissions per transaction in kg CO2e
+    pub emissions_per_tx: f64,
+    /// Timestamp of calculation
+    pub timestamp: u64,
+}
 
 /// Error types for emissions tracking operations
 #[derive(Error, Debug)]
@@ -866,6 +881,155 @@ impl EmissionFactor {
                 confidence: None,
             },
         ]
+    }
+}
+
+/// Emissions calculator trait for estimating carbon emissions
+pub trait EmissionCalculator {
+    /// Calculate the carbon emissions for a time period
+    fn calculate_emissions(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Emissions, EmissionsError>;
+    
+    /// Add a region to track
+    fn add_region(&mut self, region: Region, hashrate: HashRate);
+    
+    /// Get the total hashrate across all tracked regions
+    fn total_hashrate(&self) -> HashRate;
+}
+
+// Implement EmissionCalculator for EmissionsTracker
+impl EmissionCalculator for EmissionsTracker {
+    fn calculate_emissions(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Emissions, EmissionsError> {
+        self.calculate_network_emissions(start_time, end_time)
+    }
+    
+    fn add_region(&mut self, region: Region, hashrate: HashRate) {
+        self.update_region_hashrate(region, hashrate);
+    }
+    
+    fn total_hashrate(&self) -> HashRate {
+        HashRate(self.region_hashrates.values().map(|hr| hr.0).sum())
+    }
+}
+
+// Add Default implementation for EmissionsTracker
+impl Default for EmissionsTracker {
+    fn default() -> Self {
+        Self::new(EmissionsConfig::default())
+    }
+}
+
+/// Network-wide emissions data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkEmissions {
+    /// Total energy consumption in MWh
+    pub total_energy_mwh: f64,
+    /// Total emissions in tons CO2e
+    pub total_emissions_tons_co2e: f64,
+    /// Percentage of renewable energy
+    pub renewable_percentage: f64,
+    /// Emissions per transaction in kg CO2e
+    pub emissions_per_tx: f64,
+    /// Timestamp of calculation
+    pub timestamp: u64,
+}
+
+impl Default for NetworkEmissions {
+    fn default() -> Self {
+        Self {
+            total_energy_mwh: 0.0,
+            total_emissions_tons_co2e: 0.0,
+            renewable_percentage: 0.0,
+            emissions_per_tx: 0.0,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }
+    }
+}
+
+/// Calculator for network-wide emissions
+pub struct EmissionsCalculator {
+    /// Current network hashrate in TH/s
+    total_hashrate: f64,
+    /// Carbon intensity in kgCO2e/kWh
+    carbon_intensity: f64,
+    /// Average energy efficiency in J/TH
+    energy_efficiency: f64,
+    /// Renewable energy percentage (0-100)
+    renewable_percentage: f64,
+}
+
+impl EmissionsCalculator {
+    /// Create a new emissions calculator
+    pub fn new() -> Self {
+        Self {
+            total_hashrate: 100_000.0, // Default 100 EH/s (100,000 TH/s)
+            carbon_intensity: 0.5,     // Default 500 gCO2e/kWh
+            energy_efficiency: 50.0,   // Default 50 J/TH
+            renewable_percentage: 30.0, // Default 30% renewable
+        }
+    }
+    
+    /// Set the network hashrate
+    pub fn set_hashrate(&mut self, hashrate_th_s: f64) {
+        self.total_hashrate = hashrate_th_s;
+    }
+    
+    /// Set the carbon intensity
+    pub fn set_carbon_intensity(&mut self, intensity_kg_kwh: f64) {
+        self.carbon_intensity = intensity_kg_kwh;
+    }
+    
+    /// Set the energy efficiency
+    pub fn set_energy_efficiency(&mut self, efficiency_j_th: f64) {
+        self.energy_efficiency = efficiency_j_th;
+    }
+    
+    /// Set the renewable percentage
+    pub fn set_renewable_percentage(&mut self, percentage: f64) {
+        self.renewable_percentage = percentage.max(0.0).min(100.0);
+    }
+    
+    /// Calculate network emissions for a time period
+    pub fn calculate_network_emissions(&self) -> Result<NetworkEmissions, String> {
+        // Calculate energy consumption
+        // Power (W) = Hashrate (TH/s) * Energy Efficiency (J/TH)
+        let power_watts = self.total_hashrate * self.energy_efficiency;
+        
+        // Energy over 24 hours (kWh) = Power (W) * 24 / 1000
+        let daily_energy_kwh = power_watts * 24.0 / 1000.0;
+        
+        // Convert to MWh for the API
+        let daily_energy_mwh = daily_energy_kwh / 1000.0;
+        
+        // Calculate emissions accounting for renewables
+        // Non-renewable percentage = 100% - Renewable percentage
+        let non_renewable_percentage = (100.0 - self.renewable_percentage) / 100.0;
+        
+        // Non-renewable energy (kWh) = Total energy (kWh) * Non-renewable percentage
+        let non_renewable_energy_kwh = daily_energy_kwh * non_renewable_percentage;
+        
+        // Emissions (kg CO2e) = Non-renewable energy (kWh) * Carbon intensity (kg CO2e/kWh)
+        let daily_emissions_kg = non_renewable_energy_kwh * self.carbon_intensity;
+        
+        // Convert to tonnes for the API
+        let daily_emissions_tonnes = daily_emissions_kg / 1000.0;
+        
+        // Assume 1 million transactions per day for emissions per transaction
+        let tx_per_day = 1_000_000.0;
+        let emissions_per_tx = daily_emissions_kg / tx_per_day;
+        
+        Ok(NetworkEmissions {
+            total_energy_mwh: daily_energy_mwh,
+            total_emissions_tons_co2e: daily_emissions_tonnes,
+            renewable_percentage: self.renewable_percentage,
+            emissions_per_tx,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        })
     }
 }
 

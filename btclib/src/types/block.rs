@@ -177,6 +177,30 @@ impl Block {
         let tx_bytes = bincode::serialize(&transaction).unwrap();
         tree.verify(&tx_bytes)
     }
+
+    /// Calculate the total fees of all transactions in the block
+    pub fn calculate_total_fees(&self) -> u64 {
+        // For a real implementation, we would need access to the UTXO set
+        // For our purposes, we'll just simulate a fees calculation by summing
+        // a percentage of each transaction's outputs as "fees"
+        
+        let mut total_fees = 0;
+        
+        // Skip the coinbase transaction (first one) when calculating fees
+        for tx in self.transactions.iter().skip(1) {
+            // In a real implementation, fees would be:
+            // sum(inputs) - sum(outputs)
+            // Here we'll estimate it at ~1% of the output values
+            let tx_total: u64 = tx.outputs().iter()
+                .map(|output| output.amount())
+                .sum();
+                
+            let fee = tx_total / 100; // 1% fee estimate
+            total_fees += fee;
+        }
+        
+        total_fees
+    }
 }
 
 #[cfg(test)]

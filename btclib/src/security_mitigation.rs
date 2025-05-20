@@ -72,9 +72,10 @@ impl IpSubnet {
         }
         
         // Check remaining bits
-        if remainder_bits > 0 && byte_mask as usize < self.prefix.len() {
-            let mask = 0xFF_u8 << (8 - remainder_bits);
-            if (self.prefix[byte_mask as usize] & mask) != (addr_bytes[byte_mask as usize] & mask) {
+        if remainder_bits > 0 && (byte_mask as usize) < self.prefix.len() {
+            let last_byte = self.prefix[byte_mask as usize];
+            let mask = 0xff << (8 - remainder_bits);
+            if (last_byte & mask) != (addr_bytes[byte_mask as usize] & mask) {
                 return false;
             }
         }

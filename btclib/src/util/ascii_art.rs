@@ -4,7 +4,8 @@ use crossterm::{
     terminal::{Clear, ClearType},
     ExecutableCommand,
     style::{Color, SetForegroundColor, ResetColor},
-    queue
+    queue,
+    execute
 };
 
 const SUPERNOVA_ASCII: &str = r#"
@@ -36,9 +37,30 @@ pub fn clear_screen() -> io::Result<()> {
 /// Display the SuperNova logo without animation
 pub fn display_logo() -> io::Result<()> {
     let mut stdout = io::stdout();
-    stdout.execute(SetForegroundColor(Color::Cyan))?;
-    println!("{}", SUPERNOVA_ASCII);
-    stdout.execute(ResetColor)?;
+    
+    execute!(stdout, Clear(ClearType::All))?;
+    execute!(stdout, MoveTo(0, 0))?;
+    
+    let logo = [
+        r"   _____                       _   __                    ",
+        r"  / ___/__  ______  ___  ____/ | / /___ _   ______ _    ",
+        r"  \__ \/ / / / __ \/ _ \/ ___/  |/ / __ \ | / / __ `/    ",
+        r" ___/ / /_/ / /_/ /  __/ /  / /|  / /_/ / |/ / /_/ /     ",
+        r"/____/\__,_/ .___/\___/_/  /_/ |_/\____/|___/\__,_/      ",
+        r"          /_/                                            ",
+    ];
+    
+    execute!(stdout, SetForegroundColor(Color::Cyan))?;
+    for line in &logo {
+        println!("{}", line);
+    }
+    execute!(stdout, ResetColor)?;
+    
+    println!();
+    println!(" Next-Generation Blockchain with Enhanced Security, ");
+    println!(" Scalability, and Environmental Awareness");
+    println!();
+    
     Ok(())
 }
 
@@ -152,6 +174,80 @@ pub fn testnet_startup_animation() -> io::Result<()> {
     
     // Final pause to see the completed animation
     sleep(Duration::from_millis(1000));
+    
+    Ok(())
+}
+
+/// Display a spinning loader with a message
+pub fn display_spinner(message: &str, duration_ms: u64) -> io::Result<()> {
+    let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let iterations = duration_ms / 100;
+    let mut stdout = io::stdout();
+    
+    for i in 0..iterations {
+        let idx = (i % spinner_chars.len() as u64) as usize;
+        
+        execute!(stdout, MoveTo(0, i as u16))?;
+        execute!(stdout, SetForegroundColor(Color::Magenta))?;
+        print!("{} {}", spinner_chars[idx], message);
+        execute!(stdout, ResetColor)?;
+        
+        stdout.flush()?;
+        sleep(Duration::from_millis(100));
+        print!("\r                                                  \r");
+    }
+    
+    Ok(())
+}
+
+/// Display a progress bar
+pub fn display_progress_bar(message: &str, progress: f64, width: usize) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    let progress = progress.clamp(0.0, 1.0);
+    let filled_width = (progress * width as f64) as usize;
+    let empty_width = width - filled_width;
+    
+    for i in 0..3 {
+        execute!(stdout, MoveTo(0, i as u16))?;
+        execute!(stdout, SetForegroundColor(Color::Magenta))?;
+        
+        if i == 0 {
+            print!("{} [{:.1}%]", message, progress * 100.0);
+        } else if i == 1 {
+            print!("[{}{}]", "█".repeat(filled_width), " ".repeat(empty_width));
+        }
+        
+        execute!(stdout, ResetColor)?;
+    }
+    
+    stdout.flush()?;
+    Ok(())
+}
+
+/// Display the startup sequence
+pub fn display_startup_sequence() -> io::Result<()> {
+    let mut stdout = io::stdout();
+    
+    display_logo()?;
+    
+    let logo_height = 8;
+    
+    execute!(stdout, MoveTo(0, (logo_height + 2) as u16))?;
+    execute!(stdout, SetForegroundColor(Color::Green))?;
+    println!("Starting SuperNova Blockchain...");
+    execute!(stdout, ResetColor)?;
+    
+    for i in 0..5 {
+        execute!(stdout, MoveTo(2, (logo_height + 4 + i) as u16))?;
+        display_spinner(&format!("Initializing component {}/5...", i+1), 500)?;
+    }
+    
+    for i in 0..5 {
+        execute!(stdout, MoveTo(2, (logo_height + 4 + i) as u16))?;
+        execute!(stdout, SetForegroundColor(Color::Green))?;
+        println!("✓ Component {}/5 initialized", i+1);
+        execute!(stdout, ResetColor)?;
+    }
     
     Ok(())
 } 

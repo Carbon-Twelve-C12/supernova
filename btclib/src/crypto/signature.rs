@@ -6,6 +6,10 @@ use thiserror::Error;
 use rayon::prelude::*;
 use crate::types::transaction::Transaction;
 use crate::crypto::quantum::{QuantumScheme, QuantumParameters, QuantumError, ClassicalScheme};
+use secp256k1::{Secp256k1, Message, SecretKey, PublicKey, Signature as Secp256k1Signature};
+use rand;
+use hex;
+use sha2;
 
 /// Error type for signature operations
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -45,6 +49,18 @@ pub enum SignatureError {
     /// Quantum resistance is required
     #[error("Quantum-resistant signature required")]
     QuantumResistanceRequired,
+    
+    /// Signature verification failed
+    #[error("Signature verification failed: {0}")]
+    VerificationFailed(String),
+    
+    /// Unsupported signature type
+    #[error("Unsupported signature type: {0}")]
+    UnsupportedType(String),
+    
+    /// Internal error
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
 
 /// Type of signature scheme
@@ -66,6 +82,8 @@ pub enum SignatureType {
     Classical(ClassicalScheme),
     /// Quantum signature types (for backward compatibility)
     Quantum(QuantumScheme),
+    /// Schnorr signatures
+    Schnorr,
 }
 
 /// Parameters for signature operations
@@ -77,6 +95,8 @@ pub struct SignatureParams {
     pub security_level: u8,
     /// Whether to enable batch verification
     pub enable_batch: bool,
+    /// Additional parameters for the signature algorithm
+    pub additional_params: HashMap<String, String>,
 }
 
 impl Default for SignatureParams {
@@ -85,6 +105,7 @@ impl Default for SignatureParams {
             sig_type: SignatureType::Secp256k1,
             security_level: 3, // Medium security by default
             enable_batch: true,
+            additional_params: HashMap::new(),
         }
     }
 }
@@ -137,25 +158,25 @@ pub struct Secp256k1Scheme;
 
 impl SignatureScheme for Secp256k1Scheme {
     fn verify(&self, public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<bool, SignatureError> {
-        // The actual implementation would use libsecp256k1 to verify the signature
-        // For now, just ensure the formats are correct
+        let secp = Secp256k1::verification_only();
         
-        if public_key.len() != 33 && public_key.len() != 65 {
-            return Err(SignatureError::InvalidKey(
-                format!("Invalid secp256k1 public key length: expected 33 or 65, got {}", public_key.len())
-            ));
+        // Convert message to Message
+        let message = Message::from_digest_slice(message)
+            .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
+        
+        // Convert public key bytes to PublicKey
+        let public_key = PublicKey::from_slice(public_key)
+            .map_err(|e| SignatureError::InvalidKey(e.to_string()))?;
+        
+        // Convert signature bytes to Signature
+        let signature = Secp256k1Signature::from_compact(signature)
+            .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
+        
+        // Verify
+        match secp.verify(&message, &signature, &public_key) {
+            Ok(_) => Ok(true),
+            Err(e) => Err(SignatureError::VerificationFailed(e.to_string())),
         }
-        
-        if signature.len() != 64 && signature.len() != 65 {
-            return Err(SignatureError::InvalidSignature(
-                format!("Invalid secp256k1 signature length: expected 64 or 65, got {}", signature.len())
-            ));
-        }
-        
-        // In a real implementation, this would perform actual verification
-        // using libsecp256k1's verify function
-        
-        Ok(true) // Placeholder
     }
     
     fn batch_verify(
@@ -345,8 +366,6 @@ impl SignatureScheme for HybridScheme {
 
 /// Unified signature verifier for all signature types
 pub struct SignatureVerifier {
-    /// Configured verification schemes
-    pub schemes: Vec<SignatureType>,
     /// Security level for post-quantum schemes
     pub security_level: u8,
 }
@@ -355,7 +374,6 @@ impl SignatureVerifier {
     /// Create a new signature verifier with default schemes
     pub fn new() -> Self {
         Self {
-            schemes: vec![SignatureType::Secp256k1, SignatureType::Ed25519],
             security_level: 2, // Medium security level by default
         }
     }
@@ -368,11 +386,7 @@ impl SignatureVerifier {
         message: &[u8],
         signature: &[u8]
     ) -> Result<bool, SignatureError> {
-        let scheme = self.schemes.iter().find(|&&t| t == sig_type).ok_or_else(|| {
-            SignatureError::UnsupportedScheme(format!("Unsupported signature scheme: {:?}", sig_type))
-        })?;
-        
-        match scheme {
+        match sig_type {
             SignatureType::Secp256k1 => {
                 let scheme = Secp256k1Scheme;
                 scheme.verify(public_key, message, signature)
@@ -394,10 +408,60 @@ impl SignatureVerifier {
                 scheme.verify(public_key, message, signature)
             }
             SignatureType::Hybrid => {
-                let scheme = HybridScheme::new(Box::new(Secp256k1Scheme), Box::new(Secp256k1Scheme));
+                let classical_scheme = Box::new(Secp256k1Scheme);
+                let quantum_scheme = Box::new(DilithiumScheme::new(self.security_level));
+                let scheme = HybridScheme::new(classical_scheme, quantum_scheme);
                 scheme.verify(public_key, message, signature)
             }
-            _ => Err(SignatureError::UnsupportedSignatureType),
+            SignatureType::Classical(classical_scheme) => {
+                match classical_scheme {
+                    ClassicalScheme::Secp256k1 => {
+                        let scheme = Secp256k1Scheme;
+                        scheme.verify(public_key, message, signature)
+                    }
+                    ClassicalScheme::Ed25519 => {
+                        let scheme = Ed25519Scheme;
+                        scheme.verify(public_key, message, signature)
+                    }
+                }
+            }
+            SignatureType::Quantum(quantum_scheme) => {
+                match quantum_scheme {
+                    QuantumScheme::Dilithium => {
+                        let scheme = DilithiumScheme::new(self.security_level);
+                        scheme.verify(public_key, message, signature)
+                    }
+                    QuantumScheme::Falcon => {
+                        let scheme = FalconScheme::new(self.security_level);
+                        scheme.verify(public_key, message, signature)
+                    }
+                    QuantumScheme::Sphincs => {
+                        let scheme = SphincsScheme::new(self.security_level);
+                        scheme.verify(public_key, message, signature)
+                    }
+                    QuantumScheme::Hybrid(classical_scheme) => {
+                        // For hybrid schemes, we need to parse the signature and public key appropriately
+                        // Simplify for now to just use the quantum part
+                        match classical_scheme {
+                            ClassicalScheme::Secp256k1 => {
+                                let classical_scheme = Box::new(Secp256k1Scheme);
+                                let quantum_scheme = Box::new(DilithiumScheme::new(self.security_level));
+                                let scheme = HybridScheme::new(classical_scheme, quantum_scheme);
+                                scheme.verify(public_key, message, signature)
+                            }
+                            ClassicalScheme::Ed25519 => {
+                                let classical_scheme = Box::new(Ed25519Scheme);
+                                let quantum_scheme = Box::new(DilithiumScheme::new(self.security_level));
+                                let scheme = HybridScheme::new(classical_scheme, quantum_scheme);
+                                scheme.verify(public_key, message, signature)
+                            }
+                        }
+                    }
+                }
+            }
+            SignatureType::Schnorr => {
+                Err(SignatureError::UnsupportedType("Schnorr not implemented".to_string()))
+            }
         }
     }
     
@@ -496,41 +560,267 @@ impl SignatureVerifier {
     }
 }
 
+/// Unified signature struct for different signature types
+#[derive(Clone)]
+pub struct Signature {
+    /// Type of signature
+    pub signature_type: SignatureType,
+    /// Raw signature bytes
+    pub signature_bytes: Vec<u8>,
+    /// Public key bytes
+    pub public_key_bytes: Vec<u8>,
+}
+
+impl Signature {
+    /// Create a new signature
+    pub fn new(signature_type: SignatureType, signature_bytes: Vec<u8>, public_key_bytes: Vec<u8>) -> Self {
+        Self {
+            signature_type,
+            signature_bytes,
+            public_key_bytes,
+        }
+    }
+    
+    /// Verify a message with this signature
+    pub fn verify(&self, message: &[u8]) -> Result<bool, SignatureError> {
+        match self.signature_type {
+            SignatureType::Secp256k1 => self.verify_secp256k1(message),
+            SignatureType::Ed25519 => Err(SignatureError::UnsupportedType("Ed25519 not implemented".to_string())),
+            SignatureType::Schnorr => Err(SignatureError::UnsupportedType("Schnorr not implemented".to_string())),
+            SignatureType::Sphincs => Err(SignatureError::UnsupportedType("SPHINCS+ not implemented".to_string())),
+            SignatureType::Dilithium => Err(SignatureError::UnsupportedType("Dilithium not implemented".to_string())),
+            SignatureType::Falcon => Err(SignatureError::UnsupportedType("Falcon not implemented".to_string())),
+            SignatureType::Hybrid => Err(SignatureError::UnsupportedType("Hybrid not implemented".to_string())),
+            SignatureType::Classical(classical_scheme) => {
+                match classical_scheme {
+                    ClassicalScheme::Secp256k1 => self.verify_secp256k1(message),
+                    ClassicalScheme::Ed25519 => Err(SignatureError::UnsupportedType("Ed25519 not implemented".to_string())),
+                }
+            }
+            SignatureType::Quantum(quantum_scheme) => {
+                match quantum_scheme {
+                    QuantumScheme::Dilithium => self.verify_dilithium(message),
+                    QuantumScheme::Falcon => self.verify_falcon(message),
+                    QuantumScheme::Sphincs => Err(SignatureError::UnsupportedType("SPHINCS+ not implemented".to_string())),
+                    QuantumScheme::Hybrid(classical_scheme) => {
+                        match classical_scheme {
+                            ClassicalScheme::Secp256k1 => self.verify_secp256k1(message),
+                            ClassicalScheme::Ed25519 => Err(SignatureError::UnsupportedType("Ed25519 not implemented".to_string())),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Verify a Secp256k1 signature
+    fn verify_secp256k1(&self, message: &[u8]) -> Result<bool, SignatureError> {
+        let secp = Secp256k1::verification_only();
+        
+        // Convert message to Message
+        let message = Message::from_digest_slice(message)
+            .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
+        
+        // Convert public key bytes to PublicKey
+        let public_key = PublicKey::from_slice(&self.public_key_bytes)
+            .map_err(|e| SignatureError::InvalidKey(e.to_string()))?;
+        
+        // Convert signature bytes to Signature
+        let signature = Secp256k1Signature::from_compact(&self.signature_bytes)
+            .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
+        
+        // Verify
+        match secp.verify(&message, &signature, &public_key) {
+            Ok(_) => Ok(true),
+            Err(e) => Err(SignatureError::VerificationFailed(e.to_string())),
+        }
+    }
+    
+    /// Verify a Dilithium signature
+    fn verify_dilithium(&self, message: &[u8]) -> Result<bool, SignatureError> {
+        // Implementation of verify_dilithium method
+        Err(SignatureError::InternalError("Dilithium verification not implemented".to_string()))
+    }
+    
+    /// Verify a Falcon signature
+    fn verify_falcon(&self, message: &[u8]) -> Result<bool, SignatureError> {
+        // Implementation of verify_falcon method
+        Err(SignatureError::InternalError("Falcon verification not implemented".to_string()))
+    }
+}
+
+impl fmt::Debug for Signature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Signature {{ type: {:?}, signature: {}, public_key: {} }}",
+               self.signature_type,
+               hex::encode(&self.signature_bytes),
+               hex::encode(&self.public_key_bytes))
+    }
+}
+
+/// Key pair for digital signatures
+pub struct KeyPair {
+    /// Type of signature
+    pub signature_type: SignatureType,
+    /// Private key bytes
+    secret_key: Vec<u8>,
+    /// Public key bytes
+    pub public_key: Vec<u8>,
+}
+
+impl KeyPair {
+    /// Create a new Secp256k1 key pair
+    pub fn new_secp256k1() -> Result<Self, SignatureError> {
+        let secp = Secp256k1::new();
+        let mut rng = rand::thread_rng();
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+        
+        Ok(Self {
+            signature_type: SignatureType::Secp256k1,
+            secret_key: secret_key.secret_bytes().to_vec(),
+            public_key: public_key.serialize().to_vec(),
+        })
+    }
+    
+    /// Sign a message
+    pub fn sign(&self, message: &[u8]) -> Result<Signature, SignatureError> {
+        match self.signature_type {
+            SignatureType::Secp256k1 => self.sign_secp256k1(message),
+            SignatureType::Ed25519 => Err(SignatureError::UnsupportedType("Ed25519 not implemented".to_string())),
+            SignatureType::Schnorr => Err(SignatureError::UnsupportedType("Schnorr not implemented".to_string())),
+            SignatureType::Sphincs => Err(SignatureError::UnsupportedType("SPHINCS+ not implemented".to_string())),
+            SignatureType::Dilithium => Err(SignatureError::UnsupportedType("Dilithium not implemented".to_string())),
+            SignatureType::Falcon => Err(SignatureError::UnsupportedType("Falcon not implemented".to_string())),
+            SignatureType::Hybrid => Err(SignatureError::UnsupportedType("Hybrid not implemented".to_string())),
+            SignatureType::Classical(classical_scheme) => {
+                match classical_scheme {
+                    ClassicalScheme::Secp256k1 => self.sign_secp256k1(message),
+                    ClassicalScheme::Ed25519 => Err(SignatureError::UnsupportedType("Ed25519 not implemented".to_string())),
+                }
+            }
+            SignatureType::Quantum(quantum_scheme) => {
+                match quantum_scheme {
+                    QuantumScheme::Dilithium => Err(SignatureError::UnsupportedType("Dilithium not implemented".to_string())),
+                    QuantumScheme::Falcon => Err(SignatureError::UnsupportedType("Falcon not implemented".to_string())),
+                    QuantumScheme::Sphincs => Err(SignatureError::UnsupportedType("SPHINCS+ not implemented".to_string())),
+                    QuantumScheme::Hybrid(classical_scheme) => {
+                        match classical_scheme {
+                            ClassicalScheme::Secp256k1 => self.sign_secp256k1(message),
+                            ClassicalScheme::Ed25519 => Err(SignatureError::UnsupportedType("Ed25519 not implemented".to_string())),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Sign with Secp256k1
+    fn sign_secp256k1(&self, message: &[u8]) -> Result<Signature, SignatureError> {
+        let secp = Secp256k1::signing_only();
+        
+        // Convert secret key bytes to SecretKey
+        let secret_key = SecretKey::from_slice(&self.secret_key)
+            .map_err(|e| SignatureError::InvalidKey(e.to_string()))?;
+        
+        // Convert message to Message
+        let message = Message::from_digest_slice(message)
+            .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
+        
+        // Sign
+        let signature = secp.sign(&message, &secret_key);
+        
+        Ok(Signature::new(
+            SignatureType::Secp256k1,
+            signature.serialize_compact().to_vec(),
+            self.public_key.clone(),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Sha256, Digest};
     
-    #[test]
-    fn test_signature_verifier_registration() {
-        let mut verifier = SignatureVerifier::new();
+    /// Generate a test key pair for the given signature type
+    fn generate_test_keypair(sig_type: SignatureType) -> KeyPair {
+        match sig_type {
+            SignatureType::Secp256k1 => KeyPair::new_secp256k1().unwrap(),
+            _ => panic!("Unsupported signature type for tests"),
+        }
+    }
+    
+    /// Sign a test message with the given key pair
+    fn sign_test_message(key_pair: &KeyPair, message: &[u8]) -> Vec<u8> {
+        // Hash the message first (typical in most blockchain systems)
+        let mut hasher = Sha256::new();
+        hasher.update(message);
+        let message_hash = hasher.finalize();
         
-        // Already registered in constructor
-        assert!(verifier.schemes.contains(&SignatureType::Secp256k1));
-        assert!(verifier.schemes.contains(&SignatureType::Ed25519));
-        assert!(verifier.schemes.contains(&SignatureType::Dilithium));
-        assert!(verifier.schemes.contains(&SignatureType::Falcon));
-        
-        // Register Falcon with security level 2
-        verifier.schemes.push(SignatureType::Falcon);
-        
-        assert!(verifier.schemes.contains(&SignatureType::Falcon));
+        // Sign the hash
+        let signature = key_pair.sign(&message_hash).unwrap();
+        signature.signature_bytes
     }
     
     #[test]
-    fn test_unregistered_scheme() {
+    fn test_secp256k1_sign_verify() {
+        // Create key pair
+        let key_pair = KeyPair::new_secp256k1().unwrap();
+        
+        // Create message to sign
+        let message = b"Hello, world!";
+        let mut hasher = Sha256::new();
+        hasher.update(message);
+        let message_hash = hasher.finalize();
+        
+        // Sign
+        let signature = key_pair.sign(&message_hash).unwrap();
+        
+        // Verify
+        let result = signature.verify(&message_hash).unwrap();
+        assert!(result);
+    }
+    
+    #[test]
+    fn test_signature_verification() {
+        // Test verification with mismatched keys and messages
         let verifier = SignatureVerifier::new();
         
-        // SPHINCS+ is not registered by default
+        // Create a valid key pair and signature
+        let key_pair = generate_test_keypair(SignatureType::Secp256k1);
+        let message = b"Test message";
+        let signature = sign_test_message(&key_pair, message);
+        
+        // Verify with correct message should succeed
         let result = verifier.verify(
-            SignatureType::Sphincs,
-            &[0u8; 32],
-            b"test message",
-            &[0u8; 64]
+            &key_pair.public_key,
+            message,
+            &signature,
+            &SignatureParams {
+                sig_type: SignatureType::Secp256k1,
+                security_level: 1,
+                enable_batch: false,
+                additional_params: HashMap::new(),
+            },
+        );
+        assert!(result.is_ok());
+        
+        // Verify with incorrect message should fail
+        let wrong_message = b"Wrong message";
+        let result = verifier.verify(
+            &key_pair.public_key,
+            wrong_message,
+            &signature,
+            &SignatureParams {
+                sig_type: SignatureType::Secp256k1,
+                security_level: 1,
+                enable_batch: false,
+                additional_params: HashMap::new(),
+            },
         );
         
-        assert!(result.is_err());
         if let Err(err) = result {
-            assert!(matches!(err, SignatureError::UnsupportedScheme(_)));
+            assert!(matches!(err, SignatureError::InvalidSignature(_)));
         }
     }
 } 

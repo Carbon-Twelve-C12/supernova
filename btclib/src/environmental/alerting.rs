@@ -289,35 +289,75 @@ impl EnvironmentalAlertingSystem {
         
         let mut new_alerts = Vec::new();
         
-        // Check each rule
+        // Collect all data first to avoid borrow conflicts
+        
+        // 1. Collect the rules that need processing
+        let mut rules_to_process = Vec::new();
         for rule in &self.rules {
             if !rule.enabled {
                 continue;
             }
             
             // Check cooldown period
-            if let Some(last_check) = self.last_check.get(&rule.id) {
+            let should_process = if let Some(last_check) = self.last_check.get(&rule.id) {
                 let cooldown = chrono::Duration::seconds(rule.cooldown_seconds as i64);
-                if now - *last_check < cooldown {
-                    continue;
-                }
-            }
+                now - *last_check >= cooldown
+            } else {
+                true
+            };
             
-            // Update last check time
+            // Check if already alerting
+            let is_already_alerting = self.active_alerts.values().any(|a| 
+                a.rule_id == rule.id && a.status == AlertStatus::Active
+            );
+            
+            if should_process && !is_already_alerting {
+                rules_to_process.push(rule.clone());
+            }
+        }
+        
+        // 2. Collect metrics for all rules we need to process
+        let mut rule_metrics: Vec<(AlertRule, Result<f64, AlertingError>)> = Vec::new();
+        for rule in rules_to_process {
+            // Update last check time here
             self.last_check.insert(rule.id.clone(), now);
             
-            // Check if rule is already alerting
-            if self.active_alerts.values().any(|a| a.rule_id == rule.id && a.status == AlertStatus::Active) {
+            // Get the metric value
+            let metric_value = self.get_metric_value(rule.metric_type);
+            rule_metrics.push((rule, metric_value));
+        }
+        
+        // 3. Collect rules that need auto-resolving
+        let mut auto_resolves = Vec::new();
+        for (rule, metric_result) in &rule_metrics {
+            if !rule.auto_resolve {
                 continue;
             }
             
-            // Get current metric value
-            match self.get_metric_value(rule.metric_type) {
+            if let Ok(value) = metric_result {
+                // If condition no longer met
+                if !self.compare_value(*value, rule.threshold, rule.operator) {
+                    // Find all alerts for this rule that need resolving
+                    for (alert_id, alert) in &self.active_alerts {
+                        if alert.rule_id == rule.id && alert.status == AlertStatus::Active {
+                            auto_resolves.push((alert_id.clone(), rule.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 4. Process all metrics and create new alerts
+        for (rule, metric_result) in rule_metrics {
+            match metric_result {
                 Ok(value) => {
                     // Check if threshold is crossed
                     if self.compare_value(value, rule.threshold, rule.operator) {
-                        // Create alert
-                        let alert_id = format!("alert_{}", uuid::Uuid::new_v4().to_string());
+                        // Generate a simple random alert ID
+                        let random_id = format!("{:x}", rand::random::<u64>());
+                        let alert_id = format!("alert_{}", random_id);
+                        
+                        // Create alert message
                         let message = format!("{}: {} is {} {} (threshold: {})",
                             rule.name,
                             self.get_metric_name(rule.metric_type),
@@ -326,6 +366,7 @@ impl EnvironmentalAlertingSystem {
                             rule.threshold
                         );
                         
+                        // Create the alert
                         let alert = Alert {
                             id: alert_id.clone(),
                             rule_id: rule.id.clone(),
@@ -339,11 +380,18 @@ impl EnvironmentalAlertingSystem {
                             context: HashMap::new(),
                         };
                         
-                        // Store and notify
+                        // Store alert
                         self.active_alerts.insert(alert_id.clone(), alert.clone());
                         
-                        // Add to history
-                        self.add_to_history(alert_id, AlertStatus::Active, None, None);
+                        // Create history record
+                        let history_record = AlertHistoryRecord {
+                            alert_id: alert_id.clone(),
+                            new_status: AlertStatus::Active,
+                            timestamp: now,
+                            user: None,
+                            note: None,
+                        };
+                        self.alert_history.push(history_record);
                         
                         // Send notifications
                         self.send_notifications(&rule, &alert);
@@ -358,13 +406,6 @@ impl EnvironmentalAlertingSystem {
                         if self.alerts_this_hour >= self.config.max_alerts_per_hour {
                             break;
                         }
-                    } else if rule.auto_resolve {
-                        // Auto-resolve alerts for this rule if condition is no longer met
-                        for (alert_id, alert) in self.active_alerts.iter() {
-                            if alert.rule_id == rule.id && alert.status == AlertStatus::Active {
-                                self.resolve_alert(alert_id, "System", Some("Auto-resolved: condition no longer met"));
-                            }
-                        }
                     }
                 },
                 Err(e) => {
@@ -374,7 +415,35 @@ impl EnvironmentalAlertingSystem {
             }
         }
         
-        // Clean up history if needed
+        // 5. Process auto-resolves
+        for (alert_id, rule) in auto_resolves {
+            if let Some(alert) = self.active_alerts.get_mut(&alert_id) {
+                alert.status = AlertStatus::Resolved;
+                alert.resolved_by = Some("System".to_string());
+                alert.resolved_at = Some(now);
+                
+                // Create history record for the resolution
+                let history_record = AlertHistoryRecord {
+                    alert_id: alert_id.clone(),
+                    new_status: AlertStatus::Resolved,
+                    timestamp: now,
+                    user: Some("System".to_string()),
+                    note: Some("Auto-resolved: condition no longer met".to_string()),
+                };
+                self.alert_history.push(history_record);
+                
+                // Log the auto-resolve if configured
+                if self.config.log_all_activity {
+                    println!("[{}] Alert {} changed to {:?} by System: Auto-resolved: condition no longer met",
+                        now.format("%Y-%m-%d %H:%M:%S"),
+                        alert_id,
+                        AlertStatus::Resolved
+                    );
+                }
+            }
+        }
+        
+        // 6. Clean up history if needed
         if self.alert_history.len() > self.config.max_history_records {
             self.alert_history.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
             self.alert_history.truncate(self.config.max_history_records);
@@ -383,14 +452,40 @@ impl EnvironmentalAlertingSystem {
         new_alerts
     }
     
+
+    
     /// Acknowledge an alert
     pub fn acknowledge_alert(&mut self, alert_id: &str, user: &str, note: Option<String>) -> Result<(), AlertingError> {
         if let Some(alert) = self.active_alerts.get_mut(alert_id) {
             if alert.status == AlertStatus::Active {
                 alert.status = AlertStatus::Acknowledged;
                 
-                // Add to history
-                self.add_to_history(alert_id.to_string(), AlertStatus::Acknowledged, Some(user.to_string()), note);
+                // Create history record
+                let history_record = AlertHistoryRecord {
+                    alert_id: alert_id.to_string(),
+                    new_status: AlertStatus::Acknowledged,
+                    timestamp: Utc::now(),
+                    user: Some(user.to_string()),
+                    note: note.clone(),
+                };
+                self.alert_history.push(history_record);
+                
+                // Log if configured
+                if self.config.log_all_activity {
+                    let note_str = if let Some(note) = note {
+                        format!(": {}", note)
+                    } else {
+                        "".to_string()
+                    };
+                    
+                    println!("[{}] Alert {} changed to {:?} by {}{}",
+                        Utc::now().format("%Y-%m-%d %H:%M:%S"),
+                        alert_id,
+                        AlertStatus::Acknowledged,
+                        user,
+                        note_str
+                    );
+                }
                 
                 Ok(())
             } else {
@@ -413,13 +508,32 @@ impl EnvironmentalAlertingSystem {
                 alert.resolved_by = Some(user.to_string());
                 alert.resolved_at = Some(Utc::now());
                 
-                // Add to history
-                self.add_to_history(
-                    alert_id.to_string(), 
-                    AlertStatus::Resolved, 
-                    Some(user.to_string()), 
-                    note.map(|s| s.to_string())
-                );
+                // Create history record
+                let history_record = AlertHistoryRecord {
+                    alert_id: alert_id.to_string(),
+                    new_status: AlertStatus::Resolved,
+                    timestamp: Utc::now(),
+                    user: Some(user.to_string()),
+                    note: note.map(|s| s.to_string()),
+                };
+                self.alert_history.push(history_record);
+                
+                // Log if configured
+                if self.config.log_all_activity {
+                    let note_str = if let Some(note) = note {
+                        format!(": {}", note)
+                    } else {
+                        "".to_string()
+                    };
+                    
+                    println!("[{}] Alert {} changed to {:?} by {}{}",
+                        Utc::now().format("%Y-%m-%d %H:%M:%S"),
+                        alert_id,
+                        AlertStatus::Resolved,
+                        user,
+                        note_str
+                    );
+                }
                 
                 Ok(())
             } else {
@@ -441,8 +555,32 @@ impl EnvironmentalAlertingSystem {
             alert.resolved_by = Some(user.to_string());
             alert.resolved_at = Some(Utc::now());
             
-            // Add to history
-            self.add_to_history(alert_id.to_string(), AlertStatus::Dismissed, Some(user.to_string()), note);
+            // Create history record
+            let history_record = AlertHistoryRecord {
+                alert_id: alert_id.to_string(),
+                new_status: AlertStatus::Dismissed,
+                timestamp: Utc::now(),
+                user: Some(user.to_string()),
+                note: note.clone(),
+            };
+            self.alert_history.push(history_record);
+            
+            // Log if configured
+            if self.config.log_all_activity {
+                let note_str = if let Some(note) = &note {
+                    format!(": {}", note)
+                } else {
+                    "".to_string()
+                };
+                
+                println!("[{}] Alert {} changed to {:?} by {}{}",
+                    Utc::now().format("%Y-%m-%d %H:%M:%S"),
+                    alert_id,
+                    AlertStatus::Dismissed,
+                    user,
+                    note_str
+                );
+            }
             
             Ok(())
         } else {
@@ -526,45 +664,9 @@ impl EnvironmentalAlertingSystem {
         ))
     }
     
-    /// Get a rule by ID
+    /// Get the rule by ID
     fn get_rule(&self, rule_id: &str) -> Option<&AlertRule> {
         self.rules.iter().find(|r| r.id == rule_id)
-    }
-    
-    /// Add an event to the alert history
-    fn add_to_history(&mut self, alert_id: String, status: AlertStatus, user: Option<String>, note: Option<String>) {
-        let record = AlertHistoryRecord {
-            alert_id,
-            new_status: status,
-            timestamp: Utc::now(),
-            user,
-            note,
-        };
-        
-        let record_clone = record.clone();
-        self.alert_history.push(record);
-        
-        if self.config.log_all_activity {
-            let user_str = if let Some(user) = &record_clone.user {
-                format!(" by {}", user)
-            } else {
-                "".to_string()
-            };
-            
-            let note_str = if let Some(note) = &record_clone.note {
-                format!(": {}", note)
-            } else {
-                "".to_string()
-            };
-            
-            println!("[{}] Alert {} changed to {:?}{}{}",
-                record_clone.timestamp.format("%Y-%m-%d %H:%M:%S"),
-                record_clone.alert_id,
-                record_clone.new_status,
-                user_str,
-                note_str
-            );
-        }
     }
     
     /// Get the current value for a metric

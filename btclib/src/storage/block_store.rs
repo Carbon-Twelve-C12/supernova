@@ -360,30 +360,31 @@ impl BlockStore {
             }
         }
         
-        // Get location from index
-        let location = {
+        // Lookup the file number and offset for this hash
+        let (file_no, offset, size, compressed) = {
             let index = self.index.read().map_err(|_| {
                 BlockStoreError::IndexError("Failed to acquire read lock".to_string())
             })?;
             
-            index.get(block_hash).cloned().ok_or_else(|| {
-                BlockStoreError::BlockNotFound(hex::encode(block_hash))
-            })?
+            match index.get(block_hash) {
+                Some(loc) => (loc.file_no, loc.offset, loc.size, loc.compressed),
+                None => return Err(BlockStoreError::BlockNotFound(hex::encode(block_hash))),
+            }
         };
         
         // Open the file
-        let file_arc = self.open_file(location.file_no)?;
+        let file_arc = self.open_file(file_no)?;
         let mut file = file_arc.lock().map_err(|_| {
             BlockStoreError::IndexError("Failed to acquire file lock".to_string())
         })?;
         
         // Read the data
-        file.seek(SeekFrom::Start(location.offset))?;
-        let mut data = vec![0u8; location.size as usize];
+        file.seek(SeekFrom::Start(offset))?;
+        let mut data = vec![0u8; size as usize];
         file.read_exact(&mut data)?;
         
         // Decompress if needed
-        let block_data = if location.compressed {
+        let block_data = if compressed {
             // In a real implementation, use decompression
             // For simplicity, we'll just use the data as is
             data
