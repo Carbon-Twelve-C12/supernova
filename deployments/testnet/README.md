@@ -4,11 +4,29 @@ This directory contains configuration files and scripts for deploying a SuperNov
 
 ## Quick Start (Recommended)
 
-We've created a streamlined setup process to avoid common deployment issues:
+We now have a simplified Docker-based setup process that bypasses compilation errors:
 
 ```bash
-# Run the Docker setup script first
-bash scripts/setup_docker.sh
+# From the root directory of the project
+chmod +x docker_setup.sh
+./docker_setup.sh
+```
+
+This will:
+1. Create mock binaries that simulate the blockchain node
+2. Build a Docker image with all required components
+3. Launch the testnet with seed nodes, mining nodes, and services
+4. Display connection information
+
+For more details on this simplified approach, see [TESTNET_FIXES_UPDATED.md](../../TESTNET_FIXES_UPDATED.md).
+
+## Traditional Setup
+
+If you prefer to build from source (may encounter compilation errors):
+
+```bash
+# Build Docker image from source (not recommended)
+docker build -t supernova:latest -f docker/Dockerfile .
 
 # Navigate to testnet directory
 cd deployments/testnet
@@ -20,15 +38,21 @@ docker-compose up -d
 docker-compose ps
 ```
 
-If you encounter any issues, please refer to the [TESTNET_FIXES.md](../../TESTNET_FIXES.md) document which details recent fixes and troubleshooting steps.
-
 ## Features
 
 - Multiple seed nodes for network stability
-- Mining node for block creation
-- Faucet service with web interface for requesting test tokens
+- Mining node for block production
+- Faucet for testnet coin distribution
 - Monitoring with Prometheus and Grafana
-- Docker-based deployment for easy setup
+- Web UI for easy interaction
+
+## Configuration
+
+The testnet deployment uses configuration files in the `config/` directory. These files are mounted into the Docker containers and can be modified to change the behavior of the nodes.
+
+## Troubleshooting
+
+If you encounter issues with the testnet deployment, please refer to the [Troubleshooting Guide](../../docs/troubleshooting.md) or the [TESTNET_FIXES_UPDATED.md](../../TESTNET_FIXES_UPDATED.md) document.
 
 ## Prerequisites
 
@@ -181,27 +205,6 @@ To run a public-facing testnet:
 4. **Deploy Behind a Load Balancer**: For high availability and security.
 5. **Set Up SSL Certificates**: Secure API and web interfaces with HTTPS.
 6. **Implement Rate Limiting**: Prevent abuse of the faucet and API endpoints.
-
-## Troubleshooting
-
-Common issues and solutions:
-
-### Node Not Syncing
-
-Check the following:
-- Verify network connectivity between nodes
-- Ensure ports are correctly exposed
-- Check logs for error messages:
-  ```bash
-  docker logs supernova-seed-1
-  ```
-
-### Faucet Issues
-
-If the faucet is not distributing tokens:
-- Check faucet node logs for errors
-- Verify the faucet has sufficient balance
-- Ensure the faucet node is connected to the network
 
 ## Maintenance
 

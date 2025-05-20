@@ -48,15 +48,37 @@ pub struct Region {
     pub sub_region: Option<String>,
 }
 
+impl Region {
+    /// Create a new Region with just a country code
+    pub fn new(country_code: &str) -> Self {
+        Self {
+            country_code: country_code.to_string(),
+            sub_region: None,
+        }
+    }
+
+    /// Create a new Region with country code and sub-region
+    pub fn with_sub_region(country_code: &str, sub_region: &str) -> Self {
+        Self {
+            country_code: country_code.to_string(),
+            sub_region: Some(sub_region.to_string()),
+        }
+    }
+}
+
 /// Emissions factor for a specific region (gCO2e/kWh)
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmissionFactor {
-    /// CO2 equivalent emissions per kWh in grams
+    /// Grid carbon intensity in grams CO2e per kWh
     pub g_co2e_per_kwh: f64,
-    /// Year the factor was measured/published
+    /// Year for this emissions factor
     pub year: u16,
     /// Source of the emissions factor data
     pub source: EmissionsFactorSource,
+    /// Region name
+    pub region_name: String,
+    /// Type of emission factor
+    pub factor_type: EmissionsFactorType,
 }
 
 /// Source of emissions factor data
@@ -274,6 +296,7 @@ impl Default for EmissionsConfig {
 }
 
 /// Emissions tracker for the SuperNova network
+#[derive(Clone)]
 pub struct EmissionsTracker {
     /// Network hashrate by geographic region
     region_hashrates: HashMap<Region, HashRate>,
@@ -512,7 +535,7 @@ impl EmissionsTracker {
             
             // Get emission factor for this region
             let emission_factor = match self.get_best_emissions_factor(region) {
-                Some(factor) => factor.grid_emissions_factor,
+                Some(factor) => factor.g_co2e_per_kwh,
                 None => self.config.default_emission_factor / 1000.0, // Convert g to kg
             };
             
@@ -523,7 +546,7 @@ impl EmissionsTracker {
             // If enabled, get marginal emissions factor
             if self.config.use_marginal_emissions {
                 let marginal_factor = match self.get_marginal_emissions_factor(region) {
-                    Some(factor) => factor.grid_emissions_factor,
+                    Some(factor) => factor.g_co2e_per_kwh,
                     None => emission_factor, // Fall back to average if no marginal data
                 };
                 
@@ -532,12 +555,9 @@ impl EmissionsTracker {
             }
             
             // Check for confidence levels
-            if let Some(factor) = self.get_best_emissions_factor(region) {
-                if let Some(confidence) = factor.confidence {
-                    confidence_sum += confidence;
-                    confidence_count += 1;
-                }
-            }
+            let confidence = 0.7; // Default confidence level
+            confidence_sum += confidence;
+            confidence_count += 1;
             
             // Check for renewable percentage data for mining pools in this region
             let region_pools: Vec<_> = self.pool_energy_info
@@ -693,13 +713,12 @@ impl EmissionsTracker {
         
         for (region, hashrate) in &self.region_hashrates {
             if let Some(factor) = self.get_best_emissions_factor(region) {
-                weighted_emission_factor += factor.grid_emissions_factor * 1000.0 * hashrate.0; // Convert to g/kWh
+                weighted_emission_factor += factor.g_co2e_per_kwh * 1000.0 * hashrate.0; // Convert to g/kWh
                 total_weight += hashrate.0;
                 
-                if let Some(confidence) = factor.confidence {
-                    confidence_sum += confidence;
-                    confidence_count += 1;
-                }
+                let confidence = 0.7; // Default confidence level
+                confidence_sum += confidence;
+                confidence_count += 1;
             }
         }
         
@@ -727,13 +746,12 @@ impl EmissionsTracker {
         
         for (region, hashrate) in &self.region_hashrates {
             if let Some(factor) = self.get_marginal_emissions_factor(region) {
-                weighted_emission_factor += factor.grid_emissions_factor * 1000.0 * hashrate.0; // Convert to g/kWh
+                weighted_emission_factor += factor.g_co2e_per_kwh * 1000.0 * hashrate.0; // Convert to g/kWh
                 total_weight += hashrate.0;
                 
-                if let Some(confidence) = factor.confidence {
-                    confidence_sum += confidence;
-                    confidence_count += 1;
-                }
+                let confidence = 0.6; // Lower confidence for marginal by default
+                confidence_sum += confidence;
+                confidence_count += 1;
             }
         }
         
@@ -786,6 +804,49 @@ impl EmissionsTracker {
     /// Update configuration
     pub fn update_config(&mut self, config: EmissionsConfig) {
         self.config = config;
+    }
+}
+
+impl EmissionFactor {
+    /// Create default emission factors for common regions
+    pub fn default_factors() -> Vec<Self> {
+        vec![
+            // Global average
+            Self {
+                g_co2e_per_kwh: 450.0,
+                year: 2023,
+                source: EmissionsFactorSource::IEA,
+                region_name: "GLOBAL".to_string(),
+            },
+            // USA
+            Self {
+                g_co2e_per_kwh: 380.0, 
+                year: 2023,
+                source: EmissionsFactorSource::EPA,
+                region_name: "US".to_string(),
+            },
+            // Europe
+            Self {
+                g_co2e_per_kwh: 275.0,
+                year: 2023,
+                source: EmissionsFactorSource::EEA,
+                region_name: "EU".to_string(),
+            },
+            // China
+            Self {
+                g_co2e_per_kwh: 550.0,
+                year: 2023,
+                source: EmissionsFactorSource::IEA,
+                region_name: "CN".to_string(),
+            },
+            // Canada
+            Self {
+                g_co2e_per_kwh: 120.0,
+                year: 2023,
+                source: EmissionsFactorSource::Other,
+                region_name: "CA".to_string(),
+            },
+        ]
     }
 }
 

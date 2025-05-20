@@ -81,6 +81,7 @@ impl CryptoAPI {
         let dashboard = EnvironmentalDashboard::new(
             emissions_tracker.clone(),
             treasury.clone(),
+            EnvironmentalApi::default(),
         );
         
         self.emissions_tracker = Some(emissions_tracker);
@@ -94,16 +95,18 @@ impl CryptoAPI {
         rng: &mut R,
     ) -> Result<QuantumKeyPair, QuantumError> {
         if !self.config.crypto.quantum.enabled {
-            return Err(QuantumError::UnsupportedScheme);
+            return Err(QuantumError::UnsupportedScheme("Unsupported quantum scheme".to_string()));
         }
         
+        // Create params
         let params = QuantumParameters {
-            security_level: self.config.crypto.quantum.security_level,
             scheme: self.config.crypto.quantum.default_scheme,
-            use_compression: false,
+            strength: QuantumStrength::Medium,
+            // Don't use compression field as it doesn't exist
         };
         
-        QuantumKeyPair::generate(self.config.crypto.quantum.default_scheme, Some(params))
+        // Generate with correct parameters
+        QuantumKeyPair::generate(rng, params)
     }
     
     /// Generate a quantum-resistant key pair with custom parameters
@@ -113,10 +116,10 @@ impl CryptoAPI {
         params: QuantumParameters,
     ) -> Result<QuantumKeyPair, QuantumError> {
         if !self.config.crypto.quantum.enabled {
-            return Err(QuantumError::UnsupportedScheme);
+            return Err(QuantumError::UnsupportedScheme("Unsupported quantum scheme".to_string()));
         }
         
-        QuantumKeyPair::generate(params.scheme, Some(params))
+        QuantumKeyPair::generate(rng, params)
     }
     
     /// Sign a transaction using a quantum-resistant signature
@@ -126,7 +129,7 @@ impl CryptoAPI {
         keypair: &QuantumKeyPair,
     ) -> Result<QuantumTransaction, QuantumError> {
         if !self.config.crypto.quantum.enabled {
-            return Err(QuantumError::UnsupportedScheme);
+            return Err(QuantumError::UnsupportedScheme("Unsupported quantum scheme".to_string()));
         }
         
         // Get the transaction hash
@@ -211,7 +214,7 @@ impl CryptoAPI {
         public_key: &[u8],
     ) -> Result<bool, QuantumError> {
         if !self.config.crypto.quantum.enabled {
-            return Err(QuantumError::UnsupportedScheme);
+            return Err(QuantumError::UnsupportedScheme("Unsupported quantum scheme".to_string()));
         }
         
         transaction.verify_signature(public_key)
@@ -336,8 +339,10 @@ impl CryptoAPI {
             return Err(ApiError::FeatureNotEnabled("Environmental features are not enabled".to_string()));
         }
         
-        self.dashboard.as_ref()
-            .ok_or_else(|| ApiError::Config("Environmental dashboard not initialized".to_string()))
+        match &self.dashboard {
+            Some(dashboard) => Ok(dashboard),
+            None => Err("Environmental dashboard not initialized".to_string()),
+        }
     }
     
     /// Get a mutable reference to the environmental dashboard
@@ -346,8 +351,10 @@ impl CryptoAPI {
             return Err(ApiError::FeatureNotEnabled("Environmental features are not enabled".to_string()));
         }
         
-        self.dashboard.as_mut()
-            .ok_or_else(|| ApiError::Config("Environmental dashboard not initialized".to_string()))
+        match &mut self.dashboard {
+            Some(dashboard) => Ok(dashboard),
+            None => Err("Environmental dashboard not initialized".to_string()),
+        }
     }
     
     /// Calculate network emissions for a time period

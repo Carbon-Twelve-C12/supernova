@@ -51,7 +51,7 @@ pub enum ProposalStatus {
 }
 
 /// Types of environmental proposals
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 pub enum ProposalType {
     /// Allocation of treasury funds
     TreasuryAllocation {
@@ -121,9 +121,9 @@ pub struct EnvironmentalProposal {
     /// Current status of the proposal
     pub status: ProposalStatus,
     /// Votes for the proposal
-    pub votes_for: HashMap<String, Vote>,
+    pub votes_for: HashMap<String, Box<Vote>>,
     /// Votes against the proposal
-    pub votes_against: HashMap<String, Vote>,
+    pub votes_against: HashMap<String, Box<Vote>>,
     /// Execution timestamp (if executed)
     pub executed_at: Option<DateTime<Utc>>,
     /// Transaction hash (if executed)
@@ -231,10 +231,10 @@ impl EnvironmentalGovernance {
                 }
                 
                 // Check treasury balance
-                if *amount > self.treasury.get_balance() {
+                if *amount > self.treasury.get_balance(TreasuryAccountType::Main) {
                     return Err(GovernanceError::InvalidProposal(
                         format!("Allocation amount {} exceeds available balance {}", 
-                                amount, self.treasury.get_balance())
+                                amount, self.treasury.get_balance(TreasuryAccountType::Main))
                     ));
                 }
             },
@@ -263,19 +263,19 @@ impl EnvironmentalGovernance {
                 }
                 
                 // Check treasury balance
-                if *amount > self.treasury.get_balance() {
+                if *amount > self.treasury.get_balance(TreasuryAccountType::Main) {
                     return Err(GovernanceError::InvalidProposal(
                         format!("Amount {} exceeds available balance {}", 
-                                amount, self.treasury.get_balance())
+                                amount, self.treasury.get_balance(TreasuryAccountType::Main))
                     ));
                 }
             },
             ProposalType::Other { amount, .. } => {
                 if let Some(amount) = amount {
-                    if *amount > 0 && *amount > self.treasury.get_balance() {
+                    if *amount > 0 && *amount > self.treasury.get_balance(TreasuryAccountType::Main) {
                         return Err(GovernanceError::InvalidProposal(
                             format!("Amount {} exceeds available balance {}", 
-                                    amount, self.treasury.get_balance())
+                                    amount, self.treasury.get_balance(TreasuryAccountType::Main))
                         ));
                     }
                 }
@@ -364,11 +364,11 @@ impl EnvironmentalGovernance {
         
         // Add vote to the appropriate side
         if vote_for {
-            proposal.votes_for.insert(voter, vote);
+            proposal.votes_for.insert(voter.clone(), Box::new(vote));
             // Remove any previous opposing vote
             proposal.votes_against.remove(&voter);
         } else {
-            proposal.votes_against.insert(voter, vote);
+            proposal.votes_against.insert(voter.clone(), Box::new(vote));
             // Remove any previous supporting vote
             proposal.votes_for.remove(&voter);
         }
@@ -460,13 +460,13 @@ impl EnvironmentalGovernance {
                 self.treasury.update_fee_allocation_percentage(*new_percentage)?;
             },
             ProposalType::PurchaseRECs { amount, provider } => {
-                self.treasury.purchase_renewable_certificates(*amount, provider)?;
+                self.treasury.purchase_renewable_certificates(provider, 100.0, *amount)?;
             },
             ProposalType::PurchaseOffsets { amount, provider } => {
-                self.treasury.purchase_carbon_offsets(*amount, provider)?;
+                self.treasury.purchase_carbon_offsets(provider, 100.0, *amount)?;
             },
             ProposalType::FundProject { amount, recipient, project_name, .. } => {
-                self.treasury.fund_project(*amount, recipient, project_name)?;
+                self.treasury.fund_project(project_name, *amount, recipient)?;
             },
             ProposalType::Other { .. } => {
                 // Custom proposals require manual execution
@@ -490,15 +490,25 @@ impl EnvironmentalGovernance {
     /// Cancel a proposal (only proposer or admin can cancel)
     pub fn cancel_proposal(&mut self, proposal_id: &str, canceller: &str) -> Result<(), GovernanceError> {
         // Get the proposal
-        let proposal = self.proposals.get_mut(proposal_id)
-            .ok_or_else(|| GovernanceError::ProposalNotFound(proposal_id.to_string()))?;
+        let proposal_opt = self.proposals.get(proposal_id);
+        let proposal_ref = match proposal_opt {
+            Some(p) => p,
+            None => return Err(GovernanceError::ProposalNotFound(proposal_id.to_string())),
+        };
         
         // Check if canceller is the proposer or an admin
-        if proposal.proposer != canceller && !self.is_admin(canceller) {
+        let is_proposer = proposal_ref.proposer == canceller;
+        let is_admin = self.is_admin(canceller);
+        
+        if !is_proposer && !is_admin {
             return Err(GovernanceError::UnauthorizedVote(
                 format!("User {} is not authorized to cancel this proposal", canceller)
             ));
         }
+        
+        // Now get a mutable reference to update the proposal
+        let proposal = self.proposals.get_mut(proposal_id)
+            .ok_or_else(|| GovernanceError::ProposalNotFound(proposal_id.to_string()))?;
         
         // Check if proposal can be cancelled
         if proposal.status == ProposalStatus::Executed {

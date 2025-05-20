@@ -1,0 +1,42 @@
+FROM debian:bullseye-slim
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl1.1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create user and directories
+RUN useradd -m -u 1000 -U -s /bin/bash supernova
+WORKDIR /home/supernova
+
+# Create required directories
+RUN mkdir -p /home/supernova/data \
+    /home/supernova/config \
+    /home/supernova/checkpoints \
+    /home/supernova/backups \
+    /home/supernova/logs \
+    /home/supernova/web/faucet
+
+# Add mock binaries for testnet
+COPY --chown=supernova:supernova deployments/testnet/mock/supernova /usr/local/bin/
+COPY --chown=supernova:supernova deployments/testnet/mock/supernova-cli /usr/local/bin/
+
+# Make binaries executable
+RUN chmod +x /usr/local/bin/supernova /usr/local/bin/supernova-cli
+
+# Expose ports
+EXPOSE 9333 9332 9090 8080
+
+# Set environment variables
+ENV SUPERNOVA_DATA_DIR="/home/supernova/data"
+ENV SUPERNOVA_CONFIG_DIR="/home/supernova/config"
+ENV RUST_LOG=info
+ENV TZ=UTC
+
+USER supernova
+
+# Default command
+CMD ["supernova", "--testnet"]

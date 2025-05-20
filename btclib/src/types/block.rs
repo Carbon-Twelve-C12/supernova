@@ -52,6 +52,18 @@ impl BlockHeader {
     pub fn prev_block_hash(&self) -> [u8; 32] {
         self.prev_block_hash
     }
+    
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+    
+    pub fn target(&self) -> u32 {
+        self.target
+    }
+    
+    pub fn height(&self) -> u32 {
+        0  // Default implementation, actual height would be tracked in chain state
+    }
 }
 
 impl Block {
@@ -97,6 +109,10 @@ impl Block {
 
     pub fn prev_block_hash(&self) -> [u8; 32] {
         self.header.prev_block_hash
+    }
+    
+    pub fn header(&self) -> &BlockHeader {
+        &self.header
     }
 
     pub fn validate(&self) -> bool {

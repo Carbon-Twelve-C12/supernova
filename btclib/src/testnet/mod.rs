@@ -199,6 +199,11 @@ impl TestNetManager {
     pub fn get_blockchain_config(&self) -> &BlockchainConfig {
         &self.blockchain_config
     }
+    
+    /// Get the network simulator if enabled
+    pub fn get_network_simulator(&self) -> Option<&network_simulator::NetworkSimulator> {
+        self.network_simulator.as_ref()
+    }
 }
 
 /// Convert testnet configuration to blockchain configuration

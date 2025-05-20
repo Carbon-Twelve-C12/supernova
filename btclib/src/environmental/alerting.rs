@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::environmental::emissions::{EmissionsTracker, Emissions};
 use crate::environmental::dashboard::{EnvironmentalDashboard, EnvironmentalMetrics, EmissionsTimePeriod};
-use crate::environmental::treasury::EnvironmentalTreasury;
+use crate::environmental::treasury::{EnvironmentalTreasury, TreasuryAccountType};
 
 /// Error types for environmental alerting
 #[derive(Error, Debug)]
@@ -541,25 +541,26 @@ impl EnvironmentalAlertingSystem {
             note,
         };
         
+        let record_clone = record.clone();
         self.alert_history.push(record);
         
         if self.config.log_all_activity {
-            let user_str = if let Some(user) = &record.user {
+            let user_str = if let Some(user) = &record_clone.user {
                 format!(" by {}", user)
             } else {
                 "".to_string()
             };
             
-            let note_str = if let Some(note) = &record.note {
+            let note_str = if let Some(note) = &record_clone.note {
                 format!(": {}", note)
             } else {
                 "".to_string()
             };
             
             println!("[{}] Alert {} changed to {:?}{}{}",
-                record.timestamp.format("%Y-%m-%d %H:%M:%S"),
-                record.alert_id,
-                record.new_status,
+                record_clone.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                record_clone.alert_id,
+                record_clone.new_status,
                 user_str,
                 note_str
             );
@@ -619,7 +620,7 @@ impl EnvironmentalAlertingSystem {
                 Ok(self.treasury.get_current_fee_percentage())
             },
             MetricType::TreasuryBalance => {
-                Ok(self.treasury.get_balance() as f64)
+                Ok(self.treasury.get_balance(TreasuryAccountType::Main) as f64)
             },
             MetricType::RECCoverage => {
                 if let Some(metrics) = self.dashboard.get_metrics(EmissionsTimePeriod::Month) {

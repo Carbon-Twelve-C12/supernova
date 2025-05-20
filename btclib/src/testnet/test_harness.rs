@@ -8,6 +8,7 @@ use tokio::time::{Duration, sleep};
 use tracing::{info, warn, error};
 
 /// Represents a test node in the harness
+#[derive(Clone)]
 pub struct TestNode {
     /// Node ID within the test harness
     pub id: usize,
@@ -52,6 +53,7 @@ pub enum TestNodeStatus {
 }
 
 /// Test scenario definition
+#[derive(Clone)]
 pub struct TestScenario {
     /// Name of the scenario
     pub name: String,
@@ -68,6 +70,7 @@ pub struct TestScenario {
 }
 
 /// Test node setup information
+#[derive(Clone)]
 pub struct TestNodeSetup {
     /// Node ID
     pub id: usize,
@@ -80,6 +83,7 @@ pub struct TestNodeSetup {
 }
 
 /// A test step in a scenario
+#[derive(Clone)]
 pub enum TestStep {
     /// Wait for a specified duration
     Wait(Duration),
@@ -150,6 +154,7 @@ pub enum TestStep {
 }
 
 /// Expected test outcome
+#[derive(Clone)]
 pub enum TestOutcome {
     /// All nodes should have the same best block
     AllNodesHaveSameChainTip,
@@ -186,6 +191,7 @@ pub enum TestOutcome {
 }
 
 /// Result of a test run
+#[derive(Clone)]
 pub struct TestResult {
     /// Scenario name
     pub scenario_name: String,
@@ -452,20 +458,25 @@ impl TestHarness {
             return Err(format!("Source node {} is not running", from_node));
         }
         
-        let to = self.nodes.get_mut(&to_node).ok_or_else(|| {
-            format!("Destination node {} not found", to_node)
-        })?;
-        
-        if to.status != TestNodeStatus::Running {
-            return Err(format!("Destination node {} is not running", to_node));
+        // Check if the node exists before getting a mutable reference
+        if !self.nodes.contains_key(&to_node) {
+            return Err(format!("Destination node {} not found", to_node));
         }
         
-        // Check if there's a network condition preventing the transaction
+        let to_node_status = self.nodes.get(&to_node).unwrap().status.clone(); // Get status before mutable borrow
+        if to_node_status != TestNodeStatus::Running {
+            return Err(format!("Destination node {} is not running", to_node));
+        }
+
+        // Check network conditions
         let should_drop = self.check_network_condition(from_node, to_node);
         if should_drop {
             info!("Network conditions prevented transaction propagation from {} to {}", from_node, to_node);
             return Ok(());
         }
+        
+        // Now we can safely get a mutable reference
+        let to = self.nodes.get_mut(&to_node).unwrap();
         
         // Add transactions to destination node's mempool
         to.mempool_count += tx_count;
@@ -490,8 +501,8 @@ impl TestHarness {
             }
             
             for &conn_id in &node.connections {
-                // Check if connection exists and is running
-                if let Some(conn_node) = self.nodes.get_mut(&conn_id) {
+                // First check if connection exists and is running without mutable borrow
+                if let Some(conn_node) = self.nodes.get(&conn_id) {
                     if conn_node.status != TestNodeStatus::Running {
                         continue;
                     }
@@ -522,9 +533,9 @@ impl TestHarness {
         Ok(())
     }
     
-    /// Check if network conditions would prevent communication
-    fn check_network_condition(&self, from_node: usize, to_node: usize) -> bool {
-        if let Some(network_simulator) = &self.testnet.get_network_simulator() {
+    /// Check if network conditions would prevent communication - modified to not require &mut self
+    fn check_network_condition(&self, _from_node: usize, _to_node: usize) -> bool {
+        if let Some(_network_simulator) = &self.testnet.get_network_simulator() {
             // This is a placeholder - actual implementation would use the simulator directly
             return false;
         }
@@ -533,7 +544,7 @@ impl TestHarness {
     }
     
     /// Handle custom test events
-    async fn handle_custom_event(&mut self, name: &str, params: &HashMap<String, String>) -> Result<(), String> {
+    async fn handle_custom_event(&mut self, name: &str, _params: &HashMap<String, String>) -> Result<(), String> {
         // Custom event handling can be implemented here
         info!("Handled custom event: {}", name);
         Ok(())
@@ -705,6 +716,9 @@ pub mod example_scenarios {
             bandwidth_limit_kbps: 1000,
             simulate_clock_drift: false,
             max_clock_drift_ms: 0,
+            jitter_ms: 20,
+            topology: crate::testnet::config::NetworkTopology::FullyConnected,
+            disruption_schedule: None,
         });
         
         // Define initial node setup
@@ -778,14 +792,14 @@ pub mod example_scenarios {
                 group_b: vec![3, 4, 5],
             },
             // Allow time for reconciliation
-            TestStep::Wait(Duration::from_seconds(1)),
+            TestStep::Wait(Duration::from_secs(1)),
             // Mine one more block to ensure convergence
             TestStep::MineBlocks {
                 node_ids: vec![0],
                 block_count: 1,
             },
             // Allow final propagation
-            TestStep::Wait(Duration::from_seconds(1)),
+            TestStep::Wait(Duration::from_secs(1)),
         ];
         
         // Define expected outcomes
