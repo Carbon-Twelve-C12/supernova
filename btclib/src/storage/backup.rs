@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use sha2::{Sha256, Digest};
 use thiserror::Error;
+use serde::{Serialize, Deserialize};
 
 use crate::types::block::Block;
 use crate::storage::chain_state::Checkpoint;
@@ -34,7 +35,7 @@ pub enum BackupError {
 pub type BackupResult<T> = Result<T, BackupError>;
 
 /// Type of backup
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BackupType {
     /// Full backup of all blockchain data
     Full,
@@ -84,8 +85,8 @@ impl Default for BackupConfig {
     }
 }
 
-/// Metadata for a backup file
-#[derive(Debug, Clone)]
+/// Metadata about a backup file
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupMetadata {
     /// Type of backup
     pub backup_type: BackupType,

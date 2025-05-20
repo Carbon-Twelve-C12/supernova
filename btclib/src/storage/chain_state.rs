@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 use crate::types::block::{Block, BlockHeader};
@@ -82,7 +83,7 @@ impl Default for ChainStateConfig {
 }
 
 /// A checkpoint for verifying chain integrity
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Checkpoint {
     /// Block height of this checkpoint
     pub height: u32,

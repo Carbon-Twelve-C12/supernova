@@ -2,6 +2,26 @@
 
 This directory contains configuration files and scripts for deploying a SuperNova testnet environment. The testnet is designed to provide a sandbox for testing the SuperNova blockchain network before deploying to mainnet.
 
+## Quick Start (Recommended)
+
+We've created a streamlined setup process to avoid common deployment issues:
+
+```bash
+# Run the Docker setup script first
+bash scripts/setup_docker.sh
+
+# Navigate to testnet directory
+cd deployments/testnet
+
+# Start the testnet
+docker-compose up -d
+
+# Check the status
+docker-compose ps
+```
+
+If you encounter any issues, please refer to the [TESTNET_FIXES.md](../../TESTNET_FIXES.md) document which details recent fixes and troubleshooting steps.
+
 ## Features
 
 - Multiple seed nodes for network stability
@@ -44,9 +64,9 @@ The testnet deployment includes:
    - Grafana for visualization and dashboards
    - Tracks network health and performance
 
-## Quick Start
+## Alternative Setup (Manual Method)
 
-To deploy the testnet:
+If you prefer to set up manually:
 
 1. Clone the SuperNova repository:
    ```bash
@@ -56,7 +76,7 @@ To deploy the testnet:
 
 2. Build the SuperNova Docker image:
    ```bash
-   docker build -t supernova:latest .
+   docker build -t supernova:latest -f docker/Dockerfile .
    ```
 
 3. Start the testnet using Docker Compose:
