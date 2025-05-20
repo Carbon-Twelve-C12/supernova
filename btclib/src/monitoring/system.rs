@@ -8,7 +8,7 @@ use tokio::time::interval;
 use tokio::task::JoinHandle;
 use crate::monitoring::MetricsError;
 use tracing::{info, warn, error, debug};
-use sysinfo::{System, SystemExt, ProcessorExt, DiskExt, NetworkExt, ComponentExt};
+use sysinfo::{System, SystemExt, ProcessorExt, DiskExt, NetworkExt, ComponentExt, CpuExt};
 
 /// System metrics collector
 pub struct SystemMetrics {
@@ -139,7 +139,7 @@ impl SystemMetrics {
     }
     
     /// Start system metrics collection in the background
-    pub fn start_collection(&self, interval_duration: Duration) -> Result<(), MetricsError> {
+    pub fn start_collection(&mut self, interval_duration: Duration) -> Result<(), MetricsError> {
         let cpu_usage = self.cpu_usage.clone();
         let load_average = self.load_average.clone();
         let memory_usage = self.memory_usage.clone();
@@ -164,16 +164,15 @@ impl SystemMetrics {
                     sys.refresh_all();
                     
                     // Collect CPU metrics
-                    for (i, processor) in sys.processors().iter().enumerate() {
-                        cpu_usage.with_label_values(&[&i.to_string()]).set(processor.cpu_usage() as f64);
+                    for (i, processor) in sys.cpus().iter().enumerate() {
+                        cpu_usage.with_label_values(&[&i.to_string()]).set(processor.cpu_usage().into());
                     }
                     
-                    // Collect load average
-                    if let Some(load) = sys.load_average() {
-                        load_average.with_label_values(&["1m"]).set(load.one as f64);
-                        load_average.with_label_values(&["5m"]).set(load.five as f64);
-                        load_average.with_label_values(&["15m"]).set(load.fifteen as f64);
-                    }
+                    // Collect load average - direct field access
+                    let load = sys.load_average();
+                    load_average.with_label_values(&["1m"]).set(load.one);
+                    load_average.with_label_values(&["5m"]).set(load.five);
+                    load_average.with_label_values(&["15m"]).set(load.fifteen);
                     
                     // Collect memory metrics
                     memory_usage.with_label_values(&["total"]).set(sys.total_memory() as i64);
@@ -213,7 +212,7 @@ impl SystemMetrics {
                     // Collect temperature information
                     for (i, component) in sys.components().iter().enumerate() {
                         let label = format!("{} ({})", component.label(), i);
-                        temperature.with_label_values(&[&label]).set(component.temperature() as f64);
+                        temperature.with_label_values(&[&label]).set(component.temperature().into());
                     }
                     
                     // Collect uptime
@@ -224,6 +223,7 @@ impl SystemMetrics {
             }
         });
         
+        self.collection_task = Some(handle);
         Ok(())
     }
     
@@ -239,9 +239,10 @@ impl SystemMetrics {
     }
     
     /// Get current system load average
-    pub async fn get_load_average(&self) -> Option<(f64, f64, f64)> {
+    pub async fn get_load_average(&self) -> (f64, f64, f64) {
         let system = self.system.lock().await;
-        system.load_average().map(|load| (load.one, load.five, load.fifteen))
+        let load = system.load_average();
+        (load.one, load.five, load.fifteen)
     }
     
     /// Get all system metrics as a formatted string
@@ -253,7 +254,7 @@ impl SystemMetrics {
         
         // CPU information
         summary.push_str("CPU Usage:\n");
-        for (i, processor) in system.processors().iter().enumerate() {
+        for (i, processor) in system.cpus().iter().enumerate() {
             summary.push_str(&format!("  Core {}: {:.1}%\n", i, processor.cpu_usage()));
         }
         

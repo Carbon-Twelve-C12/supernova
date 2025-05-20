@@ -4,6 +4,8 @@
 /// with customizable policy settings for both cryptographic and emissions compliance.
 
 use serde::{Serialize, Deserialize};
+use std::fmt;
+use std::error::Error as StdError;
 
 pub mod transaction;
 pub mod crypto;
@@ -88,94 +90,102 @@ pub struct ValidationMetrics {
     pub total_validations: u64,
 }
 
-/// Error types for validation
-#[derive(Debug, thiserror::Error)]
+/// Error encountered during validation
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
-    #[error("Generic validation error: {0}")]
-    Generic(String),
+    /// Invalid block height
+    InvalidBlockHeight(u64),
     
-    #[error("Transaction input not found: {0}")]
-    InputNotFound(String),
+    /// Invalid timestamp
+    InvalidTimestamp(u64),
     
-    #[error("Duplicate transaction input")]
-    DuplicateInput,
+    /// Invalid hash
+    InvalidHash,
     
-    #[error("Invalid signature: {0}")]
-    InvalidSignature(String),
-    
-    #[error("Invalid script: {0}")]
-    InvalidScript(String),
-    
-    #[error("Transaction fee too low")]
-    FeeTooLow,
-    
-    #[error("Balance mismatch: {0}")]
-    BalanceMismatch(String),
-    
-    #[error("Block size exceeds maximum")]
-    BlockSizeExceeded,
-    
-    #[error("Invalid merkle root")]
+    /// Invalid merkle root
     InvalidMerkleRoot,
     
-    #[error("Invalid proof of work")]
-    InvalidProofOfWork,
+    /// Invalid difficulty
+    InvalidDifficulty,
     
-    #[error("Block timestamp too far in future")]
-    TimestampTooFar,
+    /// Invalid nonce
+    InvalidNonce(u64),
     
-    #[error("Block hash doesn't meet difficulty target")]
-    DifficultyTargetNotMet,
+    /// Invalid signature
+    InvalidSignature(String),
     
-    #[error("Consensus rule violation: {0}")]
-    ConsensusRuleViolation(String),
+    /// Signature error
+    SignatureError(String),
     
-    #[error("Double spend attempt")]
+    /// Missing signature data
+    MissingSignatureData,
+    
+    /// Invalid signature scheme
+    InvalidSignatureScheme,
+    
+    /// Double spend
     DoubleSpend,
     
-    #[error("Quantum security compromised: {0}")]
-    QuantumSecurityCompromised(String),
+    /// Transaction not found
+    TransactionNotFound(String),
     
-    #[error("Transaction validation error: {0}")]
-    TransactionValidation(#[from] Box<dyn std::error::Error + Send + Sync>),
+    /// Block not found
+    BlockNotFound(String),
     
-    // Add the missing validation error variants
-    #[error("Invalid structure: {0}")]
+    /// Output not found
+    OutputNotFound,
+    
+    /// Database error
+    DatabaseError(String),
+    
+    /// Invalid script
+    InvalidScript(String),
+    
+    /// Chain error
+    ChainError(String),
+    
+    /// Checkpoint error
+    CheckpointError(String),
+    
+    /// Invalid structure
     InvalidStructure(String),
     
-    #[error("Cryptographic error: {0}")]
+    /// Cryptographic error
     CryptoError(String),
     
-    #[error("Invalid format: {0}")]
-    InvalidFormat(String),
-    
-    #[error("Emissions compliance error: {0}")]
-    EmissionsCompliance(String),
-    
-    #[error("Quantum error: {0}")]
-    QuantumError(String),
-    
-    #[error("Missing signature")]
-    MissingSignature,
-    
-    #[error("Format error: {0}")]
-    FormatError(String),
-    
-    #[error("Configuration error: {0}")]
-    ConfigError(String),
-    
-    #[error("Validation rule violated: {0}")]
-    RuleViolation(String),
-    
-    #[error("Environmental policy violation: {0}")]
-    EnvironmentalPolicyViolation(String),
-    
-    #[error("Security policy violation: {0}")]
-    SecurityPolicyViolation(String),
-    
-    #[error("General validation failure: {0}")]
-    GeneralFailure(String),
+    /// Generic error
+    Generic(String),
 }
+
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ValidationError::InvalidBlockHeight(height) => write!(f, "Invalid block height: {}", height),
+            ValidationError::InvalidTimestamp(timestamp) => write!(f, "Invalid timestamp: {}", timestamp),
+            ValidationError::InvalidHash => write!(f, "Invalid hash"),
+            ValidationError::InvalidMerkleRoot => write!(f, "Invalid merkle root"),
+            ValidationError::InvalidDifficulty => write!(f, "Invalid difficulty"),
+            ValidationError::InvalidNonce(nonce) => write!(f, "Invalid nonce: {}", nonce),
+            ValidationError::InvalidSignature(msg) => write!(f, "Invalid signature: {}", msg),
+            ValidationError::SignatureError(msg) => write!(f, "Signature error: {}", msg),
+            ValidationError::MissingSignatureData => write!(f, "Missing signature data"),
+            ValidationError::InvalidSignatureScheme => write!(f, "Invalid signature scheme"),
+            ValidationError::DoubleSpend => write!(f, "Double spend"),
+            ValidationError::TransactionNotFound(txid) => write!(f, "Transaction not found: {}", txid),
+            ValidationError::BlockNotFound(hash) => write!(f, "Block not found: {}", hash),
+            ValidationError::OutputNotFound => write!(f, "Output not found"),
+            ValidationError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
+            ValidationError::InvalidScript(msg) => write!(f, "Invalid script: {}", msg),
+            ValidationError::ChainError(msg) => write!(f, "Chain error: {}", msg),
+            ValidationError::CheckpointError(msg) => write!(f, "Checkpoint error: {}", msg),
+            ValidationError::InvalidStructure(msg) => write!(f, "Invalid structure: {}", msg),
+            ValidationError::CryptoError(msg) => write!(f, "Cryptographic error: {}", msg),
+            ValidationError::Generic(msg) => write!(f, "Validation error: {}", msg),
+        }
+    }
+}
+
+impl StdError for ValidationError {}
 
 pub use transaction::{
     ValidationResult,

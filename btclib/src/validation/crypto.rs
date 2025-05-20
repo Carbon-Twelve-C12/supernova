@@ -154,11 +154,11 @@ impl CryptoValidator {
     ) -> Result<bool, ValidationError> {
         // Check signature type
         self.validate_signature_type(params.sig_type)
-            .map_err(|e| ValidationError::CryptoError(format!("Invalid signature type: {}", e)))?;
+            .map_err(|e| ValidationError::SignatureError(format!("Invalid signature type: {}", e)))?;
         
         // Check security level
         if params.security_level < self.config.min_signature_security_level {
-            return Err(ValidationError::CryptoError(format!(
+            return Err(ValidationError::SignatureError(format!(
                 "Signature security level too low: {} (minimum: {})",
                 params.security_level, self.config.min_signature_security_level
             )));
@@ -175,7 +175,7 @@ impl CryptoValidator {
                 
                 match verify_quantum_signature(public_key, message, signature, quantum_params) {
                     Ok(valid) => Ok(valid),
-                    Err(e) => Err(ValidationError::CryptoError(
+                    Err(e) => Err(ValidationError::SignatureError(
                         format!("Quantum signature verification error: {}", e)
                     )),
                 }
@@ -186,7 +186,7 @@ impl CryptoValidator {
                 
                 match verifier.verify(params.sig_type, public_key, message, signature) {
                     Ok(valid) => Ok(valid),
-                    Err(e) => Err(ValidationError::CryptoError(
+                    Err(e) => Err(ValidationError::SignatureError(
                         format!("Signature verification error: {}", e)
                     )),
                 }
@@ -196,4 +196,4 @@ impl CryptoValidator {
 }
 
 /// Alias for backward compatibility
-pub type SignatureValidator = CryptoValidator; 
+pub type SignatureValidator = CryptoValidator;
