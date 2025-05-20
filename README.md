@@ -21,15 +21,6 @@
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml/badge.svg" alt="Clippy" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml/badge.svg" alt="Benchmarks" /></a>
   </p>
-
-  <p align="center">
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/CI"><img src="https://img.shields.io/github/workflow/status/supernova-labs/supernova/CI?label=CI&style=for-the-badge" alt="CI" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/Docker"><img src="https://img.shields.io/github/workflow/status/supernova-labs/supernova/Docker?label=Docker&style=for-the-badge" alt="Docker" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/license"><img src="https://img.shields.io/github/license/supernova-labs/supernova?style=for-the-badge" alt="License" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/version"><img src="https://img.shields.io/badge/Version-0.5.0-yellow?style=for-the-badge" alt="Version" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/tests"><img src="https://img.shields.io/badge/Tests-in_progress-yellow?style=for-the-badge" alt="Tests" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/testnet"><img src="https://img.shields.io/badge/Testnet-simulation-yellow?style=for-the-badge" alt="Testnet" /></a>
-  </p>
 </div>
 
 ## Overview
