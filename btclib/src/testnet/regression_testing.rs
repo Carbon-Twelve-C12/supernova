@@ -1,4 +1,4 @@
-use crate::config::BlockchainConfig;
+use super::config::TestNetConfig as BlockchainConfig;
 use crate::testnet::{TestNetManager, config::TestNetConfig};
 use crate::types::transaction::Transaction;
 use serde::{Serialize, Deserialize};

@@ -1,15 +1,8 @@
 // Block validation - minimal module to fix build issues
 
-use std::fmt;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use zerocopy::AsBytes;
-use serde::{Serialize, Deserialize};
-
-use crate::types::block::{Block, BlockHeader};
-use crate::types::transaction::Transaction;
-use crate::validation::transaction::{TransactionValidator, ValidationResult, ValidationConfig};
-use super::{ValidationError, SecurityLevel};
+use crate::types::block::Block;
+use crate::validation::transaction::TransactionValidator;
+use super::ValidationError;
 
 /// Error types for block validation
 #[derive(Debug, thiserror::Error)]
@@ -28,31 +21,43 @@ pub enum BlockValidationError {
     
     /// Incorrect previous block reference
     #[error("Previous block mismatch")]
-    PrevBlockMismatch([u8; 32], [u8; 32]),
+    PrevBlockMismatch,
     
-    /// Invalid proof of work
-    #[error("Invalid proof of work: hash > target")]
-    InvalidProofOfWork,
+    /// Invalid Merkle root
+    #[error("Invalid Merkle root")]
+    InvalidMerkleRoot,
     
-    /// Invalid merkle root
-    #[error("Invalid merkle root")]
-    InvalidMerkleRoot([u8; 32], [u8; 32]),
+    /// Missing coinbase transaction
+    #[error("Missing coinbase transaction")]
+    MissingCoinbase,
     
-    /// Timestamp too far in the future
-    #[error("Timestamp too far in the future: {0} seconds")]
-    TimestampTooFarInFuture(u64),
+    /// Multiple coinbase transactions
+    #[error("Multiple coinbase transactions found")]
+    MultipleCoinbase,
     
-    /// Block version too old
-    #[error("Block version too old: {0} (minimum: {1})")]
-    VersionTooOld(u32, u32),
+    /// Invalid transaction
+    #[error("Invalid transaction: {0}")]
+    InvalidTransaction(String),
     
-    /// Transaction validation error
-    #[error("Transaction validation error: {0}")]
-    TransactionValidation(ValidationError),
+    /// Block timestamp too far in the future
+    #[error("Block timestamp too far in future: {0} > {1}")]
+    TimestampTooFar(u64, u64),
     
-    /// Other validation error
-    #[error("Validation error: {0}")]
-    Other(String),
+    /// Block timestamp earlier than median time
+    #[error("Block timestamp earlier than median time: {0} < {1}")]
+    TimestampTooEarly(u64, u64),
+    
+    /// Duplicate transaction in block
+    #[error("Duplicate transaction in block: {0:?}")]
+    DuplicateTransaction([u8; 32]),
+    
+    /// Invalid proof-of-work
+    #[error("Invalid proof-of-work")]
+    InvalidPoW,
+    
+    /// Invalid difficulty
+    #[error("Invalid difficulty: {0}")]
+    InvalidDifficulty(String),
 }
 
 /// Type for validation results
@@ -108,7 +113,7 @@ impl BlockValidator {
     }
     
     /// Validate a block
-    pub fn validate_block(&self, block: &Block) -> BlockValidationResult {
+    pub fn validate_block(&self, _block: &Block) -> BlockValidationResult {
         // Minimal implementation for building
         Ok(())
     }

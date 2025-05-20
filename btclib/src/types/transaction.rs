@@ -104,6 +104,10 @@ impl TransactionInput {
     pub fn prev_output_index(&self) -> u32 {
         self.prev_output_index
     }
+
+    pub fn signature_script(&self) -> &[u8] {
+        &self.signature_script
+    }
 }
 
 impl TransactionOutput {
@@ -190,6 +194,11 @@ impl Transaction {
         }
     }
 
+    /// Get the transaction version
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
     /// Get reference to inputs
     pub fn inputs(&self) -> &[TransactionInput] {
         &self.inputs
@@ -254,7 +263,7 @@ impl Transaction {
     }
     
     /// Verify a signature for a specific input, handling multiple signature schemes
-    fn verify_signature(&self, signature_script: &[u8], pub_key_script: &[u8], input_index: usize) -> bool {
+    pub fn verify_signature(&self, signature_script: &[u8], pub_key_script: &[u8], input_index: usize) -> bool {
         // Check if this is a transaction with extended signature data
         if self.version >= 2 && self.signature_data.is_some() {
             return self.verify_extended_signature(signature_script, pub_key_script, input_index);

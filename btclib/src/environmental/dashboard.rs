@@ -4,13 +4,13 @@ use chrono::{DateTime, Utc, Duration};
 use crate::environmental::emissions::{Emissions, EmissionsTracker, Region, EmissionFactor};
 use crate::environmental::types::EmissionsFactorType;
 use crate::environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetPurchase, EnvironmentalAssetType};
-use crate::environmental::miner_reporting::{MinerReportingManager, MinerEnvironmentalReport};
+use crate::environmental::miner_reporting::{MinerReportingManager, MinerEnvironmentalReport, MinerVerificationStatus};
 use std::fmt;
 use std::path::Path;
 use crate::environmental::{
-    api::{EnvironmentalApi, MinerEmissionsData, NetworkEmissionsData, AssetPurchaseRecord},
+    api::{NetworkEmissionsData, AssetPurchaseRecord, EnvironmentalApiTrait},
     types::{EnergySource, HardwareType},
-    miner_reporting::VerificationStatus
+    miner_reporting::MinerVerificationStatus
 };
 
 /// Time period for emissions calculations
@@ -216,12 +216,12 @@ pub struct EnvironmentalDashboard {
     /// Asset summary
     asset_summary: Option<AssetSummary>,
     /// API reference
-    api: EnvironmentalApi,
+    api: Box<dyn EnvironmentalApiTrait>,
 }
 
 impl EnvironmentalDashboard {
     /// Create a new environmental dashboard
-    pub fn new(emissions_tracker: EmissionsTracker, treasury: EnvironmentalTreasury, api: EnvironmentalApi) -> Self {
+    pub fn new(emissions_tracker: EmissionsTracker, treasury: EnvironmentalTreasury, api: Box<dyn EnvironmentalApiTrait>) -> Self {
         Self {
             emissions_tracker,
             treasury,
@@ -239,7 +239,7 @@ impl EnvironmentalDashboard {
         emissions_tracker: EmissionsTracker, 
         treasury: EnvironmentalTreasury,
         miner_reporting: MinerReportingManager,
-        api: EnvironmentalApi,
+        api: Box<dyn EnvironmentalApiTrait>,
     ) -> Self {
         Self {
             emissions_tracker,
@@ -565,7 +565,7 @@ impl EnvironmentalDashboard {
         // Add transaction emissions
         report.push_str(&format!(
             "Emissions per Transaction: {:.4} kg CO2e\n\
-            Transactions Processed: {:,}\n",
+            Transactions Processed: {}\n",
             metrics.emissions_per_transaction,
             metrics.transaction_count
         ));
@@ -672,12 +672,15 @@ impl EnvironmentalDashboard {
         // Count hardware distribution
         let mut hardware_distribution = HashMap::new();
         for miner in &miners {
-            *hardware_distribution.entry(miner.hardware_type.clone()).or_insert(0) += 1;
+            // For each hardware type in the miner's hardware types
+            for hardware in &miner.hardware_types {
+                *hardware_distribution.entry(hardware.clone()).or_insert(0) += 1;
+            }
         }
-
-        // Count region distribution
+        
+        // Region distribution
         let mut region_distribution = HashMap::new();
-        for miner in &miners {
+        for miner in miners {
             *region_distribution.entry(miner.region.clone()).or_insert(0) += 1;
         }
 
@@ -729,7 +732,7 @@ impl EnvironmentalDashboard {
     }
 
     /// Get miner verification status distribution
-    pub fn get_verification_distribution(&self) -> Result<HashMap<VerificationStatus, usize>, String> {
+    pub fn get_verification_distribution(&self) -> Result<HashMap<MinerVerificationStatus, usize>, String> {
         let miners = match self.api.get_all_miners() {
             Ok(m) => m,
             Err(e) => return Err(format!("Failed to get miners: {}", e)),
@@ -737,7 +740,13 @@ impl EnvironmentalDashboard {
 
         let mut distribution = HashMap::new();
         for miner in miners {
-            *distribution.entry(miner.verification_status).or_insert(0) += 1;
+            let status = match miner.verification_status.as_str() {
+                "Verified" => MinerVerificationStatus::Verified,
+                "Pending" => MinerVerificationStatus::Pending,
+                "Rejected" => MinerVerificationStatus::Rejected,
+                _ => MinerVerificationStatus::Unverified
+            };
+            *distribution.entry(status).or_insert(0) += 1;
         }
 
         Ok(distribution)
@@ -755,8 +764,8 @@ impl EnvironmentalDashboard {
 
         for purchase in purchases {
             match purchase.asset_type.as_str() {
-                "REC" => rec_value += purchase.value,
-                "Carbon Offset" => offset_value += purchase.value,
+                "REC" => rec_value += purchase.amount,
+                "Carbon Offset" => offset_value += purchase.amount,
                 _ => {}
             }
         }
@@ -803,7 +812,7 @@ mod tests {
         );
         
         // Create dashboard
-        let mut dashboard = EnvironmentalDashboard::new(emissions_tracker, treasury, EnvironmentalApi::default());
+        let mut dashboard = EnvironmentalDashboard::new(emissions_tracker, treasury, Box::new(EnvironmentalApiTrait::default()));
         
         // Generate metrics for a day (with some transactions)
         let transaction_count = 100_000;
@@ -820,7 +829,7 @@ mod tests {
         // Basic checks on the report content
         assert!(report.contains("SuperNova Environmental Impact Report"), "Report should have title");
         assert!(report.contains("Total Emissions"), "Report should have emissions data");
-        assert!(report.contains(&format!("Transactions Processed: {:,}", transaction_count)), 
+        assert!(report.contains(&format!("Transactions Processed: {}", transaction_count)), 
                 "Report should have transaction count");
     }
 } 

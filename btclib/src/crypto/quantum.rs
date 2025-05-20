@@ -3,25 +3,23 @@
 
 use std::fmt;
 use serde::{Serialize, Deserialize};
-use sha2::{Sha256, Sha512, Digest};
+use sha2::{Sha256, Digest};
 use rand::{CryptoRng, RngCore};
 use pqcrypto_dilithium::{dilithium2, dilithium3, dilithium5};
 use pqcrypto_traits::sign::{PublicKey as PQPublicKey, SecretKey as PQSecretKey, DetachedSignature};
 use thiserror::Error;
+use crate::crypto::falcon::FalconError;
 
 // Adding SPHINCS+ dependencies
 use pqcrypto_sphincsplus::{
-    sphincssha256128frobust, sphincssha256192frobust, sphincssha256256frobust,
-    sphincssha256128ssimple, sphincssha256192ssimple, sphincssha256256ssimple
+    sphincssha256128frobust, sphincssha256192frobust, sphincssha256256frobust
 };
 
 use crate::validation::SecurityLevel;
 
 // Add secp256k1 and ed25519 dependencies
 use secp256k1::{Secp256k1, Message as Secp256k1Message};
-use ed25519_dalek::{Keypair as Ed25519Keypair, Signer, Verifier, SignatureError as Ed25519Error};
-
-use crate::crypto::falcon::FalconError;
+use ed25519_dalek::{Keypair as Ed25519Keypair, Signer, Verifier};
 
 /// Mock implementation of dilithium functions to avoid conflicts with pqcrypto_dilithium
 mod dilithium_mock {
@@ -184,7 +182,7 @@ pub enum QuantumError {
     CryptoOperationFailed(String),
 }
 
-/// Implement conversion from FalconError to QuantumError
+/// Convert FalconError to QuantumError
 impl From<FalconError> for QuantumError {
     fn from(error: FalconError) -> Self {
         match error {
@@ -232,9 +230,9 @@ impl QuantumParameters {
             },
             QuantumScheme::Sphincs => {
                 match SecurityLevel::from(self.security_level) {
-                    SecurityLevel::Low => Ok(sphincssha256128frobust::SIGNATUREBYTES),
-                    SecurityLevel::Medium => Ok(sphincssha256192frobust::SIGNATUREBYTES),
-                    SecurityLevel::High => Ok(sphincssha256256frobust::SIGNATUREBYTES),
+                    SecurityLevel::Low => Ok(sphincssha256128frobust::signature_bytes()),
+                    SecurityLevel::Medium => Ok(sphincssha256192frobust::signature_bytes()),
+                    SecurityLevel::High => Ok(sphincssha256256frobust::signature_bytes()),
                     _ => Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
                 }
             },
@@ -350,7 +348,7 @@ impl QuantumKeyPair {
         security_level: u8,
     ) -> Result<Self, QuantumError> {
         // Use our new Falcon implementation
-        use crate::crypto::falcon::{FalconKeyPair, FalconParameters, FalconError};
+        use crate::crypto::falcon::{FalconKeyPair, FalconParameters};
         
         // Create Falcon parameters
         let params = FalconParameters::with_security_level(security_level)?;
@@ -536,7 +534,7 @@ impl QuantumKeyPair {
             },
             QuantumScheme::Falcon => {
                 // Use our new Falcon implementation
-                use crate::crypto::falcon::{FalconKeyPair, FalconParameters, FalconError};
+                use crate::crypto::falcon::{FalconKeyPair, FalconParameters};
                 
                 let params = FalconParameters::with_security_level(self.parameters.security_level)?;
                 
@@ -702,7 +700,7 @@ impl QuantumKeyPair {
             },
             QuantumScheme::Falcon => {
                 // Use our new Falcon implementation
-                use crate::crypto::falcon::{FalconKeyPair, FalconParameters, FalconError};
+                use crate::crypto::falcon::{FalconKeyPair, FalconParameters};
                 
                 let params = FalconParameters::with_security_level(self.parameters.security_level)?;
                 

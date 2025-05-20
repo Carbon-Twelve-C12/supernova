@@ -4,8 +4,9 @@ pub mod network_simulator;
 pub mod test_harness;
 pub mod regression_testing;
 
-use crate::config::BlockchainConfig;
-use config::TestNetConfig;
+// Define an alias for TestNetConfig to use as BlockchainConfig
+use self::config::TestNetConfig;
+use self::config::TestNetConfig as BlockchainConfig;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -208,22 +209,27 @@ impl TestNetManager {
 
 /// Convert testnet configuration to blockchain configuration
 fn convert_to_blockchain_config(testnet_config: &TestNetConfig) -> BlockchainConfig {
-    let mut config = BlockchainConfig::default();
-    
-    // Modify the configuration for testnet use
-    config.network.network_name = testnet_config.network_name.clone();
-    config.consensus.target_block_time = testnet_config.target_block_time_secs;
-    config.consensus.initial_difficulty = testnet_config.initial_difficulty;
-    config.consensus.difficulty_adjustment_window = testnet_config.difficulty_adjustment_window;
-    
-    // Set testnet-specific settings
-    config.network.p2p_port = testnet_config.p2p_port;
-    config.network.rpc_port = testnet_config.rpc_port;
-    config.network.dns_seeds = Vec::new(); // No DNS seeds for test networks
-    config.network.allow_private_addresses = true; // Allow private IPs for testing
-    
-    // Set to test mode
-    config.network.is_testnet = true;
-    
-    config
+    // Instead of trying to modify config like before, create a new TestNetConfig
+    // with the correct values copied over
+    BlockchainConfig {
+        network_name: testnet_config.network_name.clone(),
+        target_block_time_secs: testnet_config.target_block_time_secs,
+        initial_difficulty: testnet_config.initial_difficulty,
+        difficulty_adjustment_window: testnet_config.difficulty_adjustment_window,
+        max_difficulty_adjustment_factor: testnet_config.max_difficulty_adjustment_factor,
+        p2p_port: testnet_config.p2p_port,
+        rpc_port: testnet_config.rpc_port,
+        // Set reasonable defaults for other fields
+        genesis_config: testnet_config.genesis_config.clone(),
+        enable_faucet: testnet_config.enable_faucet,
+        faucet_distribution_amount: testnet_config.faucet_distribution_amount,
+        faucet_cooldown_secs: testnet_config.faucet_cooldown_secs,
+        network_simulation: testnet_config.network_simulation.clone(),
+        tx_propagation: testnet_config.tx_propagation.clone(),
+        storage: testnet_config.storage.clone(),
+        auto_mining: testnet_config.auto_mining.clone(),
+        block_explorer: testnet_config.block_explorer.clone(),
+        fast_sync: testnet_config.fast_sync.clone(),
+        logging: testnet_config.logging.clone(),
+    }
 } 

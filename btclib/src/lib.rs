@@ -1,6 +1,44 @@
 // SuperNova Blockchain Library
 // Core implementation of the SuperNova blockchain
 
+// Public modules
+pub mod api;
+pub mod block;
+pub mod config;
+pub mod consensus;
+pub mod consensus_verification;
+pub mod crypto;
+pub mod environmental;
+pub mod mempool;
+pub mod monitoring;
+pub mod network;
+pub mod security_mitigation;
+pub mod storage;
+pub mod testnet;
+pub mod transaction_processor;
+pub mod types;
+pub mod util;
+pub mod validation;
+
+// Create a blockchain module that re-exports from block and types
+pub mod blockchain {
+    // Export Block and BlockHeader from types
+    pub use crate::types::block::{Block, BlockHeader};
+    pub use crate::types::transaction::Transaction;
+}
+
+// Library version
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// Errors and result types
+pub mod errors;
+
+// Re-export commonly used types
+pub use crate::types::block::{Block, BlockHeader};
+pub use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+pub use crate::crypto::{hash, signature};
+pub use crate::validation::{ValidationError, ValidationResult};
+
 // Re-export public API
 pub mod api;
 pub mod config;
