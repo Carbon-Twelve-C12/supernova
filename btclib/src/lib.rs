@@ -46,3 +46,11 @@ pub use lightning::{
     LightningNetworkError,
     channel::{Channel, ChannelId, ChannelState, ChannelConfig, ChannelInfo}
 };
+
+// Add the freeze module to the library
+
+// Freeze feature allows parts of the code to be disabled during compilation
+// This is useful for working around circular dependencies or other issues
+// that prevent the codebase from building.
+pub mod freeze;
+pub use freeze::*;

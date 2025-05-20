@@ -21,46 +21,77 @@ pub struct Block {
 }
 
 impl BlockHeader {
-    pub fn new(version: u32, prev_block_hash: [u8; 32], merkle_root: [u8; 32], target: u32) -> Self {
+    /// Create a new block header
+    pub fn new(
+        version: u32,
+        prev_block_hash: [u8; 32],
+        merkle_root: [u8; 32],
+        timestamp: u64,
+        bits: u32,
+        nonce: u32,
+    ) -> Self {
         Self {
             version,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
             prev_block_hash,
             merkle_root,
-            target,
-            nonce: 0,
+            timestamp,
+            target: bits,
+            nonce,
         }
+    }
+    
+    /// Access the block version
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+    
+    /// Access the previous block hash
+    pub fn prev_block_hash(&self) -> &[u8; 32] {
+        &self.prev_block_hash
+    }
+    
+    /// Access the merkle root
+    pub fn merkle_root(&self) -> &[u8; 32] {
+        &self.merkle_root
+    }
+    
+    /// Access the timestamp
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+    
+    /// Access the bits (target)
+    pub fn bits(&self) -> u32 {
+        self.target
+    }
+    
+    /// Access the nonce
+    pub fn nonce(&self) -> u32 {
+        self.nonce
+    }
+    
+    /// Hash this block header
+    pub fn hash(&self) -> [u8; 32] {
+        // Placeholder: In a real implementation, this would hash the block header
+        // with double SHA-256
+        let mut hasher = sha2::Sha256::new();
+        let encoded = bincode::serialize(self).unwrap_or(vec![]);
+        hasher.update(&encoded);
+        let first_hash = hasher.finalize();
+        
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&first_hash);
+        let hash_bytes = hasher.finalize();
+        
+        let mut result = [0u8; 32];
+        result.copy_from_slice(&hash_bytes);
+        result
     }
 
     pub fn increment_nonce(&mut self) {
         self.nonce = self.nonce.wrapping_add(1);
     }
 
-    pub fn hash(&self) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update(&bincode::serialize(&self).unwrap());
-        hasher.update(&self.nonce.to_le_bytes());
-        let result = hasher.finalize();
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        hash
-    }
-
-    pub fn prev_block_hash(&self) -> [u8; 32] {
-        self.prev_block_hash
-    }
-    
-    pub fn timestamp(&self) -> u64 {
-        self.timestamp
-    }
-    
-    pub fn target(&self) -> u32 {
-        self.target
-    }
-    
     pub fn height(&self) -> u32 {
         0  // Default implementation, actual height would be tracked in chain state
     }
@@ -76,7 +107,10 @@ impl Block {
         let merkle_root = Self::calculate_merkle_root(&transactions);
         
         Self {
-            header: BlockHeader::new(version, prev_block_hash, merkle_root, target),
+            header: BlockHeader::new(version, prev_block_hash, merkle_root, SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(), target, 0),
             transactions,
         }
     }
@@ -162,7 +196,10 @@ mod tests {
 
     #[test]
     fn test_nonce_increment() {
-        let mut header = BlockHeader::new(1, [0u8; 32], [0u8; 32], u32::MAX);
+        let mut header = BlockHeader::new(1, [0u8; 32], [0u8; 32], SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs(), u32::MAX, 0);
         let initial_nonce = header.nonce;
         header.increment_nonce();
         assert_eq!(header.nonce, initial_nonce + 1);

@@ -1,8 +1,9 @@
+use prometheus::core::{AtomicF64, AtomicI64, GenericGauge, GenericGaugeVec, GenericCounter, GenericCounterVec};
 use prometheus::{
-    Encoder, TextEncoder, Registry,
-    Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec,
-    IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
-    Opts, Result as PrometheusResult, HistogramOpts
+    Registry, Encoder, TextEncoder, 
+    Opts, HistogramOpts, IntGauge, Histogram,
+    Counter, IntCounter, Gauge, CounterVec,
+    IntCounterVec, HistogramVec, IntGaugeVec, GaugeVec
 };
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
@@ -12,6 +13,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use thiserror::Error;
 use tracing::{info, warn, error, debug};
+use reqwest::Client;
+use std::join;
+use tokio::task::JoinHandle;
 
 pub mod system;
 pub mod blockchain;
@@ -19,29 +23,23 @@ pub mod network;
 pub mod consensus;
 pub mod mempool;
 
-/// Errors related to metrics operations
-#[derive(Debug, Error)]
-pub enum MetricsError {
+/// Error types for monitoring operations
+#[derive(Error, Debug)]
+pub enum MonitoringError {
     #[error("Prometheus error: {0}")]
-    PrometheusError(String),
+    Prometheus(#[from] prometheus::Error),
     
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
     
-    #[error("Configuration error: {0}")]
-    ConfigError(String),
-    
-    #[error("Metric initialization error: {0}")]
-    InitializationError(String),
+    #[error("HTTP error: {0}")]
+    HttpError(#[from] reqwest::Error),
     
     #[error("Exporter error: {0}")]
     ExporterError(String),
-}
-
-impl From<prometheus::Error> for MetricsError {
-    fn from(err: prometheus::Error) -> Self {
-        MetricsError::PrometheusError(err.to_string())
-    }
+    
+    #[error("Invalid metric name: {0}")]
+    InvalidMetricName(String),
 }
 
 /// Configuration for the metrics system
@@ -148,7 +146,7 @@ pub struct MetricsRegistry {
 
 impl MetricsRegistry {
     /// Create a new metrics registry
-    pub async fn new(config: MetricsConfig) -> Result<Self, MetricsError> {
+    pub async fn new(config: MetricsConfig) -> Result<Self, MonitoringError> {
         if !config.enabled {
             return Ok(Self::disabled(config));
         }
@@ -198,7 +196,7 @@ impl MetricsRegistry {
                 let namespace = config.namespace.clone();
                 
                 let handle = tokio::spawn(async move {
-                    push_metrics_loop(push_gateway, registry_clone, namespace, Duration::from_secs(interval_secs)).await;
+                    push_metrics_loop(&push_gateway, registry_clone, namespace, Duration::from_secs(interval_secs)).await;
                 });
                 
                 info!("Metrics push client sending to {} every {} seconds", push_gateway, interval_secs);
@@ -257,7 +255,7 @@ impl MetricsRegistry {
     }
     
     /// Register a new counter
-    pub fn register_counter(&mut self, name: &str, help: &str) -> Result<Arc<Counter>, MetricsError> {
+    pub fn register_counter(&mut self, name: &str, help: &str) -> Result<Arc<Counter>, MonitoringError> {
         if !self.config.enabled {
             // Return a noop counter when metrics are disabled
             return Ok(Arc::new(Counter::new(name, help)?));
@@ -277,7 +275,7 @@ impl MetricsRegistry {
     }
     
     /// Register a new integer counter
-    pub fn register_int_counter(&mut self, name: &str, help: &str) -> Result<Arc<IntCounter>, MetricsError> {
+    pub fn register_int_counter(&mut self, name: &str, help: &str) -> Result<Arc<IntCounter>, MonitoringError> {
         if !self.config.enabled {
             // Return a noop counter when metrics are disabled
             return Ok(Arc::new(IntCounter::new(name, help)?));
@@ -297,7 +295,7 @@ impl MetricsRegistry {
     }
     
     /// Register a new gauge
-    pub fn register_gauge(&mut self, name: &str, help: &str) -> Result<Arc<Gauge>, MetricsError> {
+    pub fn register_gauge(&mut self, name: &str, help: &str) -> Result<Arc<Gauge>, MonitoringError> {
         if !self.config.enabled {
             // Return a noop gauge when metrics are disabled
             return Ok(Arc::new(Gauge::with_opts(Opts::new(name, help))?));
@@ -317,7 +315,7 @@ impl MetricsRegistry {
     }
     
     /// Register a new integer gauge
-    pub fn register_int_gauge(&mut self, name: &str, help: &str) -> Result<Arc<IntGauge>, MetricsError> {
+    pub fn register_int_gauge(&mut self, name: &str, help: &str) -> Result<Arc<IntGauge>, MonitoringError> {
         if !self.config.enabled {
             // Return a noop gauge when metrics are disabled
             return Ok(Arc::new(IntGauge::with_opts(Opts::new(name, help))?));
@@ -342,7 +340,7 @@ impl MetricsRegistry {
         name: &str,
         help: &str,
         buckets: Vec<f64>,
-    ) -> Result<Arc<Histogram>, MetricsError> {
+    ) -> Result<Arc<Histogram>, MonitoringError> {
         if !self.config.enabled {
             // Return a noop histogram when metrics are disabled
             return Ok(Arc::new(Histogram::with_opts(
@@ -390,21 +388,21 @@ impl MetricsRegistry {
     }
     
     /// Get all metrics as a string in Prometheus format
-    pub fn get_metrics_as_string(&self) -> Result<String, MetricsError> {
+    pub fn get_metrics_as_string(&self) -> Result<String, MonitoringError> {
         let encoder = TextEncoder::new();
         let metric_families = self.registry.gather();
         let mut buffer = Vec::new();
         
         encoder.encode(&metric_families, &mut buffer)
-            .map_err(|e| MetricsError::ExporterError(e.to_string()))?;
+            .map_err(|e| MonitoringError::ExporterError(e.to_string()))?;
         
         String::from_utf8(buffer)
-            .map_err(|e| MetricsError::ExporterError(e.to_string()))
+            .map_err(|e| MonitoringError::ExporterError(e.to_string()))
     }
 }
 
 /// Start an HTTP server for metrics scraping
-async fn start_http_server(addr: SocketAddr, registry: Registry) -> Result<(), MetricsError> {
+async fn start_http_server(addr: SocketAddr, registry: Registry) -> Result<(), MonitoringError> {
     use hyper::{
         service::{make_service_fn, service_fn},
         Body, Request, Response, Server,
@@ -457,35 +455,88 @@ async fn start_http_server(addr: SocketAddr, registry: Registry) -> Result<(), M
     Server::bind(&addr)
         .serve(make_svc)
         .await
-        .map_err(|e| MetricsError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))
+        .map_err(|e| MonitoringError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))
 }
 
-/// Push metrics to a Prometheus push gateway
-async fn push_metrics_loop(
+/// Start a metrics push client that sends metrics to a Prometheus pushgateway
+pub fn start_push_client(
     push_gateway: String,
+    registry: Registry,
+    namespace: &str,
+    interval_secs: u64,
+) -> Result<JoinHandle<()>, MonitoringError> {
+    // Clone registry for the async task
+    let registry_clone = registry.clone();
+    let namespace = namespace.to_string();
+    
+    // Log the info before we move the push_gateway
+    info!("Metrics push client sending to {} every {} seconds", &push_gateway, interval_secs);
+    
+    // Spawn an async task for pushing metrics
+    let handle = tokio::spawn(async move {
+        push_metrics_loop(&push_gateway, registry_clone, namespace, Duration::from_secs(interval_secs)).await;
+    });
+    
+    Ok(handle)
+}
+
+/// Internal function to periodically push metrics to a pushgateway
+async fn push_metrics_loop(
+    push_gateway: &str,
     registry: Registry,
     namespace: String,
     interval: Duration,
 ) {
-    use prometheus::push::{Grouping, PushMetrics};
-    
-    let grouping = Grouping::new();
-    
     loop {
-        tokio::time::sleep(interval).await;
-        
-        match PushMetrics::new(&push_gateway, &grouping)
-            .pushable_metrics(&registry)
-            .expect("Failed to create pushable metrics") // This should never fail
-            .push() {
-            Ok(_) => {
-                debug!("Successfully pushed metrics to {}", push_gateway);
-            }
-            Err(e) => {
-                warn!("Failed to push metrics to {}: {}", push_gateway, e);
-            }
+        match push_metrics(push_gateway, &registry, &namespace).await {
+            Ok(_) => debug!("Successfully pushed metrics to {}", push_gateway),
+            Err(e) => error!("Failed to push metrics: {}", e),
         }
+        
+        tokio::time::sleep(interval).await;
     }
+}
+
+/// Push metrics to a pushgateway
+async fn push_metrics(
+    push_gateway: &str,
+    registry: &Registry,
+    namespace: &str,
+) -> Result<(), MonitoringError> {
+    // Create a temporary encoder
+    let encoder = TextEncoder::new();
+    
+    // Gather metrics
+    let metrics = registry.gather();
+    
+    // Create a HTTP client
+    let client = Client::new();
+    
+    // Encode metrics
+    let mut buffer = Vec::new();
+    encoder.encode(&metrics, &mut buffer)?;
+    
+    // Create pushgateway URL
+    let url = format!("http://{}/metrics/job/{}", push_gateway, namespace);
+    
+    // Make the HTTP request
+    let res = client.post(url)
+        .header("Content-Type", encoder.format_type())
+        .body(buffer)
+        .send()
+        .await?;
+    
+    // Check response
+    if !res.status().is_success() {
+        let status = res.status();
+        let body = res.text().await?;
+        
+        return Err(MonitoringError::ExporterError(format!(
+            "Failed to push metrics: HTTP {} - {}", status, body
+        )));
+    }
+    
+    Ok(())
 }
 
 /// Defines a span of execution with timing information

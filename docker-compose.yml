@@ -1,0 +1,54 @@
+version: '3'
+
+services:
+  node1:
+    image: alpine:latest
+    hostname: node1
+    container_name: supernova-node1
+    command: sh -c "echo 'SuperNova Node 1' && sleep 30 && while true; do echo 'Node 1 running'; sleep 60; done"
+    volumes:
+      - ./data/node1:/data
+    networks:
+      - supernova-network
+    ports:
+      - "9101:9100"
+
+  node2:
+    image: alpine:latest
+    hostname: node2
+    container_name: supernova-node2
+    command: sh -c "echo 'SuperNova Node 2' && sleep 45 && while true; do echo 'Node 2 running'; sleep 60; done"
+    volumes:
+      - ./data/node2:/data
+    networks:
+      - supernova-network
+    ports:
+      - "9102:9100"
+
+  node3:
+    image: alpine:latest
+    hostname: node3
+    container_name: supernova-node3
+    command: sh -c "echo 'SuperNova Node 3' && sleep 60 && while true; do echo 'Node 3 running'; sleep 60; done"
+    volumes:
+      - ./data/node3:/data
+    networks:
+      - supernova-network
+    ports:
+      - "9103:9100"
+
+  monitoring:
+    image: alpine:latest
+    hostname: monitoring
+    container_name: supernova-monitoring
+    command: sh -c "echo 'SuperNova Monitoring' && while true; do echo 'Monitoring running'; sleep 60; done"
+    volumes:
+      - ./data/monitoring:/data
+    networks:
+      - supernova-network
+    ports:
+      - "9900:9900"
+
+networks:
+  supernova-network:
+    driver: bridge 

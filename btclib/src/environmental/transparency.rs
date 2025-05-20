@@ -522,7 +522,7 @@ impl TransparencyDashboard {
         let allocation = self.treasury.get_allocation();
         
         // Get recent purchases
-        let purchases = self.treasury.get_recent_purchases(10);
+        let recent_purchases = self.treasury.get_asset_purchases(10);
         
         // Get active governance proposals related to treasury
         let active_proposals = if let Some(governance) = &self.governance {
