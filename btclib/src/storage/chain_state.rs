@@ -278,16 +278,21 @@ impl ChainState {
         // Update height map
         {
             let mut height_map = self.height_map.write().map_err(|e| ChainStateError::StorageError(e.to_string()))?;
-            height_map.entry(block_height).or_default().push(block_hash);
+            // Convert block_height from u64 to u32 for the height_map
+            let height_u32 = block_height.try_into().map_err(|_| 
+                ChainStateError::InvalidBlock("Block height exceeds u32 maximum".to_string()))?;
+            height_map.entry(height_u32).or_default().push(block_hash);
         }
         
         // Check if this is a better chain according to policy
         let current_tip = self.get_tip()?;
         let current_height = self.get_height()?;
-        let should_reorg = if block_height > current_height {
+        // Convert current_height to u64 for comparison
+        let current_height_u64: u64 = current_height.into();
+        let should_reorg = if block_height > current_height_u64 {
             // New block is higher, potential reorg
             true
-        } else if block_height == current_height {
+        } else if block_height == current_height_u64 {
             // Same height, use fork resolution policy
             match self.config.fork_resolution_policy {
                 ForkResolutionPolicy::MostWork => {
@@ -304,8 +309,11 @@ impl ChainState {
         
         if should_reorg {
             // Handle chain reorganization
-            self.handle_reorg(&block_hash, block_height)?;
-        } else if block.prev_block_hash() != current_tip {
+            // Convert block_height from u64 to u32 for handle_reorg
+            let height_u32 = block_height.try_into().map_err(|_| 
+                ChainStateError::InvalidBlock("Block height exceeds u32 maximum".to_string()))?;
+            self.handle_reorg(&block_hash, height_u32)?;
+        } else if *block.prev_block_hash() != current_tip {
             // This is a fork, track it
             self.track_fork(&block_hash, &block)?;
         }
@@ -317,8 +325,11 @@ impl ChainState {
         }
         
         // Create checkpoint if needed
-        if block_height % self.config.checkpoint_interval == 0 {
-            self.create_checkpoint(block_height, &block_hash)?;
+        // Convert block_height and checkpoint_interval to the same type for comparison
+        let height_u32 = block_height.try_into().map_err(|_| 
+            ChainStateError::InvalidBlock("Block height exceeds u32 maximum".to_string()))?;
+        if height_u32 % self.config.checkpoint_interval == 0 {
+            self.create_checkpoint(height_u32, &block_hash)?;
         }
         
         Ok(should_reorg)
@@ -365,10 +376,14 @@ impl ChainState {
         while fork_height > 0 {
             let height_map = self.height_map.read().map_err(|e| ChainStateError::StorageError(e.to_string()))?;
             
-            if let Some(hashes) = height_map.get(&fork_height) {
+            // Convert fork_height from u64 to u32 for height_map lookup
+            let fork_height_u32: u32 = fork_height.try_into().map_err(|_| 
+                ChainStateError::InvalidBlock("Block height exceeds u32 maximum".to_string()))?;
+            
+            if let Some(hashes) = height_map.get(&fork_height_u32) {
                 if !hashes.is_empty() && hashes[0] == current {
                     // This block is on the main chain
-                    return Ok(fork_height);
+                    return Ok(fork_height_u32);
                 }
             }
             

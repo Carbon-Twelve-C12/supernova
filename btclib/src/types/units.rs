@@ -150,7 +150,7 @@ impl FromStr for NovaUnit {
             "meganove" | "mnova" => Ok(Self::MegaNova),
             "kilonova" | "knova" => Ok(Self::KiloNova),
             "nova" => Ok(Self::Nova),
-            "millinova" | "mnova" => Ok(Self::MilliNova),
+            "millinova" | "millnova" => Ok(Self::MilliNova),
             "micronova" | "μnova" => Ok(Self::MicroNova),
             "nanonova" | "nnova" => Ok(Self::NanoNova),
             "piconova" | "pnova" => Ok(Self::PicoNova),

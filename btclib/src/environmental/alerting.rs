@@ -722,7 +722,7 @@ impl EnvironmentalAlertingSystem {
                 Ok(self.treasury.get_current_fee_percentage())
             },
             MetricType::TreasuryBalance => {
-                Ok(self.treasury.get_balance(TreasuryAccountType::Main) as f64)
+                Ok(self.treasury.get_balance(Some(TreasuryAccountType::Main)) as f64)
             },
             MetricType::RECCoverage => {
                 if let Some(metrics) = self.dashboard.get_metrics(EmissionsTimePeriod::Month) {

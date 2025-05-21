@@ -186,12 +186,12 @@ pub enum QuantumError {
 impl From<FalconError> for QuantumError {
     fn from(error: FalconError) -> Self {
         match error {
-            FalconError::InvalidKey(msg) => QuantumError::InvalidKey(msg),
-            FalconError::InvalidSignature(msg) => QuantumError::InvalidSignature(msg),
+            FalconError::InvalidKey(msg) => QuantumError::InvalidKey(format!("Falcon key error: {}", msg)),
+            FalconError::InvalidSignature(msg) => QuantumError::InvalidSignature(format!("Falcon signature error: {}", msg)),
             FalconError::UnsupportedSecurityLevel(level) => QuantumError::UnsupportedSecurityLevel(level),
-            FalconError::CryptoOperationFailed(msg) => QuantumError::CryptoOperationFailed(msg),
-            FalconError::InvalidPublicKey => QuantumError::InvalidKey("Invalid Falcon public key".to_string()),
-            FalconError::InvalidSecretKey => QuantumError::InvalidKey("Invalid Falcon secret key".to_string()),
+            FalconError::CryptoOperationFailed(msg) => QuantumError::CryptoOperationFailed(format!("Falcon operation failed: {}", msg)),
+            FalconError::InvalidPublicKey => QuantumError::InvalidKey("Invalid Falcon public key format".to_string()),
+            FalconError::InvalidSecretKey => QuantumError::InvalidKey("Invalid Falcon secret key format".to_string()),
         }
     }
 }
