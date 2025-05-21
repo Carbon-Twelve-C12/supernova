@@ -418,6 +418,14 @@ impl EnvironmentalDashboard {
                     *offset_types.entry("Methane Capture".to_string()).or_insert(0.0) += asset.amount * 0.2;
                     *offset_types.entry("Other".to_string()).or_insert(0.0) += asset.amount * 0.1;
                 },
+                EnvironmentalAssetType::GreenInvestment => {
+                    // Green investments don't directly contribute to offsets or RECs
+                    // but could be tracked separately in a real implementation
+                },
+                EnvironmentalAssetType::ResearchGrant => {
+                    // Research grants don't directly contribute to offsets or RECs
+                    // but could be tracked separately in a real implementation
+                },
             }
         }
         

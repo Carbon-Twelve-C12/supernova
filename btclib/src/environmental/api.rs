@@ -441,10 +441,10 @@ impl EnvironmentalApi {
                     _ => "Units".to_string(),
                 },
                 price: purchase.cost as f64,
-                purchase_date: purchase.date,
+                purchase_date: purchase.purchase_date,
                 issuer: purchase.provider.clone(),
                 is_verified: true,
-                certificate_url: Some(purchase.reference.clone()),
+                certificate_url: Some(purchase.verification_reference.clone().unwrap_or_default()),
                 timestamp: Utc::now(),
             };
             
