@@ -28,6 +28,12 @@ pub enum ConsensusVerificationError {
     
     #[error("Validation error: {0}")]
     ValidationError(#[from] ValidationError),
+    
+    #[error("Block from future: {0}")]
+    BlockFromFuture(u64),
+    
+    #[error("Block too old: {0}")]
+    BlockTooOld(u64),
 }
 
 /// Type of formal verification to apply
@@ -602,13 +608,13 @@ impl TimestampPredicate {
 impl VerificationPredicate for TimestampPredicate {
     fn verify_block(&self, block: &Block, chain_state: &ChainState) -> Result<bool, ConsensusVerificationError> {
         // Block timestamp must not be too far in the future
-        if block.header().timestamp() > chain_state.current_timestamp + self.max_future_time {
-            return Ok(false);
+        if block.header().timestamp > chain_state.current_timestamp + self.max_future_time {
+            return Err(ConsensusVerificationError::BlockFromFuture(block.header().timestamp));
         }
         
         // Block timestamp must be greater than median of previous blocks (simplified here)
-        if block.header().timestamp() <= chain_state.current_timestamp / 2 {
-            return Ok(false);
+        if block.header().timestamp <= chain_state.current_timestamp / 2 {
+            return Err(ConsensusVerificationError::BlockTooOld(block.header().timestamp));
         }
         
         Ok(true)

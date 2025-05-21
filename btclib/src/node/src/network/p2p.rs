@@ -13,19 +13,24 @@ use std::error::Error;
 use std::net::IpAddr;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{info, warn, error};
+use tracing::{info, warn, error, debug};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
-use rand::thread_rng;
+use std::sync::{Arc, RwLock, Mutex};
+use rand::{thread_rng, Rng};
 use std::time::Instant;
 
 use super::peer_manager::{PeerManager, PeerInfo};
+use super::protocol::{Message, Protocol, BlockAnnouncement, BlockHeader};
+use super::sync::ChainSync;
+use crate::blockchain::{Block, BlockHeader as CoreBlockHeader};
 
 pub struct P2PNetwork {
     swarm: Swarm<ComposedBehaviour>,
     command_receiver: mpsc::Receiver<NetworkCommand>,
     event_sender: mpsc::Sender<NetworkEvent>,
     peer_manager: PeerManager,
+    chain_sync: Arc<Mutex<ChainSync>>,
+    protocol: Protocol,
 }
 
 #[derive(libp2p::swarm::NetworkBehaviour)]
@@ -34,30 +39,60 @@ struct ComposedBehaviour {
     kad: kad::Behaviour<kad::store::MemoryStore>,
     identify: identify::Behaviour,
     mdns: Mdns,
+    gossipsub: libp2p::gossipsub::Behaviour,
 }
 
 enum ComposedEvent {
     Kad(kad::Event),
     Identify(identify::Event),
     Mdns(mdns::Event),
+    Gossipsub(libp2p::gossipsub::Event),
 }
 
+/// Commands that can be sent to the network service
+#[derive(Debug, Clone)]
 pub enum NetworkCommand {
+    /// Start listening on specified address
     StartListening(String),
+    /// Dial a specific peer address
     Dial(String),
-    AnnounceBlock(Vec<u8>),
-    AnnounceTransaction(Vec<u8>),
+    /// Announce a new block to the network
+    AnnounceBlock(Vec<u8>, u64),
+    /// Announce a new transaction to the network
+    AnnounceTransaction(Vec<u8>, [u8; 32], u64),
+    /// Get information about connected peers
     GetPeerInfo,
+    /// Initiate peer rotation for diversity
     RotatePeers,
+    /// Send a specific message to a peer
+    SendMessage(PeerId, Message),
+    /// Broadcast a message to all peers
+    BroadcastMessage(Message),
+    /// Begin chain synchronization to target height
+    StartSync(u64),
 }
 
+/// Events emitted by the network service
+#[derive(Debug, Clone)]
 pub enum NetworkEvent {
+    /// New peer connected
     NewPeer(PeerId),
+    /// Peer disconnected
     PeerLeft(PeerId),
-    NewBlock(Vec<u8>),
+    /// New block received
+    NewBlock(u64, Block),
+    /// New transaction received
     NewTransaction(Vec<u8>),
+    /// Peer information response
     PeerInfo(Vec<PeerInfo>),
+    /// Peer rotation plan
     PeerRotationPlan(Vec<PeerId>, Vec<PeerId>),
+    /// Headers received from peer
+    HeadersReceived(PeerId, Vec<BlockHeader>, u64),
+    /// Block received from peer
+    BlockReceived(PeerId, u64, Block),
+    /// Sync progress update
+    SyncProgress(f64),
 }
 
 /// Configuration for eclipse attack prevention
@@ -451,6 +486,13 @@ impl P2PNetwork {
         let (command_sender, command_receiver) = mpsc::channel(32);
         let (event_sender, event_receiver) = mpsc::channel(32);
         let peer_manager = PeerManager::new();
+        
+        // Create protocol instance
+        let protocol = Protocol::new(id_keys.clone())?;
+        
+        // Create chain sync with a reference to the command sender for sending requests
+        let sync_command_sender = command_sender.clone();
+        let chain_sync = Arc::new(Mutex::new(ChainSync::new(sync_command_sender)));
 
         Ok((
             Self {
@@ -458,6 +500,8 @@ impl P2PNetwork {
                 command_receiver,
                 event_sender,
                 peer_manager,
+                chain_sync,
+                protocol,
             },
             command_sender,
             event_receiver,
@@ -465,6 +509,31 @@ impl P2PNetwork {
     }
 
     pub async fn run(&mut self) {
+        // Subscribe to pubsub topics
+        if let Err(e) = self.protocol.subscribe_to_topics() {
+            error!("Failed to subscribe to topics: {}", e);
+        }
+        
+        // Start the chain sync background process
+        let chain_sync_clone = self.chain_sync.clone();
+        let event_sender_clone = self.event_sender.clone();
+        tokio::spawn(async move {
+            let mut sync = chain_sync_clone.lock().unwrap();
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        // Report sync progress
+                        let progress = sync.get_sync_progress();
+                        if let Err(e) = event_sender_clone.send(NetworkEvent::SyncProgress(progress)).await {
+                            error!("Failed to send sync progress event: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+        
         loop {
             tokio::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await,
@@ -517,12 +586,29 @@ impl P2PNetwork {
                     info!("Peer connection expired: {}", peer_id);
                 }
             }
+            SwarmEvent::Behaviour(ComposedEvent::Gossipsub(gossipsub_event)) => {
+                self.handle_gossipsub_event(gossipsub_event).await;
+            }
             SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                 if let Some(addr) = endpoint.get_remote_address() {
                     if let Some((ip, port)) = extract_ip_port(addr) {
                         match self.peer_manager.try_add_connection(peer_id, ip, port) {
                             Ok(_) => {
                                 info!("Connection established with {}", peer_id);
+                                
+                                // Send handshake to the new peer
+                                let handshake = Message::Handshake(super::protocol::HandshakeData {
+                                    version: super::protocol::PROTOCOL_VERSION,
+                                    user_agent: "supernova/1.0.0".to_string(),
+                                    features: super::protocol::features::HEADERS_FIRST_SYNC | 
+                                              super::protocol::features::PARALLEL_BLOCK_DOWNLOAD,
+                                    height: {
+                                        let sync = self.chain_sync.lock().unwrap();
+                                        sync.height
+                                    },
+                                });
+                                
+                                self.send_message_to_peer(peer_id, handshake).await;
                             }
                             Err(e) => {
                                 warn!("Connection established but rejected by peer manager: {}", e);
@@ -545,6 +631,194 @@ impl P2PNetwork {
         }
     }
 
+    async fn handle_gossipsub_event(&mut self, event: libp2p::gossipsub::Event) {
+        match event {
+            libp2p::gossipsub::Event::Message { 
+                propagation_source: peer_id,
+                message_id: _,
+                message,
+            } => {
+                // Deserialize the message
+                match bincode::deserialize::<Message>(&message.data) {
+                    Ok(msg) => {
+                        debug!("Received message: {} from peer {}", msg, peer_id);
+                        self.handle_message(peer_id, msg).await;
+                    }
+                    Err(e) => {
+                        warn!("Failed to deserialize message from {}: {}", peer_id, e);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    async fn handle_message(&mut self, peer_id: PeerId, message: Message) {
+        match message {
+            Message::Handshake(handshake) => {
+                info!("Received handshake from peer {}: v{}, height: {}", 
+                     peer_id, handshake.version, handshake.height);
+                
+                // Record the peer's features and height
+                self.peer_manager.set_peer_protocols(&peer_id, 
+                    vec![format!("supernova/{}", handshake.version)]);
+                
+                // Update chain sync with peer's height
+                {
+                    let mut sync = self.chain_sync.lock().unwrap();
+                    sync.update_peer_height(peer_id, handshake.height);
+                    
+                    // If peer has higher blocks, consider syncing
+                    if handshake.height > sync.height {
+                        // Don't start sync here directly to avoid race conditions
+                        // Instead, periodically check for sync opportunities
+                    }
+                }
+            }
+            Message::Block(announcement) => {
+                debug!("Received block announcement: height={}, hash={:?}", 
+                      announcement.height, announcement.hash);
+                
+                // Process block announcement in chain sync
+                let mut sync = self.chain_sync.lock().unwrap();
+                if let Err(e) = sync.handle_block_announcement(peer_id, announcement).await {
+                    warn!("Error handling block announcement: {}", e);
+                }
+            }
+            Message::Transaction(tx) => {
+                debug!("Received transaction announcement: hash={:?}", tx.hash);
+                // Forward to transaction pool (not implemented yet)
+            }
+            Message::GetHeaders { start_height, count } => {
+                debug!("Received GetHeaders request: start={}, count={}", start_height, count);
+                // TODO: Implement headers response from local blockchain
+                // For now, just send an empty response
+                let response = Message::Headers {
+                    headers: Vec::new(),
+                    start_height,
+                };
+                self.send_message_to_peer(peer_id, response).await;
+            }
+            Message::Headers { headers, start_height } => {
+                info!("Received {} headers starting at height {} from peer {}", 
+                     headers.len(), start_height, peer_id);
+                
+                // Process headers in chain sync
+                {
+                    let mut sync = self.chain_sync.lock().unwrap();
+                    if let Err(e) = sync.handle_headers(peer_id, headers.clone()).await {
+                        warn!("Error handling headers: {}", e);
+                    }
+                }
+                
+                // Notify listeners
+                self.event_sender.send(NetworkEvent::HeadersReceived(
+                    peer_id, headers, start_height
+                )).await.ok();
+            }
+            Message::GetBlock { hash } => {
+                debug!("Received GetBlock request for hash {:?}", hash);
+                // TODO: Implement block response from local blockchain
+                // For now, just log the request
+            }
+            Message::Block { height, block } => {
+                info!("Received block at height {} from peer {}", height, peer_id);
+                
+                // Convert to Block type
+                // This is a placeholder - actual implementation would deserialize properly
+                let block_data = Block { /* ... */ };
+                
+                // Process block in chain sync
+                {
+                    let mut sync = self.chain_sync.lock().unwrap();
+                    if let Err(e) = sync.handle_block(peer_id, height, block_data.clone()).await {
+                        warn!("Error handling block: {}", e);
+                    }
+                }
+                
+                // Notify listeners
+                self.event_sender.send(NetworkEvent::BlockReceived(
+                    peer_id, height, block_data
+                )).await.ok();
+            }
+            Message::GetBlocks { start, end } => {
+                debug!("Received GetBlocks request: start={}, end={}", start, end);
+                // TODO: Implement blocks response from local blockchain
+                // For now, just log the request
+            }
+            Message::Blocks { blocks } => {
+                info!("Received {} blocks from peer {}", blocks.len(), peer_id);
+                // Process multiple blocks in order
+                for (height, block_data) in blocks {
+                    // Convert to Block type
+                    // This is a placeholder - actual implementation would deserialize properly
+                    let block = Block { /* ... */ };
+                    
+                    // Process in chain sync
+                    let mut sync = self.chain_sync.lock().unwrap();
+                    if let Err(e) = sync.handle_block(peer_id, height, block.clone()).await {
+                        warn!("Error handling block at height {}: {}", height, e);
+                    }
+                    
+                    // Notify listeners
+                    self.event_sender.send(NetworkEvent::BlockReceived(
+                        peer_id, height, block
+                    )).await.ok();
+                }
+            }
+            Message::Ping(nonce) => {
+                // Respond with pong
+                let response = Message::Pong(nonce);
+                self.send_message_to_peer(peer_id, response).await;
+            }
+            Message::Pong(_) => {
+                // Update peer latency metrics
+                // (not implemented yet)
+            }
+            Message::PeerDiscovery(discovery_msg) => {
+                match discovery_msg {
+                    super::protocol::PeerDiscoveryMessage::GetPeers => {
+                        // Respond with known peers
+                        let peer_infos = self.peer_manager.get_connected_peer_infos();
+                        let protocol_peers = peer_infos.into_iter()
+                            .map(|info| super::protocol::PeerInfo {
+                                address: format!("{}:{}", info.ip, info.port),
+                                last_seen: 0, // Use current time in actual implementation
+                                features: 0,  // Set features in actual implementation
+                            })
+                            .collect();
+                        
+                        let response = Message::PeerDiscovery(
+                            super::protocol::PeerDiscoveryMessage::Peers(protocol_peers)
+                        );
+                        self.send_message_to_peer(peer_id, response).await;
+                    }
+                    super::protocol::PeerDiscoveryMessage::Peers(peers) => {
+                        // Process discovered peers
+                        for peer_info in peers {
+                            debug!("Discovered peer via exchange: {}", peer_info.address);
+                            // TODO: Add to peer database for future connections
+                        }
+                    }
+                }
+            }
+            Message::Challenge(challenge_msg) => {
+                // Handle challenge-response protocol
+                match challenge_msg {
+                    super::protocol::ChallengeMessage::Request { .. } => {
+                        // Respond to challenge (not implemented yet)
+                    }
+                    super::protocol::ChallengeMessage::Response { .. } => {
+                        // Verify challenge response (not implemented yet)
+                    }
+                    super::protocol::ChallengeMessage::Result { .. } => {
+                        // Handle challenge result (not implemented yet)
+                    }
+                }
+            }
+        }
+    }
+
     async fn handle_command(&mut self, command: NetworkCommand) {
         match command {
             NetworkCommand::StartListening(addr) => {
@@ -557,11 +831,15 @@ impl P2PNetwork {
                     warn!("Failed to dial address: {}", e);
                 }
             }
-            NetworkCommand::AnnounceBlock(data) => {
-                // TODO: Implement block announcement
+            NetworkCommand::AnnounceBlock(data, height) => {
+                if let Err(e) = self.protocol.publish_block(data, height) {
+                    warn!("Failed to announce block: {}", e);
+                }
             }
-            NetworkCommand::AnnounceTransaction(data) => {
-                // TODO: Implement transaction announcement
+            NetworkCommand::AnnounceTransaction(data, hash, fee_rate) => {
+                if let Err(e) = self.protocol.publish_transaction(data, hash, fee_rate) {
+                    warn!("Failed to announce transaction: {}", e);
+                }
             }
             NetworkCommand::GetPeerInfo => {
                 // Collect info about all connected peers
@@ -579,6 +857,19 @@ impl P2PNetwork {
                     
                     // Execute the plan
                     self.execute_rotation_plan(to_disconnect, to_connect).await;
+                }
+            }
+            NetworkCommand::SendMessage(peer_id, message) => {
+                self.send_message_to_peer(peer_id, message).await;
+            }
+            NetworkCommand::BroadcastMessage(message) => {
+                self.broadcast_message(message).await;
+            }
+            NetworkCommand::StartSync(target_height) => {
+                info!("Starting blockchain sync to height {}", target_height);
+                let mut sync = self.chain_sync.lock().unwrap();
+                if let Err(e) = sync.start_sync(target_height).await {
+                    error!("Failed to start sync: {}", e);
                 }
             }
         }
@@ -610,6 +901,40 @@ impl P2PNetwork {
             info!("Diversity rotation: connecting to peer {}", peer_id);
             if let Err(e) = self.swarm.dial(*peer_id) {
                 warn!("Failed to dial peer for rotation {}: {}", peer_id, e);
+            }
+        }
+    }
+    
+    async fn send_message_to_peer(&mut self, peer_id: PeerId, message: Message) {
+        match bincode::serialize(&message) {
+            Ok(encoded) => {
+                // This is a simplistic approach - in a real implementation, this would use a proper
+                // messaging protocol based on the connection type (e.g., gossipsub, request-response, etc.)
+                if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish_any(peer_id, encoded) {
+                    warn!("Failed to send message to peer {}: {}", peer_id, e);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to serialize message: {}", e);
+            }
+        }
+    }
+    
+    async fn broadcast_message(&mut self, message: Message) {
+        // This is a simplistic broadcast implementation
+        // In a real implementation, you would use a proper broadcast protocol
+        let connected_peers: Vec<PeerId> = self.swarm.connected_peers().copied().collect();
+        
+        match bincode::serialize(&message) {
+            Ok(encoded) => {
+                for peer_id in connected_peers {
+                    if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish_any(peer_id, encoded.clone()) {
+                        warn!("Failed to broadcast message to peer {}: {}", peer_id, e);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to serialize broadcast message: {}", e);
             }
         }
     }
@@ -647,11 +972,24 @@ async fn build_behaviour(
     ));
 
     let mdns = Mdns::new(Default::default()).await?;
+    
+    // Configure gossipsub
+    let gossipsub_config = libp2p::gossipsub::ConfigBuilder::default()
+        .heartbeat_interval(Duration::from_secs(1))
+        .validation_mode(libp2p::gossipsub::ValidationMode::Strict)
+        .build()
+        .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
+    
+    let gossipsub = libp2p::gossipsub::Behaviour::new(
+        libp2p::gossipsub::MessageAuthenticity::Signed(id_keys.clone()),
+        gossipsub_config,
+    )?;
 
     Ok(ComposedBehaviour {
         kad: kad_behaviour,
         identify,
         mdns,
+        gossipsub,
     })
 }
 
@@ -674,6 +1012,19 @@ fn extract_ip_port(addr: &libp2p::Multiaddr) -> Option<(IpAddr, u16)> {
         Some(MultiAddrProtocol::Tcp(port)) => Some((ip, port)),
         Some(MultiAddrProtocol::Udp(port)) => Some((ip, port)),
         _ => None,
+    }
+}
+
+/// Placeholder for Block type until we implement it properly
+#[derive(Debug, Clone)]
+pub struct Block {
+    // Block fields will go here
+}
+
+impl Block {
+    // Just a placeholder implementation
+    pub fn hash(&self) -> [u8; 32] {
+        [0; 32] // Return dummy hash for now
     }
 }
 

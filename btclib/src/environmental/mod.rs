@@ -27,3 +27,18 @@ pub use verification::{RenewableCertificate, CarbonOffset, VerificationService};
 // Type aliases for common use
 pub type HardwareType = types::HardwareType;
 pub type Region = types::Region; 
+
+// Re-export main types for easier access
+pub use self::emissions::{
+    BlockEnvironmentalData, 
+    TransactionEnvironmentalData,
+    RegionalEnergyData,
+    NetworkHashrate,
+    EmissionsConfig,
+};
+
+pub use self::treasury::{
+    TreasuryConfig,
+    TreasuryDistribution,
+    TreasuryAllocation,
+};

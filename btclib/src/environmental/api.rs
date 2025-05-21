@@ -415,26 +415,30 @@ impl EnvironmentalApi {
     
     /// Purchase environmental assets with the treasury balance
     pub fn purchase_environmental_assets(&mut self, rec_allocation_percentage: f64) -> EnvironmentalResult<AssetPurchaseRecord> {
-        let balance = self.treasury.get_balance(TreasuryAccountType::Main);
+        let balance = self.treasury.get_balance(Some(TreasuryAccountType::Main));
         
         let rec_allocation = rec_allocation_percentage.max(60.0);
         
         let purchases = self.treasury.purchase_prioritized_assets(
             balance,
-            rec_allocation
+            rec_allocation,
+            100.0 - rec_allocation  // Carbon allocation is the remainder
         ).map_err(EnvironmentalApiError::TreasuryError)?;
         
         if let Some(purchase) = purchases.first() {
             let record = AssetPurchaseRecord {
                 purchase_id: uuid::Uuid::new_v4().to_string(),
                 asset_type: match purchase.asset_type {
-                    crate::environmental::treasury::EnvironmentalAssetType::RenewableEnergyCertificate => "REC".to_string(),
-                    crate::environmental::treasury::EnvironmentalAssetType::CarbonOffset => "Carbon Offset".to_string(),
+                    treasury::EnvironmentalAssetType::REC => "REC".to_string(),
+                    treasury::EnvironmentalAssetType::CarbonOffset => "Carbon Offset".to_string(),
+                    treasury::EnvironmentalAssetType::GreenInvestment => "Green Investment".to_string(),
+                    treasury::EnvironmentalAssetType::ResearchGrant => "Research Grant".to_string(),
                 },
                 amount: purchase.amount,
                 unit: match purchase.asset_type {
-                    crate::environmental::treasury::EnvironmentalAssetType::RenewableEnergyCertificate => "MWh".to_string(),
-                    crate::environmental::treasury::EnvironmentalAssetType::CarbonOffset => "tCO2e".to_string(),
+                    treasury::EnvironmentalAssetType::REC => "MWh".to_string(),
+                    treasury::EnvironmentalAssetType::CarbonOffset => "Tonnes CO2e".to_string(),
+                    _ => "Units".to_string(),
                 },
                 price: purchase.cost as f64,
                 purchase_date: purchase.date,
@@ -466,7 +470,7 @@ impl EnvironmentalApi {
     
     /// Get treasury balance
     pub fn get_treasury_balance(&self) -> u64 {
-        self.treasury.get_balance(TreasuryAccountType::Main)
+        self.treasury.get_balance(Some(TreasuryAccountType::Main))
     }
     
     /// Get regional emissions data
