@@ -201,6 +201,8 @@ Component statuses:
 4. **Q3 2025**: Finalize production infrastructure and monitoring systems
 5. **Q4 2025**: Mainnet launch preparation and community onboarding
 
+For detailed implementation status and planning documentation, see [docs/project-planning](docs/project-planning).
+
 For detailed information about the current development status and next steps, see [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) and [SuperNova Overview.md](SuperNova%20Overview.md).
 
 ## Getting Started
