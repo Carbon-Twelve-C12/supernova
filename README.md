@@ -187,17 +187,16 @@ Component statuses:
 
 ### Known Issues
 
-- **Warnings**: Some unused variables and imports need cleanup
 - **Test Coverage**: Needs expansion, particularly for newly implemented features
 - **Documentation**: API documentation needs updating to reflect recent changes
 
 ### Development Roadmap
 
-1. **Current Phase (Q3 2023)**: Complete core system implementation and resolve remaining warnings
-2. **Next Phase (Q4 2023)**: Enhance testnet environment and expand testing infrastructure
-3. **Near Future Phase (Q1 2024)**: Finalize security, quantum resistance, and environmental features
-4. **Q2-Q3 2024**: Lightning Network implementation and production readiness
-5. **Q4 2024**: Mainnet launch preparation
+1. **Current Phase (Q2 2025)**: Complete core system implementation and resolve remaining warnings
+2. **Next Phase (Q3 2025)**: Enhance testnet environment and expand testing infrastructure
+3. **Near Future Phase (Q3 2025)**: Finalize security, quantum resistance, and environmental features
+4. **Q2-Q3 2025**: Lightning Network implementation and production readiness
+5. **Q4 2025**: Mainnet launch preparation
 
 For detailed information about the current development status and next steps, see [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) and [SuperNova Overview.md](SuperNova%20Overview.md).
 
