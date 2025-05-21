@@ -291,7 +291,7 @@ impl EnvironmentalDashboard {
         
         // Calculate total environmental assets
         let total_assets: f64 = asset_purchases.iter()
-            .filter(|purchase| purchase.asset_type == EnvironmentalAssetType::RenewableEnergyCertificate || 
+            .filter(|purchase| purchase.asset_type == EnvironmentalAssetType::REC || 
                    purchase.asset_type == EnvironmentalAssetType::CarbonOffset)
             .map(|purchase| purchase.amount)
             .sum();
@@ -396,7 +396,7 @@ impl EnvironmentalDashboard {
         
         for asset in &metrics.assets_purchased {
             match asset.asset_type {
-                EnvironmentalAssetType::RenewableEnergyCertificate => {
+                EnvironmentalAssetType::REC => {
                     rec_mwh += asset.amount;
                     rec_count += 1;
                     rec_verified += 1; // In a real system would check verification status

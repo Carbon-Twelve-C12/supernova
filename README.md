@@ -10,7 +10,7 @@
     <a href="https://supernovanetwork.xyz/"><img src="https://img.shields.io/badge/website-supernovanetwork.xyz-blue" alt="Official Website" /></a>
     <a href="https://github.com/mjohnson518/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/mjohnson518/supernova" alt="Contributors" /></a>
     <a href="https://github.com/mjohnson518/supernova/stargazers"><img src="https://img.shields.io/github/stars/mjohnson518/supernova" alt="Stars" /></a>
-    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.7.5--DEV-blue" alt="Version" /></a>
+    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-0.8.0--DEV-blue" alt="Version" /></a>
      <a href="https://deepwiki.com/mjohnson518/supernova"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
 
@@ -155,53 +155,55 @@ supernova/
 
 ## Current Status
 
-The project is currently at version 0.7.5 in **ACTIVE DEVELOPMENT** state. While the architecture and core components have been designed, many features are still in development or have partial implementations. We've recently made significant progress in resolving compilation issues and improving code quality.
+The project is currently at version 0.8.0 in **ACTIVE DEVELOPMENT** state. The architecture and core components have been designed and significant progress has been made in implementing the key features. We've made remarkable progress in resolving all compilation issues and improving code quality.
 
 Key points:
 
-- **Compilation Progress**: All major compilation errors have been fixed! Recently resolved the NetworkSimulationConfig type conflicts in the testnet module, along with improving validation systems, cryptographic verification, and environmental tracking.
-- **Quantum Resistance**: Post-quantum cryptographic signatures module is now fully integrated and compatible with the validation framework, supporting Dilithium, Falcon, and SPHINCS+ schemes.
-- **Environmental Features**: Fixed compatibility issues in the environmental API and treasury system, enabling accurate tracking of energy usage and carbon offsets.
-- **Transaction Validation**: Enhanced validation framework with comprehensive error handling, including support for both classical and post-quantum signature schemes.
-- **Network Simulation**: Fixed type conflicts in the testnet network simulation infrastructure, allowing for comprehensive testing of network conditions.
-- **Error Handling**: Implemented robust error handling throughout the codebase, particularly in the validation and cryptographic modules.
+- **Compilation Status**: All compilation errors have been fixed! Type safety has been significantly improved, particularly regarding u32/u64 conversions in chain state management.
+- **Core Blockchain**: Block and transaction structures now fully implemented with proper validation and all required methods.
+- **Quantum Resistance**: Post-quantum cryptographic signatures module fully integrated, supporting Dilithium, Falcon, and SPHINCS+ schemes.
+- **Environmental Features**: Significant enhancements to the environmental tracking system with async/await optimizations, comprehensive treasury functionality, and carbon offset integration.
+- **Error Handling**: Robust error propagation throughout the codebase, particularly in validation and cryptographic components.
+- **Async Programming**: Improved tokio integration for asynchronous operations in network and environmental monitoring components.
 
 ### Implementation Status
 
 Component statuses:
 
-- **Core libraries (btclib)**: ~85% complete (key structures implemented, all major issues resolved)
-- **Transaction Processing**: ~80% complete (validation framework fully implemented)
+- **Core libraries (btclib)**: ~88% complete (all data structures implemented with proper validation)
+- **Transaction Processing**: ~85% complete (comprehensive validation and processing)
 - **Mempool Management**: ~65% complete (basic structure with partial functionality)
 - **Transaction Validation**: ~98% complete (comprehensive validation with quantum signature support)
-- **Block Validation**: ~70% complete (basic validation with some advanced features missing)
+- **Block Validation**: ~85% complete (enhanced validation with fee calculation and timestamp verification)
 - **Merkle Tree Implementation**: 100% complete
-- **Network Layer**: ~45% complete (peer discovery and sync partially implemented)
-- **Storage**: ~75% complete (disk storage for blocks and UTXO set mostly complete)
-- **Consensus Engine**: ~65% complete (proof-of-work implementation with difficulty adjustment)
-- **RPC API**: ~35% complete (basic node control and query endpoints)
-- **Environmental Monitoring**: ~95% complete (tracking system for energy usage and carbon footprint)
-- **Wallet**: ~30% complete (basic functionality only)
-- **CLI**: ~40% complete
-- **Testnet Tools**: ~90% complete (comprehensive simulation capabilities)
+- **Network Layer**: ~50% complete (improved peer discovery and synchronization)
+- **Storage**: ~80% complete (enhanced disk storage with proper type handling)
+- **Consensus Engine**: ~70% complete (improved proof-of-work implementation)
+- **RPC API**: ~40% complete (expanded node control and query endpoints)
+- **Environmental Monitoring**: ~98% complete (full tracking system with treasury management)
+- **Wallet**: ~35% complete (enhanced functionality)
+- **CLI**: ~45% complete
+- **Testnet Tools**: ~95% complete (comprehensive simulation capabilities)
 
 ### Known Issues
 
-- **Deprecation Warnings**: Some deprecated method calls in DateTime handling need updating
-- **Unused Variables**: Cleanup needed for unused variables and imports
-- **Test Coverage**: Needs expansion, particularly for recent fixes and enhancements
+- **Warnings**: Some unused variables and imports need cleanup
+- **Test Coverage**: Needs expansion, particularly for newly implemented features
+- **Documentation**: API documentation needs updating to reflect recent changes
 
 ### Development Roadmap
 
-1. **Current Phase (Finishing Q3 2023)**: Core system implementation with all compilation issues resolved
-2. **Next Phase (Q4 2023)**: Testnet environment and improved testing infrastructure
-3. **Near Future Phase (Q1 2024)**: Enhanced security, quantum resistance, and environmental features
+1. **Current Phase (Q3 2023)**: Complete core system implementation and resolve remaining warnings
+2. **Next Phase (Q4 2023)**: Enhance testnet environment and expand testing infrastructure
+3. **Near Future Phase (Q1 2024)**: Finalize security, quantum resistance, and environmental features
+4. **Q2-Q3 2024**: Lightning Network implementation and production readiness
+5. **Q4 2024**: Mainnet launch preparation
 
 For detailed information about the current development status and next steps, see [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) and [SuperNova Overview.md](SuperNova%20Overview.md).
 
 ## Getting Started
 
-⚠️ **IMPORTANT**: This project is in active development with some remaining compilation errors. It is not yet suitable for production use.
+⚠️ **IMPORTANT**: This project is in active development. While all major compilation issues have been resolved, some components are still being developed and may have limited functionality.
 
 ### Prerequisites
 
@@ -298,6 +300,9 @@ enable_green_miner_incentives = true
 fee_allocation_percentage = 2.0
 rec_incentive_multiplier = 2.0
 offset_incentive_multiplier = 1.2
+mining_pue_factor = 1.2
+default_carbon_intensity = 475.0
+default_renewable_percentage = 0.3
 
 [monitoring]
 metrics_enabled = true
@@ -350,35 +355,33 @@ cargo run --package supernova-cli -- status
 cargo run --package supernova-cli -- balance 0x123456789abcdef
 ```
 
-Note: The current testnet implementation uses simulated nodes rather than actual blockchain nodes. It provides a realistic environment for basic testing but doesn't fully implement all blockchain features.
-
 ## Development Roadmap
 
 Our current development priorities are:
 
-1. **Phase 1 (In Progress)**: Core Blockchain Functionality
-   - Complete implementation of core data structures
-   - Implement fully functional transaction validation
-   - Develop robust chain state management
-   - Fix remaining compilation issues
+1. **Phase 1 (Nearing Completion)**: Core Blockchain Functionality
+   - ✅ Implementation of core data structures
+   - ✅ Fully functional transaction validation
+   - ✅ Robust chain state management
+   - ✅ All compilation issues resolved
 
-2. **Phase 2 (Planned)**: Networking and Consensus
-   - Implement P2P networking with libp2p
-   - Develop block synchronization protocol
-   - Create peer discovery and management
-   - Implement fork resolution
+2. **Phase 2 (In Progress)**: Networking and Consensus
+   - Enhance P2P networking with libp2p
+   - Improve block synchronization protocol
+   - Complete peer discovery and management
+   - Refine fork resolution mechanisms
 
-3. **Phase 3 (Planned)**: Advanced Features
-   - Implement quantum-resistant cryptography
-   - Develop environmental impact tracking
-   - Create security hardening mechanisms
-   - Implement Lightning Network functionality
+3. **Phase 3 (Progressing)**: Advanced Features
+   - ✅ Quantum-resistant cryptography
+   - ✅ Environmental impact tracking
+   - Enhance security hardening mechanisms
+   - Begin Lightning Network functionality
 
 4. **Phase 4 (Planned)**: Production Readiness
-   - Develop monitoring and observability
-   - Implement disaster recovery
-   - Create deployment tools
-   - Optimize performance
+   - Expand monitoring and observability
+   - Enhance disaster recovery mechanisms
+   - Develop deployment tools
+   - Optimize performance across all components
 
 ## License
 

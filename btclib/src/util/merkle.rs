@@ -190,6 +190,12 @@ impl MerkleTree {
         self.root.as_ref().map(|node| node.borrow().hash())
     }
     
+    /// Get the root hash of the tree as [u8; 32]
+    /// Returns zeroed array if the tree is empty
+    pub fn get_root(&self) -> [u8; 32] {
+        self.root_hash().unwrap_or([0; 32])
+    }
+    
     /// Get the number of transactions in the tree
     pub fn num_transactions(&self) -> usize {
         self.num_transactions

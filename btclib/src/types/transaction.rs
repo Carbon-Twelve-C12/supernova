@@ -710,6 +710,58 @@ impl Transaction {
         // Use our size-based estimation instead of calling tracker.estimate_transaction_emissions
         self.estimate_emissions(_tracker)
     }
+
+    /// Create a new coinbase transaction with an empty input and a reward output
+    pub fn new_coinbase() -> Self {
+        // Create an empty input that represents "coins from nowhere"
+        let input = TransactionInput::new(
+            [0; 32],  // Previous TX hash is all zeros for coinbase
+            0xFFFFFFFF, // Special index value for coinbase
+            vec![0],  // Empty script
+            0,        // Sequence
+        );
+        
+        // Create a reward output with block subsidy (simplified)
+        let output = TransactionOutput::new(
+            5000000000, // 50 BTC subsidy (simplified)
+            vec![0x76, 0xa9, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x88, 0xac], // P2PKH placeholder
+        );
+        
+        Self {
+            version: 1,
+            inputs: vec![input],
+            outputs: vec![output],
+            lock_time: 0,
+            signature_data: None,
+        }
+    }
+    
+    /// Basic validation of the transaction structure without checking inputs
+    pub fn validate_basic(&self) -> bool {
+        // Ensure transaction has at least one input and output
+        if self.inputs.is_empty() || self.outputs.is_empty() {
+            return false;
+        }
+        
+        // Check for negative or zero outputs 
+        for output in &self.outputs {
+            if output.amount == 0 {
+                return false;
+            }
+        }
+        
+        // For coinbase transactions, check they have exactly one input
+        if self.is_coinbase() && self.inputs.len() != 1 {
+            return false;
+        }
+        
+        // Make sure transaction size isn't too large
+        if self.calculate_size() > 1_000_000 { // 1MB limit (simplified)
+            return false;
+        }
+        
+        true
+    }
 }
 
 /// Calculate the size of a variable-length integer

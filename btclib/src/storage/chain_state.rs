@@ -458,6 +458,138 @@ impl ChainState {
         let checkpoints = self.checkpoints.read().map_err(|e| ChainStateError::StorageError(e.to_string()))?;
         Ok(checkpoints.values().cloned().collect())
     }
+    
+    pub fn add_block(&self, block: &Block) -> ChainStateResult<()> {
+        let block_hash = block.hash();
+        
+        // Check if block already exists
+        if self.get_header(&block_hash)?.is_some() {
+            return Ok(());
+        }
+        
+        // Get the previous header
+        let prev_header = self.get_header(&block.prev_block_hash())?
+            .ok_or_else(|| ChainStateError::BlockNotFound(hex::encode(block.prev_block_hash())))?;
+        
+        // Determine the height of this block
+        let block_height = prev_header.height() + 1;
+        
+        // Update the header cache
+        {
+            let mut headers = self.headers.write().unwrap();
+            headers.insert(block_hash, block.header().clone());
+        }
+        
+        // Update height map
+        {
+            let mut height_map = self.height_map.write().unwrap();
+            // Convert block_height to u32 for storage in height_map
+            let height_u32 = u32::try_from(block_height).unwrap_or_else(|_| {
+                log::warn!("Block height {} exceeds u32 max value, truncating", block_height);
+                u32::MAX
+            });
+            height_map.entry(height_u32).or_default().push(block_hash);
+        }
+        
+        // Get current tip and height
+        let current_tip = *self.current_tip.read().unwrap();
+        let current_height = *self.current_height.read().unwrap();
+        let current_height_u64 = u64::from(current_height);
+        
+        // Determine if we should reorganize the chain
+        let should_reorg = if block_height > current_height_u64 {
+            // Higher block is always better
+            true
+        } else if block_height == current_height_u64 {
+            // Same height, choose based on difficulty
+            if let Some(current_header) = self.get_header(&current_tip)? {
+                // If difficulty is higher, this block is better
+                block.header().bits() < current_header.bits()
+            } else {
+                // Current tip not found (shouldn't happen) - use new block
+                true
+            }
+        } else {
+            // Lower height, don't reorg
+            false
+        };
+        
+        // Perform the reorganization if needed
+        if should_reorg {
+            // Convert block_height to u32 for handle_reorg
+            let height_u32 = u32::try_from(block_height).unwrap_or_else(|_| {
+                log::warn!("Block height {} exceeds u32 max value, truncating", block_height);
+                u32::MAX
+            });
+            self.handle_reorg(&block_hash, height_u32)?;
+        } else if *block.prev_block_hash() != current_tip {
+            // Block belongs to a side chain, track it but don't reorg
+            self.track_fork(&block_hash, block)?;
+        }
+        
+        // Update UTXO set (simplified implementation)
+        self.update_utxo_set(block)?;
+        
+        // Create checkpoint if needed
+        let checkpoint_interval = u64::from(self.config.checkpoint_interval);
+        if block_height % checkpoint_interval == 0 {
+            // Convert block_height to u32 for create_checkpoint
+            let height_u32 = u32::try_from(block_height).unwrap_or_else(|_| {
+                log::warn!("Block height {} exceeds u32 max value, truncating", block_height);
+                u32::MAX
+            });
+            self.create_checkpoint(height_u32, &block_hash)?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Find common ancestor of two chains
+    pub fn find_common_ancestor(&self, fork_point: &[u8; 32], max_depth: usize) -> ChainStateResult<u32> {
+        let fork_header = self.get_header(fork_point)?
+            .ok_or_else(|| ChainStateError::BlockNotFound(hex::encode(fork_point)))?;
+        
+        let fork_height = fork_header.height();
+        let fork_height_u32 = u32::try_from(fork_height).unwrap_or_else(|_| {
+            log::warn!("Fork height {} exceeds u32 max value, truncating", fork_height);
+            u32::MAX
+        });
+        
+        let height_map = self.height_map.read().unwrap();
+        
+        // Iterate backward from fork height
+        for height in (0..=fork_height_u32).rev().take(max_depth) {
+            if let Some(hashes) = height_map.get(&height) {
+                if hashes.contains(fork_point) {
+                    return Ok(height);
+                }
+            }
+        }
+        
+        // If not found, return height 0
+        Ok(0)
+    }
+    
+    /// Get the hash of a block header at a specific height
+    pub fn get_header_hash_at_height(&self, height: u64) -> Option<[u8; 32]> {
+        let height_map = self.height_map.read().unwrap();
+        height_map.get(&(height as u32))
+            .and_then(|hashes| hashes.first().cloned())
+    }
+    
+    /// Update the UTXO set with a new block
+    fn update_utxo_set(&self, block: &Block) -> ChainStateResult<()> {
+        // Simplified implementation
+        // In a full implementation, this would update a persistent UTXO set
+        // For each transaction in block:
+        // 1. Remove spent outputs (inputs)
+        // 2. Add new outputs
+        
+        // For now, we'll log the operation
+        log::debug!("Updated UTXO set with block {}", hex::encode(block.hash()));
+        
+        Ok(())
+    }
 }
 
 #[cfg(test)]

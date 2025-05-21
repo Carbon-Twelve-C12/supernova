@@ -4,8 +4,9 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 use serde::{Serialize, Deserialize};
 
-use crate::environmental::verification::{RenewableCertificate, CarbonOffset};
+use crate::environmental::verification::{RenewableCertificate, CarbonOffset, VerificationStatus};
 use crate::environmental::miner_reporting::MinerVerificationStatus;
+use crate::environmental::types::Region;
 
 /// Level of transparency in reporting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -193,7 +194,7 @@ impl TransparencyDashboard {
         
         // Calculate total MWh
         let total_mwh: f64 = certificates.iter()
-            .map(|c| c.amount_mwh)
+            .map(|c| c.amount_kwh)
             .sum();
             
         report.total_renewable_energy_mwh = total_mwh;
@@ -205,19 +206,19 @@ impl TransparencyDashboard {
         
         for cert in certificates {
             // Add to energy type breakdown
-            *energy_type_breakdown.entry("Renewable".to_string()).or_insert(0.0) += cert.amount_mwh;
+            *energy_type_breakdown.entry("Renewable".to_string()).or_insert(0.0) += cert.amount_kwh;
             
             // Count certificates by verification status
             *verification_status_breakdown.entry(MinerVerificationStatus::Verified).or_insert(0) += 1;
             
             // Track verification providers
-            if !verification_providers.contains(&cert.provider) {
-                verification_providers.push(cert.provider.clone());
+            if !verification_providers.contains(&cert.issuer) {
+                verification_providers.push(cert.issuer.clone());
             }
             
-            // Simplified check for verified status
-            if cert.verification_status {
-                report.verified_mwh += cert.amount_mwh;
+            // Check verification status
+            if cert.verification_status == VerificationStatus::Verified {
+                report.verified_mwh += cert.amount_kwh;
             }
         }
         
@@ -236,7 +237,7 @@ impl TransparencyDashboard {
         
         // Calculate total tonnes CO2e
         let total_tonnes: f64 = offsets.iter()
-            .map(|o| o.amount_tons_co2e)
+            .map(|o| o.amount_tonnes)
             .sum();
             
         report.total_offset_tonnes = total_tonnes;
@@ -248,19 +249,19 @@ impl TransparencyDashboard {
         
         for offset in offsets {
             // Add to project type breakdown
-            *project_type_breakdown.entry("Carbon Offset".to_string()).or_insert(0.0) += offset.amount_tons_co2e;
+            *project_type_breakdown.entry("Carbon Offset".to_string()).or_insert(0.0) += offset.amount_tonnes;
             
             // Track verification providers
-            if !verification_providers.contains(&offset.provider) {
-                verification_providers.push(offset.provider.clone());
+            if !verification_providers.contains(&offset.issuer) {
+                verification_providers.push(offset.issuer.clone());
             }
             
             // Count offsets by verification status
             *verification_status_breakdown.entry(MinerVerificationStatus::Verified).or_insert(0) += 1;
             
-            // Simplified check for verified status
-            if offset.verification_status {
-                report.verified_tonnes += offset.amount_tons_co2e;
+            // Check verification status
+            if offset.verification_status == VerificationStatus::Verified {
+                report.verified_tonnes += offset.amount_tonnes;
             }
         }
         

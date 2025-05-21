@@ -231,10 +231,10 @@ impl EnvironmentalGovernance {
                 }
                 
                 // Check treasury balance
-                if *amount > self.treasury.get_balance(TreasuryAccountType::Main) {
+                if *amount > self.treasury.get_balance(Some(TreasuryAccountType::Main)) {
                     return Err(GovernanceError::InvalidProposal(
                         format!("Allocation amount {} exceeds available balance {}", 
-                                amount, self.treasury.get_balance(TreasuryAccountType::Main))
+                                amount, self.treasury.get_balance(Some(TreasuryAccountType::Main)))
                     ));
                 }
             },
@@ -263,19 +263,19 @@ impl EnvironmentalGovernance {
                 }
                 
                 // Check treasury balance
-                if *amount > self.treasury.get_balance(TreasuryAccountType::Main) {
+                if *amount > self.treasury.get_balance(Some(TreasuryAccountType::Main)) {
                     return Err(GovernanceError::InvalidProposal(
                         format!("Amount {} exceeds available balance {}", 
-                                amount, self.treasury.get_balance(TreasuryAccountType::Main))
+                                amount, self.treasury.get_balance(Some(TreasuryAccountType::Main)))
                     ));
                 }
             },
             ProposalType::Other { amount, .. } => {
                 if let Some(amount) = amount {
-                    if *amount > 0 && *amount > self.treasury.get_balance(TreasuryAccountType::Main) {
+                    if *amount > 0 && *amount > self.treasury.get_balance(Some(TreasuryAccountType::Main)) {
                         return Err(GovernanceError::InvalidProposal(
                             format!("Amount {} exceeds available balance {}", 
-                                    amount, self.treasury.get_balance(TreasuryAccountType::Main))
+                                    amount, self.treasury.get_balance(Some(TreasuryAccountType::Main)))
                         ));
                     }
                 }
