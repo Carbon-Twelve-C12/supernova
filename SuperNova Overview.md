@@ -228,12 +228,12 @@ The SuperNova blockchain implementation is progressing through the following pha
 
 ## Projected Milestones
 
-- **Q4 2023**: Complete Phase 1 and launch initial testnet
-- **Q1 2024**: Substantial progress on Phase 2, release enhanced testnet
-- **Q2 2024**: Complete Phase 3 and Phase 4, focus on environmental features
-- **Q3 2024**: Progress on Phase 5, integrate Lightning Network
-- **Q4 2024**: Complete Phase 6, prepare for mainnet readiness
-- **Q1 2025**: Production release (v1.0)
+- **Q4 2024**: Complete Phase 1 and launch initial testnet
+- **Q1 2025**: Substantial progress on Phase 2, release enhanced testnet
+- **Q1 2025**: Complete Phase 3 and Phase 4, focus on environmental features
+- **Q2 2025**: Progress on Phase 5, integrate Lightning Network
+- **Q2 2025**: Complete Phase 6, prepare for mainnet readiness
+- **Q3 2025**: Production release (v1.0)
 
 ## Next Steps
 
