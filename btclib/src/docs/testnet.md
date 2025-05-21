@@ -91,7 +91,7 @@ Network simulation allows testing of various network conditions:
 
 ```rust
 // Enable network simulation
-config.network_simulation = Some(NetworkSimulationConfig {
+config.network_simulation = Some(ConfigNetworkSimulationConfig {
     enabled: true,
     latency_ms_mean: 150,                  // 150ms average latency
     latency_ms_std_dev: 50,                // With 50ms standard deviation

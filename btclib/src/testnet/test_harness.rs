@@ -1,6 +1,7 @@
 use super::config::TestNetConfig as BlockchainConfig;
 use crate::testnet::{TestNetManager, config::TestNetConfig};
-use crate::testnet::network_simulator::NetworkCondition;
+use crate::testnet::network_simulator::{NetworkSimulator, SimulationConfig, NetworkCondition};
+use crate::testnet::config::NetworkSimulationConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -708,7 +709,7 @@ pub mod example_scenarios {
         network_config.target_block_time_secs = 1; // Fast blocks for testing
         
         // Configure network simulation
-        network_config.network_simulation = Some(crate::testnet::config::NetworkSimulationConfig {
+        let sim_config = SimulationConfig {
             enabled: true,
             latency_ms_mean: 100,
             latency_ms_std_dev: 20,
@@ -717,9 +718,21 @@ pub mod example_scenarios {
             simulate_clock_drift: false,
             max_clock_drift_ms: 0,
             jitter_ms: 20,
+        };
+        // Convert to the NetworkSimulationConfig for TestNetConfig
+        let network_sim_config = NetworkSimulationConfig {
+            enabled: sim_config.enabled,
+            latency_ms_mean: sim_config.latency_ms_mean,
+            latency_ms_std_dev: sim_config.latency_ms_std_dev,
+            packet_loss_percent: sim_config.packet_loss_percent,
+            bandwidth_limit_kbps: sim_config.bandwidth_limit_kbps,
+            simulate_clock_drift: sim_config.simulate_clock_drift,
+            max_clock_drift_ms: sim_config.max_clock_drift_ms,
+            jitter_ms: sim_config.jitter_ms,
             topology: crate::testnet::config::NetworkTopology::FullyConnected,
             disruption_schedule: None,
-        });
+        };
+        network_config.network_simulation = Some(network_sim_config);
         
         // Define initial node setup
         let initial_nodes = vec![

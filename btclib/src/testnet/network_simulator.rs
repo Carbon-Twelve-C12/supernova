@@ -1,4 +1,3 @@
-use crate::testnet::config::NetworkSimulationConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -7,6 +6,7 @@ use rand::{thread_rng, Rng, distributions::{Distribution, Bernoulli}};
 use tokio::time::sleep;
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
+use crate::testnet::config;
 
 /// Error types for network simulation
 #[derive(Debug, Error)]
@@ -48,10 +48,46 @@ impl Default for NetworkCondition {
     }
 }
 
+// Define our own type instead of using a type alias
+#[derive(Debug, Clone)]
+pub struct SimulationConfig {
+    /// Whether to enable network simulation
+    pub enabled: bool,
+    /// Simulated latency in milliseconds (mean)
+    pub latency_ms_mean: u64,
+    /// Latency standard deviation in milliseconds
+    pub latency_ms_std_dev: u64,
+    /// Packet loss percentage (0-100)
+    pub packet_loss_percent: u8,
+    /// Bandwidth limit in kilobits per second (0 = unlimited)
+    pub bandwidth_limit_kbps: u64,
+    /// Whether to simulate clock drift
+    pub simulate_clock_drift: bool,
+    /// Maximum clock drift in milliseconds
+    pub max_clock_drift_ms: u64,
+    /// Network jitter simulation (random latency variation)
+    pub jitter_ms: u64,
+}
+
+impl Default for SimulationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            latency_ms_mean: 100,
+            latency_ms_std_dev: 20,
+            packet_loss_percent: 0,
+            bandwidth_limit_kbps: 1000,
+            simulate_clock_drift: false,
+            max_clock_drift_ms: 100,
+            jitter_ms: 10,
+        }
+    }
+}
+
 /// Network simulator for testing network conditions
 pub struct NetworkSimulator {
     /// Global configuration
-    config: NetworkSimulationConfig,
+    config: SimulationConfig,
     /// Network conditions between specific node pairs (from_node, to_node) -> condition
     conditions: HashMap<(usize, usize), NetworkCondition>,
     /// Node clocks with drift in milliseconds (node_id -> drift_ms, can be negative)
@@ -60,7 +96,7 @@ pub struct NetworkSimulator {
 
 impl NetworkSimulator {
     /// Create a new network simulator
-    pub fn new(config: NetworkSimulationConfig) -> Self {
+    pub fn new(config: SimulationConfig) -> Self {
         Self {
             config,
             conditions: HashMap::new(),
@@ -310,7 +346,7 @@ mod tests {
     
     #[test]
     fn test_network_partition() {
-        let config = NetworkSimulationConfig {
+        let config = SimulationConfig {
             enabled: true,
             latency_ms_mean: 100,
             latency_ms_std_dev: 20,
@@ -318,6 +354,7 @@ mod tests {
             bandwidth_limit_kbps: 1000,
             simulate_clock_drift: false,
             max_clock_drift_ms: 0,
+            jitter_ms: 0,
         };
         
         let mut simulator = NetworkSimulator::new(config);
