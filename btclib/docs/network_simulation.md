@@ -48,7 +48,7 @@ let mut config = TestNetConfig::default();
 config.network_name = "basic-connectivity-test".to_string();
 
 // Enable network simulation with minimal interference
-let mut sim_config = NetworkSimulationConfig::default();
+let mut sim_config = ConfigNetworkSimulationConfig::default();
 sim_config.enabled = true;
 sim_config.latency_ms_mean = 50;
 sim_config.latency_ms_std_dev = 10;

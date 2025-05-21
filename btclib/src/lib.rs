@@ -92,3 +92,6 @@ pub use lightning::{
 // that prevent the codebase from building.
 pub mod freeze;
 pub use freeze::*;
+
+// Add this export near other testnet-related exports
+pub use testnet::network_simulator::SimulationConfig;

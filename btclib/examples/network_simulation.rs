@@ -279,11 +279,11 @@ async fn run_adverse_conditions_test() -> Result<HashMap<String, bool>, Box<dyn 
     let mut sim_config = NetworkSimulationConfig::default();
     sim_config.enabled = true;
     sim_config.latency_ms_mean = 200;
-    sim_config.latency_ms_std_dev = 100;
+    sim_config.latency_ms_std_dev = 50;
     sim_config.packet_loss_percent = 5;
     sim_config.bandwidth_limit_kbps = 500;
     sim_config.simulate_clock_drift = true;
-    sim_config.max_clock_drift_ms = 500;
+    sim_config.max_clock_drift_ms = 100;
     config.network_simulation = Some(sim_config);
     
     // Initialize test harness

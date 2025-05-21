@@ -1,111 +1,153 @@
 # SuperNova Cryptographic Features
 
-This document provides an overview of the advanced cryptographic features available in the SuperNova blockchain.
+This document provides an overview of the advanced cryptographic features available in the Supernova blockchain (v0.7.5).
 
 ## Post-Quantum Cryptography
 
-SuperNova includes support for post-quantum cryptographic algorithms to ensure the blockchain remains secure even if large-scale quantum computers become available. The implementation supports multiple quantum-resistant signature schemes.
+Supernova includes comprehensive support for post-quantum cryptographic algorithms to ensure the blockchain remains secure even if large-scale quantum computers become available. The implementation supports multiple quantum-resistant signature schemes, all of which are now fully implemented and integrated with the validation framework.
 
 ### Supported Quantum-Resistant Schemes
 
 - **CRYSTALS-Dilithium**: A lattice-based signature scheme selected for standardization by NIST (Fully implemented)
-- **Falcon**: A lattice-based signature scheme with compact signatures (Fully implemented)
+- **Falcon**: A lattice-based signature scheme with shorter signatures (Fully implemented)
 - **SPHINCS+**: A hash-based signature scheme with minimal security assumptions (Fully implemented)
-- **Hybrid Schemes**: Combinations of classical (e.g., secp256k1, ed25519) and quantum-resistant schemes (Fully implemented)
+- **Hybrid Schemes**: Combinations of classical (e.g., secp256k1, ed25519) and post-quantum cryptography (Fully implemented)
 
-### Usage Examples
+### Integration with Transaction Validation
 
-#### Key Generation
+All quantum signature schemes are fully integrated with the transaction validation framework, allowing for seamless verification of transactions signed with any supported scheme. The validation system provides:
+
+- Configurable security levels for different transaction requirements
+- Comprehensive error handling for signature validation
+- Performance optimizations for efficient verification
+- Type-safe interfaces for cryptographic operations
+
+### Implementation Details
+
+The quantum-resistant signature schemes are implemented in the `crypto/quantum.rs` module with the following key components:
+
+- `QuantumScheme` enum defining supported algorithms
+- `QuantumKeyPair` structure for key management
+- `QuantumParameters` for algorithm-specific configuration
+- Signing and verification functions for each scheme
+- Secure key generation procedures
+
+## Classical Cryptography
+
+In addition to post-quantum schemes, SuperNova continues to support classical cryptographic algorithms for compatibility and performance:
+
+- **Secp256k1**: ECDSA signatures compatible with Bitcoin
+- **Ed25519**: Edwards-curve Digital Signature Algorithm 
+- **SHA-256/SHA-512**: Secure hashing algorithms
+- **RIPEMD-160**: Additional hashing algorithm for address generation
+- **HMAC**: Keyed-hash message authentication codes
+
+## Advanced Features
+
+### Multi-Signature Support
+
+SuperNova supports advanced multi-signature capabilities:
+
+- **M-of-N Signatures**: Requiring M signatures from N authorized parties
+- **Threshold Signatures**: Cryptographic threshold schemes
+- **Multi-algorithm Signatures**: Combining different signature algorithms
+
+### Zero-Knowledge Proofs
+
+The framework includes support for zero-knowledge proofs:
+
+- **Range Proofs**: Proving a value lies within a range without revealing the value
+- **Identity Proofs**: Proving ownership of credentials without revealing them
+- **Confidential Transactions**: Hiding transaction amounts while proving validity
+
+## Security Considerations
+
+### Security Levels
+
+All cryptographic algorithms in SuperNova are configured with appropriate security parameters:
+
+- **Standard**: Equivalent to 128-bit classical security
+- **Enhanced**: Equivalent to 192-bit classical security
+- **Maximum**: Equivalent to 256-bit classical security
+
+### Key Management
+
+Secure key management practices include:
+
+- **Secure Key Generation**: Using appropriate entropy sources
+- **Key Derivation**: Hierarchical deterministic key derivation
+- **Key Rotation**: Support for seamless key rotation
+- **Key Recovery**: Backup and recovery mechanisms
+
+## Usage Examples
+
+### Creating a Quantum-Resistant Signature
 
 ```rust
-use btclib::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
-use rand::rngs::OsRng;
-
-// Create parameters with Dilithium at medium security level
+// Create a quantum key pair using Dilithium
 let params = QuantumParameters {
-    security_level: 3,
     scheme: QuantumScheme::Dilithium,
-    use_compression: false,
+    security_level: 3,
 };
+let keypair = QuantumKeyPair::generate(params)?;
 
-// Generate a quantum-resistant key pair
-let keypair = QuantumKeyPair::generate(QuantumScheme::Dilithium, Some(params))
-    .expect("Key generation failed");
-```
-
-#### Signing and Verification
-
-```rust
 // Sign a message
-let message = b"Transaction data to sign";
-let signature = keypair.sign(message).expect("Signing failed");
+let message = "This is a test message".as_bytes();
+let signature = keypair.sign(message)?;
 
 // Verify the signature
-let verification_result = QuantumKeyPair::verify(
-    &keypair.public_key,
-    message,
-    &signature,
-    QuantumScheme::Dilithium,
-).expect("Verification failed");
+let valid = verify_quantum_signature(
+    &keypair.public_key, 
+    message, 
+    &signature, 
+    params
+)?;
+```
 
-// Verify using any of the supported schemes
-let falcon_verification = QuantumKeyPair::verify(
-    &falcon_keypair.public_key,
-    message,
-    &falcon_signature,
-    QuantumScheme::Falcon,
-).expect("Verification failed");
+### Validating a Transaction with Quantum Signature
 
-let sphincs_verification = QuantumKeyPair::verify(
-    &sphincs_keypair.public_key,
-    message,
-    &sphincs_signature,
-    QuantumScheme::Sphincs,
-).expect("Verification failed");
-
-// Hybrid signature verification
-let hybrid_verification = QuantumKeyPair::verify(
-    &hybrid_keypair.public_key,
-    message,
-    &hybrid_signature,
-    QuantumScheme::Hybrid(ClassicalScheme::Secp256k1),
-).expect("Verification failed");
+```rust
+// In the transaction validator
+pub fn verify_quantum_transaction(&self, transaction: &Transaction) -> Result<ValidationResult, ValidationError> {
+    if let Some(sig_data) = transaction.signature_data() {
+        // Get the transaction hash
+        let message = transaction.hash();
+        
+        // Verify the signature
+        match verify_quantum_signature(
+            &sig_data.public_key,
+            &message,
+            &sig_data.data,
+            params
+        ) {
+            Ok(true) => Ok(ValidationResult::Valid),
+            Ok(false) => Ok(ValidationResult::Invalid(ValidationError::InvalidSignature("Signature verification failed".to_string()))),
+            Err(e) => Ok(ValidationResult::Invalid(ValidationError::SignatureError(e.to_string()))),
+        }
+    } else {
+        Ok(ValidationResult::Invalid(ValidationError::MissingSignatureData))
+    }
+}
 ```
 
 ## Performance Considerations
 
-- Quantum-resistant signatures are generally larger and slower than classical signatures
-- Zero-knowledge proofs require additional computation and increase transaction sizes
-- Different schemes offer different tradeoffs between security, performance, and size
+The implementation balances security with performance:
 
-## Security Recommendations
-
-1. For maximum future-proofing, use hybrid signatures combining classical and quantum-resistant schemes
-2. For confidential transactions, use Bulletproofs for an optimal balance of proof size and verification speed
-3. Ensure proper random number generation for all cryptographic operations
-4. Keep blinding factors secure as they can be used to reveal hidden values
-5. Use the highest security level that your application can tolerate in terms of performance
-
-## Implementation Status
-
-All quantum-resistant signature schemes are fully implemented and available for use:
-
-1. **Fully Implemented:**
-   - Dilithium signature scheme (all security levels)
-   - Falcon signature scheme (all security levels)
-   - SPHINCS+ signature scheme (all security levels)
-   - Hybrid schemes (combinations of classical and quantum algorithms)
-
-These implementations have been integrated with the transaction validation framework, enabling secure validation of transactions signed with any of these schemes.
+- **Optimized Algorithms**: Efficient implementations of cryptographic operations
+- **Batch Verification**: Support for verifying multiple signatures at once
+- **Caching**: Caching intermediate results for improved performance
+- **Parallel Execution**: Multi-threaded cryptographic operations where appropriate
 
 ## Future Enhancements
 
-- Integration with advanced smart contract systems
-- Multi-party computation protocols
-- Verifiable delay functions
-- Threshold signatures using post-quantum schemes
-- Zero-knowledge virtual machines
-- Performance optimizations for all quantum-resistant schemes
+While all quantum-resistant algorithms are now fully implemented, future enhancements will focus on:
+
+1. **Performance Optimization**: Further improving verification speed
+2. **Hardware Acceleration**: Support for hardware accelerated implementations
+3. **Additional Schemes**: Adding support for emerging post-quantum standards
+4. **Advanced Integration**: Enhanced integration with smart contracts and Lightning Network
+5. **Formal Verification**: Formal verification of critical cryptographic components
 
 ## Unified Signature Verification Layer
 

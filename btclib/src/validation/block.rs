@@ -1,8 +1,8 @@
 // Block validation - minimal module to fix build issues
 
 use crate::types::block::Block;
+use crate::validation::ValidationError;
 use crate::validation::transaction::TransactionValidator;
-use super::ValidationError;
 
 /// Error types for block validation
 #[derive(Debug, thiserror::Error)]

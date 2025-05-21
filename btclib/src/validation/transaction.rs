@@ -2,12 +2,10 @@
 
 use serde::{Serialize, Deserialize};
 use crate::types::transaction::{Transaction, TransactionOutput, SignatureSchemeType};
-use crate::crypto::signature::{SignatureType, SignatureError, SignatureParams};
+use crate::crypto::signature::{SignatureType, SignatureParams};
 use crate::crypto::quantum::{QuantumScheme, QuantumKeyPair, QuantumParameters};
 use crate::validation::crypto::{CryptoValidator, CryptoValidationConfig};
-use super::ValidationError;
-use super::SecurityLevel;
-use super::ValidationMetrics;
+use crate::validation::{SecurityLevel, ValidationError, ValidationMetrics};
 
 /// Transaction validation results
 #[derive(Debug)]

@@ -4,19 +4,17 @@ pub mod network_simulator;
 pub mod test_harness;
 pub mod regression_testing;
 
-// Define an alias for TestNetConfig to use as BlockchainConfig
+// Use consistent imports
 use self::config::TestNetConfig;
-use self::config::TestNetConfig as BlockchainConfig;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{info, warn};
+use self::network_simulator::{NetworkSimulator, SimulationConfig};
+use tracing::info;
 
 /// Main testnet manager for handling test network operations
 pub struct TestNetManager {
     /// Test network configuration
     config: TestNetConfig,
     /// Network simulator if enabled
-    network_simulator: Option<network_simulator::NetworkSimulator>,
+    network_simulator: Option<NetworkSimulator>,
     /// Current mining difficulty
     current_difficulty: u64,
     /// Recent blocks for difficulty adjustment
@@ -24,7 +22,7 @@ pub struct TestNetManager {
     /// Faucet manager if enabled
     faucet: Option<faucet::Faucet>,
     /// Blockchain configuration for the test network
-    blockchain_config: BlockchainConfig,
+    blockchain_config: TestNetConfig,
 }
 
 impl TestNetManager {
@@ -36,7 +34,18 @@ impl TestNetManager {
         // Initialize network simulator if enabled
         let network_simulator = if let Some(sim_config) = &config.network_simulation {
             if sim_config.enabled {
-                Some(network_simulator::NetworkSimulator::new(sim_config.clone()))
+                // Create our SimulationConfig from the NetworkSimulationConfig
+                let simulator_config = SimulationConfig {
+                    enabled: sim_config.enabled,
+                    latency_ms_mean: sim_config.latency_ms_mean,
+                    latency_ms_std_dev: sim_config.latency_ms_std_dev,
+                    packet_loss_percent: sim_config.packet_loss_percent,
+                    bandwidth_limit_kbps: sim_config.bandwidth_limit_kbps,
+                    simulate_clock_drift: sim_config.simulate_clock_drift,
+                    max_clock_drift_ms: sim_config.max_clock_drift_ms,
+                    jitter_ms: sim_config.jitter_ms,
+                };
+                Some(NetworkSimulator::new(simulator_config))
             } else {
                 None
             }
@@ -197,21 +206,21 @@ impl TestNetManager {
     }
     
     /// Get the blockchain configuration for this test network
-    pub fn get_blockchain_config(&self) -> &BlockchainConfig {
+    pub fn get_blockchain_config(&self) -> &TestNetConfig {
         &self.blockchain_config
     }
     
     /// Get the network simulator if enabled
-    pub fn get_network_simulator(&self) -> Option<&network_simulator::NetworkSimulator> {
+    pub fn get_network_simulator(&self) -> Option<&NetworkSimulator> {
         self.network_simulator.as_ref()
     }
 }
 
 /// Convert testnet configuration to blockchain configuration
-fn convert_to_blockchain_config(testnet_config: &TestNetConfig) -> BlockchainConfig {
+fn convert_to_blockchain_config(testnet_config: &TestNetConfig) -> TestNetConfig {
     // Instead of trying to modify config like before, create a new TestNetConfig
     // with the correct values copied over
-    BlockchainConfig {
+    TestNetConfig {
         network_name: testnet_config.network_name.clone(),
         target_block_time_secs: testnet_config.target_block_time_secs,
         initial_difficulty: testnet_config.initial_difficulty,
