@@ -205,7 +205,7 @@ impl Block {
         } else {
             let tx_hashes: Vec<Hash256> = transactions.iter().map(|tx| tx.hash()).collect();
             let merkle_tree = MerkleTree::new(tx_hashes);
-            merkle_tree.get_root()
+            merkle_tree.root_hash()
         };
         
         // Create timestamp
@@ -249,7 +249,7 @@ impl Block {
         
         // Create Merkle tree
         let merkle_tree = MerkleTree::new(tx_hashes);
-        merkle_tree.get_root()
+        merkle_tree.root_hash()
     }
     
     /// Verify that the block meets the target difficulty

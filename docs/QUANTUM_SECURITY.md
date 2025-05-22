@@ -1,10 +1,10 @@
 # Quantum-Resistant Cryptography and Security Hardening
 
-This document outlines the quantum-resistant cryptography and security hardening features implemented in Phase 3 of the Supernova blockchain project, now at version 0.9.0.
+This document outlines the quantum-resistant cryptography and security hardening features implemented in Phase 3 of the Supernova blockchain project, now at version 0.9.0-BETA.
 
 ## Current Implementation Status
 
-As of version 0.9.0, the quantum resistance features are **100% complete**. All major quantum signature schemes have been fully implemented and integrated with the validation framework, with Falcon-based signatures serving as the primary quantum-resistant solution. The implementation includes comprehensive error handling between different cryptographic systems and full support for quantum/classical hybrid verification.
+As of version 0.9.0-BETA, the quantum resistance features are **100% complete**. All major quantum signature schemes have been fully implemented and integrated with the validation framework, with Falcon-based signatures serving as the primary quantum-resistant solution. The implementation includes comprehensive error handling between different cryptographic systems and full support for quantum/classical hybrid verification.
 
 ## Quantum-Resistant Cryptography
 

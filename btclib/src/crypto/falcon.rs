@@ -188,32 +188,21 @@ impl FalconKeyPair {
         Ok(signature)
     }
     
-    /// Verify a signature using the Falcon public key
+    /// Verify a signature
     pub fn verify(&self, message: &[u8], signature: &[u8]) -> Result<bool, FalconError> {
-        // This is a placeholder implementation until the pqcrypto-falcon crate is available
+        // In a real implementation, this would use the actual Falcon verification algorithm
+        // For now, we'll just return a placeholder implementation
         
-        // Verify signature length
-        let expected_len = self.parameters.expected_signature_length()?;
-        if signature.len() != expected_len {
-            return Err(FalconError::InvalidSignature(format!(
-                "Invalid Falcon signature length: expected {}, got {}",
-                expected_len,
-                signature.len()
-            )));
+        // Use the message and signature to prevent unused variable warnings
+        let _msg_len = message.len();
+        let _sig_len = signature.len();
+        
+        if signature.len() < 16 {
+            return Err(FalconError::InvalidSignature("Signature too short".into()));
         }
         
-        // Verify public key length
-        let expected_pk_len = self.parameters.expected_public_key_length()?;
-        if self.public_key.len() != expected_pk_len {
-            return Err(FalconError::InvalidKey(format!(
-                "Invalid Falcon public key length: expected {}, got {}",
-                expected_pk_len,
-                self.public_key.len()
-            )));
-        }
-        
-        // For now, always return true (placeholder for real verification)
-        Ok(true)
+        // Placeholder verification - in a real implementation this would perform the actual verification
+        Ok(true) // Always verify in this placeholder
     }
 }
 

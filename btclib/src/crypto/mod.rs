@@ -1,20 +1,18 @@
-// Cryptographic primitives for SuperNova blockchain
-// This module collects various cryptographic features used in the blockchain
+// Crypto module
+// Contains cryptographic primitives and functions
 
-// Export quantum-resistant cryptography module
-pub mod quantum;
-
-// Export zero-knowledge proof systems module
-pub mod zkp;
-
-// Export signature abstraction layer
+// Public modules
+pub mod hash;
 pub mod signature;
-
-// Export Falcon signature scheme
+pub mod quantum;
+pub mod zkp;
 pub mod falcon;
 
-// Re-export commonly used types for convenience
+// Re-export public types
+pub use hash::Hash;
 pub use quantum::{QuantumScheme, QuantumKeyPair, QuantumParameters, QuantumError};
 pub use zkp::{ZkpType, Commitment, ZeroKnowledgeProof, ZkpParams};
 pub use signature::{SignatureScheme, SignatureVerifier, SignatureType, SignatureError, SignatureParams};
 pub use falcon::{FalconKeyPair, FalconParameters, FalconError};
+
+// Module that provides cryptographic primitives for the blockchain

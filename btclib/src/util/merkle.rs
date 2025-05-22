@@ -1,508 +1,349 @@
-use sha2::{Sha256, Digest};
-use std::rc::Rc;
-use std::cell::RefCell;
-use thiserror::Error;
+//! Merkle Tree implementation for the Supernova blockchain
+//! 
+//! This module provides a Merkle Tree implementation with proof generation and verification.
 
-/// Error types related to Merkle tree operations
-#[derive(Debug, Error)]
+use thiserror::Error;
+use sha2::{Sha256, Digest};
+use serde::{Serialize, Deserialize};
+use std::fmt;
+
+/// Errors that can occur when working with Merkle trees
+#[derive(Error, Debug)]
 pub enum MerkleError {
-    #[error("Empty tree")]
+    /// Index is out of bounds
+    #[error("Index out of bounds: {0}")]
+    IndexOutOfBounds(usize),
+    
+    /// Invalid proof
+    #[error("Invalid Merkle proof")]
+    InvalidProof,
+    
+    /// Empty tree
+    #[error("Empty Merkle tree")]
     EmptyTree,
     
-    #[error("Invalid proof format")]
-    InvalidProofFormat,
-    
-    #[error("Transaction not found")]
-    TransactionNotFound,
-    
-    #[error("Merkle path verification failed")]
-    VerificationFailed,
-    
+    /// Serialization error
     #[error("Serialization error: {0}")]
-    SerializationError(String),
+    SerializationError(#[from] bincode::Error),
 }
 
-/// Direction for a hash in a Merkle path
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MerkleDirection {
-    Left,
-    Right,
-}
+/// Result type for Merkle tree operations
+pub type MerkleResult<T> = Result<T, MerkleError>;
 
-/// A single step in a Merkle proof
+/// A Merkle Tree implementation
 #[derive(Debug, Clone)]
-pub struct MerkleProofStep {
-    /// The hash to combine with
-    pub hash: [u8; 32],
-    /// Whether this hash goes on the left or right
-    pub direction: MerkleDirection,
+pub struct MerkleTree {
+    /// The leaves of the tree (original data hashes)
+    pub leaves: Vec<[u8; 32]>,
+    /// All nodes in the tree, level by level
+    nodes: Vec<Vec<[u8; 32]>>,
+    /// The root hash of the tree
+    pub root: [u8; 32],
 }
 
-/// A complete Merkle proof
-#[derive(Debug, Clone)]
+/// A proof of inclusion in a Merkle tree
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerkleProof {
-    /// The transaction hash being proven
-    pub tx_hash: [u8; 32],
-    /// Steps to reconstruct the root
-    pub steps: Vec<MerkleProofStep>,
-    /// Expected root hash
+    /// The hash of the leaf being proven
+    pub leaf_hash: [u8; 32],
+    /// The lemma (sibling hashes along the path to the root)
+    pub lemma: Vec<[u8; 32]>,
+    /// The indices for traversing the tree (0 = left, 1 = right)
+    pub path_indices: Vec<usize>,
+    /// The root hash of the Merkle tree
     pub root_hash: [u8; 32],
 }
 
-/// Represents a node in the Merkle tree
-#[derive(Debug, Clone)]
-pub struct MerkleNode {
-    /// The hash stored at this node
-    hash: [u8; 32],
-    /// Reference to left child
-    left: Option<Rc<RefCell<MerkleNode>>>,
-    /// Reference to right child
-    right: Option<Rc<RefCell<MerkleNode>>>,
-    /// Original transaction data (only for leaf nodes)
-    data: Option<Vec<u8>>,
-}
-
-impl MerkleNode {
-    /// Create a new leaf node from transaction data
-    pub fn new_leaf(data: &[u8]) -> Self {
-        // Double hash for security (like in Bitcoin)
-        let hash = Self::double_hash(data);
-        
-        Self {
-            hash,
-            left: None,
-            right: None,
-            data: Some(data.to_vec()),
-        }
-    }
-
-    /// Create a new internal node from two child nodes
-    pub fn new_internal(left: Rc<RefCell<MerkleNode>>, right: Rc<RefCell<MerkleNode>>) -> Self {
-        // Hash = H(left_hash || right_hash)
-        let left_hash = left.borrow().hash;
-        let right_hash = right.borrow().hash;
-        
-        let mut combined = Vec::with_capacity(64);
-        combined.extend_from_slice(&left_hash);
-        combined.extend_from_slice(&right_hash);
-        
-        let hash = Self::double_hash(&combined);
-
-        Self {
-            hash,
-            left: Some(left),
-            right: Some(right),
-            data: None,
-        }
-    }
-
-    /// Double-hash a piece of data (SHA256(SHA256(data)))
-    fn double_hash(data: &[u8]) -> [u8; 32] {
-        let first_hash = Sha256::digest(data);
-        let second_hash = Sha256::digest(&first_hash);
-        
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&second_hash);
-        hash
-    }
-
-    /// Get the hash of this node
-    pub fn hash(&self) -> [u8; 32] {
-        self.hash
-    }
-    
-    /// Check if this is a leaf node
-    pub fn is_leaf(&self) -> bool {
-        self.left.is_none() && self.right.is_none()
-    }
-    
-    /// Get the original transaction data if this is a leaf node
-    pub fn data(&self) -> Option<&Vec<u8>> {
-        self.data.as_ref()
-    }
-}
-
-/// Represents a Merkle tree for transaction verification
-pub struct MerkleTree {
-    /// Root node of the tree
-    root: Option<Rc<RefCell<MerkleNode>>>,
-    /// Number of transactions in the tree
-    num_transactions: usize,
-}
-
 impl MerkleTree {
-    /// Build a new Merkle tree from a list of transactions
-    pub fn new<T: AsRef<[u8]>>(transactions: &[T]) -> Self {
-        if transactions.is_empty() {
-            return Self { 
-                root: None,
-                num_transactions: 0,
+    /// Create a new Merkle tree from the given data
+    pub fn new<T: AsRef<[u8]>>(data: &[T]) -> Self {
+        if data.is_empty() {
+            // Empty tree has a special zero root
+            return Self {
+                leaves: Vec::new(),
+                nodes: Vec::new(),
+                root: [0u8; 32],
             };
         }
-
-        // Create leaf nodes
-        let mut nodes: Vec<Rc<RefCell<MerkleNode>>> = transactions
-            .iter()
-            .map(|t| Rc::new(RefCell::new(MerkleNode::new_leaf(t.as_ref()))))
-            .collect();
-            
-        let num_transactions = nodes.len();
-
-        // If odd number of nodes, duplicate the last one
-        if nodes.len() % 2 == 1 {
-            let last = Rc::clone(&nodes[nodes.len() - 1]);
-            nodes.push(last);
+        
+        // Hash all leaves
+        let mut leaves = Vec::with_capacity(data.len());
+        for item in data {
+            let mut hasher = Sha256::new();
+            hasher.update(item.as_ref());
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(&hasher.finalize());
+            leaves.push(hash);
         }
-
-        // Build tree from bottom up
-        while nodes.len() > 1 {
+        
+        // Build the tree
+        let mut nodes = Vec::new();
+        nodes.push(leaves.clone());
+        
+        let mut level = 0;
+        while nodes[level].len() > 1 {
+            let current_level = &nodes[level];
             let mut next_level = Vec::new();
-
-            // Process pairs of nodes
-            for chunk in nodes.chunks(2) {
-                if chunk.len() == 2 {
-                    let left = Rc::clone(&chunk[0]);
-                    let right = Rc::clone(&chunk[1]);
-                    
-                    let parent = Rc::new(RefCell::new(
-                        MerkleNode::new_internal(left, right)
-                    ));
-                    
-                    next_level.push(parent);
+            
+            // Combine pairs of nodes to create the next level
+            for i in (0..current_level.len()).step_by(2) {
+                if i + 1 < current_level.len() {
+                    // Combine two nodes
+                    let combined = Self::hash_pair(&current_level[i], &current_level[i + 1]);
+                    next_level.push(combined);
                 } else {
-                    // This should never happen if we duplicate the last node for odd counts
-                    let node = Rc::clone(&chunk[0]);
-                    next_level.push(node);
+                    // Odd number of nodes, promote the last one
+                    next_level.push(current_level[i]);
                 }
             }
-
-            nodes = next_level;
+            
+            nodes.push(next_level);
+            level += 1;
         }
-
+        
+        // The last level should contain only the root
+        let root = nodes.last().unwrap()[0];
+        
         Self {
-            root: Some(Rc::clone(&nodes[0])),
-            num_transactions,
+            leaves,
+            nodes,
+            root,
         }
     }
-
-    /// Get the root hash of the tree
-    pub fn root_hash(&self) -> Option<[u8; 32]> {
-        self.root.as_ref().map(|node| node.borrow().hash())
-    }
     
-    /// Get the root hash of the tree as [u8; 32]
-    /// Returns zeroed array if the tree is empty
-    pub fn get_root(&self) -> [u8; 32] {
-        self.root_hash().unwrap_or([0; 32])
-    }
-    
-    /// Get the number of transactions in the tree
-    pub fn num_transactions(&self) -> usize {
-        self.num_transactions
-    }
-
-    /// Create a Merkle proof for a transaction
-    pub fn create_proof(&self, transaction: &[u8]) -> Result<MerkleProof, MerkleError> {
-        if self.root.is_none() {
+    /// Create a proof for the data at the given index
+    pub fn create_proof(&self, index: usize) -> MerkleResult<MerkleProof> {
+        if self.leaves.is_empty() {
             return Err(MerkleError::EmptyTree);
         }
         
-        // Hash the transaction to get the leaf hash
-        let tx_hash = MerkleNode::double_hash(transaction);
-        
-        // Find the path to the transaction and create the proof
-        let mut path = Vec::new();
-        let mut found = false;
-        
-        self.find_path_to_transaction(&self.root.as_ref().unwrap(), &tx_hash, &mut path, &mut found)?;
-        
-        if !found {
-            return Err(MerkleError::TransactionNotFound);
+        if index >= self.leaves.len() {
+            return Err(MerkleError::IndexOutOfBounds(index));
         }
         
-        let root_hash = self.root_hash().ok_or(MerkleError::EmptyTree)?;
+        let mut lemma = Vec::new();
+        let mut path_indices = Vec::new();
+        
+        let mut current_index = index;
+        
+        // Start at the bottom level (leaves) and work up
+        for level in 0..self.nodes.len() - 1 {
+            let level_len = self.nodes[level].len();
+            
+            // Determine sibling index
+            let sibling_index = if current_index % 2 == 0 {
+                // Current node is left child, get right sibling
+                current_index + 1
+            } else {
+                // Current node is right child, get left sibling
+                current_index - 1
+            };
+            
+            // Add path index (0 for left, 1 for right)
+            path_indices.push(current_index % 2);
+            
+            // Add sibling to lemma if it exists
+            if sibling_index < level_len {
+                lemma.push(self.nodes[level][sibling_index]);
+            } else {
+                // If there's no sibling, duplicate the current node
+                lemma.push(self.nodes[level][current_index]);
+            }
+            
+            // Move to parent index for the next level
+            current_index = current_index / 2;
+        }
         
         Ok(MerkleProof {
-            tx_hash,
-            steps: path,
-            root_hash,
+            leaf_hash: self.leaves[index],
+            lemma,
+            path_indices,
+            root_hash: self.root,
         })
     }
     
-    /// Find the path to a transaction with the given hash
-    fn find_path_to_transaction(
-        &self,
-        node: &Rc<RefCell<MerkleNode>>,
-        tx_hash: &[u8; 32],
-        path: &mut Vec<MerkleProofStep>,
-        found: &mut bool
-    ) -> Result<(), MerkleError> {
-        let node_ref = node.borrow();
-        
-        // If this is a leaf node, check if it matches
-        if node_ref.is_leaf() {
-            if node_ref.hash == *tx_hash {
-                *found = true;
-            }
-            return Ok(());
+    /// Verify a proof
+    pub fn verify_proof(proof: &MerkleProof) -> bool {
+        if proof.lemma.is_empty() {
+            // Special case: if there's only one node, the proof is valid if
+            // the leaf hash equals the root hash
+            return proof.leaf_hash == proof.root_hash;
         }
         
-        // Process left subtree
-        if let Some(left) = &node_ref.left {
-            let mut left_found = false;
-            self.find_path_to_transaction(left, tx_hash, path, &mut left_found)?;
+        let mut current_hash = proof.leaf_hash;
+        
+        // Traverse the path and compute the root
+        for (i, path_index) in proof.path_indices.iter().enumerate() {
+            if i >= proof.lemma.len() {
+                return false;
+            }
             
-            if left_found {
-                // Add right sibling to the path
-                if let Some(right) = &node_ref.right {
-                    path.push(MerkleProofStep {
-                        hash: right.borrow().hash,
-                        direction: MerkleDirection::Right,
-                    });
-                }
-                
-                *found = true;
-                return Ok(());
-            }
-        }
-        
-        // Process right subtree
-        if let Some(right) = &node_ref.right {
-            let mut right_found = false;
-            self.find_path_to_transaction(right, tx_hash, path, &mut right_found)?;
+            let sibling = proof.lemma[i];
             
-            if right_found {
-                // Add left sibling to the path
-                if let Some(left) = &node_ref.left {
-                    path.push(MerkleProofStep {
-                        hash: left.borrow().hash,
-                        direction: MerkleDirection::Left,
-                    });
-                }
-                
-                *found = true;
-                return Ok(());
+            // Compute the parent hash
+            if *path_index == 0 {
+                // Current node is left child
+                current_hash = Self::hash_pair(&current_hash, &sibling);
+            } else {
+                // Current node is right child
+                current_hash = Self::hash_pair(&sibling, &current_hash);
             }
         }
         
-        Ok(())
-    }
-
-    /// Verify that a transaction is included in the tree (shorthand method)
-    pub fn verify(&self, transaction: &[u8]) -> bool {
-        match self.create_proof(transaction) {
-            Ok(proof) => proof.verify(),
-            Err(_) => false,
-        }
+        // Check if the computed root matches the expected root
+        current_hash == proof.root_hash
     }
     
-    /// Verify a Merkle proof
-    pub fn verify_proof(proof: &MerkleProof) -> bool {
-        proof.verify()
+    /// Hash a pair of nodes
+    fn hash_pair(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(left);
+        hasher.update(right);
+        let mut result = [0u8; 32];
+        result.copy_from_slice(&hasher.finalize());
+        result
+    }
+    
+    /// Get the root hash of the tree
+    pub fn root_hash(&self) -> [u8; 32] {
+        self.root
+    }
+    
+    /// Get the number of leaves in the tree
+    pub fn len(&self) -> usize {
+        self.leaves.len()
+    }
+    
+    /// Check if the tree is empty
+    pub fn is_empty(&self) -> bool {
+        self.leaves.is_empty()
+    }
+}
+
+impl fmt::Display for MerkleTree {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "MerkleTree {{")?;
+        writeln!(f, "  leaves: {}", self.leaves.len())?;
+        writeln!(f, "  levels: {}", self.nodes.len())?;
+        writeln!(f, "  root: {}", hex::encode(self.root))?;
+        writeln!(f, "}}")
     }
 }
 
 impl MerkleProof {
-    /// Verify this Merkle proof
-    pub fn verify(&self) -> bool {
-        let mut current_hash = self.tx_hash;
-        
-        // Apply each step in the proof
-        for step in &self.steps {
-            let mut combined = Vec::with_capacity(64);
-            
-            match step.direction {
-                MerkleDirection::Left => {
-                    combined.extend_from_slice(&step.hash);
-                    combined.extend_from_slice(&current_hash);
-                },
-                MerkleDirection::Right => {
-                    combined.extend_from_slice(&current_hash);
-                    combined.extend_from_slice(&step.hash);
-                },
-            }
-            
-            current_hash = MerkleNode::double_hash(&combined);
-        }
-        
-        // Check if we arrived at the expected root
-        current_hash == self.root_hash
+    /// Serialize the proof to bytes
+    pub fn to_bytes(&self) -> MerkleResult<Vec<u8>> {
+        bincode::serialize(self).map_err(MerkleError::SerializationError)
     }
     
-    /// Serialize the proof to binary format
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut result = Vec::new();
-        
-        // Add transaction hash
-        result.extend_from_slice(&self.tx_hash);
-        
-        // Add number of steps
-        let steps_len = self.steps.len() as u16;
-        result.extend_from_slice(&steps_len.to_be_bytes());
-        
-        // Add each step
-        for step in &self.steps {
-            // Add direction (0 = left, 1 = right)
-            let direction_byte = match step.direction {
-                MerkleDirection::Left => 0u8,
-                MerkleDirection::Right => 1u8,
-            };
-            result.push(direction_byte);
-            
-            // Add hash
-            result.extend_from_slice(&step.hash);
-        }
-        
-        // Add root hash
-        result.extend_from_slice(&self.root_hash);
-        
-        result
+    /// Deserialize a proof from bytes
+    pub fn from_bytes(bytes: &[u8]) -> MerkleResult<Self> {
+        bincode::deserialize(bytes).map_err(MerkleError::SerializationError)
     }
-    
-    /// Deserialize a proof from binary format
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, MerkleError> {
-        if bytes.len() < 66 { // 32 (tx_hash) + 2 (steps_len) + 32 (root_hash)
-            return Err(MerkleError::InvalidProofFormat);
-        }
-        
-        let mut pos = 0;
-        
-        // Read transaction hash
-        let mut tx_hash = [0u8; 32];
-        tx_hash.copy_from_slice(&bytes[pos..pos+32]);
-        pos += 32;
-        
-        // Read number of steps
-        let steps_len = u16::from_be_bytes([bytes[pos], bytes[pos+1]]) as usize;
-        pos += 2;
-        
-        // Read steps
-        let mut steps = Vec::with_capacity(steps_len);
-        for _ in 0..steps_len {
-            if pos + 33 > bytes.len() {
-                return Err(MerkleError::InvalidProofFormat);
-            }
-            
-            // Read direction
-            let direction = match bytes[pos] {
-                0 => MerkleDirection::Left,
-                1 => MerkleDirection::Right,
-                _ => return Err(MerkleError::InvalidProofFormat),
-            };
-            pos += 1;
-            
-            // Read hash
-            let mut hash = [0u8; 32];
-            hash.copy_from_slice(&bytes[pos..pos+32]);
-            pos += 32;
-            
-            steps.push(MerkleProofStep { hash, direction });
-        }
-        
-        // Read root hash
-        if pos + 32 > bytes.len() {
-            return Err(MerkleError::InvalidProofFormat);
-        }
-        
-        let mut root_hash = [0u8; 32];
-        root_hash.copy_from_slice(&bytes[pos..pos+32]);
-        
-        Ok(MerkleProof {
-            tx_hash,
-            steps,
-            root_hash,
-        })
+}
+
+impl fmt::Display for MerkleProof {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "MerkleProof {{")?;
+        writeln!(f, "  leaf_hash: {}", hex::encode(self.leaf_hash))?;
+        writeln!(f, "  path_length: {}", self.lemma.len())?;
+        writeln!(f, "  root_hash: {}", hex::encode(self.root_hash))?;
+        writeln!(f, "}}")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    
     #[test]
-    fn test_merkle_tree_single_transaction() {
-        let transactions = vec![b"transaction1"];
-        let tree = MerkleTree::new(&transactions);
-        assert!(tree.verify(b"transaction1"));
-        assert!(!tree.verify(b"invalid_transaction"));
+    fn test_empty_tree() {
+        let tree = MerkleTree::new::<&[u8]>(&[]);
+        assert!(tree.is_empty());
+        assert_eq!(tree.len(), 0);
+        assert_eq!(tree.root, [0u8; 32]);
     }
-
+    
     #[test]
-    fn test_merkle_tree_multiple_transactions() {
-        let transactions = vec![
-            b"transaction1".as_slice(),
-            b"transaction2".as_slice(),
-            b"transaction3".as_slice(),
-            b"transaction4".as_slice(),
-        ];
-        let tree = MerkleTree::new(&transactions);
+    fn test_single_leaf() {
+        let data = vec![b"test data".to_vec()];
+        let tree = MerkleTree::new(&data);
         
-        for tx in &transactions {
-            assert!(tree.verify(tx));
-        }
-        assert!(!tree.verify(b"invalid_transaction"));
+        assert_eq!(tree.len(), 1);
+        
+        // For a single leaf, the leaf hash is the root hash
+        let mut hasher = Sha256::new();
+        hasher.update(&data[0]);
+        let mut expected = [0u8; 32];
+        expected.copy_from_slice(&hasher.finalize());
+        
+        assert_eq!(tree.root, expected);
     }
-
+    
     #[test]
-    fn test_merkle_tree_odd_transactions() {
-        let transactions = vec![
-            b"transaction1".as_slice(),
-            b"transaction2".as_slice(),
-            b"transaction3".as_slice(),
+    fn test_multiple_leaves() {
+        let data = vec![
+            b"data1".to_vec(),
+            b"data2".to_vec(),
+            b"data3".to_vec(),
+            b"data4".to_vec(),
         ];
-        let tree = MerkleTree::new(&transactions);
         
-        for tx in &transactions {
-            assert!(tree.verify(tx));
+        let tree = MerkleTree::new(&data);
+        
+        assert_eq!(tree.len(), 4);
+        assert_eq!(tree.nodes.len(), 3); // Leaves + 2 levels
+    }
+    
+    #[test]
+    fn test_proof_creation_and_verification() {
+        let data = vec![
+            b"data1".to_vec(),
+            b"data2".to_vec(),
+            b"data3".to_vec(),
+            b"data4".to_vec(),
+        ];
+        
+        let tree = MerkleTree::new(&data);
+        
+        for i in 0..data.len() {
+            let proof = tree.create_proof(i).unwrap();
+            assert!(MerkleTree::verify_proof(&proof));
+            
+            // Test serialization
+            let bytes = proof.to_bytes().unwrap();
+            let deserialized = MerkleProof::from_bytes(&bytes).unwrap();
+            assert!(MerkleTree::verify_proof(&deserialized));
         }
     }
     
     #[test]
-    fn test_merkle_proof_creation_and_verification() {
-        let transactions = vec![
-            b"transaction1".as_slice(),
-            b"transaction2".as_slice(),
-            b"transaction3".as_slice(),
-            b"transaction4".as_slice(),
+    fn test_invalid_proof() {
+        let data = vec![
+            b"data1".to_vec(),
+            b"data2".to_vec(),
+            b"data3".to_vec(),
+            b"data4".to_vec(),
         ];
-        let tree = MerkleTree::new(&transactions);
         
-        // Create a proof for transaction2
-        let proof = tree.create_proof(b"transaction2").unwrap();
+        let tree = MerkleTree::new(&data);
         
-        // Verify the proof
-        assert!(proof.verify());
+        // Create a valid proof
+        let mut proof = tree.create_proof(0).unwrap();
         
-        // Create an invalid proof by modifying the transaction hash
-        let mut invalid_proof = proof.clone();
-        invalid_proof.tx_hash[0] ^= 0xFF;
+        // Tamper with the leaf hash
+        proof.leaf_hash[0] = proof.leaf_hash[0].wrapping_add(1);
         
-        // Verify that the invalid proof fails
-        assert!(!invalid_proof.verify());
+        // Verification should fail
+        assert!(!MerkleTree::verify_proof(&proof));
     }
     
     #[test]
-    fn test_merkle_proof_serialization() {
-        let transactions = vec![
-            b"transaction1".as_slice(),
-            b"transaction2".as_slice(),
-            b"transaction3".as_slice(),
-            b"transaction4".as_slice(),
-        ];
-        let tree = MerkleTree::new(&transactions);
+    fn test_proof_out_of_bounds() {
+        let data = vec![b"test".to_vec()];
+        let tree = MerkleTree::new(&data);
         
-        let original_proof = tree.create_proof(b"transaction3").unwrap();
-        
-        // Serialize and deserialize
-        let bytes = original_proof.to_bytes();
-        let deserialized_proof = MerkleProof::from_bytes(&bytes).unwrap();
-        
-        // Check that they match
-        assert_eq!(original_proof.tx_hash, deserialized_proof.tx_hash);
-        assert_eq!(original_proof.root_hash, deserialized_proof.root_hash);
-        assert_eq!(original_proof.steps.len(), deserialized_proof.steps.len());
-        
-        // Verify the deserialized proof
-        assert!(deserialized_proof.verify());
+        assert!(tree.create_proof(0).is_ok());
+        assert!(matches!(tree.create_proof(1), Err(MerkleError::IndexOutOfBounds(1))));
     }
 }

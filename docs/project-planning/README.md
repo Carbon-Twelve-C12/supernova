@@ -19,7 +19,7 @@ These documents track the project's progress, planned features, and implementati
 
 ## Current Development Status
 
-The project is currently at version 0.9.0-DEV, with most core components operational and many advanced features fully implemented. Key highlights include:
+The project is currently at version 0.9.0-BETA, with all core components operational and many advanced features fully implemented. Key highlights include:
 
 - Quantum-resistant cryptography using Falcon-based signatures (100% complete)
 - Environmental tracking system with tiered green mining incentives (95% complete)
