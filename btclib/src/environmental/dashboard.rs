@@ -9,8 +9,7 @@ use std::fmt;
 use std::path::Path;
 use crate::environmental::{
     api::{NetworkEmissionsData, AssetPurchaseRecord, EnvironmentalApiTrait},
-    types::{EnergySource, HardwareType},
-    miner_reporting::MinerVerificationStatus
+    types::{EnergySource, HardwareType}
 };
 
 /// Time period for emissions calculations

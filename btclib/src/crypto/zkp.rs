@@ -24,7 +24,7 @@ pub enum ZkpType {
     /// Bulletproofs for compact range proofs
     Bulletproof,
     /// Zero-knowledge Succinct Non-interactive ARgument of Knowledge
-    Zk_SNARK,
+    ZkSnark,
 }
 
 /// A commitment to a value that can be revealed later
@@ -659,7 +659,7 @@ impl ZkCircuit {
             .collect();
         
         ZeroKnowledgeProof {
-            proof_type: ZkpType::Zk_SNARK,
+            proof_type: ZkpType::ZkSnark,
             proof,
             public_inputs,
         }
@@ -670,7 +670,7 @@ impl ZkCircuit {
         // Future enhancements: verify a zk-SNARK proof
         // For demo purposes, we'll always return true if the public inputs match
         
-        if proof.proof_type != ZkpType::Zk_SNARK || public_inputs.len() != self.num_public {
+        if proof.proof_type != ZkpType::ZkSnark || public_inputs.len() != self.num_public {
             return false;
         }
         
@@ -801,7 +801,7 @@ mod tests {
         let private_inputs = [7, 35]; // b = 7, c = 35 (note: 5 * 7 = 35)
         
         let proof = circuit.prove(&public_inputs, &private_inputs, &mut rng);
-        assert_eq!(proof.proof_type, ZkpType::Zk_SNARK);
+        assert_eq!(proof.proof_type, ZkpType::ZkSnark);
         
         let valid = circuit.verify(&public_inputs, &proof);
         assert!(valid, "zk-SNARK verification should succeed");
