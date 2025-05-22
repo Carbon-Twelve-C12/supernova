@@ -28,8 +28,8 @@ macro_rules! freeze_stub {
     };
 }
 
-//! Freeze functionality for the Supernova blockchain
-//! This module allows temporarily disabling parts of the code during compilation
+// Freeze functionality for the Supernova blockchain
+// This module allows temporarily disabling parts of the code during compilation
 
 use std::fmt;
 

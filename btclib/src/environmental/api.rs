@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
+use thiserror::Error;
 
-use crate::blockchain::Block;
+use crate::types::block::Block;
 use crate::environmental::{
-    emissions::{EmissionsError, EmissionsTracker, Region},
-    miner_reporting::{MinerEnvironmentalInfo, MinerVerificationStatus, RECCertificate, CarbonOffset, MinerReportingManager},
-    treasury::{EnvironmentalTreasury, TreasuryError, EnvironmentalAssetPurchase, TreasuryAccountType, TreasuryAllocation},
+    emissions::{EmissionsError, EmissionsTracker, Region, NetworkEmissionsData, VerificationStatus},
+    miner_reporting::{MinerEnvironmentalInfo, MinerVerificationStatus, RECCertificate, CarbonOffset, MinerReportingManager, VerificationInfo},
+    treasury::{EnvironmentalTreasury, TreasuryError, EnvironmentalAssetPurchase, TreasuryAccountType, EnvironmentalAssetType, TreasuryAllocation},
     types::{HardwareType, EnergySource},
     transparency::TransparencyDashboard,
     dashboard::EnvironmentalDashboard,
@@ -383,9 +384,8 @@ impl EnvironmentalApi {
         // Call the treasury method with the total fees
         let allocation = self.treasury.process_block_allocation(total_fees);
         
-        // Return the renewable_certificates value as an example of the allocation amount
-        // In a more complete implementation, this would return the total allocated amount
-        Ok(total_fees * (self.config.fee_allocation_percentage / 100.0) as u64)
+        // Return the allocation amount
+        Ok(allocation)
     }
     
     /// Calculate fee discount for a miner based on their environmental commitments
@@ -415,41 +415,63 @@ impl EnvironmentalApi {
     
     /// Purchase environmental assets with the treasury balance
     pub fn purchase_environmental_assets(&mut self, rec_allocation_percentage: f64) -> EnvironmentalResult<AssetPurchaseRecord> {
-        let balance = self.treasury.get_balance(Some(TreasuryAccountType::Main));
+        if !self.config.enabled {
+            return Err(EnvironmentalApiError::InvalidRequest("Environmental features are disabled".to_string()));
+        }
         
-        let rec_allocation = rec_allocation_percentage.max(60.0);
+        let current_balance = self.treasury.get_balance(None);
+        if current_balance == 0 {
+            return Err(EnvironmentalApiError::TreasuryError(TreasuryError::InsufficientFunds(0, 0)));
+        }
         
-        let purchases = self.treasury.purchase_prioritized_assets(
-            balance,
-            rec_allocation,
-            100.0 - rec_allocation  // Carbon allocation is the remainder
-        ).map_err(EnvironmentalApiError::TreasuryError)?;
+        // Calculate allocation for REC vs carbon offsets
+        let carbon_allocation_percentage = 100.0 - rec_allocation_percentage;
         
-        if let Some(purchase) = purchases.first() {
-            let record = AssetPurchaseRecord {
-                purchase_id: uuid::Uuid::new_v4().to_string(),
-                asset_type: match purchase.asset_type {
-                    treasury::EnvironmentalAssetType::REC => "REC".to_string(),
-                    treasury::EnvironmentalAssetType::CarbonOffset => "Carbon Offset".to_string(),
-                    treasury::EnvironmentalAssetType::GreenInvestment => "Green Investment".to_string(),
-                    treasury::EnvironmentalAssetType::ResearchGrant => "Research Grant".to_string(),
-                },
-                amount: purchase.amount,
-                unit: match purchase.asset_type {
-                    treasury::EnvironmentalAssetType::REC => "MWh".to_string(),
-                    treasury::EnvironmentalAssetType::CarbonOffset => "Tonnes CO2e".to_string(),
-                    _ => "Units".to_string(),
-                },
-                price: purchase.cost as f64,
-                purchase_date: purchase.purchase_date,
-                issuer: purchase.provider.clone(),
-                is_verified: true,
-                certificate_url: Some(purchase.verification_reference.clone().unwrap_or_default()),
-                timestamp: Utc::now(),
-            };
+        if rec_allocation_percentage < 0.0 || rec_allocation_percentage > 100.0 {
+            return Err(EnvironmentalApiError::InvalidRequest("Invalid allocation percentage".to_string()));
+        }
+        
+        let rec_amount = (current_balance as f64 * (rec_allocation_percentage / 100.0)) as u64;
+        
+        // Purchase an asset
+        if rec_amount > 0 {
+            let provider = "Green Energy Provider";
+            let amount_kwh = (rec_amount as f64) * 10.0; // 10 kWh per unit cost
             
-            self.asset_purchase_history.push(record.clone());
-            Ok(record)
+            let purchase_result = self.treasury.purchase_renewable_certificates(
+                provider,
+                amount_kwh,
+                rec_amount
+            );
+            
+            match purchase_result {
+                Ok(purchase) => {
+                    // Create a record for the purchase
+                    let unit = match purchase.asset_type {
+                        EnvironmentalAssetType::REC => "kWh",
+                        EnvironmentalAssetType::CarbonOffset => "tonnes CO2e",
+                        _ => "units",
+                    };
+                    
+                    let asset_record = AssetPurchaseRecord {
+                        purchase_id: purchase.purchase_id,
+                        asset_type: purchase.asset_type.to_string(),
+                        amount: purchase.amount,
+                        unit: unit.to_string(),
+                        price: purchase.cost as f64,
+                        purchase_date: purchase.purchase_date,
+                        issuer: purchase.provider.clone(),
+                        is_verified: purchase.verification_status == VerificationStatus::Verified,
+                        certificate_url: purchase.verification_reference.clone(),
+                        timestamp: Utc::now(),
+                    };
+                    
+                    self.asset_purchase_history.push(asset_record.clone());
+                    
+                    Ok(asset_record)
+                },
+                Err(e) => Err(EnvironmentalApiError::TreasuryError(e)),
+            }
         } else {
             Err(EnvironmentalApiError::InvalidRequest("No assets purchased".to_string()))
         }

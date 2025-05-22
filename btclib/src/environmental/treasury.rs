@@ -641,24 +641,27 @@ impl EnvironmentalTreasury {
         )
     }
     
-    /// Process transaction fees from a block
-    pub fn process_block_allocation(&self, total_fees: u64) -> Result<u64, TreasuryError> {
-        // Check if treasury is enabled
+    /// Process block allocation from transaction fees
+    pub fn process_block_allocation(&self, total_fees: u64) -> u64 {
         if !self.config.read().unwrap().enabled {
-            return Ok(0);
+            return 0;
         }
         
-        // Calculate amount to allocate to treasury
         let allocation_percentage = self.config.read().unwrap().fee_allocation_percentage;
+        
+        if allocation_percentage <= 0.0 || allocation_percentage >= 100.0 {
+            return 0;
+        }
+        
         let allocation_amount = (total_fees as f64 * (allocation_percentage / 100.0)) as u64;
         
-        // Update treasury balance
-        if allocation_amount > 0 {
+        // Add to balance
+        {
             let mut balance = self.balance.write().unwrap();
             *balance += allocation_amount;
         }
         
-        Ok(allocation_amount)
+        allocation_amount
     }
     
     /// Purchase prioritized assets based on current settings
