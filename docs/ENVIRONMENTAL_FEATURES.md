@@ -1,10 +1,10 @@
 # Environmental Features Implementation
 
-This document provides a comprehensive overview of Supernova's environmental features, including emissions tracking, green mining incentives, reporting systems, and governance. With the release of version 0.9.0, all core environmental features have been fully implemented, with the environmental tracking system now 100% complete and green mining incentives fully operational.
+This document provides a comprehensive overview of Supernova's environmental features, including emissions tracking, green mining incentives, reporting systems, and governance. With the release of version 0.9.0-BETA, all core environmental features have been fully implemented, with the environmental tracking system now 100% complete and green mining incentives fully operational.
 
 ## Implementation Status
 
-As of version 0.9.0, Supernova has implemented the following environmental features:
+As of version 0.9.0-BETA, Supernova has implemented the following environmental features:
 
 - ✅ Comprehensive emissions tracking system with geographic attribution (100% implemented)
 - ✅ Environmental API with full transaction emissions calculation (100% implemented)

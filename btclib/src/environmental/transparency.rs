@@ -4,9 +4,11 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 use serde::{Serialize, Deserialize};
 
-use crate::environmental::verification::{RenewableCertificate, CarbonOffset, VerificationStatus};
+use crate::environmental::verification::{RenewableCertificate, CarbonOffset};
 use crate::environmental::miner_reporting::MinerVerificationStatus;
+use crate::environmental::emissions::{EmissionsTracker, VerificationStatus};
 use crate::environmental::types::Region;
+use crate::environmental::dashboard::EnvironmentalDashboard;
 
 /// Level of transparency in reporting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -4,14 +4,18 @@
 // Public modules
 pub mod api;
 pub mod block;
+pub mod blockchain;
 pub mod config;
 pub mod consensus;
 pub mod consensus_verification;
 pub mod crypto;
 pub mod environmental;
+pub mod errors;
+pub mod hash;
 pub mod mempool;
 pub mod monitoring;
 pub mod network;
+pub mod mining;
 pub mod security_mitigation;
 pub mod storage;
 pub mod testnet;
@@ -19,77 +23,64 @@ pub mod transaction_processor;
 pub mod types;
 pub mod util;
 pub mod validation;
-
-// Create a blockchain module that re-exports from block and types
-pub mod blockchain {
-    // Export Block and BlockHeader from types
-    pub use crate::types::block::{Block, BlockHeader};
-    pub use crate::types::transaction::Transaction;
-}
+pub mod verification;
 
 // Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// Errors and result types
-pub mod errors;
+// Important! Re-export ValidationResult first to ensure it's available
+pub use crate::validation::transaction::ValidationResult;
 
 // Re-export commonly used types
-pub use crate::types::block::{Block, BlockHeader};
-pub use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
-pub use crate::crypto::{hash, signature};
-pub use crate::validation::{ValidationError, ValidationResult};
+pub use crate::blockchain::{Block, BlockHeader, Transaction};
+pub use crate::crypto::hash::Hash;
+pub use crate::validation::ValidationError;
 
 // Re-export public API
-pub mod api;
-pub mod config;
-pub mod crypto;
-pub mod environmental;
-pub mod types;
-pub mod validation;
-pub mod testnet;
-pub mod consensus_verification;
-pub mod consensus;
-#[cfg(feature = "lightning")]
-pub mod lightning;
-pub mod mempool;
-pub mod util;
-
-// Internal modules
-mod transaction_processor;
-mod storage;
-mod mining;
-mod network;
-mod security_mitigation;
-mod monitoring;
-
-// Re-export common types for convenience
-pub use types::transaction::{Transaction, TransactionInput, TransactionOutput};
-pub use types::block::{Block, BlockHeader};
-pub use types::units::{NovaUnit, TOTAL_NOVA_SUPPLY, format_as_nova};
-pub use crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme, ClassicalScheme};
-pub use environmental::emissions::{EmissionsTracker, Emissions};
-pub use environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetType};
-pub use environmental::dashboard::{EnvironmentalDashboard, EmissionsTimePeriod};
-pub use consensus_verification::{ConsensusVerificationFramework, VerificationReport, ConsensusProperty};
-pub use consensus::{DifficultyAdjustment, DifficultyAdjustmentConfig};
-pub use validation::{BlockValidator, BlockValidationConfig, TransactionValidator, ValidationResult};
-pub use mempool::{TransactionPool, TransactionPoolConfig, MempoolError};
-pub use util::merkle::{MerkleTree, MerkleProof, MerkleError};
+pub use crate::api::{Api, ApiConfig};
+pub use crate::config::SuperNovaConfig;
+pub use crate::environmental::{
+    EmissionsTracker, 
+    Emissions, 
+    EnvironmentalTreasury, 
+    EnvironmentalAssetType,
+    EnvironmentalDashboard, 
+    EmissionsTimePeriod
+};
+pub use crate::verification::{
+    VerificationService,
+    VerificationStatus,
+};
+pub use crate::consensus_verification::{
+    ConsensusVerificationFramework, 
+    VerificationReport, 
+    ConsensusProperty
+};
+pub use crate::consensus::{DifficultyAdjustment, DifficultyAdjustmentConfig};
+pub use crate::validation::{
+    BlockValidator, 
+    BlockValidationConfig, 
+    TransactionValidator
+};
+pub use crate::mempool::{TransactionPool, TransactionPoolConfig, MempoolError};
+pub use crate::util::merkle::{MerkleTree, MerkleProof, MerkleError};
+pub use crate::errors::{SuperNovaError, SuperNovaResult};
 
 // Re-export Lightning types when feature is enabled
 #[cfg(feature = "lightning")]
+pub mod lightning;
+
+#[cfg(feature = "lightning")]
 pub use lightning::{
-    LightningNetwork, 
-    LightningConfig, 
-    LightningNetworkError,
-    channel::{Channel, ChannelId, ChannelState, ChannelConfig, ChannelInfo}
+    LightningNetwork,
+    PaymentChannel,
+    ChannelId,
+    LightningTransaction,
 };
 
 // Add the freeze module to the library
-
 // Freeze feature allows parts of the code to be disabled during compilation
 // This is useful for working around circular dependencies or other issues
-// that prevent the codebase from building.
 pub mod freeze;
 pub use freeze::*;
 

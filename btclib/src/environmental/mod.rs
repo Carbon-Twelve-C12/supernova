@@ -16,8 +16,8 @@ pub mod verification;
 // Re-export commonly used types with module-specific prefixes to avoid conflicts
 pub use types::{Region as TypesRegion, EnergySource, EmissionFactor, EmissionsFactorType, HardwareType as TypesHardwareType};
 pub use miner_reporting::{MinerEnvironmentalInfo, MinerReportingManager, MinerVerificationStatus, TypesHardwareType as MinerHardwareType};
-pub use emissions::{EmissionsTracker, EmissionCalculator, Region as EmissionsRegion};
-pub use treasury::{EnvironmentalTreasury, EnvironmentalAssetType, EnvironmentalAssetPurchase, VerificationStatus};
+pub use emissions::{EmissionsTracker, EmissionCalculator, Region as EmissionsRegion, VerificationStatus};
+pub use treasury::{EnvironmentalTreasury, EnvironmentalAssetType, EnvironmentalAssetPurchase};
 pub use dashboard::{EnvironmentalDashboard, EnvironmentalMetrics, EmissionsTimePeriod};
 pub use transparency::{TransparencyDashboard, TransparencyReport, TransparencyLevel};
 pub use governance::{EnvironmentalGovernance, EnvironmentalProposal, ProposalStatus};

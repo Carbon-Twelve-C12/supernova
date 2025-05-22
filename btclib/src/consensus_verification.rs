@@ -3,7 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use serde::{Serialize, Deserialize};
 use crate::types::transaction::Transaction;
 use crate::types::block::{Block, BlockHeader};
-use crate::validation::{ValidationError, ValidationResult, SecurityLevel};
+use crate::validation::{ValidationError, SecurityLevel};
+use crate::validation::transaction::ValidationResult;
 
 /// Error types specific to consensus verification
 #[derive(Debug, Error)]

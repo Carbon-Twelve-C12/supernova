@@ -5,7 +5,7 @@ use tracing::{debug, info, warn};
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 use crate::environmental::types::{EnergySource as TypesEnergySource, EmissionFactor, HardwareType as TypesHardwareType, Region};
-use crate::environmental::treasury::VerificationStatus as TreasuryVerificationStatus;
+use crate::environmental::emissions::VerificationStatus;
 use std::sync::{Arc, RwLock};
 use url::Url;
 use std::fmt;

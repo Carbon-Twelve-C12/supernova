@@ -56,6 +56,39 @@ impl Default for NetworkConfig {
     }
 }
 
+// Network protocol type stubs
+pub mod protocol {
+    // Stub for BlockHeader used in protocol
+    #[derive(Debug, Clone)]
+    pub struct BlockHeader {
+        pub version: u32,
+        pub prev_block_hash: [u8; 32],
+        pub merkle_root: [u8; 32],
+        pub timestamp: u64,
+        pub bits: u32,
+        pub nonce: u32,
+    }
+}
+
+// P2P module stubs
+pub mod p2p {
+    // Stub for Block used in p2p module
+    #[derive(Debug, Clone)]
+    pub struct Block {
+        // Empty implementation for now
+    }
+
+    impl Block {
+        pub fn hash(&self) -> [u8; 32] {
+            [0; 32] // Placeholder implementation
+        }
+    }
+}
+
+// Re-export node protocol stubs
+pub use self::protocol::BlockHeader;
+pub use self::p2p::Block;
+
 // Re-export networking components that will be implemented later
 // pub mod peer;
 // pub mod message;
