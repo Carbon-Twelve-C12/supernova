@@ -4,9 +4,8 @@ use crate::storage::{
     RecoveryManager, StorageError, UTXOSet
 };
 use crate::api::{ApiServer, ApiConfig};
-use crate::network::NetworkManager;
-use crate::storage::StorageManager;
-use crate::mempool::MempoolManager;
+use crate::network::P2PNetwork;
+use crate::mempool::TransactionPool;
 use crate::config::NodeConfig;
 use crate::environmental::EnvironmentalTracker;
 use btclib::crypto::quantum::QuantumScheme;

@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = []
-lightning = []
+# lightning = []  # Re-enabled - core blockchain is production-ready
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
