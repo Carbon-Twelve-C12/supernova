@@ -10,6 +10,33 @@ use crate::transaction_processor::{TransactionProcessorError};
 use crate::environmental::treasury::{TreasuryError, VerificationStatus};
 use crate::environmental::dashboard::{EmissionsTimePeriod};
 use thiserror::Error;
+use std::net::SocketAddr;
+use serde::{Serialize, Deserialize};
+use tokio::net::TcpListener;
+
+/// API configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiConfig {
+    /// Server bind address
+    pub bind_address: SocketAddr,
+    /// Enable CORS
+    pub enable_cors: bool,
+    /// API key for authentication
+    pub api_key: Option<String>,
+    /// Rate limiting
+    pub rate_limit_per_minute: u32,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            bind_address: "127.0.0.1:8080".parse().unwrap(),
+            enable_cors: true,
+            api_key: None,
+            rate_limit_per_minute: 100,
+        }
+    }
+}
 
 /// API error types
 #[derive(Error, Debug)]
@@ -37,6 +64,21 @@ pub enum ApiError {
     /// Configuration error
     #[error("Configuration error: {0}")]
     ConfigError(String),
+    
+    #[error("Failed to bind to address: {0}")]
+    BindError(String),
+    
+    #[error("Authentication failed")]
+    AuthenticationFailed,
+    
+    #[error("Rate limit exceeded")]
+    RateLimitExceeded,
+    
+    #[error("Invalid request: {0}")]
+    InvalidRequest(String),
+    
+    #[error("Internal server error: {0}")]
+    InternalError(String),
 }
 
 /// API result type
@@ -98,5 +140,55 @@ impl SuperNovaApi {
     ) -> ApiResult<String> {
         // Placeholder implementation
         Err(ApiError::ConfigError("Not implemented".to_string()))
+    }
+}
+
+/// Main API server
+#[derive(Debug)]
+pub struct Api {
+    config: ApiConfig,
+    listener: Option<TcpListener>,
+}
+
+impl Api {
+    /// Create a new API instance
+    pub fn new(config: ApiConfig) -> Self {
+        Self {
+            config,
+            listener: None,
+        }
+    }
+    
+    /// Start the API server
+    pub async fn start(&mut self) -> Result<(), ApiError> {
+        let listener = TcpListener::bind(&self.config.bind_address).await
+            .map_err(|e| ApiError::BindError(e.to_string()))?;
+            
+        println!("API server listening on {}", self.config.bind_address);
+        self.listener = Some(listener);
+        
+        Ok(())
+    }
+    
+    /// Stop the API server
+    pub fn stop(&mut self) {
+        self.listener = None;
+    }
+    
+    /// Get the configuration
+    pub fn config(&self) -> &ApiConfig {
+        &self.config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_api_config_default() {
+        let config = ApiConfig::default();
+        assert!(config.enable_cors);
+        assert_eq!(config.rate_limit_per_minute, 100);
     }
 } 

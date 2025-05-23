@@ -8,7 +8,7 @@ use tokio::time::interval;
 use tokio::task::JoinHandle;
 use crate::monitoring::MetricsError;
 use tracing::{info, warn, error, debug};
-use sysinfo::{System, SystemExt, ProcessorExt, DiskExt, NetworkExt, ComponentExt, CpuExt};
+use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ComponentExt};
 
 /// System metrics collector
 pub struct SystemMetrics {

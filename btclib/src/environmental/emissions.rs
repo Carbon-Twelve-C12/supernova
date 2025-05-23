@@ -11,9 +11,59 @@ use std::sync::Arc;
 use url::Url;
 use std::time::{Duration, SystemTime};
 use crate::types::block::Block;
-use crate::node::src::network::protocol::{
-    EnvironmentalDataAnnouncement, RegionalEnergySource, EnergySourceInfo, EnergySourceType
-};
+
+/// Environmental data announcement for network sharing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvironmentalDataAnnouncement {
+    /// Announcing node ID
+    pub node_id: String,
+    /// Regional energy sources
+    pub energy_sources: Vec<RegionalEnergySource>,
+    /// Timestamp of announcement
+    pub timestamp: DateTime<Utc>,
+    /// Network hashrate information
+    pub network_hashrate: f32,
+    /// Total energy consumption in MWh
+    pub total_energy_consumption_mwh: f32,
+    /// Total carbon emissions in tonnes
+    pub total_carbon_emissions_tonnes: f32,
+    /// Global renewable percentage
+    pub global_renewable_percentage: f32,
+    /// Regional energy sources (legacy field for compatibility)
+    pub regional_energy_sources: Vec<RegionalEnergySource>,
+    /// Network data
+    pub network_data: NetworkData,
+    /// Total energy consumption (legacy field)
+    pub energy_consumption: f64,
+}
+
+/// Regional energy source information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegionalEnergySource {
+    /// Region identifier
+    pub region_id: String,
+    /// Energy source information (for compatibility)
+    pub energy_info: EnergySourceInfo,
+    /// Energy sources breakdown
+    pub energy_sources: Vec<EnergySourceInfo>,
+    /// Energy consumption for this region
+    pub energy_consumption: f64,
+    /// Region name
+    pub name: String,
+    /// Percentage of total hashrate
+    pub hashrate_percentage: f64,
+}
+
+/// Energy source information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnergySourceInfo {
+    /// Type of energy source
+    pub source_type: EnergySourceType,
+    /// Percentage of total energy
+    pub percentage: f64,
+    /// Whether this source is renewable
+    pub is_renewable: bool,
+}
 
 /// Network-wide emissions data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +79,9 @@ pub struct NetworkEmissions {
     /// Timestamp of calculation
     pub timestamp: u64,
 }
+
+/// Network emissions data (alias for NetworkEmissions for compatibility)
+pub type NetworkEmissionsData = NetworkEmissions;
 
 /// Error types for emissions tracking operations
 #[derive(Error, Debug)]
@@ -1020,7 +1073,7 @@ impl EmissionsCalculator {
 }
 
 /// Energy source types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EnergySourceType {
     Solar,
     Wind,
@@ -1367,8 +1420,8 @@ impl EmissionsRegistry {
             let renewable_percentage = self.calculate_renewable_percentage(&energy_sources);
             
             let data = RegionalEnergyData {
-                region_id: region.region_code.clone(),
-                name: region.region_code.clone(), // Use code as name for now
+                region_id: region.region_id.clone(),
+                name: region.region_id.clone(), // Use code as name for now
                 hashrate_percentage: region.energy_consumption / announcement.energy_consumption,
                 energy_sources,
                 carbon_intensity,
@@ -1376,7 +1429,7 @@ impl EmissionsRegistry {
                 last_updated: Utc::now(),
             };
             
-            regional_data.insert(region.region_code.clone(), data);
+            regional_data.insert(region.region_id.clone(), data);
         }
         
         // Recalculate global values after updating regional data
@@ -1483,8 +1536,8 @@ impl EmissionsRegistry {
             let mut energy_sources = Vec::new();
             for (source_type, percentage) in &data.energy_sources {
                 energy_sources.push(EnergySourceInfo {
-                    source_type: format!("{:?}", source_type),
-                    percentage: *percentage as f32,
+                    source_type: *source_type,
+                    percentage: *percentage,
                     is_renewable: match source_type {
                         EnergySourceType::Solar | EnergySourceType::Wind | 
                         EnergySourceType::Hydro | EnergySourceType::Geothermal => true,
@@ -1493,31 +1546,37 @@ impl EmissionsRegistry {
                 });
             }
             
-            regions.push(RegionalEnergyInfo {
+            regions.push(RegionalEnergySource {
                 region_id: region_id.clone(),
-                name: data.name.clone(),
-                hashrate_percentage: data.hashrate_percentage as f32,
-                carbon_intensity: data.carbon_intensity as f32,
-                renewable_percentage: data.renewable_percentage as f32,
+                energy_info: EnergySourceInfo {
+                    source_type: EnergySourceType::Other,
+                    percentage: 1.0,
+                    is_renewable: false,
+                },
                 energy_sources,
+                energy_consumption: data.hashrate_percentage * total_energy,
+                name: region_id.clone(),
+                hashrate_percentage: data.hashrate_percentage,
             });
         }
         
         let carbon_emissions = total_energy * (*self.global_carbon_intensity.read().await);
         
         EnvironmentalDataAnnouncement {
-            timestamp: Utc::now().timestamp() as u64,
+            node_id: "local".to_string(),
+            energy_sources: regions.clone(),
+            timestamp: Utc::now(),
             network_hashrate: network_hashrate.hashrate as f32,
             total_energy_consumption_mwh: total_energy as f32,
             total_carbon_emissions_tonnes: carbon_emissions as f32,
             global_renewable_percentage: (*self.global_renewable_percentage.read().await) as f32,
             regional_energy_sources: regions,
             network_data: NetworkData {
-                network_hashrate: network_hashrate.hashrate,
-                renewable_percentage: *self.global_renewable_percentage.read().await,
-                carbon_intensity: *self.global_carbon_intensity.read().await,
-                network_hashrate_data: network_hashrate.clone()
-            }
+                total_power_mw: network_hashrate.hashrate / 1_000_000.0, // Convert to MW
+                efficiency_j_th: 50.0, // Default efficiency
+                last_updated: Utc::now(),
+            },
+            energy_consumption: total_energy,
         }
     }
     
@@ -1569,20 +1628,7 @@ impl EmissionsRegistry {
             let mut regional_energy_sources = HashMap::new();
             
             for source in &region.energy_sources {
-                let source_type = match source.source_type.as_str() {
-                    "Solar" => EnergySourceType::Solar,
-                    "Wind" => EnergySourceType::Wind,
-                    "Hydro" => EnergySourceType::Hydro,
-                    "Nuclear" => EnergySourceType::Nuclear,
-                    "Gas" => EnergySourceType::Gas,
-                    "Coal" => EnergySourceType::Coal,
-                    "Oil" => EnergySourceType::Oil,
-                    "Geothermal" => EnergySourceType::Geothermal,
-                    "Biomass" => EnergySourceType::Biomass,
-                    _ => EnergySourceType::Other,
-                };
-                
-                regional_energy_sources.insert(source_type, source.percentage as f64);
+                regional_energy_sources.insert(source.source_type, source.percentage as f64);
             }
             
             let carbon_intensity = self.calculate_carbon_intensity(&regional_energy_sources);
@@ -1609,6 +1655,53 @@ impl EmissionsRegistry {
         
         Ok(())
     }
+}
+
+/// Network-specific data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkData {
+    /// Total network power consumption in MW
+    pub total_power_mw: f64,
+    /// Network efficiency in J/TH
+    pub efficiency_j_th: f64,
+    /// Last update timestamp
+    pub last_updated: DateTime<Utc>,
+}
+
+/// Regional summary for network reporting
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegionalSummary {
+    /// Region identifier
+    pub region_id: String,
+    /// Percentage of total hashrate
+    pub hashrate_percentage: f32,
+    /// Renewable energy percentage
+    pub renewable_percentage: f32,
+    /// Carbon intensity
+    pub carbon_intensity: f64,
+    /// Energy consumption in MWh
+    pub energy_consumption_mwh: f64,
+}
+
+/// Network summary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkSummary {
+    /// Timestamp
+    pub timestamp: DateTime<Utc>,
+    /// Total hashrate
+    pub total_hashrate: f64,
+    /// Total energy consumption in MWh
+    pub total_energy_consumption_mwh: f64,
+    /// Total carbon emissions in tonnes
+    pub total_carbon_emissions_tonnes: f64,
+    /// Renewable percentage
+    pub renewable_percentage: f32,
+    /// Carbon intensity
+    pub carbon_intensity: f64,
+    /// Regional breakdown
+    pub regional_breakdown: Vec<RegionalSummary>,
+    /// Network hashrate data
+    pub network_hashrate: NetworkHashrate,
 }
 
 #[cfg(test)]

@@ -1040,63 +1040,6 @@ pub struct MinerEnvironmentalReport {
     pub rec_coverage_percentage: Option<f64>,
 }
 
-/// Energy source for mining operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TypesEnergySource {
-    /// Solar power
-    Solar,
-    /// Wind power
-    Wind,
-    /// Hydroelectric power
-    Hydro,
-    /// Geothermal power
-    Geothermal,
-    /// Nuclear power
-    Nuclear,
-    /// Natural gas
-    NaturalGas,
-    /// Coal
-    Coal,
-    /// Oil
-    Oil,
-    /// Biomass
-    Biomass,
-    /// Unknown source
-    Unknown,
-}
-
-impl TypesEnergySource {
-    /// Check if the energy source is renewable
-    pub fn is_renewable(&self) -> bool {
-        match self {
-            TypesEnergySource::Solar => true,
-            TypesEnergySource::Wind => true,
-            TypesEnergySource::Hydro => true,
-            TypesEnergySource::Geothermal => true,
-            TypesEnergySource::Biomass => true,
-            // Nuclear is carbon-free but not classified as renewable
-            TypesEnergySource::Nuclear => false,
-            TypesEnergySource::NaturalGas => false,
-            TypesEnergySource::Coal => false,
-            TypesEnergySource::Oil => false,
-            TypesEnergySource::Unknown => false,
-        }
-    }
-}
-
-/// Hardware type used for mining
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TypesHardwareType {
-    /// ASIC miner
-    Asic,
-    /// GPU miner
-    Gpu,
-    /// CPU miner
-    Cpu,
-    /// Other hardware type
-    Other,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

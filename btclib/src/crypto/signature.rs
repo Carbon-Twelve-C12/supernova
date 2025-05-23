@@ -6,7 +6,8 @@ use thiserror::Error;
 use rayon::prelude::*;
 use crate::types::transaction::Transaction;
 use crate::crypto::quantum::{QuantumScheme, QuantumParameters, QuantumError, ClassicalScheme};
-use secp256k1::{Secp256k1, Message, SecretKey, PublicKey, Signature as Secp256k1Signature};
+use secp256k1::{Secp256k1, Message, SecretKey, PublicKey};
+use secp256k1::ecdsa::Signature as Secp256k1Signature;
 use rand;
 use hex;
 use sha2;
@@ -201,7 +202,7 @@ impl SignatureScheme for Secp256k1Scheme {
             let msg = Message::from_slice(messages[i])
                 .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
             
-            let sig = Secp256k1Signature::from_slice(signatures[i])
+            let sig = Secp256k1Signature::from_compact(signatures[i])
                 .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
                 
             let pk = PublicKey::from_slice(keys[i])
@@ -610,7 +611,7 @@ impl SignatureVerifier {
 }
 
 /// Unified signature struct for different signature types
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Signature {
     /// Type of signature
     pub signature_type: SignatureType,

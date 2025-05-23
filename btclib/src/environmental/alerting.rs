@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 use thiserror::Error;
+use std::sync::{Arc, RwLock};
 
 use crate::environmental::emissions::{EmissionsTracker, Emissions};
 use crate::environmental::dashboard::{EnvironmentalDashboard, EnvironmentalMetrics, EmissionsTimePeriod};
@@ -203,30 +204,64 @@ impl Default for AlertingConfig {
     }
 }
 
+/// Type alias for compatibility
+pub type AlertingSystem = EnvironmentalAlertingSystem;
+
 /// Environmental alerting system
+#[derive(Debug, Clone)]
 pub struct EnvironmentalAlertingSystem {
-    /// Alerting configuration
-    config: AlertingConfig,
-    /// Alert rules
-    rules: Vec<AlertRule>,
     /// Active alerts
-    active_alerts: HashMap<String, Alert>,
-    /// Alert history
-    alert_history: Vec<AlertHistoryRecord>,
-    /// Last check timestamps per rule
-    last_check: HashMap<String, DateTime<Utc>>,
-    /// Alert count in the current hour
-    alerts_this_hour: u32,
-    /// Timestamp for the start of the current hour window
-    current_hour_start: DateTime<Utc>,
-    /// Environmental dashboard reference
-    dashboard: EnvironmentalDashboard,
-    /// Emissions tracker reference
-    emissions_tracker: EmissionsTracker,
-    /// Environmental treasury reference
-    treasury: EnvironmentalTreasury,
+    pub alerts: Arc<RwLock<HashMap<String, Alert>>>,
+    /// Alert rules
+    pub rules: Arc<RwLock<HashMap<String, AlertRule>>>,
+    /// Configuration
+    pub config: AlertingConfig,
 }
 
+impl EnvironmentalAlertingSystem {
+    /// Create a new environmental alerting system
+    pub fn new(
+        config: AlertingConfig,
+        dashboard: EnvironmentalDashboard,
+        emissions_tracker: EmissionsTracker,
+        treasury: EnvironmentalTreasury,
+    ) -> Self {
+        Self {
+            alerts: Arc::new(RwLock::new(HashMap::new())),
+            rules: Arc::new(RwLock::new(HashMap::new())),
+            config,
+        }
+    }
+    
+    /// Add an alert rule
+    pub fn add_rule(&self, rule: AlertRule) -> Result<(), AlertingError> {
+        let mut rules = self.rules.write().unwrap();
+        rules.insert(rule.id.clone(), rule);
+        Ok(())
+    }
+    
+    /// Trigger an alert
+    pub fn trigger_alert(&self, alert: Alert) -> Result<(), AlertingError> {
+        if !self.config.enabled {
+            return Ok(());
+        }
+        
+        let mut alerts = self.alerts.write().unwrap();
+        alerts.insert(alert.id.clone(), alert);
+        
+        // Clean up old alerts if necessary
+        if alerts.len() > self.config.max_alerts_per_hour as usize {
+            let oldest_id = alerts.keys().next().cloned();
+            if let Some(id) = oldest_id {
+                alerts.remove(&id);
+            }
+        }
+        
+        Ok(())
+    }
+}
+
+/// Alert rule for environmental monitoring
 impl EnvironmentalAlertingSystem {
     /// Create a new environmental alerting system
     pub fn new(
@@ -451,8 +486,6 @@ impl EnvironmentalAlertingSystem {
         
         new_alerts
     }
-    
-
     
     /// Acknowledge an alert
     pub fn acknowledge_alert(&mut self, alert_id: &str, user: &str, note: Option<String>) -> Result<(), AlertingError> {

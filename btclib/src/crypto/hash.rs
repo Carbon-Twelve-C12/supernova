@@ -262,4 +262,7 @@ mod tests {
         
         assert_eq!(hash1, hash2);
     }
-} 
+}
+
+// Re-export these functions to maintain compatibility
+pub use crate::hash::{hash256, Hash256, hash_to_hex, double_sha256}; 
