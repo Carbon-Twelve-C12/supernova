@@ -460,7 +460,7 @@ impl CorruptionHandler {
                 )),
             };
             
-            current_hash = block.prev_block_hash();
+            current_hash = *block.prev_block_hash();
             current_height -= 1;
         }
         

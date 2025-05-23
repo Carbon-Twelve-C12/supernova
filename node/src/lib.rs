@@ -3,6 +3,9 @@ pub mod mempool;
 pub mod storage;
 pub mod metrics;
 pub mod config;
+pub mod node;
+pub mod api;
+pub mod environmental;
 
 #[cfg(test)]
 mod tests;

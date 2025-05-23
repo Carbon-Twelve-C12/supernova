@@ -12,7 +12,8 @@ use crate::storage::StorageError;
 use crate::storage::integrity::models::{
     IntegrityConfig, IntegrityIssue, IssueLocation, IssueSeverity, IssueType,
 };
-use btclib::types::{Block, Transaction};
+use btclib::types::block::Block;
+use btclib::types::transaction::Transaction;
 
 /// Database structure verifier
 pub struct DatabaseVerifier {
@@ -355,7 +356,7 @@ impl<'a> BlockchainVerifier<'a> {
             }
 
             // Move to previous block
-            current_hash = block.prev_block_hash();
+            current_hash = *block.prev_block_hash();
             current_height -= 1;
         }
 
@@ -430,7 +431,7 @@ impl<'a> UtxoVerifier<'a> {
             }
 
             // Move to previous block
-            current_hash = block.prev_block_hash();
+            current_hash = *block.prev_block_hash();
             current_height -= 1;
         }
 
@@ -541,7 +542,7 @@ impl<'a> UtxoVerifier<'a> {
                 }
             }
 
-            current_hash = block.prev_block_hash();
+            current_hash = *block.prev_block_hash();
             current_height -= 1;
         }
         
@@ -606,7 +607,7 @@ impl<'a> CryptoVerifier<'a> {
             if i % interval != 0 && i != 0 && i != blocks_to_check - 1 {
                 // Get block to continue traversal, but don't verify
                 if let Ok(Some(block)) = self.db.get_block(&current_hash) {
-                    current_hash = block.prev_block_hash();
+                    current_hash = *block.prev_block_hash();
                     current_height -= 1;
                     continue;
                 } else {
@@ -711,7 +712,7 @@ impl<'a> CryptoVerifier<'a> {
             }
             
             // Move to previous block
-            current_hash = block.prev_block_hash();
+            current_hash = *block.prev_block_hash();
             current_height -= 1;
             
             if current_height == 0 {

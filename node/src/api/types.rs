@@ -983,38 +983,6 @@ pub struct UTXOList {
     pub total_amount: u64,
 }
 
-/// Transaction input
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TransactionInput {
-    /// Transaction ID being spent
-    pub txid: String,
-    
-    /// Output index being spent
-    pub vout: u32,
-    
-    /// Address
-    pub address: Option<String>,
-    
-    /// Amount in satoshis
-    pub amount: Option<u64>,
-}
-
-/// Transaction output
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TransactionOutput {
-    /// Recipient address
-    pub address: String,
-    
-    /// Amount in satoshis
-    pub amount: u64,
-    
-    /// Output index
-    pub n: u32,
-    
-    /// Whether this is a change output
-    pub is_change: bool,
-}
-
 /// Carbon footprint information
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CarbonFootprint {

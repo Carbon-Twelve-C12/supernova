@@ -341,7 +341,7 @@ impl RecoveryManager {
                         utxos.push((tx_hash, index as u32, output_clone));
                     }
                 }
-                current_hash = block.prev_block_hash();
+                current_hash = *block.prev_block_hash();
             } else {
                 break;
             }
@@ -443,7 +443,7 @@ impl RecoveryManager {
                 }
             }
 
-            current_hash = block.prev_block_hash();
+            current_hash = *block.prev_block_hash();
             height -= 1;
         }
 
@@ -533,7 +533,7 @@ impl RecoveryManager {
                 }
             }
 
-            current_hash = block.prev_block_hash();
+            current_hash = *block.prev_block_hash();
             height -= 1;
         }
 

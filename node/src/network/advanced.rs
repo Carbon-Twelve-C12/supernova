@@ -5,8 +5,6 @@ use libp2p::{
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{NetworkBehaviour, SwarmEvent},
     mdns::{Mdns, MdnsEvent},
-    autonat::{Autonat, AutonatEvent},
-    relay::v2::relay::{Relay, RelayEvent},
     rendezvous::{client::Behaviour as RendezvousBehaviour, server::Behaviour as RendezvousServer},
 };
 use std::collections::{HashMap, HashSet};
@@ -70,8 +68,6 @@ pub struct AdvancedNetworkBehaviour {
     ping: Ping,
     identify: Identify,
     mdns: Mdns,
-    autonat: Autonat,
-    relay: Relay,
     rendezvous_client: RendezvousBehaviour,
     rendezvous_server: RendezvousServer,
 }
@@ -82,8 +78,6 @@ pub enum AdvancedNetworkEvent {
     Ping(libp2p::ping::PingEvent),
     Identify(IdentifyEvent),
     Mdns(MdnsEvent),
-    Autonat(AutonatEvent),
-    Relay(RelayEvent),
     RendezvousClient(libp2p::rendezvous::client::Event),
     RendezvousServer(libp2p::rendezvous::server::Event),
 }
@@ -103,18 +97,6 @@ impl From<IdentifyEvent> for AdvancedNetworkEvent {
 impl From<MdnsEvent> for AdvancedNetworkEvent {
     fn from(event: MdnsEvent) -> Self {
         AdvancedNetworkEvent::Mdns(event)
-    }
-}
-
-impl From<AutonatEvent> for AdvancedNetworkEvent {
-    fn from(event: AutonatEvent) -> Self {
-        AdvancedNetworkEvent::Autonat(event)
-    }
-}
-
-impl From<RelayEvent> for AdvancedNetworkEvent {
-    fn from(event: RelayEvent) -> Self {
-        AdvancedNetworkEvent::Relay(event)
     }
 }
 
