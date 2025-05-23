@@ -8,7 +8,7 @@ use tracing::{debug, info, warn, error};
 use rand::{thread_rng, Rng};
 use sha2::{Sha256, Digest};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use crate::types::transaction::{Transaction, TransactionInput as TxIn, TransactionOutput as TxOut, OutPoint};
 use crate::crypto::signature::SignatureScheme;
 use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
@@ -21,28 +21,48 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 // TODO: Replace with actual Amount type
 // use crate::consensus::Amount;
 
+// TODO: Define Script type locally or import from another location
+// TODO: Define key types locally or import from secp256k1 crate
+// TODO: Define Amount type locally
+
 // Placeholder types for compilation - should be replaced with proper implementations
-pub type Script = Vec<u8>;
-pub type PublicKey = [u8; 33];  // Compressed public key
-pub type PrivateKey = [u8; 32]; // Private key
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Script(Vec<u8>);  // Wrapper struct instead of type alias
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PublicKey([u8; 33]);  // Wrapper struct instead of type alias
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrivateKey([u8; 32]); // Wrapper struct instead of type alias
 
 impl PublicKey {
     pub fn serialize(&self) -> [u8; 33] {
-        *self
+        self.0
+    }
+    
+    pub fn from_private_key(_private_key: &PrivateKey) -> Self {
+        // Placeholder implementation
+        Self([0u8; 33])
+    }
+}
+
+impl PrivateKey {
+    pub fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
     }
 }
 
 impl Script {
     pub fn new() -> Self {
-        Vec::new()
+        Self(Vec::new())
     }
     
     pub fn new_p2wpkh(pubkey_hash: &[u8]) -> Self {
-        vec![0x00, 0x14] // OP_0 + 20 bytes
+        Self(vec![0x00, 0x14]) // OP_0 + 20 bytes
     }
     
     pub fn new_p2wsh(script_hash: &[u8]) -> Self {
-        vec![0x00, 0x20] // OP_0 + 32 bytes
+        Self(vec![0x00, 0x20]) // OP_0 + 32 bytes
     }
 }
 
@@ -196,11 +216,11 @@ impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
             announce_channel: true,
-            max_htlc_value_in_flight_msat: 100_000_000, // 0.001 BTC in millisatoshis
+            max_htlc_value_in_flight_msat: 100_000_000, // 0.001 Nova in millisatoshis
             min_htlc_value_msat: 1_000,                // 1 satoshi
             max_accepted_htlcs: 30,
             cltv_expiry_delta: 40,
-            channel_reserve_satoshis: 10_000,          // 0.0001 BTC
+            channel_reserve_satoshis: 10_000,          // 0.0001 Nova
             dust_limit_satoshis: 546,
             max_commitment_transactions: 10,
             use_quantum_signatures: false,
@@ -398,7 +418,7 @@ impl Channel {
         // Create a simple funding transaction structure
         let funding_tx = Transaction {
             version: 2,
-            locktime: 0,
+            lock_time: 0,
             inputs: funding_inputs,
             outputs: vec![
                 TxOut {
@@ -426,8 +446,8 @@ impl Channel {
             // Only add change output if there's a positive amount
             if change_amount > 0 {
                 let change_output = TxOut {
-                    value: change_amount,
-                    script_pubkey: change_script,
+                    amount: change_amount,
+                    pub_key_script: change_script.0,
                 };
                 
                 // Add change output to transaction
@@ -467,25 +487,24 @@ impl Channel {
         
         let commitment_tx = Transaction {
             version: 2,
-            locktime: 0,
+            lock_time: 0,
             inputs: vec![
                 TxIn {
-                    previous_output: self.funding_outpoint.unwrap(),
-                    script_sig: Script::new(), // Empty for witness
+                    prev_tx_hash: self.funding_outpoint.unwrap().txid, prev_output_index: self.funding_outpoint.unwrap(),
+                    signature_script: Script::new(), // Empty for witness
                     sequence: 0xFFFFFFFF,      // No RBF
-                    witness: Vec::new(),       // Would be populated with actual signatures
                 }
             ],
             outputs: vec![
                 // Output to local with their balance
                 TxOut {
-                    value: self.local_balance_sat,
-                    script_pubkey: Script::new_p2wpkh(&self.local_node_id.serialize()),
+                    amount: self.local_balance_sat,
+                    pub_key_script: Script::new_p2wpkh(&self.local_node_id.serialize()).0,
                 },
                 // Output to remote with their balance
                 TxOut {
-                    value: self.remote_balance_sat,
-                    script_pubkey: Script::new_p2wpkh(&self.remote_node_id.serialize()),
+                    amount: self.remote_balance_sat,
+                    pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
                 },
             ],
         };
@@ -660,25 +679,24 @@ impl Channel {
         
         let closing_tx = Transaction {
             version: 2,
-            locktime: 0,
+            lock_time: 0,
             inputs: vec![
                 TxIn {
-                    previous_output: self.funding_outpoint.unwrap(),
-                    script_sig: Script::new(), // Empty for witness
+                    prev_tx_hash: self.funding_outpoint.unwrap().txid, prev_output_index: self.funding_outpoint.unwrap(),
+                    signature_script: Script::new(), // Empty for witness
                     sequence: 0xFFFFFFFF,      // No RBF
-                    witness: Vec::new(),       // Would be populated with actual signatures
                 }
             ],
             outputs: vec![
                 // Output to local with their balance
                 TxOut {
-                    value: self.local_balance_sat,
-                    script_pubkey: Script::new_p2wpkh(&self.local_node_id.serialize()),
+                    amount: self.local_balance_sat,
+                    pub_key_script: Script::new_p2wpkh(&self.local_node_id.serialize()).0,
                 },
                 // Output to remote with their balance
                 TxOut {
-                    value: self.remote_balance_sat,
-                    script_pubkey: Script::new_p2wpkh(&self.remote_node_id.serialize()),
+                    amount: self.remote_balance_sat,
+                    pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
                 },
             ],
         };
@@ -735,6 +753,109 @@ impl Channel {
             .as_secs();
             
         Ok(commitment_tx)
+    }
+
+    /// Create a new channel (static method for opening a channel)
+    pub fn open(
+        peer_id: String,
+        capacity: u64,
+        push_amount: u64,
+        config: ChannelConfig,
+        quantum_scheme: Option<QuantumScheme>,
+    ) -> ChannelResult<Self> {
+        // Convert peer_id string to PublicKey (placeholder implementation)
+        let remote_node_id = PublicKey([0u8; 33]); // In real implementation, parse from peer_id
+        let local_node_id = PublicKey([0u8; 33]); // In real implementation, get from local keystore
+        
+        let mut channel = Self::new(
+            local_node_id,
+            remote_node_id, 
+            capacity,
+            true, // is_initiator
+            config.announce_channel
+        );
+        
+        // Apply push amount
+        if push_amount > 0 {
+            if push_amount >= capacity {
+                return Err(ChannelError::InvalidState(
+                    "Push amount must be less than capacity".to_string()
+                ));
+            }
+            channel.local_balance_sat = capacity - push_amount;
+            channel.remote_balance_sat = push_amount;
+        }
+        
+        Ok(channel)
+    }
+
+    /// Get the channel ID
+    pub fn id(&self) -> ChannelId {
+        ChannelId::from_funding_outpoint(&self.channel_id, 0)
+    }
+    
+    /// Cooperative close the channel
+    pub fn cooperative_close(&self) -> ChannelResult<Transaction> {
+        if self.state != ChannelState::Active {
+            return Err(ChannelError::InvalidState(
+                "Channel must be active to cooperatively close".to_string()
+            ));
+        }
+        
+        if self.funding_outpoint.is_none() {
+            return Err(ChannelError::FundingError("No funding outpoint".to_string()));
+        }
+        
+        // Create a closing transaction
+        let closing_tx = Transaction {
+            version: 2,
+            lock_time: 0,
+            inputs: vec![
+                TxIn {
+                    prev_tx_hash: self.funding_outpoint.unwrap().txid, prev_output_index: self.funding_outpoint.unwrap(),
+                    signature_script: Script::new(),
+                    sequence: 0xFFFFFFFF,
+                }
+            ],
+            outputs: vec![
+                TxOut {
+                    amount: self.local_balance_sat,
+                    pub_key_script: Script::new_p2wpkh(&self.local_node_id.serialize()).0,
+                },
+                TxOut {
+                    amount: self.remote_balance_sat,
+                    pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
+                },
+            ],
+        };
+        
+        Ok(closing_tx)
+    }
+    
+    /// Fulfill an HTLC
+    pub fn fulfill_htlc(&mut self, htlc_id: u64, preimage: [u8; 32]) -> ChannelResult<()> {
+        self.settle_htlc(htlc_id, preimage)
+    }
+    
+    /// Get pending HTLCs
+    pub fn get_pending_htlcs(&self) -> Vec<Htlc> {
+        self.pending_htlcs.clone()
+    }
+    
+    /// Get channel info
+    pub fn get_info(&self) -> ChannelInfo {
+        ChannelInfo {
+            id: ChannelId::from_funding_outpoint(&self.channel_id, 0),
+            state: self.state,
+            capacity: self.capacity_sat,
+            local_balance_msat: self.local_balance_sat * 1000,
+            remote_balance_msat: self.remote_balance_sat * 1000,
+            is_public: self.is_public,
+            pending_htlcs: self.pending_htlcs.len() as u16,
+            config: ChannelConfig::default(), // TODO: Store actual config
+            uptime_seconds: 0, // TODO: Calculate uptime
+            update_count: self.commitment_number,
+        }
     }
 }
 
@@ -843,5 +964,54 @@ impl ChannelManager {
         }
         
         results
+    }
+}
+
+// Manual Serialize/Deserialize implementations for array types
+impl Serialize for PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for PublicKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <Vec<u8>>::deserialize(deserializer)?;
+        if bytes.len() != 33 {
+            return Err(serde::de::Error::custom("PublicKey must be 33 bytes"));
+        }
+        let mut array = [0u8; 33];
+        array.copy_from_slice(&bytes);
+        Ok(PublicKey(array))
+    }
+}
+
+impl Serialize for PrivateKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for PrivateKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <Vec<u8>>::deserialize(deserializer)?;
+        if bytes.len() != 32 {
+            return Err(serde::de::Error::custom("PrivateKey must be 32 bytes"));
+        }
+        let mut array = [0u8; 32];
+        array.copy_from_slice(&bytes);
+        Ok(PrivateKey(array))
     }
 } 

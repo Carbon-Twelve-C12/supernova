@@ -29,7 +29,7 @@ The project is currently at version 0.9.0-BETA, with all core components operati
 
 ## Document Hierarchy
 
-- For the most up-to-date project overview, see the main **README.md** and **SuperNova Overview.md** files
+- For the most up-to-date project overview, see the main **README.md** and **Supernova Overview.md** files
 - For implementation status, refer to **DEVELOPMENT_STATUS.md** and **SUPERNOVA_IMPLEMENTATION_SUMMARY.md**
 - For detailed roadmap information, see **PROJECT_ROADMAP.md**
 - For testnet documentation, check the **docs/testnet** directory
