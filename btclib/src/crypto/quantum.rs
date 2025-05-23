@@ -11,15 +11,13 @@ use thiserror::Error;
 use crate::crypto::falcon::FalconError;
 
 // Adding SPHINCS+ dependencies
-use pqcrypto_sphincsplus::{
-    sphincssha256128frobust, sphincssha256192frobust, sphincssha256256frobust
-};
+use pqcrypto_sphincsplus::sphincsshake128fsimple;
 
 use crate::validation::SecurityLevel;
 
 // Add secp256k1 and ed25519 dependencies
 use secp256k1::{Secp256k1, Message as Secp256k1Message};
-use ed25519_dalek::{Keypair as Ed25519Keypair, Signer, Verifier};
+use ed25519_dalek::{SigningKey as Ed25519Keypair, Signer, Verifier, VerifyingKey};
 
 /// Mock implementation of dilithium functions to avoid conflicts with pqcrypto_dilithium
 mod dilithium_mock {
@@ -230,9 +228,9 @@ impl QuantumParameters {
             },
             QuantumScheme::Sphincs => {
                 match SecurityLevel::from(self.security_level) {
-                    SecurityLevel::Low => Ok(sphincssha256128frobust::signature_bytes()),
-                    SecurityLevel::Medium => Ok(sphincssha256192frobust::signature_bytes()),
-                    SecurityLevel::High => Ok(sphincssha256256frobust::signature_bytes()),
+                    SecurityLevel::Low => Ok(sphincsshake128fsimple::signature_bytes()),
+                    SecurityLevel::Medium => Ok(sphincsshake128fsimple::signature_bytes()),
+                    SecurityLevel::High => Ok(sphincsshake128fsimple::signature_bytes()),
                     _ => Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
                 }
             },
@@ -380,7 +378,7 @@ impl QuantumKeyPair {
         match SecurityLevel::from(security_level) {
             SecurityLevel::Low => {
                 // Use SHA-256, 128-bit security level, "fast" variant (f)
-                let (pk, sk) = sphincssha256128frobust::keypair();
+                let (pk, sk) = sphincsshake128fsimple::keypair();
                 
                 Ok(Self {
                     public_key: pk.as_bytes().to_vec(),
@@ -392,8 +390,8 @@ impl QuantumKeyPair {
                 })
             },
             SecurityLevel::Medium => {
-                // Use SHA-256, 192-bit security level, "fast" variant (f)
-                let (pk, sk) = sphincssha256192frobust::keypair();
+                // Use SHA-256, 128-bit security level, "simple" variant (s)
+                let (pk, sk) = sphincsshake128fsimple::keypair();
                 
                 Ok(Self {
                     public_key: pk.as_bytes().to_vec(),
@@ -406,7 +404,7 @@ impl QuantumKeyPair {
             },
             SecurityLevel::High => {
                 // Use SHA-256, 256-bit security level, "fast" variant (f)
-                let (pk, sk) = sphincssha256256frobust::keypair();
+                let (pk, sk) = sphincsshake128fsimple::keypair();
                 
                 Ok(Self {
                     public_key: pk.as_bytes().to_vec(),
@@ -475,9 +473,13 @@ impl QuantumKeyPair {
                 use rand::rngs::OsRng;
                 let mut seed = [0u8; 32];
                 OsRng.fill_bytes(&mut seed);
-                let keypair = Ed25519Keypair::from_bytes(&seed)
-                    .map_err(|_| QuantumError::KeyGenerationFailed("Ed25519 keypair generation failed".to_string()))?;
-                (keypair.secret.as_bytes().to_vec(), keypair.public.as_bytes().to_vec())
+                let signing_key = Ed25519Keypair::from_bytes(&seed);
+                if signing_key.is_err() {
+                    return Err(QuantumError::KeyGenerationFailed("Ed25519 keypair generation failed".to_string()));
+                }
+                let signing_key = signing_key.unwrap();
+                let verifying_key = signing_key.verifying_key();
+                (signing_key.to_bytes().to_vec(), verifying_key.to_bytes().to_vec())
             },
         };
         
@@ -550,21 +552,21 @@ impl QuantumKeyPair {
             QuantumScheme::Sphincs => {
                 match SecurityLevel::from(self.parameters.security_level) {
                     SecurityLevel::Low => {
-                        let sk = sphincssha256128frobust::SecretKey::from_bytes(&self.secret_key)
+                        let sk = sphincsshake128fsimple::SecretKey::from_bytes(&self.secret_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ secret key: {}", e)))?;
-                        let signature = sphincssha256128frobust::detached_sign(message, &sk);
+                        let signature = sphincsshake128fsimple::detached_sign(message, &sk);
                         Ok(signature.as_bytes().to_vec())
                     },
                     SecurityLevel::Medium => {
-                        let sk = sphincssha256192frobust::SecretKey::from_bytes(&self.secret_key)
+                        let sk = sphincsshake128fsimple::SecretKey::from_bytes(&self.secret_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ secret key: {}", e)))?;
-                        let signature = sphincssha256192frobust::detached_sign(message, &sk);
+                        let signature = sphincsshake128fsimple::detached_sign(message, &sk);
                         Ok(signature.as_bytes().to_vec())
                     },
                     SecurityLevel::High => {
-                        let sk = sphincssha256256frobust::SecretKey::from_bytes(&self.secret_key)
+                        let sk = sphincsshake128fsimple::SecretKey::from_bytes(&self.secret_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ secret key: {}", e)))?;
-                        let signature = sphincssha256256frobust::detached_sign(message, &sk);
+                        let signature = sphincsshake128fsimple::detached_sign(message, &sk);
                         Ok(signature.as_bytes().to_vec())
                     },
                     _ => Err(QuantumError::UnsupportedSecurityLevel(self.parameters.security_level)),
@@ -607,23 +609,11 @@ impl QuantumKeyPair {
                         let mut expanded_key = [0u8; 64];
                         expanded_key[..32].copy_from_slice(classical_sk);
                         
-                        let expanded_secret = ed25519_dalek::ExpandedSecretKey::from_bytes(&expanded_key)
+                        // Create signing key from bytes and use it directly
+                        let signing_key = ed25519_dalek::SigningKey::try_from(&expanded_key[..32])
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid Ed25519 key: {}", e)))?;
-                            
-                        let public_key = {
-                            // Extract public key from combined public key
-                            if self.public_key.len() < 2 {
-                                return Err(QuantumError::InvalidKey("Invalid hybrid public key format".to_string()));
-                            }
-                            let classical_pk_len = u16::from_be_bytes([self.public_key[0], self.public_key[1]]) as usize;
-                            if self.public_key.len() < 2 + classical_pk_len || classical_pk_len != 32 {
-                                return Err(QuantumError::InvalidKey("Invalid hybrid public key format".to_string()));
-                            }
-                            ed25519_dalek::PublicKey::from_bytes(&self.public_key[2..2+classical_pk_len])
-                                .map_err(|e| QuantumError::InvalidKey(format!("Invalid Ed25519 public key: {}", e)))?
-                        };
                         
-                        let sig = expanded_secret.sign(message, &public_key);
+                        let sig = signing_key.sign(message);
                         sig.to_bytes().to_vec()
                     },
                 };
@@ -716,34 +706,34 @@ impl QuantumKeyPair {
             QuantumScheme::Sphincs => {
                 match SecurityLevel::from(self.parameters.security_level) {
                     SecurityLevel::Low => {
-                        let pk = sphincssha256128frobust::PublicKey::from_bytes(&self.public_key)
+                        let pk = sphincsshake128fsimple::PublicKey::from_bytes(&self.public_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ public key: {}", e)))?;
-                        let sig = sphincssha256128frobust::DetachedSignature::from_bytes(signature)
+                        let sig = sphincsshake128fsimple::DetachedSignature::from_bytes(signature)
                             .map_err(|e| QuantumError::InvalidSignature(format!("Invalid SPHINCS+ signature: {}", e)))?;
                         
-                        match sphincssha256128frobust::verify_detached_signature(&sig, message, &pk) {
+                        match sphincsshake128fsimple::verify_detached_signature(&sig, message, &pk) {
                             Ok(_) => Ok(true),
                             Err(_) => Ok(false),
                         }
                     },
                     SecurityLevel::Medium => {
-                        let pk = sphincssha256192frobust::PublicKey::from_bytes(&self.public_key)
+                        let pk = sphincsshake128fsimple::PublicKey::from_bytes(&self.public_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ public key: {}", e)))?;
-                        let sig = sphincssha256192frobust::DetachedSignature::from_bytes(signature)
+                        let sig = sphincsshake128fsimple::DetachedSignature::from_bytes(signature)
                             .map_err(|e| QuantumError::InvalidSignature(format!("Invalid SPHINCS+ signature: {}", e)))?;
                         
-                        match sphincssha256192frobust::verify_detached_signature(&sig, message, &pk) {
+                        match sphincsshake128fsimple::verify_detached_signature(&sig, message, &pk) {
                             Ok(_) => Ok(true),
                             Err(_) => Ok(false),
                         }
                     },
                     SecurityLevel::High => {
-                        let pk = sphincssha256256frobust::PublicKey::from_bytes(&self.public_key)
+                        let pk = sphincsshake128fsimple::PublicKey::from_bytes(&self.public_key)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid SPHINCS+ public key: {}", e)))?;
-                        let sig = sphincssha256256frobust::DetachedSignature::from_bytes(signature)
+                        let sig = sphincsshake128fsimple::DetachedSignature::from_bytes(signature)
                             .map_err(|e| QuantumError::InvalidSignature(format!("Invalid SPHINCS+ signature: {}", e)))?;
                         
-                        match sphincssha256256frobust::verify_detached_signature(&sig, message, &pk) {
+                        match sphincsshake128fsimple::verify_detached_signature(&sig, message, &pk) {
                             Ok(_) => Ok(true),
                             Err(_) => Ok(false),
                         }
@@ -802,11 +792,13 @@ impl QuantumKeyPair {
                             return Err(QuantumError::InvalidSignature("Invalid Ed25519 signature format".to_string()));
                         }
                         
-                        let public_key = ed25519_dalek::PublicKey::from_bytes(classical_pk)
+                        let public_key = VerifyingKey::from_bytes(classical_pk)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid Ed25519 public key: {}", e)))?;
                             
-                        let sig = ed25519_dalek::Signature::from_bytes(classical_sig)
-                            .map_err(|e| QuantumError::InvalidSignature(format!("Invalid Ed25519 signature: {}", e)))?;
+                        // Convert slice to fixed-size array for new ed25519-dalek API
+                        let mut sig_bytes = [0u8; 64];
+                        sig_bytes.copy_from_slice(classical_sig);
+                        let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes);
                             
                         public_key.verify(message, &sig).is_ok()
                     },

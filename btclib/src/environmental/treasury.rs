@@ -3,7 +3,7 @@ use thiserror::Error;
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use crate::environmental::types::Region;
-use crate::environmental::emissions::VerificationStatus;
+pub use crate::environmental::emissions::VerificationStatus;
 use std::sync::{Arc, RwLock};
 
 /// Error types specific to the environmental treasury

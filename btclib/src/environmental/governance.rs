@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 use thiserror::Error;
+use uuid;
 
 use crate::environmental::treasury::{EnvironmentalTreasury, TreasuryAccountType, TreasuryError};
-use crate::types::hash::Hash;
-use crate::types::signature::Signature;
+use crate::crypto::signature::Signature;
 
 /// Error types for environmental governance operations
 #[derive(Error, Debug)]
@@ -51,7 +51,7 @@ pub enum ProposalStatus {
 }
 
 /// Types of environmental proposals
-#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ProposalType {
     /// Allocation of treasury funds
     TreasuryAllocation {
@@ -282,8 +282,8 @@ impl EnvironmentalGovernance {
             },
         }
         
-        // Create proposal ID
-        let id = format!("prop_{}", Hash::random().to_string().chars().take(8).collect::<String>());
+        // Create proposal ID using UUID
+        let id = format!("prop_{}", uuid::Uuid::new_v4().as_simple().to_string().chars().take(8).collect::<String>());
         
         // Determine voting period
         let voting_period_days = if emergency && self.config.allow_emergency_proposals {
@@ -477,7 +477,7 @@ impl EnvironmentalGovernance {
         // Update proposal status
         proposal.status = ProposalStatus::Executed;
         proposal.executed_at = Some(Utc::now());
-        proposal.execution_tx_hash = Some(Hash::random().to_string());
+        proposal.execution_tx_hash = Some(uuid::Uuid::new_v4().as_simple().to_string());
         
         // Move to historical proposals
         let proposal_clone = proposal.clone();

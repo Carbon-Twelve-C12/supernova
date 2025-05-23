@@ -71,27 +71,6 @@ pub struct MinerEmissionsData {
     pub timestamp: DateTime<Utc>,
 }
 
-/// Network-wide emissions data
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkEmissionsData {
-    /// Total energy consumption in kWh
-    pub total_energy_kwh: f64,
-    /// Total emissions in tonnes CO2e
-    pub total_emissions_tonnes: f64,
-    /// Renewable energy percentage
-    pub renewable_percentage: f64,
-    /// Breakdown of energy sources
-    pub energy_sources: HashMap<String, f64>,
-    /// Carbon offset in tonnes
-    pub offset_tonnes: f64,
-    /// Net carbon impact
-    pub net_carbon_impact: f64,
-    /// Carbon intensity in kgCO2e/kWh
-    pub carbon_intensity: f64,
-    /// Timestamp of data
-    pub timestamp: DateTime<Utc>,
-}
-
 /// Treasury asset purchase record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetPurchaseRecord {
@@ -370,7 +349,7 @@ impl EnvironmentalApi {
             renewable_percentage,
             energy_sources: total_energy_sources,
             offset_tonnes: total_offset_tonnes,
-            net_carbon_impact: average_net_carbon_impact,
+            net_carbon_impact: total_net_carbon_impact,
             carbon_intensity,
             timestamp: Utc::now(),
         })

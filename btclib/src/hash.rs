@@ -88,6 +88,24 @@ pub fn meets_difficulty(hash: &[u8], target: &[u8]) -> bool {
     true
 }
 
+/// 256-bit hash value alias
+pub type Hash256 = Hash;
+
+/// Perform SHA-256 hash (alias for hash_default)
+pub fn hash256(data: &[u8]) -> Vec<u8> {
+    hash_default(data)
+}
+
+/// Convert hash to hexadecimal string
+pub fn hash_to_hex(hash_bytes: &[u8]) -> String {
+    hex::encode(hash_bytes)
+}
+
+/// Perform double SHA-256 hash
+pub fn double_sha256(data: &[u8]) -> Vec<u8> {
+    hash_double_sha256(data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
