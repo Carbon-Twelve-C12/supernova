@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Core blockchain dependencies
-btclib = { path = "../btclib" }
+btclib = { path = "../btclib", features = ["lightning"] }
 
 # Cryptography
 secp256k1 = { version = "0.24", features = ["rand"] }

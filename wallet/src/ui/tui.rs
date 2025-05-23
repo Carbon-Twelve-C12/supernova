@@ -347,14 +347,14 @@ impl WalletTui {
                             Style::default().fg(amount_color).add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
-                            &label_text,
+                            label_text,
                             Style::default().fg(Color::Yellow),
                         ),
                     ]),
                     Line::from(vec![
                         Span::raw("   "),
                 Span::styled(
-                            &status_text,
+                            status_text,
                     Style::default().fg(status_color),
                 ),
                         Span::raw(" | "),
