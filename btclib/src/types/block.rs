@@ -3,7 +3,7 @@ use sha2::{Sha256, Digest};
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::util::merkle::MerkleTree;
 use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
-use crate::crypto::hash::{hash256, Hash256};
+use crate::hash::{hash256, Hash256};
 use std::fmt;
 
 // Placeholder network protocol types for compilation compatibility
@@ -224,7 +224,7 @@ impl Block {
             [0; 32]
         } else {
             let tx_hashes: Vec<Hash256> = transactions.iter().map(|tx| tx.hash()).collect();
-            let merkle_tree = MerkleTree::new(tx_hashes);
+            let merkle_tree = MerkleTree::new(&tx_hashes);
             merkle_tree.root_hash()
         };
         
@@ -268,7 +268,7 @@ impl Block {
             .collect();
         
         // Create Merkle tree
-        let merkle_tree = MerkleTree::new(tx_hashes);
+        let merkle_tree = MerkleTree::new(&tx_hashes);
         merkle_tree.root_hash()
     }
     

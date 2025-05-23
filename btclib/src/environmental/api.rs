@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::types::block::Block;
 use crate::environmental::{
-    emissions::{EmissionsError, EmissionsTracker, Region, NetworkEmissionsData, VerificationStatus},
+    emissions::{EmissionsError, EmissionsTracker, Region, VerificationStatus},
     miner_reporting::{MinerEnvironmentalInfo, MinerVerificationStatus, RECCertificate, CarbonOffset, MinerReportingManager, VerificationInfo},
     treasury::{EnvironmentalTreasury, TreasuryError, EnvironmentalAssetPurchase, TreasuryAccountType, EnvironmentalAssetType, TreasuryAllocation},
     types::{HardwareType, EnergySource},
@@ -343,16 +343,19 @@ impl EnvironmentalApi {
             0.0
         };
         
-        Ok(NetworkEmissionsData {
-            total_energy_kwh,
-            total_emissions_tonnes,
+        let data = NetworkEmissionsData {
+            total_energy_mwh: total_energy_kwh / 1000.0, // Convert kWh to MWh
+            total_emissions_tons_co2e: total_emissions_tonnes,
             renewable_percentage,
-            energy_sources: total_energy_sources,
-            offset_tonnes: total_offset_tonnes,
-            net_carbon_impact: total_net_carbon_impact,
-            carbon_intensity,
-            timestamp: Utc::now(),
-        })
+            emissions_per_tx: if self.miner_info.len() > 0 { 
+                total_emissions_tonnes / self.miner_info.len() as f64 
+            } else { 
+                0.0 
+            },
+            timestamp: Utc::now().timestamp() as u64,
+        };
+        
+        Ok(data)
     }
     
     /// Allocate funds to the environmental treasury from transaction fees
@@ -611,23 +614,12 @@ impl EnvironmentalApiTrait for crate::environmental::api::EnvironmentalApi {
     }
     
     fn get_network_emissions(&self) -> Result<NetworkEmissionsData, String> {
-        // Create a new NetworkEmissionsData directly
-        let mut energy_sources = HashMap::new();
-        energy_sources.insert("Solar".to_string(), 15.0);
-        energy_sources.insert("Wind".to_string(), 10.0);
-        energy_sources.insert("Hydro".to_string(), 5.0);
-        energy_sources.insert("Coal".to_string(), 40.0);
-        energy_sources.insert("Natural Gas".to_string(), 30.0);
-        
         let data = NetworkEmissionsData {
-            total_energy_kwh: 100000.0, // Example value
-            total_emissions_tonnes: 50.0, // Example value
+            total_energy_mwh: 100.0, // Example value converted to MWh
+            total_emissions_tons_co2e: 50.0, // Example value
             renewable_percentage: 30.0, // Example value
-            energy_sources,
-            offset_tonnes: 10.0, // Example value
-            net_carbon_impact: 40.0, // Example value
-            carbon_intensity: 0.5, // Example value
-            timestamp: Utc::now(),
+            emissions_per_tx: 0.1, // Example emissions per transaction
+            timestamp: Utc::now().timestamp() as u64,
         };
         
         Ok(data)
@@ -725,6 +717,9 @@ impl EnvironmentalApiTrait for crate::environmental::api::EnvironmentalApi {
         Ok(history)
     }
 }
+
+// Re-export types for convenience
+pub use crate::environmental::emissions::NetworkEmissionsData;
 
 /// Example usage of the Environmental API
 #[cfg(test)]

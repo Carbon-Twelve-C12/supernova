@@ -348,21 +348,6 @@ impl Default for MiningConfig {
     }
 }
 
-impl Default for EnvironmentalConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            emissions: EmissionsConfig::default(),
-            treasury_allocation_percentage: 2.0, // 2% of transaction fees
-            enable_green_miner_discounts: false,
-            display_metrics_in_explorer: true,
-            include_tx_emissions_data: false,
-            rec_priority_factor: 2.0,     // RECs given 2x weight over carbon credits
-            rec_allocation_percentage: 75.0, // 75% of funds prioritized for RECs
-        }
-    }
-}
-
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
