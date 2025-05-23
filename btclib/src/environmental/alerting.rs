@@ -336,7 +336,7 @@ impl EnvironmentalAlertingSystem {
             // Check cooldown period
             let should_process = if let Some(last_check) = self.last_check.get(&rule.id) {
                 let cooldown = chrono::Duration::seconds(rule.cooldown_seconds as i64);
-                now - *last_check >= cooldown
+                (now - *last_check) >= cooldown
             } else {
                 true
             };

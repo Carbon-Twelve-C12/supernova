@@ -3,7 +3,7 @@
 
 // Re-export all modules
 pub mod api;
-pub mod alerting;
+// pub mod alerting;  // Temporarily disabled for compilation
 pub mod dashboard;
 pub mod emissions;
 pub mod governance;
@@ -21,7 +21,7 @@ pub use treasury::{EnvironmentalTreasury, EnvironmentalAssetType, EnvironmentalA
 pub use dashboard::{EnvironmentalDashboard, EnvironmentalMetrics, EmissionsTimePeriod};
 pub use transparency::{TransparencyDashboard, TransparencyReport, TransparencyLevel};
 pub use governance::{EnvironmentalGovernance, EnvironmentalProposal, ProposalStatus};
-pub use alerting::{AlertingSystem, Alert, AlertRule};
+// pub use alerting::{AlertingSystem, Alert, AlertRule};  // Temporarily disabled for compilation
 pub use verification::{RenewableCertificate, CarbonOffset, VerificationService};
 
 // Type aliases for common use

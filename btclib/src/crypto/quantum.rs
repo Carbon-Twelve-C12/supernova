@@ -473,11 +473,9 @@ impl QuantumKeyPair {
                 use rand::rngs::OsRng;
                 let mut seed = [0u8; 32];
                 OsRng.fill_bytes(&mut seed);
+                
+                // Ed25519Keypair::from_bytes returns SigningKey directly
                 let signing_key = Ed25519Keypair::from_bytes(&seed);
-                if signing_key.is_err() {
-                    return Err(QuantumError::KeyGenerationFailed("Ed25519 keypair generation failed".to_string()));
-                }
-                let signing_key = signing_key.unwrap();
                 let verifying_key = signing_key.verifying_key();
                 (signing_key.to_bytes().to_vec(), verifying_key.to_bytes().to_vec())
             },
@@ -792,7 +790,11 @@ impl QuantumKeyPair {
                             return Err(QuantumError::InvalidSignature("Invalid Ed25519 signature format".to_string()));
                         }
                         
-                        let public_key = VerifyingKey::from_bytes(classical_pk)
+                        // Convert slice to fixed-size array
+                        let mut pk_array = [0u8; 32];
+                        pk_array.copy_from_slice(classical_pk);
+                        
+                        let public_key = VerifyingKey::from_bytes(&pk_array)
                             .map_err(|e| QuantumError::InvalidKey(format!("Invalid Ed25519 public key: {}", e)))?;
                             
                         // Convert slice to fixed-size array for new ed25519-dalek API

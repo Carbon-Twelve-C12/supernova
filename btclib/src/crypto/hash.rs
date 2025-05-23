@@ -3,6 +3,7 @@
 use sha2::{Sha256, Sha512, Digest};
 use blake3;
 use std::fmt::Debug;
+use hex;
 
 /// Hash trait for different hashing algorithms
 pub trait Hash: Debug + Send + Sync {
@@ -210,6 +211,17 @@ impl Hash for SuperNovaHash {
     }
 }
 
+/// Convenience function for double SHA-256 hash (Bitcoin compatible)
+pub fn double_sha256(data: &[u8]) -> Vec<u8> {
+    let hasher = DoubleSha256Hash;
+    hasher.hash(data)
+}
+
+/// Convert a hash to hexadecimal string
+pub fn hash_to_hex(hash: &[u8]) -> String {
+    hex::encode(hash)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,7 +274,4 @@ mod tests {
         
         assert_eq!(hash1, hash2);
     }
-}
-
-// Re-export these functions to maintain compatibility
-pub use crate::hash::{hash256, Hash256, hash_to_hex, double_sha256}; 
+} 

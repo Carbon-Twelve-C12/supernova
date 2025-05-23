@@ -10,6 +10,9 @@ use crate::crypto::hash::{
     SuperNovaHash
 };
 
+/// 256-bit hash value - fixed size array for blockchain use
+pub type Hash256 = [u8; 32];
+
 /// Default hash algorithm for general use in the blockchain
 pub fn hash_default(data: &[u8]) -> Vec<u8> {
     let hasher = Sha256Hash;
@@ -88,12 +91,9 @@ pub fn meets_difficulty(hash: &[u8], target: &[u8]) -> bool {
     true
 }
 
-/// 256-bit hash value alias
-pub type Hash256 = Hash;
-
-/// Perform SHA-256 hash (alias for hash_default)
-pub fn hash256(data: &[u8]) -> Vec<u8> {
-    hash_default(data)
+/// Perform SHA-256 hash returning fixed-size array
+pub fn hash256(data: &[u8]) -> Hash256 {
+    to_32_bytes(&hash_default(data))
 }
 
 /// Convert hash to hexadecimal string
@@ -101,9 +101,9 @@ pub fn hash_to_hex(hash_bytes: &[u8]) -> String {
     hex::encode(hash_bytes)
 }
 
-/// Perform double SHA-256 hash
-pub fn double_sha256(data: &[u8]) -> Vec<u8> {
-    hash_double_sha256(data)
+/// Perform double SHA-256 hash returning fixed-size array
+pub fn double_sha256(data: &[u8]) -> Hash256 {
+    to_32_bytes(&hash_double_sha256(data))
 }
 
 #[cfg(test)]
