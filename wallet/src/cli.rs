@@ -5,7 +5,7 @@ use std::str::FromStr;
 use crate::{
     hdwallet::{AccountType, HDWallet},
     ui::tui::WalletTui,
-    history::TransactionHistory,
+    history::{TransactionHistory, TransactionRecord, TransactionDirection, TransactionStatus},
 };
 use chrono::{Utc};
 

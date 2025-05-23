@@ -109,16 +109,16 @@ impl WalletTui {
         }
     }
 
-    fn render<B: ratatui::backend::Backend>(&mut self, f: &mut Frame<B>) {
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .margin(1)
-                    .constraints([
+    fn render(&mut self, f: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([
                 Constraint::Length(3),  // Tabs
                 Constraint::Min(1),     // Content
                 Constraint::Length(3),  // Status bar/message
-                    ].as_ref())
-                    .split(f.size());
+            ].as_ref())
+            .split(f.size());
 
         // Render tabs
         let titles = vec!["Overview", "Accounts", "Transactions", "Help"];
@@ -153,7 +153,7 @@ impl WalletTui {
         }
     }
 
-    fn render_status_bar<B: ratatui::backend::Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn render_status_bar(&self, f: &mut Frame, area: Rect) {
         let status_text = match &self.message {
             Some(Message::Info(msg)) => Line::from(vec![
                 Span::styled("INFO: ", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
@@ -183,7 +183,7 @@ impl WalletTui {
         f.render_widget(status_bar, area);
     }
 
-    fn render_input_prompt<B: ratatui::backend::Backend>(&self, f: &mut Frame<B>, area: Rect, prompt: &str) {
+    fn render_input_prompt(&self, f: &mut Frame, area: Rect, prompt: &str) {
         let input = Paragraph::new(Line::from(vec![
             Span::raw(prompt),
             Span::styled(&self.input_text, Style::default().fg(Color::Yellow))
@@ -198,7 +198,7 @@ impl WalletTui {
         );
     }
 
-    fn render_address_display<B: ratatui::backend::Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn render_address_display(&self, f: &mut Frame, area: Rect) {
         let address_text = if let Some(address) = &self.last_generated_address {
             Line::from(vec![
                 Span::styled("New address: ", Style::default().fg(Color::Green)),
@@ -213,7 +213,7 @@ impl WalletTui {
         f.render_widget(address_display, area);
     }
 
-    fn render_overview<B: ratatui::backend::Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn render_overview(&self, f: &mut Frame, area: Rect) {
         let total_balance = self.wallet.get_total_balance().unwrap_or(0);
         let total_sent = self.history.get_total_sent();
         let total_received = self.history.get_total_received();
@@ -269,7 +269,7 @@ impl WalletTui {
         f.render_widget(overview, area);
     }
 
-    fn render_accounts<B: ratatui::backend::Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn render_accounts(&mut self, f: &mut Frame, area: Rect) {
         let accounts = self.wallet.list_accounts();
         let items: Vec<ListItem> = accounts
             .iter()
@@ -307,7 +307,7 @@ impl WalletTui {
         f.render_stateful_widget(accounts_list, area, &mut self.accounts_state);
     }
 
-    fn render_transactions<B: ratatui::backend::Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn render_transactions(&mut self, f: &mut Frame, area: Rect) {
         let transactions = self.history.get_all_transactions();
         let items: Vec<ListItem> = transactions
             .iter()
@@ -324,9 +324,9 @@ impl WalletTui {
             };
 
                 let status_text = match &tx.status {
-                    TransactionStatus::Pending => "Pending",
-                    TransactionStatus::Confirmed(n) => &format!("Confirmed ({})", n),
-                    TransactionStatus::Failed => "Failed",
+                    TransactionStatus::Pending => "Pending".to_string(),
+                    TransactionStatus::Confirmed(n) => format!("Confirmed ({})", n),
+                    TransactionStatus::Failed => "Failed".to_string(),
                 };
 
                 let label_text = if let Some(label) = &tx.label {
@@ -354,7 +354,7 @@ impl WalletTui {
                     Line::from(vec![
                         Span::raw("   "),
                 Span::styled(
-                            status_text,
+                            &status_text,
                     Style::default().fg(status_color),
                 ),
                         Span::raw(" | "),
@@ -380,7 +380,7 @@ impl WalletTui {
         f.render_stateful_widget(transactions_list, area, &mut self.transactions_state);
     }
 
-    fn render_help<B: ratatui::backend::Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn render_help(&self, f: &mut Frame, area: Rect) {
         let text = vec![
             Line::from(vec![
                 Span::styled("SuperNova Wallet Help", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))

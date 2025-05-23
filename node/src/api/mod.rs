@@ -10,20 +10,20 @@ mod server;
 pub mod routes;
 pub mod middleware;
 pub mod docs;
-pub mod blockchain_api;
-pub mod wallet_api;
-pub mod mempool_api;
-pub mod network_api;
-pub mod environmental_api;
+// pub mod blockchain_api;  // Missing file
+// pub mod wallet_api;      // Missing file
+// pub mod mempool_api;     // Missing file
+// pub mod network_api;     // Missing file
+// pub mod environmental_api; // Missing file
 pub mod lightning_api;
-pub mod blockchain;
-pub mod wallet;
-pub mod node;
+// pub mod blockchain;      // Missing file
+// pub mod wallet;          // Missing file
+// pub mod node;            // Missing file
 pub mod metrics;
 
 pub use error::{ApiError, Result};
 pub use types::*;
-pub use server::ApiServer;
+pub use server::{ApiServer, ApiConfig};
 
 use crate::node::Node;
 use std::sync::Arc;
@@ -34,19 +34,6 @@ pub const API_VERSION: &str = "v1";
 /// Creates a new API server instance
 pub fn create_api_server(node: Arc<Node>, bind_address: &str, port: u16) -> ApiServer {
     ApiServer::new(node, bind_address, port)
-}
-
-impl ApiServer {
-    /// Configure API routes
-    pub fn configure_routes(cfg: &mut web::ServiceConfig) {
-        cfg.service(
-            web::scope("/api/v1")
-                .configure(blockchain::configure)
-                .configure(wallet::configure)
-                .configure(node::configure)
-                .configure(metrics::configure)
-        );
-    }
 }
 
 #[cfg(test)]

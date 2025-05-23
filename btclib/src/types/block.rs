@@ -46,6 +46,9 @@ pub struct BlockHeader {
     
     /// Nonce used for proof of work
     pub nonce: u32,
+    
+    /// Height of this block in the blockchain
+    pub height: u64,
 }
 
 impl BlockHeader {
@@ -65,6 +68,28 @@ impl BlockHeader {
             timestamp,
             bits,
             nonce,
+            height: 0, // Default height, should be set by chain state
+        }
+    }
+    
+    /// Create a new block header with height
+    pub fn new_with_height(
+        version: u32,
+        prev_block_hash: Hash256,
+        merkle_root: Hash256,
+        timestamp: u64,
+        bits: u32,
+        nonce: u32,
+        height: u64,
+    ) -> Self {
+        Self {
+            version,
+            prev_block_hash,
+            merkle_root,
+            timestamp,
+            bits,
+            nonce,
+            height,
         }
     }
     
@@ -133,14 +158,13 @@ impl BlockHeader {
             timestamp: header.timestamp,
             bits: header.bits,
             nonce: header.nonce,
+            height: 0, // Height must be set separately by chain state
         }
     }
     
-    /// Get the height (must be set by chain state)
+    /// Get the height (returns the stored height)
     pub fn height(&self) -> u64 {
-        // Default implementation - in practice this would come from chain state
-        // This is a placeholder that should be overridden by the chain state management
-        0
+        self.height
     }
     
     /// Get bits value
@@ -151,6 +175,11 @@ impl BlockHeader {
     /// Get the hash of the previous block
     pub fn prev_block_hash(&self) -> &[u8; 32] {
         &self.prev_block_hash
+    }
+    
+    /// Set the height of this block header
+    pub fn set_height(&mut self, height: u64) {
+        self.height = height;
     }
 }
 
@@ -369,6 +398,7 @@ impl Block {
             timestamp,
             bits: 0x1f00ffff, // Easy difficulty for testing
             nonce: 0,
+            height: 0, // Genesis block is at height 0
         };
         
         // Create a coinbase transaction
@@ -436,6 +466,33 @@ impl Block {
             base_fee * transaction_count as u64
         }
     }
+    
+    /// Increment the nonce for mining (delegates to header)
+    pub fn increment_nonce(&mut self) {
+        self.header.increment_nonce();
+    }
+    
+    /// Get the height of this block (delegates to header)
+    /// Note: In practice, this should be set by the chain state manager
+    pub fn height(&self) -> u64 {
+        self.header.height()
+    }
+    
+    /// Get the timestamp of this block (delegates to header)
+    pub fn timestamp(&self) -> u64 {
+        self.header.timestamp
+    }
+    
+    /// Get the merkle root of this block (delegates to header)
+    pub fn merkle_root(&self) -> &[u8; 32] {
+        &self.header.merkle_root
+    }
+    
+    /// Set the height of this block (updates the header)
+    /// This should be called by the chain state manager when adding blocks
+    pub fn set_height(&mut self, height: u64) {
+        self.header.set_height(height);
+    }
 }
 
 impl fmt::Display for Block {
@@ -483,6 +540,7 @@ impl network_protocol::BlockHeader {
             timestamp: self.timestamp,
             bits: self.bits,
             nonce: self.nonce,
+            height: 0, // Height must be set separately by chain state
         }
     }
     

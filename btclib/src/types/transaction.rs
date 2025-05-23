@@ -125,6 +125,11 @@ impl TransactionOutput {
     pub fn amount(&self) -> u64 {
         self.amount
     }
+
+    /// Get the value (amount) of this output - alias for amount()
+    pub fn value(&self) -> u64 {
+        self.amount
+    }
 }
 
 impl Transaction {

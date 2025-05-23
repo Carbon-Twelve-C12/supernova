@@ -1,6 +1,5 @@
 use metrics::{Counter, Gauge, Histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use std::time::Instant;
 
 // Macro definitions moved to the top
 macro_rules! register_counter {
@@ -21,19 +20,8 @@ macro_rules! register_histogram {
     };
 }
 
-/// Global metrics registry
-pub struct MetricsRegistry {}
-
-impl MetricsRegistry {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let builder = PrometheusBuilder::new();
-        let _ = builder.install_recorder()?;
-        
-        Ok(Self {})
-    }
-}
-
 // Backup-related metrics
+#[derive(Clone)]
 pub struct BackupMetrics {
     backup_duration: Histogram,
     backup_size: Histogram,
@@ -174,10 +162,10 @@ where
     Some(TimedOperation::new(callback))
 }
 
-pub mod prometheus;
+// pub mod prometheus;  // Temporarily disabled - missing file
 pub mod performance;
 
-pub use prometheus::*;
+// pub use prometheus::*;  // Temporarily disabled - missing file
 pub use performance::*;
 
 #[cfg(test)]

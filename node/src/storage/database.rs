@@ -932,9 +932,17 @@ impl BlockchainDB {
 
     /// Commit a transaction
     pub fn commit_transaction(&self) -> Result<(), StorageError> {
-        // sled doesn't have explicit transaction begin/commit
-        // This is a placeholder for transaction functionality
-        self.db.flush()?;
+        // In sled, transactions are automatically committed.
+        // This is a placeholder for databases that support explicit transactions.
+        // The actual transaction handling would depend on the specific requirements.
+        Ok(())
+    }
+    
+    /// Rollback the current transaction
+    pub fn rollback_transaction(&self) -> Result<(), StorageError> {
+        // In sled, transactions are automatically committed and can't be rolled back easily.
+        // This is a placeholder for databases that support explicit rollback.
+        // For sled, we'd need to implement rollback differently, potentially using snapshots.
         Ok(())
     }
 

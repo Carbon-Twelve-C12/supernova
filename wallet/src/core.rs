@@ -5,12 +5,12 @@ use bitcoin::{
     hashes::Hash,
     sighash::{SighashCache, EcdsaSighashType},
     Amount,
-    TxIn, TxOut, OutPoint, Script, Witness,
+    TxIn, TxOut, OutPoint, ScriptBuf, Witness, Sequence,
+    absolute::LockTime, transaction::Version,
 };
 use std::str::FromStr;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use sha2::Digest;
 use serde::{Serialize, Deserialize};
 use reqwest;
 
@@ -94,16 +94,19 @@ impl Wallet {
     pub fn sign_transaction(&self, tx: &mut Transaction) -> Result<(), WalletError> {
         let secp = Secp256k1::new();
         
-        for (input_index, input) in tx.input.iter_mut().enumerate() {
+        // First, collect all the signature hashes without borrowing tx mutably
+        let mut signatures = Vec::new();
+        for input_index in 0..tx.input.len() {
             // Get the corresponding UTXO
-            let utxo = self.find_utxo(input.previous_output.txid.to_raw_hash().to_byte_array(), input.previous_output.vout)
+            let input = &tx.input[input_index];
+            let _utxo = self.find_utxo(input.previous_output.txid.to_raw_hash().to_byte_array(), input.previous_output.vout)
                 .ok_or(WalletError::UTXONotFound)?;
             
             // Create signature hash
             let sighash = self.create_signature_hash(tx, input_index)?;
             
             // Sign the hash
-            let msg = bitcoin::secp256k1::Message::from_slice(&sighash)
+            let msg = bitcoin::secp256k1::Message::from_digest_slice(&sighash)
                 .map_err(|e| WalletError::SigningError(e.to_string()))?;
                 
             let signature = secp.sign_ecdsa(&msg, &self.private_key.inner);
@@ -112,11 +115,16 @@ impl Wallet {
             let mut sig_serialized = signature.serialize_der().to_vec();
             sig_serialized.push(EcdsaSighashType::All as u8);
             
+            signatures.push(sig_serialized);
+        }
+        
+        // Now apply the signatures to the transaction
+        let public_key = self.get_public_key();
+        for (input_index, input) in tx.input.iter_mut().enumerate() {
             // Construct witness
-            let public_key = self.get_public_key();
             let mut witness_stack = Witness::new();
-            witness_stack.push(sig_serialized);
-            witness_stack.push(public_key.serialize().to_vec());
+            witness_stack.push(signatures[input_index].clone());
+            witness_stack.push(public_key.to_bytes().to_vec());
             
             // Set witness
             input.witness = witness_stack;
@@ -132,6 +140,8 @@ impl Wallet {
         fee: u64,
     ) -> Result<Transaction, WalletError> {
         let recipient_address = Address::from_str(recipient)
+            .map_err(|_| WalletError::InvalidAddress(recipient.to_string()))?
+            .require_network(self.network)
             .map_err(|_| WalletError::InvalidAddress(recipient.to_string()))?;
         
         // Calculate total amount needed
@@ -156,8 +166,8 @@ impl Wallet {
                 
                 TxIn {
                     previous_output: outpoint,
-                    script_sig: Script::new(),
-                    sequence: 0xFFFFFFFF, // Default sequence
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX, // Default sequence
                     witness: Witness::new(),
                 }
             })
@@ -166,7 +176,7 @@ impl Wallet {
         // Create output to recipient
         let mut outputs: Vec<TxOut> = vec![
             TxOut {
-                value: amount,
+                value: Amount::from_sat(amount),
                 script_pubkey: recipient_address.script_pubkey(),
             }
         ];
@@ -176,7 +186,7 @@ impl Wallet {
             let change_address = self.get_address()?;
             outputs.push(
                 TxOut {
-                    value: change_amount,
+                    value: Amount::from_sat(change_amount),
                     script_pubkey: change_address.script_pubkey(),
                 }
             );
@@ -184,8 +194,8 @@ impl Wallet {
         
         // Create transaction
         let mut tx = Transaction {
-            version: 2, // Default version
-            lock_time: 0, // No lock time
+            version: Version::TWO, // Default version
+            lock_time: LockTime::ZERO, // No lock time
             input: inputs,
             output: outputs,
         };
