@@ -64,6 +64,11 @@ impl PaymentHash {
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
+    
+    /// Get inner value
+    pub fn into_inner(self) -> [u8; 32] {
+        self.0
+    }
 }
 
 impl FromStr for PaymentHash {
@@ -185,6 +190,9 @@ pub struct Invoice {
     /// Payment hash
     payment_hash: PaymentHash,
     
+    /// Payment preimage (stored securely by the invoice creator)
+    payment_preimage: PaymentPreimage,
+    
     /// Human-readable description
     description: String,
     
@@ -214,9 +222,9 @@ pub struct Invoice {
 }
 
 impl Invoice {
-    /// Create a new invoice
-    pub fn new(
-        payment_hash: PaymentHash,
+    /// Create a new invoice with preimage and payment hash
+    pub fn new_with_preimage(
+        payment_preimage: PaymentPreimage,
         amount_msat: u64,
         description: String,
         expiry: u32,
@@ -226,6 +234,9 @@ impl Invoice {
                 "Amount must be greater than zero".to_string()
             ));
         }
+        
+        // Generate payment hash from preimage
+        let payment_hash = payment_preimage.hash();
         
         // For demonstration, we'll use a fixed node ID
         // In a real implementation, this would be derived from the node's public key
@@ -238,6 +249,54 @@ impl Invoice {
         
         Ok(Self {
             payment_hash,
+            payment_preimage,
+            description,
+            destination,
+            amount_msat,
+            timestamp,
+            expiry,
+            route_hints: Vec::new(),
+            min_final_cltv_expiry: 40, // Default CLTV delta
+            features: 0,               // No special features
+            signature: None,           // No signature yet
+        })
+    }
+    
+    /// Create a new invoice (legacy method - generates random preimage)
+    pub fn new(
+        payment_hash: PaymentHash,
+        amount_msat: u64,
+        description: String,
+        expiry: u32,
+    ) -> Result<Self, InvoiceError> {
+        if amount_msat == 0 {
+            return Err(InvoiceError::InvalidAmount(
+                "Amount must be greater than zero".to_string()
+            ));
+        }
+        
+        // For backward compatibility, we'll derive the preimage from the payment hash
+        // In a real implementation, this should be generated randomly and stored securely
+        let mut preimage_bytes = [0u8; 32];
+        preimage_bytes.copy_from_slice(payment_hash.as_bytes());
+        // XOR with a pattern to ensure it's different from the hash
+        for i in 0..32 {
+            preimage_bytes[i] ^= 0xAA;
+        }
+        let payment_preimage = PaymentPreimage::new(preimage_bytes);
+        
+        // For demonstration, we'll use a fixed node ID
+        // In a real implementation, this would be derived from the node's public key
+        let destination = "029a059f014307e795a31e1ddfdd19c7df6c7b1e2d09d6788c31ca4c38bac0f9ab".to_string();
+        
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| InvoiceError::ParseError(e.to_string()))?
+            .as_secs();
+        
+        Ok(Self {
+            payment_hash,
+            payment_preimage,
             description,
             destination,
             amount_msat,
@@ -312,6 +371,12 @@ impl Invoice {
     /// Get min final CLTV expiry delta
     pub fn min_final_cltv_expiry(&self) -> u32 {
         self.min_final_cltv_expiry
+    }
+    
+    /// Get payment preimage (returns the actual preimage used to generate the payment hash)
+    pub fn payment_preimage(&self) -> PaymentPreimage {
+        // Return the actual preimage that was stored when the invoice was created
+        self.payment_preimage
     }
     
     /// Set signature

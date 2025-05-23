@@ -73,9 +73,17 @@ pub mod lightning;
 #[cfg(feature = "lightning")]
 pub use lightning::{
     LightningNetwork,
-    PaymentChannel,
+    LightningConfig,
+    LightningNetworkError,
+    Channel,
     ChannelId,
-    LightningTransaction,
+    ChannelState,
+    ChannelConfig,
+    Invoice,
+    PaymentHash,
+    PaymentPreimage,
+    Router,
+    LightningWallet,
 };
 
 // Add the freeze module to the library

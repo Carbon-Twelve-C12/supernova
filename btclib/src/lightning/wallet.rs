@@ -3,18 +3,15 @@
 // This file contains the wallet implementation for the Lightning Network,
 // including key management, invoice handling, and payment processing.
 
-use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
 use crate::lightning::invoice::{Invoice, InvoiceError, PaymentHash, PaymentPreimage};
-use crate::lightning::channel::{ChannelId, ChannelState, ChannelConfig, Channel};
+use crate::lightning::channel::ChannelId;
 
-use std::sync::{Arc, RwLock, Mutex};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use thiserror::Error;
-use tracing::{debug, info, warn, error};
 use rand::{thread_rng, Rng};
 use sha2::{Sha256, Digest};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 /// Error types for Lightning wallet operations
 #[derive(Debug, Error)]
@@ -144,13 +141,18 @@ impl KeyManager {
                 if let Some(quantum_keys) = &mut self.quantum_keys {
                     // For quantum keys, we need to generate a new key pair
                     // In a real implementation, this would derive from the seed deterministically
-                    let quantum_keypair = QuantumKeyPair::generate(*scheme, 1)?;
+                    let mut rng = thread_rng();
+                    let quantum_keypair = QuantumKeyPair::generate(&mut rng, *scheme)
+                        .map_err(|e| WalletError::CryptoError(format!("Failed to generate quantum keypair: {:?}", e)))?;
                     
                     // Store the key pair
                     quantum_keys.insert(purpose.to_string(), quantum_keypair.clone());
                     
-                    // Return the private key
-                    Ok(quantum_keypair.private_key().to_vec())
+                    // Return the private key bytes
+                    let private_key_bytes = quantum_keypair.private_key_bytes()
+                        .map_err(|e| WalletError::CryptoError(format!("Failed to get private key bytes: {:?}", e)))?;
+                    
+                    Ok(private_key_bytes.to_vec())
                 } else {
                     Err(WalletError::KeyError(
                         "Quantum keys not initialized".to_string()
@@ -248,7 +250,9 @@ impl LightningWallet {
         // Use a random seed for testing
         let mut rng = thread_rng();
         let mut seed = vec![0u8; 32];
-        rng.fill(&mut seed);
+        for byte in seed.iter_mut() {
+            *byte = rng.gen();
+        }
         
         let key_manager = KeyManager::new(
             seed,
@@ -304,22 +308,22 @@ impl LightningWallet {
         description: &str,
         expiry_seconds: u32,
     ) -> Result<Invoice, WalletError> {
-        // Generate a random payment hash
+        // Generate a random preimage first (like in a real implementation)
         let mut rng = thread_rng();
         let mut preimage_bytes = [0u8; 32];
         rng.fill(&mut preimage_bytes);
         
         let preimage = PaymentPreimage::new(preimage_bytes);
-        let payment_hash = preimage.hash();
         
-        // In a real implementation, we would create a proper BOLT-11 invoice
-        // For now, create a simplified invoice
-        let invoice = Invoice::new(
-            payment_hash,
+        // Create invoice with preimage - payment hash will be derived automatically
+        let invoice = Invoice::new_with_preimage(
+            preimage,
             amount_msat,
             description.to_string(),
             expiry_seconds,
         )?;
+        
+        let payment_hash = invoice.payment_hash();
         
         // Store the invoice and preimage
         self.invoices.insert(payment_hash, invoice.clone());
@@ -409,6 +413,43 @@ impl LightningWallet {
     /// Get the preimage for a payment hash (if we have it)
     pub fn get_preimage(&self, payment_hash: &PaymentHash) -> Option<&PaymentPreimage> {
         self.preimages.get(payment_hash)
+    }
+    
+    /// Check if we have an invoice for a payment hash
+    pub fn has_invoice(&self, payment_hash: &[u8; 32]) -> bool {
+        let hash = PaymentHash::new(*payment_hash);
+        self.invoices.contains_key(&hash)
+    }
+    
+    /// Mark an invoice as paid
+    pub fn mark_invoice_paid(&mut self, payment_hash: &[u8; 32]) -> Result<(), WalletError> {
+        let hash = PaymentHash::new(*payment_hash);
+        
+        if !self.invoices.contains_key(&hash) {
+            return Err(WalletError::InvoiceError(InvoiceError::InvalidHash(
+                "Invoice not found".to_string()
+            )));
+        }
+        
+        // Create a payment record for the received payment
+        let invoice = self.invoices.get(&hash).unwrap();
+        let payment = Payment {
+            hash,
+            amount_msat: invoice.amount_msat(),
+            description: invoice.description().to_string(),
+            creation_time: SystemTime::now(),
+            status: PaymentStatus::Succeeded,
+            preimage: self.preimages.get(&hash).cloned(),
+            channel_id: None,
+        };
+        
+        // Update our balance (we received payment)
+        self.on_chain_balance += invoice.amount_msat() / 1000;
+        
+        // Store the payment
+        self.payments.insert(hash, payment);
+        
+        Ok(())
     }
 }
 
