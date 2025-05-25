@@ -34,7 +34,7 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn, error, trace};
 use dashmap::DashMap;
 use futures::stream::StreamExt;
-use rand::{Rng, rngs::OsRng};
+use rand::{Rng, RngCore, rngs::OsRng};
 use sha2::{Sha256, Digest};
 use byteorder::{ByteOrder, BigEndian};
 
@@ -925,7 +925,7 @@ impl P2PNetwork {
     pub fn generate_challenge(&mut self, peer_id: &PeerId) -> IdentityChallenge {
         // Generate 32 bytes of random data
         let mut challenge_bytes = [0u8; 32];
-        OsRng.fill(&mut challenge_bytes);
+        OsRng.fill_bytes(&mut challenge_bytes);
         
         // Create challenge
         let challenge = IdentityChallenge {

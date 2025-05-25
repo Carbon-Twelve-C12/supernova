@@ -11,7 +11,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn, error};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use hex;
-use rand;
+use rand::{thread_rng, RngCore};
 
 /// Error types for watchtower operations
 #[derive(Debug, Error)]
@@ -841,9 +841,9 @@ pub struct EncryptedWatchTowerStorage {
 impl EncryptedWatchTowerStorage {
     /// Create a new encrypted storage
     pub fn new(db_path: &str, encryption_key: [u8; 32]) -> Self {
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let mut iv = [0u8; 16];
-        rng.fill(&mut iv);
+        rng.fill_bytes(&mut iv);
         
         Self {
             db_path: db_path.to_string(),

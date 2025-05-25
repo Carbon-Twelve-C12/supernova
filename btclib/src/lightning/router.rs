@@ -221,7 +221,7 @@ impl Default for RouterPreferences {
 }
 
 /// Score function for channel ranking
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ScoringFunction {
     /// Score based on success probability
     SuccessProbability,
@@ -236,6 +236,17 @@ pub enum ScoringFunction {
     Custom(fn(&ChannelInfo) -> u64),
 }
 
+impl Clone for ScoringFunction {
+    fn clone(&self) -> Self {
+        match self {
+            ScoringFunction::SuccessProbability => ScoringFunction::SuccessProbability,
+            ScoringFunction::LowestFee => ScoringFunction::LowestFee,
+            ScoringFunction::ShortestPath => ScoringFunction::ShortestPath,
+            ScoringFunction::Custom(func) => ScoringFunction::Custom(*func),
+        }
+    }
+}
+
 /// Channel scorer for ranking channels
 pub struct ChannelScorer {
     /// Scoring function
@@ -246,6 +257,16 @@ pub struct ChannelScorer {
     
     /// Historical data by channel
     historical_data: HashMap<ChannelId, ChannelHistoricalData>,
+}
+
+impl Clone for ChannelScorer {
+    fn clone(&self) -> Self {
+        Self {
+            scoring_function: self.scoring_function.clone(),
+            success_probability: self.success_probability.clone(),
+            historical_data: self.historical_data.clone(),
+        }
+    }
 }
 
 /// Historical data for a channel
@@ -330,6 +351,7 @@ impl ChannelScorer {
 }
 
 /// Network graph representing the Lightning Network
+#[derive(Clone)]
 pub struct NetworkGraph {
     /// Nodes in the network
     nodes: HashMap<NodeId, Vec<ChannelId>>,
@@ -480,6 +502,7 @@ impl NetworkGraph {
 }
 
 /// Main router implementation
+#[derive(Clone)]
 pub struct Router {
     /// Network graph
     graph: NetworkGraph,
@@ -822,27 +845,44 @@ impl Router {
         route_hints: &[RouteHint],
         min_channel_capacity: u64,
     ) -> Result<PaymentPath, RoutingError> {
-        // Create modified preferences with capacity constraints
-        let mut capacity_preferences = self.preferences.clone();
-        
         // Create a custom scoring function that prioritizes channels with sufficient capacity
-        let capacity_scorer = ChannelScorer::new(ScoringFunction::Custom(
-            |channel| {
-                if channel.capacity < min_channel_capacity {
-                    1 // Very low score for channels with insufficient capacity
-                } else {
-                    // Score based on capacity margin
-                    let capacity_margin = channel.capacity - min_channel_capacity;
-                    1_000_000 - std::cmp::min(1_000_000, capacity_margin as u32)
-                }
-            }
-        ));
+        let capacity_scorer = ChannelScorer::new(ScoringFunction::SuccessProbability);
         
         // Find route with capacity constraints
         let mut router_copy = self.clone();
-        router_copy.preferences = capacity_preferences;
         router_copy.scorer = capacity_scorer;
         
+        // Try to find a route, filtering by capacity in the routing logic
+        let mut attempts = 0;
+        let max_attempts = 5;
+        
+        while attempts < max_attempts {
+            match router_copy.find_route(destination, amount_msat, route_hints) {
+                Ok(path) => {
+                    // Check if all channels in the path meet capacity requirements
+                    let mut meets_capacity = true;
+                    for hop in &path.hops {
+                        if let Some(channel) = router_copy.graph.get_channel(&hop.channel_id, true) {
+                            if channel.capacity < min_channel_capacity {
+                                meets_capacity = false;
+                                // Add this channel to avoid list for next attempt
+                                router_copy.preferences.avoid_channels.insert(hop.channel_id.clone());
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if meets_capacity {
+                        return Ok(path);
+                    }
+                },
+                Err(e) => return Err(e),
+            }
+            
+            attempts += 1;
+        }
+        
+        // If we can't find a route with sufficient capacity, return the best available
         router_copy.find_route(destination, amount_msat, route_hints)
     }
     
