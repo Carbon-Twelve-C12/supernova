@@ -1293,8 +1293,10 @@ impl MultiPathPaymentCoordinator {
             ))?;
             
         // Find failed parts that haven't exceeded max attempts
-        let failed_parts: Vec<_> = tracker.parts.iter()
+        // Collect the data we need instead of holding references
+        let failed_part_data: Vec<_> = tracker.parts.iter()
             .filter(|p| matches!(p.status, PaymentStatus::Failed(_)) && p.attempts < max_attempts)
+            .map(|p| (p.amount_msat, p.path.clone()))
             .collect();
             
         let mut retried_parts = Vec::new();
@@ -1302,17 +1304,17 @@ impl MultiPathPaymentCoordinator {
         // Get the router
         let router = self.router.read().unwrap();
         
-        for failed_part in failed_parts {
+        for (amount_msat, path) in failed_part_data {
             // Try to find a new route for this part
-            let destination = failed_part.path.hops.last()
+            let destination = path.hops.last()
                 .map(|h| h.node_id.as_str().to_string())
                 .unwrap_or_default();
                 
             // Find a different route
-            match router.find_route(&destination, failed_part.amount_msat, &[]) {
+            match router.find_route(&destination, amount_msat, &[]) {
                 Ok(new_path) => {
                     // Add a new part with the new path
-                    let part_id = tracker.add_part(new_path, failed_part.amount_msat);
+                    let part_id = tracker.add_part(new_path, amount_msat);
                     
                     if let Some(new_part) = tracker.parts.iter().find(|p| p.id == part_id) {
                         retried_parts.push(new_part.clone());
