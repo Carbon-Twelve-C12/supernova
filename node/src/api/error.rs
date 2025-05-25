@@ -4,25 +4,23 @@ use std::fmt;
 use actix_web::{HttpResponse, ResponseError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use utoipa::ToSchema;
 
-/// API Result type alias
-pub type Result<T> = std::result::Result<T, ApiError>;
-
-/// API error response structure
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ErrorResponse {
+/// API error response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApiError {
     /// Error code
     pub code: u16,
     /// Error message
     pub message: String,
-    /// Additional error details (optional)
+    /// Optional error details
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
 }
 
 /// API error types
 #[derive(Error, Debug)]
-pub enum ApiError {
+pub enum ApiErrorType {
     /// Not found error
     #[error("Resource not found: {0}")]
     NotFound(String),
@@ -84,39 +82,111 @@ pub enum ApiError {
     ServiceUnavailable(String),
 }
 
+impl ApiError {
+    /// Create a new API error
+    pub fn new(code: u16, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    /// Create a new API error with details
+    pub fn with_details(code: u16, message: impl Into<String>, details: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            details: Some(details.into()),
+        }
+    }
+
+    /// Create a bad request error (400)
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self::new(400, message)
+    }
+
+    /// Create an unauthorized error (401)
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::new(401, message)
+    }
+
+    /// Create a forbidden error (403)
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(403, message)
+    }
+
+    /// Create a not found error (404)
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::new(404, message)
+    }
+
+    /// Create a method not allowed error (405)
+    pub fn method_not_allowed(message: impl Into<String>) -> Self {
+        Self::new(405, message)
+    }
+
+    /// Create a conflict error (409)
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::new(409, message)
+    }
+
+    /// Create an unprocessable entity error (422)
+    pub fn unprocessable_entity(message: impl Into<String>) -> Self {
+        Self::new(422, message)
+    }
+
+    /// Create an internal server error (500)
+    pub fn internal_error(message: impl Into<String>) -> Self {
+        Self::new(500, message)
+    }
+
+    /// Create a not implemented error (501)
+    pub fn not_implemented(message: impl Into<String>) -> Self {
+        Self::new(501, message)
+    }
+
+    /// Create a bad gateway error (502)
+    pub fn bad_gateway(message: impl Into<String>) -> Self {
+        Self::new(502, message)
+    }
+
+    /// Create a service unavailable error (503)
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::new(503, message)
+    }
+
+    /// Create a gateway timeout error (504)
+    pub fn gateway_timeout(message: impl Into<String>) -> Self {
+        Self::new(504, message)
+    }
+}
+
+impl fmt::Display for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
 impl ResponseError for ApiError {
     fn error_response(&self) -> HttpResponse {
-        let status_code = self.status_code();
-        let error_response = ErrorResponse {
-            code: status_code.as_u16(),
-            message: self.to_string(),
-            details: None,
+        let status = match self.code {
+            400 => actix_web::http::StatusCode::BAD_REQUEST,
+            401 => actix_web::http::StatusCode::UNAUTHORIZED,
+            403 => actix_web::http::StatusCode::FORBIDDEN,
+            404 => actix_web::http::StatusCode::NOT_FOUND,
+            405 => actix_web::http::StatusCode::METHOD_NOT_ALLOWED,
+            409 => actix_web::http::StatusCode::CONFLICT,
+            422 => actix_web::http::StatusCode::UNPROCESSABLE_ENTITY,
+            500 => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            501 => actix_web::http::StatusCode::NOT_IMPLEMENTED,
+            502 => actix_web::http::StatusCode::BAD_GATEWAY,
+            503 => actix_web::http::StatusCode::SERVICE_UNAVAILABLE,
+            504 => actix_web::http::StatusCode::GATEWAY_TIMEOUT,
+            _ => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
-        
-        HttpResponse::build(status_code)
-            .json(error_response)
-    }
-    
-    fn status_code(&self) -> actix_web::http::StatusCode {
-        use actix_web::http::StatusCode;
-        
-        match self {
-            ApiError::NotFound(_) => StatusCode::NOT_FOUND,
-            ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            ApiError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            ApiError::DatabaseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            ApiError::NodeSyncing => StatusCode::SERVICE_UNAVAILABLE,
-            ApiError::BlockchainError(_) => StatusCode::BAD_REQUEST,
-            ApiError::TransactionError(_) => StatusCode::BAD_REQUEST,
-            ApiError::MiningError(_) => StatusCode::BAD_REQUEST,
-            ApiError::NetworkError(_) => StatusCode::BAD_REQUEST,
-            ApiError::EnvironmentalError(_) => StatusCode::BAD_REQUEST,
-            ApiError::LightningError(_) => StatusCode::BAD_REQUEST,
-            ApiError::WalletError(_) => StatusCode::BAD_REQUEST,
-            ApiError::AuthorizationError(_) => StatusCode::UNAUTHORIZED,
-            ApiError::RateLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
-            ApiError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
-        }
+
+        HttpResponse::build(status).json(self)
     }
 }
 
@@ -151,7 +221,7 @@ impl From<btclib::environmental::EmissionsError> for ApiError {
 /// Conversion from std::io errors
 impl From<std::io::Error> for ApiError {
     fn from(err: std::io::Error) -> Self {
-        ApiError::InternalError(err.to_string())
+        ApiError::internal_error(err.to_string())
     }
 }
 
@@ -166,6 +236,21 @@ impl From<serde_json::Error> for ApiError {
 impl From<btclib::lightning::LightningError> for ApiError {
     fn from(err: btclib::lightning::LightningError) -> Self {
         ApiError::LightningError(err.to_string())
+    }
+}
+
+/// Type alias for API results
+pub type ApiResult<T> = Result<HttpResponse, ApiError>;
+
+impl From<String> for ApiError {
+    fn from(err: String) -> Self {
+        ApiError::internal_error(err)
+    }
+}
+
+impl From<&str> for ApiError {
+    fn from(err: &str) -> Self {
+        ApiError::internal_error(err.to_string())
     }
 }
 

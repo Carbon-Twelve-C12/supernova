@@ -352,18 +352,35 @@ impl LightningWallet {
             ));
         }
         
-        // In a real implementation, this would:
-        // 1. Find a route to the destination
-        // 2. Send HTLCs along the route
-        // 3. Wait for the preimage to unlock the payment
+        // Validate invoice
+        if invoice.is_expired() {
+            return Err(WalletError::InvoiceError(
+                crate::lightning::invoice::InvoiceError::Expired
+            ));
+        }
         
-        // For simulation, we'll generate a preimage
-        // In a real case, we would receive the preimage from the payee
-        let mut rng = thread_rng();
-        let mut preimage_bytes = [0u8; 32];
-        rng.fill_bytes(&mut preimage_bytes);
+        // Check if we already have the preimage for this payment hash
+        if let Some(existing_preimage) = self.preimages.get(&payment_hash) {
+            return Ok(existing_preimage.clone());
+        }
         
-        let preimage = PaymentPreimage::new(preimage_bytes);
+        // In a production Lightning Network implementation, this would:
+        // 1. Find a route to the destination using the router
+        // 2. Create HTLCs along the route with proper onion routing
+        // 3. Send the payment and wait for the preimage
+        // 4. Handle failures and retry with alternative routes
+        
+        // For this implementation, we'll simulate the payment process
+        // by deriving the preimage from the invoice's stored preimage
+        let preimage = invoice.payment_preimage();
+        
+        // Verify that the preimage matches the payment hash
+        let computed_hash = preimage.hash();
+        if computed_hash != payment_hash {
+            return Err(WalletError::PaymentError(
+                "Invoice preimage does not match payment hash".to_string()
+            ));
+        }
         
         // Create payment record
         let payment = Payment {
@@ -376,11 +393,14 @@ impl LightningWallet {
             channel_id: None,
         };
         
-        // Update our balance
+        // Update our balance (simulate payment sent)
         self.on_chain_balance -= amount_msat / 1000;
         
         // Store the payment
         self.payments.insert(payment_hash, payment);
+        
+        // Store the preimage for future reference
+        self.preimages.insert(payment_hash, preimage.clone());
         
         Ok(preimage)
     }
@@ -454,6 +474,65 @@ impl LightningWallet {
         self.payments.insert(hash, payment);
         
         Ok(())
+    }
+    
+    /// Create a new Lightning wallet with default parameters
+    pub fn new() -> Self {
+        // Use a random seed for default wallet
+        let mut rng = thread_rng();
+        let mut seed = vec![0u8; 32];
+        for byte in seed.iter_mut() {
+            *byte = rng.gen();
+        }
+        
+        let key_manager = KeyManager::new(
+            seed,
+            false,
+            None,
+        ).expect("Failed to create key manager for default wallet");
+        
+        Self {
+            key_manager,
+            on_chain_balance: 1_000_000, // Default 1M satoshis for testing
+            channel_balances: HashMap::new(),
+            invoices: HashMap::new(),
+            payments: HashMap::new(),
+            preimages: HashMap::new(),
+        }
+    }
+    
+    /// Create a funding transaction for a channel
+    pub fn create_funding_transaction(
+        &self,
+        amount: u64,
+        channel_id: &ChannelId,
+    ) -> Result<crate::types::transaction::Transaction, WalletError> {
+        // In a real implementation, this would create a proper funding transaction
+        // For now, we'll create a placeholder transaction
+        use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+        
+        let inputs = vec![
+            TransactionInput::new(
+                [0u8; 32], // Previous transaction hash
+                0,         // Output index
+                vec![],    // Script signature
+                0xffffffff, // Sequence
+            )
+        ];
+        
+        let outputs = vec![
+            TransactionOutput::new(
+                amount,
+                vec![], // Script pubkey (would be 2-of-2 multisig in real implementation)
+            )
+        ];
+        
+        Ok(Transaction::new(
+            2,      // Version
+            inputs,
+            outputs,
+            0,      // Lock time
+        ))
     }
 }
 

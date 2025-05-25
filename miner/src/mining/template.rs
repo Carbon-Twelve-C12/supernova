@@ -107,7 +107,7 @@ impl BlockTemplate {
         let mut transactions = vec![self.coinbase.clone()];
         transactions.extend(self.transactions.clone());
 
-        Block::new(
+        Block::new_with_params(
             self.version,
             self.prev_block_hash,
             transactions,

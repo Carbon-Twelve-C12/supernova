@@ -1,21 +1,31 @@
 // SuperNova Lightning Network Implementation
 //
-// This module implements Lightning Network functionality for the SuperNova blockchain.
+// This module implements Lightning Network functionality for the Supernova blockchain.
 // It provides payment channel creation, management, and routing capabilities.
 
-mod channel;
-mod wire;
-mod invoice;
-mod router;
-mod wallet;
-mod watch;
+pub mod channel;
+pub mod invoice;
+pub mod payment;
+pub mod router;
+pub mod wallet;
+pub mod watchtower;
+pub mod onion;
+pub mod quantum_security;
+pub mod manager;
 
-pub use channel::{Channel, ChannelId, ChannelState, ChannelConfig, ChannelError};
-pub use wire::{Message, MessageType, LightningError};
-pub use invoice::{Invoice, InvoiceError, PaymentHash, PaymentPreimage};
-pub use router::{Router, RouteHint, PaymentPath, RoutingError};
-pub use wallet::{LightningWallet, KeyManager, KeyDerivation, WalletError};
-pub use watch::{WatchTower, ChannelMonitor, BreachRemedy, WatchError};
+pub use channel::{Channel, ChannelId, ChannelState, ChannelConfig, ChannelError, ChannelManager};
+pub use invoice::{Invoice, InvoiceError, EnhancedInvoice, InvoiceDatabase};
+pub use payment::{Payment, PaymentProcessor, PaymentError, PaymentStats, Htlc as PaymentHtlc, HtlcState};
+pub use router::{Router, RoutingError, PaymentPath, PathHop, ChannelInfo as RouterChannelInfo, NodeId};
+pub use wallet::{LightningWallet, WalletError};
+pub use watchtower::{Watchtower, WatchError, WatchtowerConfig, WatchtowerClient, BreachRemedy, ChannelMonitor, EncryptedChannelState};
+pub use onion::{OnionRouter, OnionPacket, PerHopPayload, SharedSecret};
+pub use quantum_security::{QuantumChannelSecurity, QuantumSecurityError, QuantumChannelConfig};
+pub use manager::{LightningManager, ManagerError, LightningInfo, LightningChannel, LightningPayment, LightningInvoice};
+
+// Re-export specific types to avoid conflicts
+pub use payment::{PaymentHash, PaymentPreimage, PaymentStatus, RouteHop as PaymentRouteHop};
+pub use invoice::{PaymentHash as InvoicePaymentHash, PaymentPreimage as InvoicePaymentPreimage, RouteHint as InvoiceRouteHint};
 
 use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
@@ -40,9 +50,6 @@ pub enum LightningNetworkError {
     #[error("Channel error: {0}")]
     ChannelError(#[from] channel::ChannelError),
     
-    #[error("Wire protocol error: {0}")]
-    WireError(#[from] wire::LightningError),
-    
     #[error("Invoice error: {0}")]
     InvoiceError(#[from] invoice::InvoiceError),
     
@@ -53,7 +60,7 @@ pub enum LightningNetworkError {
     WalletError(#[from] wallet::WalletError),
     
     #[error("Watch tower error: {0}")]
-    WatchError(#[from] watch::WatchError),
+    WatchError(#[from] watchtower::WatchError),
     
     #[error("Network error: {0}")]
     NetworkError(String),
@@ -68,13 +75,13 @@ pub enum LightningNetworkError {
 /// Main Lightning Network manager
 pub struct LightningNetwork {
     /// Active payment channels
-    channels: Arc<RwLock<HashMap<ChannelId, Arc<RwLock<Channel>>>>>,
+    channels: Arc<RwLock<HashMap<channel::ChannelId, Arc<RwLock<Channel>>>>>,
     
     /// Lightning Network specific wallet
     wallet: Arc<Mutex<LightningWallet>>,
     
     /// Payment router
-    router: Arc<RwLock<Router>>,
+    router: Arc<Router>,
     
     /// Channel monitor for security
     monitor: Arc<RwLock<ChannelMonitor>>,
@@ -121,7 +128,7 @@ impl LightningNetwork {
     /// Create a new Lightning Network manager
     pub fn new(config: LightningConfig, wallet: LightningWallet) -> Self {
         let wallet = Arc::new(Mutex::new(wallet));
-        let router = Arc::new(RwLock::new(Router::new()));
+        let router = Arc::new(Router::new());
         let monitor = Arc::new(RwLock::new(ChannelMonitor::new()));
         
         let quantum_scheme = config.quantum_scheme.clone();
@@ -143,7 +150,7 @@ impl LightningNetwork {
         capacity: u64,
         push_amount: u64,
         channel_config: Option<ChannelConfig>,
-    ) -> Result<ChannelId, LightningNetworkError> {
+    ) -> Result<channel::ChannelId, LightningNetworkError> {
         // Validate parameters
         if capacity < self.config.min_channel_capacity {
             return Err(LightningNetworkError::InvalidState(
@@ -196,14 +203,14 @@ impl LightningNetwork {
             let mut monitor = self.monitor.write().unwrap();
             
             // Create encrypted channel state (placeholder for production implementation)
-            let encrypted_state = watch::EncryptedChannelState {
+            let encrypted_state = EncryptedChannelState {
                 encrypted_data: vec![0u8; 32], // In real implementation, encrypt channel state
                 iv: vec![0u8; 16],              // Random initialization vector
                 tag: vec![0u8; 16],             // Authentication tag
             };
             
             monitor.register_channel(
-                channel_id.clone(),
+                *channel_id.as_bytes(),
                 peer_id,                        // Use peer_id as client_id
                 encrypted_state,
             )?;
@@ -215,7 +222,7 @@ impl LightningNetwork {
     /// Close a payment channel
     pub async fn close_channel(
         &self,
-        channel_id: &ChannelId,
+        channel_id: &channel::ChannelId,
         force_close: bool,
     ) -> Result<Transaction, LightningNetworkError> {
         // Find channel
@@ -240,7 +247,7 @@ impl LightningNetwork {
         // Unregister from monitor
         {
             let mut monitor = self.monitor.write().unwrap();
-            monitor.unregister_channel(channel_id)?;
+            monitor.unregister_channel(channel_id.as_bytes())?;
         }
         
         // Remove from active channels
@@ -269,14 +276,13 @@ impl LightningNetwork {
     pub async fn pay_invoice(
         &self,
         invoice: &Invoice,
-    ) -> Result<PaymentPreimage, LightningNetworkError> {
+    ) -> Result<payment::PaymentPreimage, LightningNetworkError> {
         info!("Paying invoice: amount={} msat, destination={}", 
               invoice.amount_msat(), invoice.destination());
         
         // Find a route to the destination
         let route = {
-            let router = self.router.read().unwrap();
-            router.find_route(
+            self.router.find_route(
                 invoice.destination(),
                 invoice.amount_msat(),
                 &[], // TODO: Convert invoice::RouteHint to router::RouteHint
@@ -305,7 +311,7 @@ impl LightningNetwork {
         
         // Generate random payment preimages for testing
         let mut rng = rand::thread_rng();
-        let payment_preimage = PaymentPreimage::new_random();
+        let payment_preimage = payment::PaymentPreimage::new_random();
         
         // Track the current payment amount (decreases as we move through the route due to fees)
         let mut remaining_amount = invoice.amount_msat();
@@ -332,7 +338,7 @@ impl LightningNetwork {
         }
         
         // Now process the route from source to destination
-        let mut preimage: Option<PaymentPreimage> = None;
+        let mut preimage: Option<payment::PaymentPreimage> = None;
         
         for (i, hop) in route.hops.iter().enumerate() {
             // Find the channel for this hop
@@ -421,13 +427,13 @@ impl LightningNetwork {
     }
     
     /// Get all active channels
-    pub fn list_channels(&self) -> Vec<ChannelId> {
+    pub fn list_channels(&self) -> Vec<channel::ChannelId> {
         let channels = self.channels.read().unwrap();
         channels.keys().cloned().collect()
     }
     
     /// Get detailed information about a specific channel
-    pub fn get_channel_info(&self, channel_id: &ChannelId) -> Option<channel::ChannelInfo> {
+    pub fn get_channel_info(&self, channel_id: &channel::ChannelId) -> Option<channel::ChannelInfo> {
         let channels = self.channels.read().unwrap();
         
         channels.get(channel_id).map(|channel_arc| {
@@ -439,13 +445,13 @@ impl LightningNetwork {
     /// Handle an incoming HTLC payment from another node
     pub async fn handle_incoming_htlc(
         &self,
-        channel_id: &ChannelId,
+        channel_id: &channel::ChannelId,
         htlc_id: u64,
         payment_hash: [u8; 32],
         amount_msat: u64,
         cltv_expiry: u32,
         onion_packet: &[u8],
-    ) -> Result<Option<PaymentPreimage>, LightningNetworkError> {
+    ) -> Result<Option<payment::PaymentPreimage>, LightningNetworkError> {
         info!("Received incoming HTLC on channel {}: amount={} msat, payment_hash={:x?}",
               channel_id, amount_msat, &payment_hash[0..4]);
         
@@ -473,7 +479,7 @@ impl LightningNetwork {
             debug!("We are the final recipient for this HTLC");
             
             // Get the invoice
-            let payment_hash_obj = PaymentHash::new(payment_hash);
+            let payment_hash_obj = payment::PaymentHash::new(payment_hash);
             let invoice = wallet.get_invoice(&payment_hash_obj)
                 .ok_or_else(|| LightningNetworkError::InvalidState(
                     format!("Invoice for payment hash {:x?} not found", &payment_hash[0..4])

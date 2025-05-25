@@ -11,6 +11,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn, error};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use priority_queue::PriorityQueue;
+use serde::{Serialize, Deserialize};
 
 /// Error types for routing operations
 #[derive(Debug, Error)]
@@ -34,8 +35,8 @@ pub enum RoutingError {
     ConstraintError(String),
 }
 
-/// A node in the Lightning Network
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Node identifier in the Lightning Network
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeId(String);
 
 impl NodeId {
@@ -47,6 +48,12 @@ impl NodeId {
     /// Get the node ID as a string
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -523,9 +530,26 @@ impl Router {
         Self {
             graph: NetworkGraph::new(),
             preferences: RouterPreferences::default(),
-            scorer: ChannelScorer::new(ScoringFunction::LowestFee),
-            local_node: NodeId::new("".to_string()), // Will be set later
+            scorer: ChannelScorer::new(ScoringFunction::SuccessProbability),
+            local_node: NodeId::new("local".to_string()),
         }
+    }
+    
+    /// Start the router
+    pub async fn start(&self) -> Result<(), RoutingError> {
+        info!("Starting Lightning Network router");
+        // In a real implementation, this would start background tasks for:
+        // - Network graph synchronization
+        // - Channel monitoring
+        // - Route optimization
+        Ok(())
+    }
+    
+    /// Stop the router
+    pub async fn stop(&self) -> Result<(), RoutingError> {
+        info!("Stopping Lightning Network router");
+        // In a real implementation, this would stop background tasks
+        Ok(())
     }
     
     /// Set the local node ID
@@ -602,23 +626,165 @@ impl Router {
         start_time: &Instant,
         timeout: &Duration,
     ) -> Result<PaymentPath, RoutingError> {
-        // This is a simplified implementation
-        // A real implementation would use Dijkstra's algorithm or similar
+        // Implement Dijkstra's algorithm for Lightning Network routing
+        use std::collections::BinaryHeap;
+        use std::cmp::Reverse;
         
-        // For the MVP, we'll just create a direct path if possible
-        let mut path = PaymentPath::new();
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        struct RouteState {
+            cost: u64,
+            node: NodeId,
+            path: Vec<PathHop>,
+            total_cltv: u32,
+        }
         
-        // Find a channel between source and destination
-        let channels = graph.get_node_channels(source, self.preferences.use_private_channels);
+        impl Ord for RouteState {
+            fn cmp(&self, other: &Self) -> Ordering {
+                // Reverse for min-heap behavior
+                other.cost.cmp(&self.cost)
+                    .then_with(|| other.total_cltv.cmp(&self.total_cltv))
+            }
+        }
         
-        for channel in channels {
-            // Check if we've timed out
+        impl PartialOrd for RouteState {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        
+        let mut heap = BinaryHeap::new();
+        let mut distances: HashMap<NodeId, u64> = HashMap::new();
+        let mut visited: HashSet<NodeId> = HashSet::new();
+        
+        // Initialize with source node
+        heap.push(RouteState {
+            cost: 0,
+            node: source.clone(),
+            path: Vec::new(),
+            total_cltv: 0,
+        });
+        distances.insert(source.clone(), 0);
+        
+        while let Some(current) = heap.pop() {
+            // Check timeout
             if start_time.elapsed() > *timeout {
                 return Err(RoutingError::Timeout(
                     format!("Path finding timed out after {} ms", timeout.as_millis())
                 ));
             }
             
+            // Skip if we've already found a better path to this node
+            if visited.contains(&current.node) {
+                continue;
+            }
+            
+            // Mark as visited
+            visited.insert(current.node.clone());
+            
+            // Check if we've reached the destination
+            if current.node == *destination {
+                let mut path = PaymentPath::new();
+                path.hops = current.path;
+                path.total_fee_msat = current.cost;
+                path.total_cltv_delta = current.total_cltv;
+                path.total_amount_msat = amount_msat + current.cost;
+                return Ok(path);
+            }
+            
+            // Check hop limit
+            if current.path.len() >= self.preferences.max_hops as usize {
+                continue;
+            }
+            
+            // Explore neighbors
+            let channels = graph.get_node_channels(&current.node, self.preferences.use_private_channels);
+            
+            for channel in channels {
+                // Skip if channel is not active
+                if !channel.is_active {
+                    continue;
+                }
+                
+                // Skip if channel doesn't have enough capacity
+                if channel.capacity * 1000 < amount_msat + current.cost {
+                    continue;
+                }
+                
+                // Skip if we should avoid this channel
+                if self.preferences.avoid_channels.contains(&channel.channel_id) {
+                    continue;
+                }
+                
+                // Skip if we should avoid the destination node
+                if self.preferences.avoid_nodes.contains(&channel.destination) {
+                    continue;
+                }
+                
+                // Calculate fee for this hop
+                let hop_amount = amount_msat + current.cost;
+                let fee = channel.base_fee_msat as u64 + 
+                    (hop_amount * channel.fee_rate_millionths as u64) / 1_000_000;
+                
+                // Check fee rate limits
+                if channel.fee_rate_millionths > self.preferences.max_fee_rate_millionths {
+                    continue;
+                }
+                
+                let new_cost = current.cost + fee;
+                let new_cltv = current.total_cltv + channel.cltv_expiry_delta as u32;
+                
+                // Check CLTV limits
+                if new_cltv > self.preferences.max_cltv_expiry_delta as u32 {
+                    continue;
+                }
+                
+                // Check if this is a better path to the destination node
+                let current_distance = distances.get(&channel.destination).cloned().unwrap_or(u64::MAX);
+                if new_cost < current_distance {
+                    distances.insert(channel.destination.clone(), new_cost);
+                    
+                    // Create new hop
+                    let hop = PathHop {
+                        node_id: channel.destination.clone(),
+                        channel_id: channel.channel_id.clone(),
+                        amount_msat: hop_amount,
+                        cltv_expiry: new_cltv,
+                        base_fee_msat: channel.base_fee_msat,
+                        fee_rate_millionths: channel.fee_rate_millionths,
+                        cltv_expiry_delta: channel.cltv_expiry_delta,
+                    };
+                    
+                    // Create new path
+                    let mut new_path = current.path.clone();
+                    new_path.push(hop);
+                    
+                    // Add to heap for exploration
+                    heap.push(RouteState {
+                        cost: new_cost,
+                        node: channel.destination.clone(),
+                        path: new_path,
+                        total_cltv: new_cltv,
+                    });
+                }
+            }
+        }
+        
+        // No route found - try fallback to direct path
+        self.find_direct_path(graph, source, destination, amount_msat)
+    }
+    
+    /// Find a direct path as fallback
+    fn find_direct_path(
+        &self,
+        graph: &NetworkGraph,
+        source: &NodeId,
+        destination: &NodeId,
+        amount_msat: u64,
+    ) -> Result<PaymentPath, RoutingError> {
+        // Find a channel between source and destination
+        let channels = graph.get_node_channels(source, self.preferences.use_private_channels);
+        
+        for channel in channels {
             // Check if this channel connects to destination
             if channel.destination == *destination {
                 // Check if channel has sufficient capacity
@@ -646,7 +812,8 @@ impl Router {
                     cltv_expiry_delta: channel.cltv_expiry_delta,
                 };
                 
-                // Add hop to path
+                // Create path
+                let mut path = PaymentPath::new();
                 path.add_hop(hop);
                 path.total_fee_msat = fee_msat;
                 path.total_cltv_delta = 40;
@@ -656,8 +823,7 @@ impl Router {
             }
         }
         
-        // No direct path found
-        // A real implementation would try multi-hop paths
+        // No route found
         Err(RoutingError::NoRouteFound)
     }
     
@@ -1293,7 +1459,7 @@ impl MultiPathPaymentCoordinator {
             ))?;
             
         // Find failed parts that haven't exceeded max attempts
-        // Collect the data we need instead of holding references
+        // Collect the data we need instead of holding references to avoid borrowing conflicts
         let failed_part_data: Vec<_> = tracker.parts.iter()
             .filter(|p| matches!(p.status, PaymentStatus::Failed(_)) && p.attempts < max_attempts)
             .map(|p| (p.amount_msat, p.path.clone()))
@@ -1327,5 +1493,30 @@ impl MultiPathPaymentCoordinator {
         }
         
         Ok(retried_parts)
+    }
+}
+
+/// A hop in a payment route (for compatibility with manager)
+#[derive(Debug, Clone)]
+pub struct RouteHop {
+    /// Channel ID
+    pub channel_id: ChannelId,
+    /// Node ID
+    pub node_id: String,
+    /// Amount to forward in millisatoshis
+    pub amount_msat: u64,
+    /// Fee for this hop in millisatoshis
+    pub fee_msat: u64,
+    /// CLTV expiry delta
+    pub cltv_expiry_delta: u16,
+}
+
+impl RouteHop {
+    /// Calculate fee for forwarding an amount through this hop
+    pub fn channel_fee(&self, amount_msat: u64) -> u64 {
+        // Base fee + proportional fee
+        let base_fee = 1000; // 1 sat base fee
+        let proportional_fee = (amount_msat * 100) / 1_000_000; // 0.01% proportional fee
+        base_fee + proportional_fee
     }
 } 

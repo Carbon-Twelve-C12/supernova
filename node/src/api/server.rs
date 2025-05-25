@@ -118,9 +118,7 @@ impl ApiServer {
                 .app_data(node_data.clone())
                 .app_data(metrics_data.clone())
                 // Configure JSON extractor limits
-                .app_data(web::JsonConfig::default()
-                    .limit(config.max_json_payload_size * 1024 * 1024))
-                // Configure standard middleware
+                .app_data(web::JsonConfig::default().limit(4096))
                 .wrap(middleware::Compress::default())
                 .wrap(middleware::NormalizePath::new(
                     middleware::TrailingSlash::Trim
@@ -128,29 +126,16 @@ impl ApiServer {
                 
             // Add CORS middleware if configured
             if !config.cors_allowed_origins.is_empty() {
-                let cors = Cors::default()
-                    .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
-                    .allowed_headers(vec![
-                        "Authorization",
-                        "Accept",
-                        "Content-Type",
-                        "X-Requested-With"
-                    ])
-                    .max_age(3600);
-                    
-                // Add allowed origins
-                let cors = config.cors_allowed_origins.iter().fold(cors, |cors, origin| {
-                    if origin == "*" {
-                        cors.allow_any_origin()
-                    } else {
-                        cors.allowed_origin(origin)
-                    }
-                });
-                
-                app = app.wrap(cors);
+                app = app.wrap(
+                    Cors::default()
+                        .allow_any_origin()
+                        .allow_any_method()
+                        .allow_any_header()
+                        .max_age(3600)
+                );
             }
             
-            // Add custom logging middleware if detailed logging is enabled
+            // Add logging middleware
             if config.detailed_logging {
                 app = app.wrap(logging::ApiLogger::new());
             } else {
@@ -159,7 +144,11 @@ impl ApiServer {
             
             // Add authentication middleware if enabled
             if config.enable_auth {
-                app = app.wrap(auth::ApiAuth::new(config.api_keys.clone().unwrap_or_default()));
+                if let Some(api_keys) = &config.api_keys {
+                    if !api_keys.is_empty() {
+                        app = app.wrap(auth::ApiAuth::new(api_keys.clone()));
+                    }
+                }
             }
             
             // Add rate limiting middleware if configured

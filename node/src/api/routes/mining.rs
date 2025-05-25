@@ -3,7 +3,7 @@ use crate::api::types::{
     MiningInfo, MiningTemplate, MiningStats, SubmitBlockRequest, 
     SubmitBlockResponse, MiningStatus, MiningConfiguration,
 };
-use crate::mining::MiningManager;
+use btclib::mining::manager::MiningManager;
 use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -40,10 +40,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 async fn get_mining_info(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningInfo> {
-    // TODO: Implement real mining info retrieval
-    let info = mining.get_mining_info()?;
-    
-    Ok(HttpResponse::Ok().json(info))
+    match mining.get_mining_info() {
+        Ok(info) => Ok(HttpResponse::Ok().json(info)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get mining info: {}", e))),
+    }
 }
 
 /// Get mining template for block creation
@@ -78,10 +78,10 @@ async fn get_mining_template(
     let capabilities = params.capabilities.clone().unwrap_or_else(|| "standard".to_string());
     let max_transactions = params.max_transactions;
     
-    // TODO: Implement real mining template generation
-    let template = mining.get_mining_template(&capabilities, max_transactions)?;
-    
-    Ok(HttpResponse::Ok().json(template))
+    match mining.get_mining_template(&capabilities, max_transactions) {
+        Ok(template) => Ok(HttpResponse::Ok().json(template)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get mining template: {}", e))),
+    }
 }
 
 /// Submit a mined block
@@ -108,10 +108,10 @@ async fn submit_block(
         ApiError::bad_request("Invalid block data format")
     })?;
     
-    // TODO: Implement real block submission
-    let result = mining.submit_block(&block_bytes)?;
-    
-    Ok(HttpResponse::Ok().json(result))
+    match mining.submit_block(&block_bytes) {
+        Ok(response) => Ok(HttpResponse::Ok().json(response)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to submit block: {}", e))),
+    }
 }
 
 /// Get mining statistics
@@ -142,10 +142,10 @@ async fn get_mining_stats(
 ) -> ApiResult<MiningStats> {
     let period = params.period.unwrap_or(3600);
     
-    // TODO: Implement real mining stats retrieval
-    let stats = mining.get_mining_stats(period)?;
-    
-    Ok(HttpResponse::Ok().json(stats))
+    match mining.get_mining_stats(period) {
+        Ok(stats) => Ok(HttpResponse::Ok().json(stats)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get mining stats: {}", e))),
+    }
 }
 
 /// Get mining status
@@ -162,10 +162,10 @@ async fn get_mining_stats(
 async fn get_mining_status(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningStatus> {
-    // TODO: Implement real mining status retrieval
-    let status = mining.get_mining_status()?;
-    
-    Ok(HttpResponse::Ok().json(status))
+    match mining.get_mining_status() {
+        Ok(status) => Ok(HttpResponse::Ok().json(status)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get mining status: {}", e))),
+    }
 }
 
 /// Start mining
@@ -193,10 +193,10 @@ async fn start_mining(
 ) -> ApiResult<HttpResponse> {
     let threads = request.threads;
     
-    // TODO: Implement real mining start
-    mining.start_mining(threads)?;
-    
-    Ok(HttpResponse::Ok().finish())
+    match mining.start_mining(threads) {
+        Ok(_) => Ok(HttpResponse::Ok().finish()),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to start mining: {}", e))),
+    }
 }
 
 /// Stop mining
@@ -213,10 +213,10 @@ async fn start_mining(
 async fn stop_mining(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<HttpResponse> {
-    // TODO: Implement real mining stop
-    mining.stop_mining()?;
-    
-    Ok(HttpResponse::Ok().finish())
+    match mining.stop_mining() {
+        Ok(_) => Ok(HttpResponse::Ok().finish()),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to stop mining: {}", e))),
+    }
 }
 
 /// Get mining configuration
@@ -233,10 +233,10 @@ async fn stop_mining(
 async fn get_mining_config(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningConfiguration> {
-    // TODO: Implement real mining config retrieval
-    let config = mining.get_mining_config()?;
-    
-    Ok(HttpResponse::Ok().json(config))
+    match mining.get_mining_config() {
+        Ok(config) => Ok(HttpResponse::Ok().json(config)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get mining config: {}", e))),
+    }
 }
 
 /// Update mining configuration
@@ -256,8 +256,8 @@ async fn update_mining_config(
     request: web::Json<MiningConfiguration>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningConfiguration> {
-    // TODO: Implement real mining config update
-    let updated_config = mining.update_mining_config(request.0)?;
-    
-    Ok(HttpResponse::Ok().json(updated_config))
+    match mining.update_mining_config(request.0) {
+        Ok(updated_config) => Ok(HttpResponse::Ok().json(updated_config)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to update mining config: {}", e))),
+    }
 } 

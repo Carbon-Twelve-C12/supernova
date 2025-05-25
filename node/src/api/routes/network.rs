@@ -3,7 +3,7 @@ use crate::api::types::{
     NetworkInfo, PeerInfo, PeerConnectionStatus, BandwidthUsage, 
     PeerAddRequest, PeerAddResponse, NodeAddress, ConnectionCount,
 };
-use crate::network::NetworkManager;
+use crate::network::P2PNetwork;
 use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -35,9 +35,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     )
 )]
 async fn get_network_info(
-    network: web::Data<Arc<NetworkManager>>,
+    network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<NetworkInfo> {
-    // Retrieve network information from the NetworkManager
+    // Retrieve network information from the P2PNetwork
     let info = match network.get_network_info() {
         Ok(info) => info,
         Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve network info: {}", e))),
@@ -58,9 +58,9 @@ async fn get_network_info(
     )
 )]
 async fn get_connection_count(
-    network: web::Data<Arc<NetworkManager>>,
+    network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<ConnectionCount> {
-    // Retrieve connection count from the NetworkManager
+    // Retrieve connection count from the P2PNetwork
     let count = match network.get_connection_count() {
         Ok(count) => count,
         Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve connection count: {}", e))),
@@ -96,12 +96,12 @@ struct GetPeersParams {
 
 async fn get_peers(
     params: web::Query<GetPeersParams>,
-    network: web::Data<Arc<NetworkManager>>,
+    network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<Vec<PeerInfo>> {
     let connection_state = params.connection_state.clone();
     let verbose = params.verbose.unwrap_or(false);
     
-    // Retrieve peers from the NetworkManager with the specified filters
+    // Retrieve peers from the P2PNetwork with the specified filters
     let peers = match network.get_peers(connection_state, verbose) {
         Ok(peers) => peers,
         Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve peers: {}", e))),
@@ -127,7 +127,7 @@ async fn get_peers(
 )]
 async fn get_peer(
     path: web::Path<String>,
-    network: web::Data<Arc<NetworkManager>>,
+    network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<PeerInfo> {
     let peer_id = path.into_inner();
     
@@ -153,7 +153,7 @@ async fn get_peer(
 )]
 async fn add_peer(
     request: web::Json<PeerAddRequest>,
-    network: web::Data<Arc<NetworkManager>>,
+    network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<PeerAddResponse> {
     let address = request.address.clone();
     let permanent = request.permanent.unwrap_or(false);
@@ -181,7 +181,7 @@ async fn add_peer(
 )]
 async fn remove_peer(
     path: web::Path<String>,
-    network: web::Data<Arc<NetworkManager>>,
+    network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<HttpResponse> {
     let peer_id = path.into_inner();
     
@@ -217,7 +217,7 @@ struct GetBandwidthParams {
 
 async fn get_bandwidth_usage(
     params: web::Query<GetBandwidthParams>,
-    network: web::Data<Arc<NetworkManager>>,
+    network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<BandwidthUsage> {
     let period = params.period.unwrap_or(3600);
     
