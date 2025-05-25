@@ -420,9 +420,9 @@ impl Channel {
             2, // version
             funding_inputs,
             vec![
-                TxOut {
-                    amount: self.capacity_sat,
-                    pub_key_script: Script::new_p2wsh(&vec![
+                TxOut::new(
+                    self.capacity_sat,
+                    Script::new_p2wsh(&vec![
                         // In a real implementation, this would be:
                         // OP_2 <local_pubkey> <remote_pubkey> OP_2 OP_CHECKMULTISIG
                         0x52, // OP_2
@@ -433,7 +433,7 @@ impl Channel {
                         0x52, // OP_2
                         0xae, // OP_CHECKMULTISIG
                     ]).0,
-                }
+                )
             ],
             0, // lock_time
         );
@@ -445,10 +445,10 @@ impl Channel {
             
             // Only add change output if there's a positive amount
             if change_amount > 0 {
-                let change_output = TxOut {
-                    amount: change_amount,
-                    pub_key_script: change_script.0,
-                };
+                let change_output = TxOut::new(
+                    change_amount,
+                    change_script.0,
+                );
                 
                 // Add change output to transaction
                 // Note: In the real implementation, this would actually modify the funding_tx
@@ -488,24 +488,24 @@ impl Channel {
         let commitment_tx = Transaction::new(
             2, // version
             vec![
-                TxIn {
-                    prev_tx_hash: self.funding_outpoint.as_ref().unwrap().txid,
-                    prev_output_index: self.funding_outpoint.as_ref().unwrap().vout,
-                    signature_script: Script::new().0, // Empty for witness
-                    sequence: 0xFFFFFFFF,      // No RBF
-                }
+                TxIn::new(
+                    self.funding_outpoint.as_ref().unwrap().txid,
+                    self.funding_outpoint.as_ref().unwrap().vout,
+                    Script::new().0, // Empty for witness
+                    0xFFFFFFFF,      // No RBF
+                )
             ],
             vec![
                 // Output to local with their balance
-                TxOut {
-                    amount: self.local_balance_sat,
-                    pub_key_script: Script::new_p2wpkh(&self.local_node_id.serialize()).0,
-                },
+                TxOut::new(
+                    self.local_balance_sat,
+                    Script::new_p2wpkh(&self.local_node_id.serialize()).0,
+                ),
                 // Output to remote with their balance
-                TxOut {
-                    amount: self.remote_balance_sat,
-                    pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
-                },
+                TxOut::new(
+                    self.remote_balance_sat,
+                    Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
+                ),
             ],
             0, // lock_time
         );
@@ -681,24 +681,24 @@ impl Channel {
         let commitment_tx = Transaction::new(
             2, // version
             vec![
-                TxIn {
-                    prev_tx_hash: self.funding_outpoint.as_ref().unwrap().txid,
-                    prev_output_index: self.funding_outpoint.as_ref().unwrap().vout,
-                    signature_script: Script::new().0, // Empty for witness
-                    sequence: 0xFFFFFFFF,      // No RBF
-                }
+                TxIn::new(
+                    self.funding_outpoint.as_ref().unwrap().txid,
+                    self.funding_outpoint.as_ref().unwrap().vout,
+                    Script::new().0, // Empty for witness
+                    0xFFFFFFFF      // No RBF
+                )
             ],
             vec![
                 // Output to local with their balance
-                TxOut {
-                    amount: self.local_balance_sat,
-                    pub_key_script: Script::new_p2wpkh(&self.local_node_id.serialize()).0,
-                },
+                TxOut::new(
+                    self.local_balance_sat,
+                    Script::new_p2wpkh(&self.local_node_id.serialize()).0,
+                ),
                 // Output to remote with their balance
-                TxOut {
-                    amount: self.remote_balance_sat,
-                    pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
-                },
+                TxOut::new(
+                    self.remote_balance_sat,
+                    Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
+                ),
             ],
             0, // lock_time
         );
@@ -761,7 +761,7 @@ impl Channel {
     pub fn open(
         peer_id: String,
         capacity: u64,
-        push_amount: u64,
+        push_u64,
         config: ChannelConfig,
         quantum_scheme: Option<QuantumScheme>,
     ) -> ChannelResult<Self> {
@@ -812,22 +812,22 @@ impl Channel {
         let closing_tx = Transaction::new(
             2, // version
             vec![
-                TxIn {
-                    prev_tx_hash: self.funding_outpoint.as_ref().unwrap().txid,
-                    prev_output_index: self.funding_outpoint.as_ref().unwrap().vout,
-                    signature_script: Script::new().0,
-                    sequence: 0xFFFFFFFF,
-                }
+                TxIn::new(
+                    self.funding_outpoint.as_ref().unwrap().txid,
+                    self.funding_outpoint.as_ref().unwrap().vout,
+                    Script::new().0,
+                    0xFFFFFFFF,
+                )
             ],
             vec![
-                TxOut {
-                    amount: self.local_balance_sat,
-                    pub_key_script: Script::new_p2wpkh(&self.local_node_id.serialize()).0,
-                },
-                TxOut {
-                    amount: self.remote_balance_sat,
-                    pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
-                },
+                TxOut::new(
+                    self.local_balance_sat,
+                    Script::new_p2wpkh(&self.local_node_id.serialize()).0,
+                ),
+                TxOut::new(
+                    self.remote_balance_sat,
+                    Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
+                ),
             ],
             0, // lock_time
         );
@@ -953,13 +953,13 @@ impl ChannelManager {
                         match self.get_channel_mut(&channel_id) {
                             Ok(channel) => channel.initiate_close(),
                             Err(e) => Err(e),
-                        }
+                        )
                     } else {
                         Err(ChannelError::InvalidState(
                             "Channel is not active".to_string()
                         ))
-                    }
-                },
+                    )
+                ),
                 Err(e) => Err(e),
             };
             

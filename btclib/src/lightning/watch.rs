@@ -318,6 +318,7 @@ impl ChannelMonitor {
     /// Process a new block to check for breaches
     pub fn process_block(&mut self, block: &Block) -> Vec<BreachRemedy> {
         let mut remedies = Vec::new();
+        let mut breached_channels = Vec::new(); // Collect channels to update
         
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -349,14 +350,19 @@ impl ChannelMonitor {
                             // Add to remedies to return
                             remedies.push(remedy);
                             
-                            // Mark channel as breached
-                            if let Some(ch) = self.channels.get_mut(channel_id) {
-                                ch.state = MonitorState::Breached;
-                                ch.last_update = now;
-                            }
+                            // Collect channel to breach (defer mutable borrow)
+                            breached_channels.push((channel_id.clone(), now));
                         }
                     }
                 }
+            }
+        }
+        
+        // Update breached channels after releasing the immutable borrow
+        for (channel_id, update_time) in breached_channels {
+            if let Some(ch) = self.channels.get_mut(&channel_id) {
+                ch.state = MonitorState::Breached;
+                ch.last_update = update_time;
             }
         }
         
