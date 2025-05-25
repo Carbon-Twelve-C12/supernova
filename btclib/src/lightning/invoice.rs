@@ -57,7 +57,9 @@ impl PaymentHash {
     pub fn random() -> Self {
         let mut rng = thread_rng();
         let mut hash = [0u8; 32];
-        rng.fill_bytes(&mut hash);
+        for i in 0..32 {
+            hash[i] = rng.gen();
+        }
         Self(hash)
     }
     
@@ -69,6 +71,11 @@ impl PaymentHash {
     /// Get inner value
     pub fn into_inner(self) -> [u8; 32] {
         self.0
+    }
+    
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.0)
     }
 }
 
@@ -139,6 +146,11 @@ impl PaymentPreimage {
     /// Get inner value
     pub fn into_inner(self) -> [u8; 32] {
         self.0
+    }
+    
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.0)
     }
 }
 
@@ -223,6 +235,67 @@ pub struct Invoice {
 }
 
 impl Invoice {
+    /// Create a new invoice with all required parameters
+    pub fn new(
+        payment_hash: PaymentHash,
+        amount_msat: u64,
+        description: String,
+        expiry: u32,
+        is_private: bool,
+        node_id: String,
+        payment_preimage: PaymentPreimage,
+    ) -> Self {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+        
+        Self {
+            payment_hash,
+            payment_preimage,
+            description,
+            destination: node_id,
+            amount_msat,
+            timestamp,
+            expiry,
+            route_hints: Vec::new(),
+            min_final_cltv_expiry: 40,
+            features: 0,
+            signature: None,
+        }
+    }
+    
+    /// Get creation timestamp
+    pub fn created_at(&self) -> u64 {
+        self.timestamp
+    }
+    
+    /// Get expiry time in seconds
+    pub fn expiry_seconds(&self) -> u32 {
+        self.expiry
+    }
+    
+    /// Check if the invoice is settled (paid)
+    pub fn is_settled(&self) -> bool {
+        // In a real implementation, this would check payment status
+        // For now, we'll return false as a placeholder
+        false
+    }
+    
+    /// Get settled timestamp
+    pub fn settled_at(&self) -> Option<u64> {
+        // In a real implementation, this would return the settlement timestamp
+        // For now, we'll return None as a placeholder
+        None
+    }
+    
+    /// Check if the invoice is private
+    pub fn is_private(&self) -> bool {
+        // In a real implementation, this would check if the invoice is private
+        // For now, we'll return false as a placeholder
+        false
+    }
+    
     /// Create a new invoice with preimage and payment hash
     pub fn new_with_preimage(
         payment_preimage: PaymentPreimage,
@@ -264,7 +337,7 @@ impl Invoice {
     }
     
     /// Create a new invoice (legacy method - generates random preimage)
-    pub fn new(
+    pub fn new_legacy(
         payment_hash: PaymentHash,
         amount_msat: u64,
         description: String,
@@ -520,7 +593,7 @@ impl EnhancedInvoice {
         features: u64,
     ) -> Result<Self, InvoiceError> {
         // Create the base invoice
-        let invoice = Invoice::new(payment_hash, amount_msat, description, expiry)?;
+        let invoice = Invoice::new_legacy(payment_hash, amount_msat, description, expiry)?;
         
         // Generate a random payment secret
         let mut rng = thread_rng();

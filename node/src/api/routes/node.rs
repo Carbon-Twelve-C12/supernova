@@ -3,7 +3,7 @@ use crate::api::types::{
     NodeInfo, SystemInfo, LogEntry, NodeStatus, NodeVersion, 
     NodeConfiguration, BackupInfo, NodeMetrics, DebugInfo,
 };
-use crate::node::NodeManager;
+use crate::node::Node;
 use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -41,7 +41,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     )
 )]
 async fn get_node_info(
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeInfo> {
     // TODO: Implement real node info retrieval
     let info = node.get_info()?;
@@ -61,7 +61,7 @@ async fn get_node_info(
     )
 )]
 async fn get_system_info(
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<SystemInfo> {
     // TODO: Implement real system info retrieval
     let info = node.get_system_info()?;
@@ -104,7 +104,7 @@ struct GetLogsParams {
 
 async fn get_logs(
     params: web::Query<GetLogsParams>,
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<Vec<LogEntry>> {
     let level = params.level.clone().unwrap_or_else(|| "info".to_string());
     let component = params.component.clone();
@@ -129,7 +129,7 @@ async fn get_logs(
     )
 )]
 async fn get_node_status(
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeStatus> {
     // TODO: Implement real node status retrieval
     let status = node.get_status()?;
@@ -149,7 +149,7 @@ async fn get_node_status(
     )
 )]
 async fn get_node_version(
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeVersion> {
     // TODO: Implement real node version retrieval
     let version = node.get_version()?;
@@ -181,7 +181,7 @@ struct GetNodeMetricsParams {
 
 async fn get_node_metrics(
     params: web::Query<GetNodeMetricsParams>,
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeMetrics> {
     let period = params.period.unwrap_or(300);
     
@@ -203,7 +203,7 @@ async fn get_node_metrics(
     )
 )]
 async fn get_node_config(
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeConfiguration> {
     // TODO: Implement real node configuration retrieval
     let config = node.get_config()?;
@@ -226,7 +226,7 @@ async fn get_node_config(
 )]
 async fn update_node_config(
     request: web::Json<NodeConfiguration>,
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeConfiguration> {
     // TODO: Implement real node configuration update
     let updated_config = node.update_config(request.0)?;

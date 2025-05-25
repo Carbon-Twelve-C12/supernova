@@ -7,3 +7,7 @@ pub use prioritization::{
     PrioritizationConfig,
     PrioritizedTransaction,
 };
+
+// Re-export commonly used types
+pub use btclib::types::transaction::Transaction;
+pub use btclib::validation::transaction::TransactionValidator; 

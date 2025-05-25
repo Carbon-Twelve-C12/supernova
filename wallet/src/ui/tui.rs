@@ -270,23 +270,29 @@ impl WalletTui {
     }
 
     fn render_accounts(&mut self, f: &mut Frame, area: Rect) {
-        let accounts = self.wallet.list_accounts();
-        let items: Vec<ListItem> = accounts
-            .iter()
-            .map(|(index, account)| {
+        // Collect account data first to avoid borrowing conflicts
+        let accounts_data: Vec<_> = {
+            let accounts = self.wallet.list_accounts();
+            accounts.iter().map(|(index, account)| {
                 let balance = self.wallet.get_balance(&account.name).unwrap_or(0);
                 let addr_count = account.addresses.len();
-                
+                (*index, account.name.clone(), account.account_type, balance, addr_count)
+            }).collect()
+        };
+        
+        let items: Vec<ListItem> = accounts_data
+            .iter()
+            .map(|(index, name, account_type, balance, addr_count)| {
                 ListItem::new(vec![
                     Line::from(vec![
                         Span::styled(format!("{}. ", index), Style::default().fg(Color::DarkGray)),
-                        Span::styled(&account.name, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(" - "),
-                Span::styled(format!("{} sats", balance), Style::default().fg(Color::Green)),
+                        Span::styled(name, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::raw(" - "),
+                        Span::styled(format!("{} sats", balance), Style::default().fg(Color::Green)),
                     ]),
                     Line::from(vec![
                         Span::raw("   "),
-                        Span::styled(format!("Type: {:?}", account.account_type), Style::default().fg(Color::Blue)),
+                        Span::styled(format!("Type: {:?}", account_type), Style::default().fg(Color::Blue)),
                         Span::raw(" | "),
                         Span::styled(format!("Addresses: {}", addr_count), Style::default().fg(Color::Blue)),
                     ]),
@@ -299,7 +305,7 @@ impl WalletTui {
             .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .highlight_symbol(">> ");
 
-        let account_count = accounts.len();
+        let account_count = accounts_data.len();
         if account_count > 0 && self.accounts_state.selected().is_none() {
             self.accounts_state.select(Some(0));
         }
@@ -612,10 +618,10 @@ impl WalletTui {
         match self.wallet.create_account(account_name.clone(), AccountType::NativeSegWit) {
             Ok(_) => {
                 self.message = Some(Message::Success(format!("Account '{}' created successfully", account_name)));
-                // Select the newly created account
-                let accounts = self.wallet.list_accounts();
-                if !accounts.is_empty() {
-                    self.accounts_state.select(Some(accounts.len() - 1));
+                // Select the newly created account - get account count after the mutable borrow is released
+                let account_count = self.wallet.list_accounts().len();
+                if account_count > 0 {
+                    self.accounts_state.select(Some(account_count - 1));
                 }
             },
             Err(e) => {
@@ -627,10 +633,18 @@ impl WalletTui {
 
     fn handle_generate_address(&mut self) -> Result<(), io::Error> {
         if let Some(idx) = self.accounts_state.selected() {
-            let accounts = self.wallet.list_accounts();
-            if idx < accounts.len() {
-                let (_, account) = &accounts[idx];
-                match self.wallet.get_new_address(&account.name) {
+            // Collect account name first to avoid borrowing conflicts
+            let account_name = {
+                let accounts = self.wallet.list_accounts();
+                if idx < accounts.len() {
+                    Some(accounts[idx].1.name.clone())
+                } else {
+                    None
+                }
+            };
+            
+            if let Some(name) = account_name {
+                match self.wallet.get_new_address(&name) {
                     Ok(address) => {
                         self.last_generated_address = Some(address);
                         self.input_mode = InputMode::AddressDisplay;

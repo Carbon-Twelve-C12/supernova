@@ -8,12 +8,41 @@ use crate::network::P2PNetwork;
 use crate::mempool::TransactionPool;
 use crate::config::NodeConfig;
 use crate::environmental::EnvironmentalTracker;
+use crate::api::types::{NodeInfo, SystemInfo, LogEntry, NodeStatus, VersionInfo, NodeMetrics, FaucetInfo};
 use btclib::crypto::quantum::QuantumScheme;
 use btclib::lightning::{LightningNetwork, LightningConfig, LightningNetworkError};
 use btclib::lightning::wallet::LightningWallet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
+use std::time::Instant;
 use tracing::{info, error, warn};
 use crate::metrics::performance::{PerformanceMonitor, MetricType};
+use thiserror::Error;
+use libp2p::PeerId;
+use sysinfo::{System, SystemExt, CpuExt};
+
+/// Node operation errors
+#[derive(Error, Debug)]
+pub enum NodeError {
+    #[error("Storage error: {0}")]
+    StorageError(#[from] StorageError),
+    #[error("Network error: {0}")]
+    NetworkError(String),
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+    #[error("Lightning Network error: {0}")]
+    LightningError(#[from] LightningNetworkError),
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("General error: {0}")]
+    General(String),
+}
+
+// Placeholder types for missing imports
+type NetworkManager = P2PNetwork;
+type BlockValidator = ();
+type TransactionValidator = ();
+type RpcServer = ();
+type MemPool = TransactionPool;
 
 pub struct Node {
     pub config: NodeConfig,
@@ -35,6 +64,18 @@ pub struct Node {
     lightning: Option<Arc<Mutex<LightningNetwork>>>,
     /// Performance monitor
     pub performance_monitor: Arc<PerformanceMonitor>,
+    /// Node peer ID
+    pub peer_id: PeerId,
+    /// Node start time
+    pub start_time: Instant,
+    /// Network layer
+    pub network: Arc<P2PNetwork>,
+    /// Mempool
+    pub mempool: Arc<TransactionPool>,
+    /// Blockchain reference
+    pub blockchain: Arc<ChainState>,
+    /// Wallet reference (placeholder)
+    pub wallet: Arc<()>,
 }
 
 impl Node {
@@ -81,6 +122,12 @@ impl Node {
             api_server: None,
             lightning: None,
             performance_monitor,
+            peer_id: PeerId::random(),
+            start_time: Instant::now(),
+            network: Arc::new(P2PNetwork::new()),
+            mempool: Arc::new(TransactionPool::new()),
+            blockchain: Arc::new(ChainState::new()),
+            wallet: Arc::new(()),
         })
     }
 
@@ -409,5 +456,120 @@ impl Node {
 
     pub fn get_performance_metrics(&self) -> serde_json::Value {
         self.performance_monitor.get_report()
+    }
+
+    /// Get node information
+    pub fn get_info(&self) -> Result<NodeInfo, String> {
+        Ok(NodeInfo {
+            node_id: self.peer_id.to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            protocol_version: 1,
+            network: self.config.network.clone(),
+            height: self.blockchain.get_height(),
+            best_block_hash: hex::encode(self.blockchain.get_best_block_hash()),
+            connections: self.network.get_peer_count() as u32,
+            synced: self.is_synced(),
+            uptime: self.start_time.elapsed().as_secs(),
+        })
+    }
+
+    /// Get system information
+    pub fn get_system_info(&self) -> Result<SystemInfo, String> {
+        use sysinfo::{System, SystemExt, CpuExt};
+        
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        
+        Ok(SystemInfo {
+            os: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+            arch: std::env::consts::ARCH.to_string(),
+            cpu_count: sys.cpus().len() as u32,
+            total_memory: sys.total_memory(),
+            used_memory: sys.used_memory(),
+            total_swap: sys.total_swap(),
+            used_swap: sys.used_swap(),
+            uptime: sys.uptime(),
+            load_average: sys.load_average(),
+        })
+    }
+
+    /// Get logs
+    pub fn get_logs(&self, level: &str, component: Option<&str>, limit: usize, offset: usize) -> Result<Vec<LogEntry>, String> {
+        // In a real implementation, this would read from a log storage system
+        // For now, return empty logs
+        Ok(Vec::new())
+    }
+
+    /// Get node status
+    pub fn get_status(&self) -> Result<NodeStatus, String> {
+        Ok(NodeStatus {
+            state: if self.is_synced() { "synced".to_string() } else { "syncing".to_string() },
+            height: self.blockchain.get_height(),
+            best_block_hash: hex::encode(self.blockchain.get_best_block_hash()),
+            peer_count: self.network.get_peer_count(),
+            mempool_size: self.mempool.size(),
+            is_mining: false, // TODO: Get from mining manager
+            hashrate: 0, // TODO: Get from mining manager
+            difficulty: 1.0, // TODO: Get from blockchain
+            network_hashrate: 0, // TODO: Calculate network hashrate
+        })
+    }
+
+    /// Get node version
+    pub fn get_version(&self) -> Result<VersionInfo, String> {
+        Ok(VersionInfo {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            protocol_version: 1,
+            git_commit: option_env!("GIT_COMMIT").unwrap_or("unknown").to_string(),
+            build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
+            rust_version: env!("RUSTC_VERSION").to_string(),
+        })
+    }
+
+    /// Get metrics
+    pub fn get_metrics(&self, period: u64) -> Result<NodeMetrics, String> {
+        Ok(NodeMetrics {
+            uptime: self.start_time.elapsed().as_secs(),
+            peer_count: self.network.get_peer_count(),
+            block_height: self.blockchain.get_height(),
+            mempool_size: self.mempool.size(),
+            mempool_bytes: self.mempool.size_in_bytes(),
+            sync_progress: if self.is_synced() { 1.0 } else { 0.5 }, // Simplified
+            network_bytes_sent: 0, // TODO: Get from network layer
+            network_bytes_received: 0, // TODO: Get from network layer
+            cpu_usage: 0.0, // TODO: Get from system monitor
+            memory_usage: 0, // TODO: Get from system monitor
+            disk_usage: 0, // TODO: Get from system monitor
+        })
+    }
+
+    /// Get configuration
+    pub fn get_config(&self) -> Result<serde_json::Value, String> {
+        serde_json::to_value(&self.config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))
+    }
+
+    /// Update configuration
+    pub fn update_config(&self, new_config: serde_json::Value) -> Result<serde_json::Value, String> {
+        // In a real implementation, this would validate and apply the new configuration
+        // For now, just return the current config
+        self.get_config()
+    }
+
+    /// Get faucet (for testnet)
+    pub fn get_faucet(&self) -> Result<Option<FaucetInfo>, String> {
+        // Return faucet info if this is a testnet node
+        if self.config.network == "testnet" {
+            Ok(Some(FaucetInfo {
+                enabled: true,
+                balance: 1000000000, // 10 NOVA
+                max_request: 100000000, // 1 NOVA
+                cooldown_seconds: 3600, // 1 hour
+                requests_today: 0,
+                daily_limit: 100,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 } 

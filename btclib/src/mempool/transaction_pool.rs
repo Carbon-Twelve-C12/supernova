@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use dashmap::DashMap;
 use std::fmt;
+use hex;
 
 use crate::types::transaction::{Transaction, TransactionOutput};
 use crate::types::transaction_dependency::TransactionDependencyGraph;
@@ -342,6 +343,29 @@ impl TransactionPool {
     /// Get the number of transactions in the pool
     pub fn count(&self) -> usize {
         self.transactions.len()
+    }
+    
+    /// Get the fee for a transaction by its hash (hex string)
+    pub fn get_transaction_fee(&self, tx_hash_hex: &str) -> Option<u64> {
+        // Parse hex string to bytes
+        if let Ok(hash_bytes) = hex::decode(tx_hash_hex) {
+            if hash_bytes.len() == 32 {
+                let mut tx_hash = [0u8; 32];
+                tx_hash.copy_from_slice(&hash_bytes);
+                
+                // Get the transaction entry and return its fee
+                self.transactions.get(&tx_hash).map(|entry| entry.fee)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+    
+    /// Get the size in bytes for the mempool
+    pub fn size_in_bytes(&self) -> usize {
+        *self.size_bytes.read().unwrap()
     }
     
     /// Handle an orphan transaction (missing inputs)

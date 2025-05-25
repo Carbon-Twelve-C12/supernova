@@ -84,7 +84,7 @@ pub struct NetworkEmissions {
 pub type NetworkEmissionsData = NetworkEmissions;
 
 /// Error types for emissions tracking operations
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum EmissionsError {
     #[error("Invalid region code: {0}")]
     InvalidRegion(String),

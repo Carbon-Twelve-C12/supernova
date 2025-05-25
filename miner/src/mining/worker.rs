@@ -189,7 +189,7 @@ impl MiningWorker {
         
         // We need to extract header fields by directly accessing the header fields
         // or using the available methods
-        header.extend_from_slice(&block.prev_block_hash());
+        header.extend_from_slice(&*block.prev_block_hash());
         
         // Use hash directly as we don't have access to other header fields
         let hash = block.hash();

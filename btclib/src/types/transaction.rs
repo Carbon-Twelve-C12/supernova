@@ -9,6 +9,65 @@ use crate::types::block::BlockHeader;
 use crate::crypto::hash::{hash_to_hex, double_sha256};
 use crate::crypto::signature::{SignatureParams};
 
+/// Transaction validation and processing errors
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransactionError {
+    /// Invalid transaction format
+    InvalidFormat(String),
+    /// Invalid signature
+    InvalidSignature(String),
+    /// Insufficient funds
+    InsufficientFunds,
+    /// Double spending attempt
+    DoubleSpend,
+    /// Invalid input reference
+    InvalidInput(String),
+    /// Invalid output
+    InvalidOutput(String),
+    /// Transaction too large
+    TooLarge,
+    /// Invalid fee
+    InvalidFee,
+    /// Signature verification failed
+    SignatureVerificationFailed,
+    /// Quantum signature error
+    QuantumSignatureError(String),
+    /// Environmental validation error
+    EnvironmentalError(EmissionsError),
+}
+
+impl fmt::Display for TransactionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TransactionError::InvalidFormat(msg) => write!(f, "Invalid transaction format: {}", msg),
+            TransactionError::InvalidSignature(msg) => write!(f, "Invalid signature: {}", msg),
+            TransactionError::InsufficientFunds => write!(f, "Insufficient funds"),
+            TransactionError::DoubleSpend => write!(f, "Double spending attempt"),
+            TransactionError::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
+            TransactionError::InvalidOutput(msg) => write!(f, "Invalid output: {}", msg),
+            TransactionError::TooLarge => write!(f, "Transaction too large"),
+            TransactionError::InvalidFee => write!(f, "Invalid fee"),
+            TransactionError::SignatureVerificationFailed => write!(f, "Signature verification failed"),
+            TransactionError::QuantumSignatureError(msg) => write!(f, "Quantum signature error: {}", msg),
+            TransactionError::EnvironmentalError(err) => write!(f, "Environmental error: {}", err),
+        }
+    }
+}
+
+impl std::error::Error for TransactionError {}
+
+impl From<EmissionsError> for TransactionError {
+    fn from(err: EmissionsError) -> Self {
+        TransactionError::EnvironmentalError(err)
+    }
+}
+
+impl From<SignatureError> for TransactionError {
+    fn from(err: SignatureError) -> Self {
+        TransactionError::InvalidSignature(err.to_string())
+    }
+}
+
 /// Reference to a transaction output
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutPoint {

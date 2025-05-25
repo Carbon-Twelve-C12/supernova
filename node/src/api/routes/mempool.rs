@@ -3,7 +3,7 @@ use crate::api::types::{
     MempoolInfo, MempoolStatistics, MempoolTransaction, MempoolTransactionSubmissionResponse, 
     TransactionFees, TransactionValidationResult,
 };
-use crate::mempool::Mempool;
+use crate::mempool::TransactionPool;
 use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -35,24 +35,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     )
 )]
 async fn get_mempool_info(
-    mempool: web::Data<Arc<Mempool>>,
+    mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<MempoolInfo> {
-    // TODO: Implement real mempool info retrieval
-    let info = MempoolInfo {
-        size: mempool.size(),
-        bytes: mempool.size_in_bytes(),
-        usage: mempool.memory_usage(),
-        max_memory_usage: mempool.max_memory_usage(),
-        full: mempool.is_full(),
-        statistics: MempoolStatistics {
-            total_transaction_count: mempool.count(),
-            total_fee: mempool.total_fee(),
-            min_fee_per_kb: mempool.min_fee_per_kb(),
-            max_fee_per_kb: mempool.max_fee_per_kb(),
-            average_fee_per_kb: mempool.avg_fee_per_kb(),
-        },
-    };
-
+    let info = mempool.get_info();
     Ok(HttpResponse::Ok().json(info))
 }
 
@@ -88,16 +73,16 @@ struct GetMempoolTransactionsParams {
 
 async fn get_mempool_transactions(
     params: web::Query<GetMempoolTransactionsParams>,
-    mempool: web::Data<Arc<Mempool>>,
+    mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<Vec<MempoolTransaction>> {
     let limit = params.limit.unwrap_or(100);
     let offset = params.offset.unwrap_or(0);
     let sort = params.sort.as_deref().unwrap_or("fee_desc");
     
-    // TODO: Implement real mempool transaction listing
-    let transactions = mempool.get_transactions(limit, offset, sort)?;
-    
-    Ok(HttpResponse::Ok().json(transactions))
+    match mempool.get_transactions(limit, offset, sort) {
+        Ok(transactions) => Ok(HttpResponse::Ok().json(transactions)),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get mempool transactions: {}", e))),
+    }
 }
 
 /// Get a specific transaction from the mempool
@@ -118,7 +103,7 @@ async fn get_mempool_transactions(
 )]
 async fn get_mempool_transaction(
     path: web::Path<String>,
-    mempool: web::Data<Arc<Mempool>>,
+    mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<MempoolTransaction> {
     let txid = path.into_inner();
     
@@ -127,12 +112,10 @@ async fn get_mempool_transaction(
         ApiError::bad_request("Invalid transaction ID format")
     })?;
     
-    // TODO: Implement real mempool transaction retrieval
-    let tx = mempool.get_transaction(&txid)?;
-    
-    match tx {
-        Some(tx) => Ok(HttpResponse::Ok().json(tx)),
-        None => Err(ApiError::not_found("Transaction not found in mempool")),
+    match mempool.get_transaction(&txid) {
+        Ok(Some(tx)) => Ok(HttpResponse::Ok().json(tx)),
+        Ok(None) => Err(ApiError::not_found("Transaction not found in mempool")),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get transaction: {}", e))),
     }
 }
 
@@ -161,7 +144,7 @@ struct SubmitTransactionRequest {
 
 async fn submit_mempool_transaction(
     request: web::Json<SubmitTransactionRequest>,
-    mempool: web::Data<Arc<Mempool>>,
+    mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<MempoolTransactionSubmissionResponse> {
     let raw_tx = &request.raw_tx;
     let allow_high_fees = request.allow_high_fees.unwrap_or(false);
@@ -171,13 +154,13 @@ async fn submit_mempool_transaction(
         ApiError::bad_request("Invalid transaction data format")
     })?;
     
-    // TODO: Implement real transaction submission
-    let txid = mempool.submit_transaction(&tx_bytes, allow_high_fees)?;
-    
-    Ok(HttpResponse::Ok().json(MempoolTransactionSubmissionResponse {
-        txid,
-        accepted: true,
-    }))
+    match mempool.submit_transaction(&tx_bytes, allow_high_fees) {
+        Ok(txid) => Ok(HttpResponse::Ok().json(MempoolTransactionSubmissionResponse {
+            txid,
+            accepted: true,
+        })),
+        Err(e) => Err(ApiError::bad_request(format!("Transaction submission failed: {}", e))),
+    }
 }
 
 /// Validate a transaction without submitting it to the mempool
@@ -201,7 +184,7 @@ struct ValidateTransactionRequest {
 
 async fn validate_transaction(
     request: web::Json<ValidateTransactionRequest>,
-    mempool: web::Data<Arc<Mempool>>,
+    mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<TransactionValidationResult> {
     let raw_tx = &request.raw_tx;
     
@@ -210,10 +193,10 @@ async fn validate_transaction(
         ApiError::bad_request("Invalid transaction data format")
     })?;
     
-    // TODO: Implement real transaction validation
-    let result = mempool.validate_transaction(&tx_bytes)?;
-    
-    Ok(HttpResponse::Ok().json(result))
+    match mempool.validate_transaction(&tx_bytes) {
+        Ok(result) => Ok(HttpResponse::Ok().json(result)),
+        Err(e) => Err(ApiError::internal_error(format!("Transaction validation failed: {}", e))),
+    }
 }
 
 /// Estimate transaction fee based on current mempool state
@@ -240,12 +223,12 @@ struct EstimateFeeParams {
 
 async fn estimate_fee(
     params: web::Query<EstimateFeeParams>,
-    mempool: web::Data<Arc<Mempool>>,
+    mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<TransactionFees> {
     let target_conf = params.target_conf.unwrap_or(6);
     
-    // TODO: Implement real fee estimation
-    let fees = mempool.estimate_fee(target_conf)?;
-    
-    Ok(HttpResponse::Ok().json(fees))
+    match mempool.estimate_fee(target_conf) {
+        Ok(fees) => Ok(HttpResponse::Ok().json(fees)),
+        Err(e) => Err(ApiError::internal_error(format!("Fee estimation failed: {}", e))),
+    }
 } 

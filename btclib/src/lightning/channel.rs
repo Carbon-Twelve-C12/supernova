@@ -141,9 +141,37 @@ impl ChannelId {
         Self(id)
     }
     
+    /// Create a ChannelId from raw bytes
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+    
     /// Get the raw ID bytes
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+    
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.0)
+    }
+    
+    /// Create from hex string
+    pub fn from_hex(hex_str: &str) -> Result<Self, ChannelError> {
+        if hex_str.len() != 64 {
+            return Err(ChannelError::InvalidState("Invalid hex length for channel ID".to_string()));
+        }
+        
+        let bytes = hex::decode(hex_str)
+            .map_err(|_| ChannelError::InvalidState("Invalid hex string".to_string()))?;
+        
+        if bytes.len() != 32 {
+            return Err(ChannelError::InvalidState("Invalid byte length for channel ID".to_string()));
+        }
+        
+        let mut id = [0u8; 32];
+        id.copy_from_slice(&bytes);
+        Ok(Self(id))
     }
 }
 
@@ -761,7 +789,7 @@ impl Channel {
     pub fn open(
         peer_id: String,
         capacity: u64,
-        push_u64,
+        push_amount: u64,
         config: ChannelConfig,
         quantum_scheme: Option<QuantumScheme>,
     ) -> ChannelResult<Self> {
@@ -953,13 +981,13 @@ impl ChannelManager {
                         match self.get_channel_mut(&channel_id) {
                             Ok(channel) => channel.initiate_close(),
                             Err(e) => Err(e),
-                        )
+                        }
                     } else {
                         Err(ChannelError::InvalidState(
                             "Channel is not active".to_string()
                         ))
-                    )
-                ),
+                    }
+                },
                 Err(e) => Err(e),
             };
             

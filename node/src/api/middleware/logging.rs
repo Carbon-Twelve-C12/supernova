@@ -32,7 +32,7 @@ impl Default for ApiLogger {
 
 impl<S, B> Transform<S, ServiceRequest> for ApiLogger
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
     B: 'static,
 {

@@ -570,6 +570,18 @@ fn message_to_topic(message: &Message) -> &'static str {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ProtocolError {
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
+    #[error("Invalid signature: {0}")]
+    InvalidSignature(String),
+    #[error("Network error: {0}")]
+    NetworkError(String),
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
