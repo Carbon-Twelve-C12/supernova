@@ -9,7 +9,7 @@ use crate::lightning::channel::ChannelId;
 
 use std::collections::HashMap;
 use thiserror::Error;
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, RngCore};
 use sha2::{Sha256, Digest};
 use std::time::SystemTime;
 
@@ -142,17 +142,21 @@ impl KeyManager {
                     // For quantum keys, we need to generate a new key pair
                     // In a real implementation, this would derive from the seed deterministically
                     let mut rng = thread_rng();
-                    let quantum_keypair = QuantumKeyPair::generate(&mut rng, *scheme)
+                    
+                    // Create QuantumParameters with scheme and security level
+                    let quantum_params = crate::crypto::quantum::QuantumParameters {
+                        scheme: *scheme,
+                        security_level: 3, // Medium security level by default
+                    };
+                    
+                    let quantum_keypair = QuantumKeyPair::generate(&mut rng, quantum_params)
                         .map_err(|e| WalletError::CryptoError(format!("Failed to generate quantum keypair: {:?}", e)))?;
                     
                     // Store the key pair
                     quantum_keys.insert(purpose.to_string(), quantum_keypair.clone());
                     
-                    // Return the private key bytes
-                    let private_key_bytes = quantum_keypair.private_key_bytes()
-                        .map_err(|e| WalletError::CryptoError(format!("Failed to get private key bytes: {:?}", e)))?;
-                    
-                    Ok(private_key_bytes.to_vec())
+                    // Return the private key bytes directly from the secret_key field
+                    Ok(quantum_keypair.secret_key.clone())
                 } else {
                     Err(WalletError::KeyError(
                         "Quantum keys not initialized".to_string()
@@ -311,7 +315,7 @@ impl LightningWallet {
         // Generate a random preimage first (like in a real implementation)
         let mut rng = thread_rng();
         let mut preimage_bytes = [0u8; 32];
-        rng.fill(&mut preimage_bytes);
+        rng.fill_bytes(&mut preimage_bytes);
         
         let preimage = PaymentPreimage::new(preimage_bytes);
         
@@ -357,7 +361,7 @@ impl LightningWallet {
         // In a real case, we would receive the preimage from the payee
         let mut rng = thread_rng();
         let mut preimage_bytes = [0u8; 32];
-        rng.fill(&mut preimage_bytes);
+        rng.fill_bytes(&mut preimage_bytes);
         
         let preimage = PaymentPreimage::new(preimage_bytes);
         

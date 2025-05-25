@@ -5,7 +5,7 @@
 
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, RngCore};
 use sha2::{Sha256, Digest};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
@@ -116,7 +116,7 @@ pub enum ChannelError {
 pub type ChannelResult<T> = Result<T, ChannelError>;
 
 /// Unique identifier for a channel
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ChannelId([u8; 32]);
 
 impl ChannelId {
@@ -124,7 +124,7 @@ impl ChannelId {
     pub fn new_random() -> Self {
         let mut rng = thread_rng();
         let mut id = [0u8; 32];
-        rng.fill(&mut id);
+        rng.fill_bytes(&mut id);
         Self(id)
     }
     
@@ -416,14 +416,13 @@ impl Channel {
         // and properly calculate the change and fees
         
         // Create a simple funding transaction structure
-        let funding_tx = Transaction {
-            version: 2,
-            lock_time: 0,
-            inputs: funding_inputs,
-            outputs: vec![
+        let funding_tx = Transaction::new(
+            2, // version
+            funding_inputs,
+            vec![
                 TxOut {
-                    value: self.capacity_sat,
-                    script_pubkey: Script::new_p2wsh(&vec![
+                    amount: self.capacity_sat,
+                    pub_key_script: Script::new_p2wsh(&vec![
                         // In a real implementation, this would be:
                         // OP_2 <local_pubkey> <remote_pubkey> OP_2 OP_CHECKMULTISIG
                         0x52, // OP_2
@@ -433,10 +432,11 @@ impl Channel {
                         // Remote pubkey would go here
                         0x52, // OP_2
                         0xae, // OP_CHECKMULTISIG
-                    ]),
+                    ]).0,
                 }
             ],
-        };
+            0, // lock_time
+        );
         
         // Add change output if specified
         if let Some(change_script) = change_address {
@@ -485,17 +485,17 @@ impl Channel {
         // 3. Add outputs for any pending HTLCs
         // 4. Set proper sequence numbers for timelocks
         
-        let commitment_tx = Transaction {
-            version: 2,
-            lock_time: 0,
-            inputs: vec![
+        let commitment_tx = Transaction::new(
+            2, // version
+            vec![
                 TxIn {
-                    prev_tx_hash: self.funding_outpoint.unwrap().txid, prev_output_index: self.funding_outpoint.unwrap(),
-                    signature_script: Script::new(), // Empty for witness
+                    prev_tx_hash: self.funding_outpoint.as_ref().unwrap().txid,
+                    prev_output_index: self.funding_outpoint.as_ref().unwrap().vout,
+                    signature_script: Script::new().0, // Empty for witness
                     sequence: 0xFFFFFFFF,      // No RBF
                 }
             ],
-            outputs: vec![
+            vec![
                 // Output to local with their balance
                 TxOut {
                     amount: self.local_balance_sat,
@@ -507,7 +507,8 @@ impl Channel {
                     pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
                 },
             ],
-        };
+            0, // lock_time
+        );
         
         // In a real implementation, additional outputs would be added for each HTLC
         
@@ -677,17 +678,17 @@ impl Channel {
         // In a real implementation, this would create a properly signed
         // transaction paying both parties their final balances
         
-        let closing_tx = Transaction {
-            version: 2,
-            lock_time: 0,
-            inputs: vec![
+        let commitment_tx = Transaction::new(
+            2, // version
+            vec![
                 TxIn {
-                    prev_tx_hash: self.funding_outpoint.unwrap().txid, prev_output_index: self.funding_outpoint.unwrap(),
-                    signature_script: Script::new(), // Empty for witness
+                    prev_tx_hash: self.funding_outpoint.as_ref().unwrap().txid,
+                    prev_output_index: self.funding_outpoint.as_ref().unwrap().vout,
+                    signature_script: Script::new().0, // Empty for witness
                     sequence: 0xFFFFFFFF,      // No RBF
                 }
             ],
-            outputs: vec![
+            vec![
                 // Output to local with their balance
                 TxOut {
                     amount: self.local_balance_sat,
@@ -699,9 +700,10 @@ impl Channel {
                     pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
                 },
             ],
-        };
+            0, // lock_time
+        );
         
-        Ok(closing_tx)
+        Ok(commitment_tx)
     }
     
     /// Complete channel closure
@@ -807,17 +809,17 @@ impl Channel {
         }
         
         // Create a closing transaction
-        let closing_tx = Transaction {
-            version: 2,
-            lock_time: 0,
-            inputs: vec![
+        let closing_tx = Transaction::new(
+            2, // version
+            vec![
                 TxIn {
-                    prev_tx_hash: self.funding_outpoint.unwrap().txid, prev_output_index: self.funding_outpoint.unwrap(),
-                    signature_script: Script::new(),
+                    prev_tx_hash: self.funding_outpoint.as_ref().unwrap().txid,
+                    prev_output_index: self.funding_outpoint.as_ref().unwrap().vout,
+                    signature_script: Script::new().0,
                     sequence: 0xFFFFFFFF,
                 }
             ],
-            outputs: vec![
+            vec![
                 TxOut {
                     amount: self.local_balance_sat,
                     pub_key_script: Script::new_p2wpkh(&self.local_node_id.serialize()).0,
@@ -827,7 +829,8 @@ impl Channel {
                     pub_key_script: Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
                 },
             ],
-        };
+            0, // lock_time
+        );
         
         Ok(closing_tx)
     }

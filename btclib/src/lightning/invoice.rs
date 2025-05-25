@@ -8,8 +8,9 @@ use std::str::FromStr;
 use std::fmt;
 use thiserror::Error;
 use sha2::{Sha256, Digest};
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, RngCore};
 use std::collections::{HashMap, HashSet};
+use serde::{Serialize, Deserialize};
 
 /// Error types for invoice operations
 #[derive(Debug, Error)]
@@ -43,7 +44,7 @@ pub enum InvoiceError {
 }
 
 /// Payment hash
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PaymentHash([u8; 32]);
 
 impl PaymentHash {
@@ -56,7 +57,7 @@ impl PaymentHash {
     pub fn random() -> Self {
         let mut rng = thread_rng();
         let mut hash = [0u8; 32];
-        rng.fill(&mut hash);
+        rng.fill_bytes(&mut hash);
         Self(hash)
     }
     
@@ -96,7 +97,7 @@ impl fmt::Display for PaymentHash {
 }
 
 /// Payment preimage
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PaymentPreimage([u8; 32]);
 
 impl PaymentPreimage {
@@ -109,7 +110,7 @@ impl PaymentPreimage {
     pub fn random() -> Self {
         let mut rng = thread_rng();
         let mut preimage = [0u8; 32];
-        rng.fill(&mut preimage);
+        rng.fill_bytes(&mut preimage);
         Self(preimage)
     }
     
@@ -374,6 +375,15 @@ impl Invoice {
     }
     
     /// Get payment preimage (returns the actual preimage used to generate the payment hash)
+    /// 
+    /// **Real Lightning Network Implementation:**
+    /// This method now returns the actual preimage that was used to generate the payment hash,
+    /// exactly like in a real Lightning Network implementation. The flow is:
+    /// 1. Invoice creator generates a random 32-byte preimage
+    /// 2. Payment hash is computed as SHA256(preimage)
+    /// 3. Invoice contains the payment hash
+    /// 4. Preimage is stored securely by the invoice creator
+    /// 5. When payment arrives, preimage is revealed to complete the payment
     pub fn payment_preimage(&self) -> PaymentPreimage {
         // Return the actual preimage that was stored when the invoice was created
         self.payment_preimage
@@ -515,7 +525,7 @@ impl EnhancedInvoice {
         // Generate a random payment secret
         let mut rng = thread_rng();
         let mut payment_secret = [0u8; 32];
-        rng.fill(&mut payment_secret);
+        rng.fill_bytes(&mut payment_secret);
         
         Ok(Self {
             invoice,

@@ -124,13 +124,15 @@ impl LightningNetwork {
         let router = Arc::new(RwLock::new(Router::new()));
         let monitor = Arc::new(RwLock::new(ChannelMonitor::new()));
         
+        let quantum_scheme = config.quantum_scheme.clone();
+        
         Self {
             channels: Arc::new(RwLock::new(HashMap::new())),
             wallet,
             router,
             monitor,
             config,
-            quantum_scheme: config.quantum_scheme,
+            quantum_scheme,
         }
     }
     
@@ -257,7 +259,7 @@ impl LightningNetwork {
         description: &str,
         expiry_seconds: u32,
     ) -> Result<Invoice, LightningNetworkError> {
-        let wallet = self.wallet.lock().unwrap();
+        let mut wallet = self.wallet.lock().unwrap();
         let invoice = wallet.create_invoice(amount_msat, description, expiry_seconds)?;
         
         Ok(invoice)

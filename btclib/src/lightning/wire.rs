@@ -8,7 +8,7 @@ use crate::lightning::invoice::{PaymentHash, PaymentPreimage};
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 use std::time::{SystemTime, UNIX_EPOCH};
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, RngCore};
 use sha2::{Sha256, Digest};
 
 /// Error types for wire protocol operations
@@ -145,7 +145,7 @@ impl Message {
         // For simplicity, we'll just set a dummy signature
         let mut rng = thread_rng();
         let mut signature = vec![0u8; 64];
-        rng.fill(&mut signature[..]);
+        rng.fill_bytes(&mut signature[..]);
         
         self.signature = Some(signature);
         
@@ -390,7 +390,7 @@ impl MessageFactory {
         // Create a temporary channel ID
         let mut rng = thread_rng();
         let mut temporary_channel_id = [0u8; 32];
-        rng.fill(&mut temporary_channel_id);
+        rng.fill_bytes(&mut temporary_channel_id);
         
         // Create chain hash (Bitcoin mainnet in this case)
         let chain_hash = [
@@ -440,7 +440,7 @@ impl MessageFactory {
         cltv_expiry: u32,
     ) -> Result<Message, LightningError> {
         let payload = HtlcPayload {
-            channel_id,
+            channel_id: channel_id.clone(),
             htlc_id,
             amount_msat,
             payment_hash,
@@ -465,7 +465,7 @@ impl MessageFactory {
         payment_preimage: PaymentPreimage,
     ) -> Result<Message, LightningError> {
         let payload = HtlcFulfillPayload {
-            channel_id,
+            channel_id: channel_id.clone(),
             htlc_id,
             payment_preimage,
         };
@@ -487,7 +487,7 @@ impl MessageFactory {
         reason: &str,
     ) -> Result<Message, LightningError> {
         let payload = HtlcFailPayload {
-            channel_id,
+            channel_id: channel_id.clone(),
             htlc_id,
             reason: reason.as_bytes().to_vec(),
         };
