@@ -97,6 +97,8 @@ pub enum ManagerError {
     InvalidPaymentRequest(String),
     #[error("Payment failed: {0}")]
     PaymentFailed(String),
+    #[error("Payment not found: {0}")]
+    PaymentNotFound(String),
     #[error("Network error: {0}")]
     NetworkError(String),
     #[error("Quantum security error: {0}")]
@@ -856,14 +858,15 @@ impl LightningManager {
             
             for channel in channels.values() {
                 for htlc in &channel.pending_htlcs {
-                    if htlc.payment_hash == invoice.payment_hash().as_bytes() {
-                        invoice_htlcs.push(Htlc {
-                            incoming: !htlc.is_outgoing,
-                            amount: htlc.amount_novas,
-                            hash_lock: htlc.payment_hash,
-                            expiration_height: htlc.expiry_height,
-                            revocation_delay: 144,
-                            commit_tx: "".to_string(),
+                    if htlc.payment_hash == *invoice.payment_hash().as_bytes() {
+                        invoice_htlcs.push(crate::lightning::payment::Htlc {
+                            id: htlc.id,
+                            payment_hash: htlc.payment_hash,
+                            amount_sat: htlc.amount_novas,
+                            cltv_expiry: htlc.expiry_height,
+                            offered: htlc.is_outgoing,
+                            state: crate::lightning::payment::HtlcState::Pending,
+                            quantum_signature: None,
                         });
                     }
                 }
@@ -1161,13 +1164,14 @@ impl LightningManager {
         
         // Convert HTLCs from payment route
         let htlcs = if let Some(route) = &payment.route {
-            route.iter().enumerate().map(|(i, hop)| Htlc {
-                incoming: i > 0, // First hop is outgoing, rest are incoming
-                amount: hop.amount_msat,
-                hash_lock: payment_hash_obj.as_bytes().clone(),
-                expiration_height: 0, // Would need to track this
-                revocation_delay: 144, // Standard delay
-                commit_tx: "".to_string(), // Would need commitment tx hash
+            route.iter().enumerate().map(|(i, hop)| crate::lightning::payment::Htlc {
+                id: i as u64,
+                payment_hash: *payment_hash_obj.as_bytes(),
+                amount_sat: hop.amount_msat / 1000, // Convert to sats
+                cltv_expiry: 0, // Would need to track this
+                offered: i == 0, // First hop is offered by us
+                state: crate::lightning::payment::HtlcState::Pending,
+                quantum_signature: None,
             }).collect()
         } else {
             vec![]
@@ -1187,7 +1191,8 @@ impl LightningManager {
             status: match payment.status {
                 PaymentStatus::Pending => "PENDING".to_string(),
                 PaymentStatus::Succeeded => "SUCCEEDED".to_string(),
-                PaymentStatus::Failed => "FAILED".to_string(),
+                PaymentStatus::Failed(_) => "FAILED".to_string(),
+                PaymentStatus::Cancelled => "FAILED".to_string(),
             },
             fee_msat: payment.fee_msat,
             value_msat: payment.amount_msat,
