@@ -96,9 +96,6 @@ use super::types;
             types::TransactionInput,
             types::TransactionOutput,
             types::BlockchainInfo,
-            types::Block,
-            types::Transaction,
-            types::BlockHeader,
             types::TransactionSubmissionResponse,
             
             // Mempool
@@ -170,10 +167,7 @@ use super::types;
             types::BlockHeightParams,
             types::BlockHashParams,
             types::TxHashParams,
-            types::AddressParams,
             types::SubmitTxRequest,
-            types::PaginationParams,
-            types::TimeRangeParams,
         )
     ),
     tags(

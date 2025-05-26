@@ -682,6 +682,27 @@ pub struct EnergyUsage {
     pub non_renewable_consumption: f64,
 }
 
+/// Carbon footprint data
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CarbonFootprint {
+    /// Timestamp
+    pub timestamp: u64,
+    /// Period in seconds
+    pub period: u64,
+    /// Total emissions in grams CO2e
+    pub total_emissions_g: f64,
+    /// Net emissions after offsets in grams CO2e
+    pub net_emissions_g: f64,
+    /// Carbon offsets
+    pub offsets: Option<Vec<CarbonOffset>>,
+    /// Carbon intensity (g CO2e per kWh)
+    pub intensity: f64,
+    /// Emissions sources
+    pub emissions_sources: Vec<EmissionsSource>,
+    /// Renewable energy percentage
+    pub renewable_percentage: f64,
+}
+
 /// Environmental settings
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EnvironmentalSettings {
@@ -1183,6 +1204,119 @@ pub struct NodeMetrics {
     pub disk_usage: u64,
 }
 
+/// Block height parameter for API requests
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BlockHeightParams {
+    /// Block height
+    pub height: u64,
+}
+
+/// Block hash parameter for API requests
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BlockHashParams {
+    /// Block hash
+    pub hash: String,
+}
+
+/// Transaction hash parameter for API requests
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct TxHashParams {
+    /// Transaction hash
+    pub txid: String,
+}
+
+/// Submit transaction request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SubmitTxRequest {
+    /// Raw transaction data in hex format
+    pub raw_tx: String,
+}
+
+/// Transaction submission response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TransactionSubmissionResponse {
+    /// Whether the transaction was accepted
+    pub accepted: bool,
+    /// Transaction ID if accepted
+    pub txid: Option<String>,
+    /// Error message if rejected
+    pub error: Option<String>,
+}
+
+/// Node version information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct NodeVersion {
+    /// Software version
+    pub version: String,
+    /// Protocol version
+    pub protocol_version: u32,
+    /// Git commit hash
+    pub git_commit: String,
+    /// Build date
+    pub build_date: String,
+    /// Rust version
+    pub rust_version: String,
+    /// Features enabled
+    pub features: Vec<String>,
+}
+
+/// Node configuration
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct NodeConfiguration {
+    /// Network name
+    pub network: String,
+    /// Data directory
+    pub data_dir: String,
+    /// Listen address
+    pub listen_address: String,
+    /// Listen port
+    pub listen_port: u16,
+    /// Maximum peers
+    pub max_peers: usize,
+    /// Mining enabled
+    pub mining_enabled: bool,
+    /// Testnet enabled
+    pub testnet_enabled: bool,
+    /// Lightning Network enabled
+    pub lightning_enabled: bool,
+    /// Environmental tracking enabled
+    pub environmental_tracking: bool,
+}
+
+/// Backup information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BackupInfo {
+    /// Backup ID
+    pub id: String,
+    /// Backup timestamp
+    pub timestamp: u64,
+    /// Backup size in bytes
+    pub size: u64,
+    /// Backup type
+    pub backup_type: String,
+    /// Backup status
+    pub status: String,
+    /// Backup file path
+    pub file_path: String,
+    /// Verification status
+    pub verified: bool,
+}
+
+/// Debug information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DebugInfo {
+    /// Debug level
+    pub level: String,
+    /// Component name
+    pub component: String,
+    /// Debug message
+    pub message: String,
+    /// Timestamp
+    pub timestamp: u64,
+    /// Additional context
+    pub context: Option<HashMap<String, serde_json::Value>>,
+}
+
 /// Faucet information (for testnet)
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FaucetInfo {
@@ -1198,6 +1332,297 @@ pub struct FaucetInfo {
     pub requests_today: u32,
     /// Daily request limit
     pub daily_limit: u32,
+}
+
+//
+// Wallet API types
+//
+
+/// Wallet address information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Address {
+    /// Address string
+    pub address: String,
+    /// Address type (P2PKH, P2SH, etc.)
+    pub address_type: String,
+    /// Whether this is a change address
+    pub is_change: bool,
+    /// Address index in HD wallet
+    pub index: u32,
+    /// Address label (if any)
+    pub label: Option<String>,
+}
+
+/// Extended address information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AddressInfo {
+    /// Address string
+    pub address: String,
+    /// Address type
+    pub address_type: String,
+    /// Balance in NOVA
+    pub balance: u64,
+    /// Number of transactions
+    pub tx_count: u32,
+    /// Whether this is a change address
+    pub is_change: bool,
+    /// Address index
+    pub index: u32,
+    /// Address label
+    pub label: Option<String>,
+    /// First seen timestamp
+    pub first_seen: Option<u64>,
+    /// Last used timestamp
+    pub last_used: Option<u64>,
+}
+
+/// Wallet information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct WalletInfo {
+    /// Wallet name
+    pub name: String,
+    /// Total balance in NOVA
+    pub balance: u64,
+    /// Confirmed balance in NOVA
+    pub confirmed_balance: u64,
+    /// Unconfirmed balance in NOVA
+    pub unconfirmed_balance: u64,
+    /// Number of addresses
+    pub address_count: u32,
+    /// Number of transactions
+    pub tx_count: u32,
+    /// Whether wallet is encrypted
+    pub encrypted: bool,
+    /// Whether wallet is locked
+    pub locked: bool,
+    /// HD wallet master fingerprint
+    pub master_fingerprint: Option<String>,
+    /// Wallet version
+    pub version: u32,
+}
+
+/// Balance information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BalanceInfo {
+    /// Total balance in NOVA
+    pub total: u64,
+    /// Confirmed balance in NOVA
+    pub confirmed: u64,
+    /// Unconfirmed balance in NOVA
+    pub unconfirmed: u64,
+    /// Immature balance (coinbase) in NOVA
+    pub immature: u64,
+    /// Spendable balance in NOVA
+    pub spendable: u64,
+}
+
+/// Transaction for wallet API
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Transaction {
+    /// Transaction ID
+    pub txid: String,
+    /// Transaction version
+    pub version: u32,
+    /// Transaction size
+    pub size: usize,
+    /// Virtual size
+    pub vsize: usize,
+    /// Weight
+    pub weight: usize,
+    /// Locktime
+    pub locktime: u32,
+    /// Inputs
+    pub inputs: Vec<TransactionInput>,
+    /// Outputs
+    pub outputs: Vec<TransactionOutput>,
+    /// Transaction fee
+    pub fee: u64,
+    /// Block hash (if confirmed)
+    pub block_hash: Option<String>,
+    /// Block height (if confirmed)
+    pub block_height: Option<u64>,
+    /// Confirmations
+    pub confirmations: u64,
+    /// Timestamp
+    pub timestamp: u64,
+    /// Transaction label
+    pub label: Option<String>,
+}
+
+/// Transaction list response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TransactionList {
+    /// List of transactions
+    pub transactions: Vec<Transaction>,
+    /// Total count
+    pub total_count: usize,
+    /// Page number
+    pub page: u32,
+    /// Page size
+    pub page_size: u32,
+    /// Whether there are more pages
+    pub has_more: bool,
+}
+
+/// Sign request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SignRequest {
+    /// Message to sign
+    pub message: String,
+    /// Address to sign with
+    pub address: String,
+    /// Passphrase (if wallet is encrypted)
+    pub passphrase: Option<String>,
+}
+
+/// Sign response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SignResponse {
+    /// Signature
+    pub signature: String,
+    /// Address used for signing
+    pub address: String,
+    /// Message that was signed
+    pub message: String,
+}
+
+/// Verify request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct VerifyRequest {
+    /// Message that was signed
+    pub message: String,
+    /// Signature to verify
+    pub signature: String,
+    /// Address that supposedly signed
+    pub address: String,
+}
+
+/// Verify response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VerifyResponse {
+    /// Whether signature is valid
+    pub valid: bool,
+    /// Address that signed (if valid)
+    pub address: Option<String>,
+    /// Message that was verified
+    pub message: String,
+}
+
+/// Send transaction request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SendRequest {
+    /// Destination address
+    pub to_address: String,
+    /// Amount in NOVA
+    pub amount: u64,
+    /// Transaction fee in NOVA (optional, will estimate if not provided)
+    pub fee: Option<u64>,
+    /// Transaction label
+    pub label: Option<String>,
+    /// Subtract fee from amount
+    pub subtract_fee_from_amount: Option<bool>,
+    /// Passphrase (if wallet is encrypted)
+    pub passphrase: Option<String>,
+}
+
+/// Send transaction response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SendResponse {
+    /// Transaction ID
+    pub txid: String,
+    /// Transaction fee paid
+    pub fee: u64,
+    /// Raw transaction hex
+    pub raw_tx: String,
+}
+
+/// Label request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct LabelRequest {
+    /// Address or transaction ID to label
+    pub target: String,
+    /// Label to set
+    pub label: String,
+}
+
+/// Label response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct LabelResponse {
+    /// Target that was labeled
+    pub target: String,
+    /// Label that was set
+    pub label: String,
+    /// Success status
+    pub success: bool,
+}
+
+/// Address generation request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AddressRequest {
+    /// Address label
+    pub label: Option<String>,
+    /// Address type
+    pub address_type: Option<String>,
+}
+
+/// Address generation response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AddressResponse {
+    /// Generated address
+    pub address: String,
+    /// Address type
+    pub address_type: String,
+    /// Address index
+    pub index: u32,
+    /// Address label
+    pub label: Option<String>,
+}
+
+/// Backup response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BackupResponse {
+    /// Backup data (encrypted)
+    pub backup_data: String,
+    /// Backup timestamp
+    pub timestamp: u64,
+    /// Backup version
+    pub version: u32,
+    /// Checksum for verification
+    pub checksum: String,
+}
+
+/// UTXO list response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UTXOList {
+    /// List of UTXOs
+    pub utxos: Vec<UTXO>,
+    /// Total count
+    pub total_count: usize,
+    /// Total value in NOVA
+    pub total_value: u64,
+}
+
+/// UTXO information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UTXO {
+    /// Transaction ID
+    pub txid: String,
+    /// Output index
+    pub vout: u32,
+    /// Output value in NOVA
+    pub value: u64,
+    /// Output script
+    pub script_pub_key: String,
+    /// Address (if available)
+    pub address: Option<String>,
+    /// Block height
+    pub height: u64,
+    /// Confirmations
+    pub confirmations: u64,
+    /// Whether this is a coinbase output
+    pub coinbase: bool,
+    /// Spendable status
+    pub spendable: bool,
 }
 
 #[cfg(test)]

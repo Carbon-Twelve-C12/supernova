@@ -2,17 +2,21 @@
 //!
 //! This module provides detailed request logging for the SuperNova API.
 
-use std::future::{ready, Ready};
-use std::rc::Rc;
-use std::task::{Context, Poll};
-use std::time::Instant;
 use actix_web::{
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
+    dev::{ServiceRequest, ServiceResponse, forward_ready},
     http::header,
+    HttpMessage,
     Error,
 };
-use tracing::{info, warn, error, debug};
+use actix_service::{Service, Transform};
+use futures::future::{ok, ready, Ready};
+use std::task::{Context, Poll};
+use std::pin::Pin;
+use std::future::Future;
+use std::rc::Rc;
 use uuid::Uuid;
+use tracing::{info, warn, error, debug};
+use std::time::Instant;
 
 /// API logger middleware
 pub struct ApiLogger {}

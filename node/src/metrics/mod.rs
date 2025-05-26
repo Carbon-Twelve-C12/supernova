@@ -1,5 +1,9 @@
 use metrics::{Counter, Gauge, Histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 // Macro definitions moved to the top
 macro_rules! register_counter {
@@ -120,8 +124,6 @@ pub use registry::{
     TimedOperation,
 };
 
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tracing::info;
 
 // Singleton metrics instance for the application
@@ -155,7 +157,7 @@ pub fn global_metrics() -> Option<Arc<MetricsRegistry>> {
 }
 
 /// Create a timed operation using the global metrics
-pub fn timed_operation<F>(callback: F) -> Option<TimedOperation<F>> 
+pub fn timed_operation<F>(callback: F) -> Option<TimedOperation<'static, F>> 
 where 
     F: FnOnce(f64),
 {
@@ -167,6 +169,115 @@ pub mod performance;
 
 // pub use prometheus::*;  // Temporarily disabled - missing file
 pub use performance::*;
+
+/// API metrics for tracking API performance
+#[derive(Debug, Clone)]
+pub struct ApiMetrics {
+    /// Total API requests
+    pub total_requests: Counter,
+    /// Successful requests
+    pub successful_requests: Counter,
+    /// Failed requests
+    pub failed_requests: Counter,
+    /// Response time histogram
+    pub response_time: Histogram,
+    /// Active connections
+    pub active_connections: Gauge,
+    /// Requests per second
+    pub requests_per_second: Gauge,
+}
+
+impl ApiMetrics {
+    pub fn new() -> Self {
+        Self {
+            total_requests: register_counter!("api_total_requests", "Total API requests"),
+            successful_requests: register_counter!("api_successful_requests", "Successful API requests"),
+            failed_requests: register_counter!("api_failed_requests", "Failed API requests"),
+            response_time: register_histogram!("api_response_time_seconds", "API response time"),
+            active_connections: register_gauge!("api_active_connections", "Active API connections"),
+            requests_per_second: register_gauge!("api_requests_per_second", "API requests per second"),
+        }
+    }
+    
+    /// Record a successful request
+    pub fn record_success(&self, response_time: Duration) {
+        self.total_requests.increment(1);
+        self.successful_requests.increment(1);
+        self.response_time.record(response_time.as_secs_f64());
+    }
+    
+    /// Record a failed request
+    pub fn record_failure(&self, response_time: Duration) {
+        self.total_requests.increment(1);
+        self.failed_requests.increment(1);
+        self.response_time.record(response_time.as_secs_f64());
+    }
+    
+    /// Update active connections
+    pub fn set_active_connections(&self, count: u64) {
+        self.active_connections.set(count as f64);
+    }
+    
+    /// Update requests per second
+    pub fn update_requests_per_second(&self, rps: f64) {
+        self.requests_per_second.set(rps);
+    }
+}
+
+/// Thread-safe API metrics manager
+pub struct ApiMetricsManager {
+    metrics: Arc<Mutex<ApiMetrics>>,
+    start_time: Instant,
+}
+
+impl ApiMetricsManager {
+    /// Create new API metrics manager
+    pub fn new() -> Self {
+        Self {
+            metrics: Arc::new(Mutex::new(ApiMetrics::new())),
+            start_time: Instant::now(),
+        }
+    }
+    
+    /// Record a successful request
+    pub fn record_success(&self, endpoint: &str, response_time: Duration) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.record_success(response_time);
+        }
+    }
+    
+    /// Record a failed request
+    pub fn record_failure(&self, endpoint: &str, response_time: Duration) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.record_failure(response_time);
+        }
+    }
+    
+    /// Update active connections
+    pub fn set_active_connections(&self, count: u64) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.set_active_connections(count);
+        }
+    }
+    
+    /// Get current metrics snapshot
+    pub fn get_metrics(&self) -> ApiMetrics {
+        self.metrics.lock().unwrap().clone()
+    }
+    
+    /// Reset metrics
+    pub fn reset(&self) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            *metrics = ApiMetrics::new();
+        }
+    }
+}
+
+impl Default for ApiMetricsManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[cfg(test)]
 mod tests {

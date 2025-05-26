@@ -6,16 +6,17 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
 
-/// API error response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+/// API error types with security-conscious error messages
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiError {
-    /// Error code
-    pub code: u16,
-    /// Error message
+    /// HTTP status code
+    pub status: u16,
+    /// Error message (sanitized for security)
     pub message: String,
-    /// Optional error details
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<String>,
+    /// Error code for client handling
+    pub code: String,
+    /// Request ID for tracking (optional)
+    pub request_id: Option<String>,
 }
 
 /// API error types
@@ -83,193 +84,217 @@ pub enum ApiErrorType {
 }
 
 impl ApiError {
-    /// Create a new API error
-    pub fn new(code: u16, message: impl Into<String>) -> Self {
+    /// Create a new API error with security-conscious message sanitization
+    pub fn new(status: u16, message: &str) -> Self {
         Self {
-            code,
-            message: message.into(),
-            details: None,
+            status,
+            message: Self::sanitize_error_message(message),
+            code: Self::status_to_code(status),
+            request_id: None,
         }
     }
-
-    /// Create a new API error with details
-    pub fn with_details(code: u16, message: impl Into<String>, details: impl Into<String>) -> Self {
+    
+    /// Create an API error with a request ID for tracking
+    pub fn with_request_id(status: u16, message: &str, request_id: String) -> Self {
         Self {
-            code,
-            message: message.into(),
-            details: Some(details.into()),
+            status,
+            message: Self::sanitize_error_message(message),
+            code: Self::status_to_code(status),
+            request_id: Some(request_id),
         }
     }
-
-    /// Create a bad request error (400)
-    pub fn bad_request(message: impl Into<String>) -> Self {
+    
+    /// Sanitize error messages to prevent information leakage
+    fn sanitize_error_message(message: &str) -> String {
+        // Remove potentially sensitive information from error messages
+        let sanitized = message
+            .replace("database", "storage")
+            .replace("sql", "query")
+            .replace("password", "credential")
+            .replace("key", "identifier")
+            .replace("secret", "credential")
+            .replace("token", "credential")
+            .replace("private", "internal")
+            .replace("internal error", "service error");
+            
+        // Limit message length to prevent verbose error leakage
+        if sanitized.len() > 200 {
+            format!("{}...", &sanitized[..197])
+        } else {
+            sanitized
+        }
+    }
+    
+    /// Convert HTTP status to error code
+    fn status_to_code(status: u16) -> String {
+        match status {
+            400 => "BAD_REQUEST".to_string(),
+            401 => "UNAUTHORIZED".to_string(),
+            403 => "FORBIDDEN".to_string(),
+            404 => "NOT_FOUND".to_string(),
+            409 => "CONFLICT".to_string(),
+            422 => "UNPROCESSABLE_ENTITY".to_string(),
+            429 => "RATE_LIMITED".to_string(),
+            500 => "INTERNAL_ERROR".to_string(),
+            502 => "BAD_GATEWAY".to_string(),
+            503 => "SERVICE_UNAVAILABLE".to_string(),
+            504 => "GATEWAY_TIMEOUT".to_string(),
+            _ => "UNKNOWN_ERROR".to_string(),
+        }
+    }
+    
+    // Common error constructors for security
+    pub fn bad_request(message: &str) -> Self {
         Self::new(400, message)
     }
-
-    /// Create an unauthorized error (401)
-    pub fn unauthorized(message: impl Into<String>) -> Self {
+    
+    pub fn unauthorized(message: &str) -> Self {
         Self::new(401, message)
     }
-
-    /// Create a forbidden error (403)
-    pub fn forbidden(message: impl Into<String>) -> Self {
+    
+    pub fn forbidden(message: &str) -> Self {
         Self::new(403, message)
     }
-
-    /// Create a not found error (404)
-    pub fn not_found(message: impl Into<String>) -> Self {
+    
+    pub fn not_found(message: &str) -> Self {
         Self::new(404, message)
     }
-
-    /// Create a method not allowed error (405)
-    pub fn method_not_allowed(message: impl Into<String>) -> Self {
-        Self::new(405, message)
-    }
-
-    /// Create a conflict error (409)
-    pub fn conflict(message: impl Into<String>) -> Self {
+    
+    pub fn conflict(message: &str) -> Self {
         Self::new(409, message)
     }
-
-    /// Create an unprocessable entity error (422)
-    pub fn unprocessable_entity(message: impl Into<String>) -> Self {
+    
+    pub fn unprocessable_entity(message: &str) -> Self {
         Self::new(422, message)
     }
-
-    /// Create an internal server error (500)
-    pub fn internal_error(message: impl Into<String>) -> Self {
+    
+    pub fn rate_limited(message: &str) -> Self {
+        Self::new(429, message)
+    }
+    
+    pub fn internal_error(message: &str) -> Self {
         Self::new(500, message)
     }
-
-    /// Create a not implemented error (501)
-    pub fn not_implemented(message: impl Into<String>) -> Self {
-        Self::new(501, message)
-    }
-
-    /// Create a bad gateway error (502)
-    pub fn bad_gateway(message: impl Into<String>) -> Self {
-        Self::new(502, message)
-    }
-
-    /// Create a service unavailable error (503)
-    pub fn service_unavailable(message: impl Into<String>) -> Self {
+    
+    pub fn service_unavailable(message: &str) -> Self {
         Self::new(503, message)
-    }
-
-    /// Create a gateway timeout error (504)
-    pub fn gateway_timeout(message: impl Into<String>) -> Self {
-        Self::new(504, message)
     }
 }
 
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
+        write!(f, "API Error {}: {}", self.status, self.message)
     }
 }
 
 impl ResponseError for ApiError {
     fn error_response(&self) -> HttpResponse {
-        let status = match self.code {
-            400 => actix_web::http::StatusCode::BAD_REQUEST,
-            401 => actix_web::http::StatusCode::UNAUTHORIZED,
-            403 => actix_web::http::StatusCode::FORBIDDEN,
-            404 => actix_web::http::StatusCode::NOT_FOUND,
-            405 => actix_web::http::StatusCode::METHOD_NOT_ALLOWED,
-            409 => actix_web::http::StatusCode::CONFLICT,
-            422 => actix_web::http::StatusCode::UNPROCESSABLE_ENTITY,
-            500 => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
-            501 => actix_web::http::StatusCode::NOT_IMPLEMENTED,
-            502 => actix_web::http::StatusCode::BAD_GATEWAY,
-            503 => actix_web::http::StatusCode::SERVICE_UNAVAILABLE,
-            504 => actix_web::http::StatusCode::GATEWAY_TIMEOUT,
-            _ => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
-        HttpResponse::build(status).json(self)
+        HttpResponse::build(actix_web::http::StatusCode::from_u16(self.status).unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR))
+            .json(self)
     }
 }
 
-/// Conversion from storage errors
-impl From<crate::storage::StorageError> for ApiError {
-    fn from(err: crate::storage::StorageError) -> Self {
-        ApiError::DatabaseError(err.to_string())
-    }
-}
+/// Result type alias for API operations
+pub type Result<T> = std::result::Result<T, ApiError>;
 
-/// Conversion from blockchain errors
-impl From<btclib::types::BlockchainError> for ApiError {
-    fn from(err: btclib::types::BlockchainError) -> Self {
-        ApiError::BlockchainError(err.to_string())
-    }
-}
+/// Legacy alias for compatibility
+pub type ApiResult<T> = Result<T>;
 
-/// Conversion from transaction errors
-impl From<btclib::types::transaction::TransactionError> for ApiError {
-    fn from(err: btclib::types::transaction::TransactionError) -> Self {
-        ApiError::TransactionError(err.to_string())
-    }
-}
-
-/// Conversion from environmental errors
-impl From<btclib::environmental::EmissionsError> for ApiError {
-    fn from(err: btclib::environmental::EmissionsError) -> Self {
-        ApiError::EnvironmentalError(err.to_string())
-    }
-}
-
-/// Conversion from std::io errors
+/// Convert common error types to API errors with security considerations
 impl From<std::io::Error> for ApiError {
     fn from(err: std::io::Error) -> Self {
-        ApiError::internal_error(err.to_string())
+        // Don't expose internal I/O error details
+        Self::internal_error("Storage operation failed")
     }
 }
 
-/// Conversion from serde_json errors
 impl From<serde_json::Error> for ApiError {
     fn from(err: serde_json::Error) -> Self {
-        ApiError::BadRequest(format!("JSON error: {}", err))
+        // Don't expose JSON parsing details that could reveal structure
+        Self::bad_request("Invalid request format")
     }
 }
 
-/// Conversion from Lightning Network errors
-impl From<btclib::lightning::LightningError> for ApiError {
-    fn from(err: btclib::lightning::LightningError) -> Self {
-        ApiError::LightningError(err.to_string())
+impl From<bincode::Error> for ApiError {
+    fn from(err: bincode::Error) -> Self {
+        // Don't expose serialization details
+        Self::internal_error("Data processing error")
     }
 }
 
-/// Type alias for API results
-pub type ApiResult<T> = Result<HttpResponse, ApiError>;
+/// Security middleware for rate limiting and request validation
+pub struct SecurityMiddleware {
+    /// Maximum requests per minute per IP
+    pub rate_limit: u32,
+    /// Request size limit in bytes
+    pub max_request_size: usize,
+    /// Enable request logging for security monitoring
+    pub enable_logging: bool,
+}
 
-impl From<String> for ApiError {
-    fn from(err: String) -> Self {
-        ApiError::internal_error(err)
+impl Default for SecurityMiddleware {
+    fn default() -> Self {
+        Self {
+            rate_limit: 100, // 100 requests per minute per IP
+            max_request_size: 1024 * 1024, // 1MB max request size
+            enable_logging: true,
+        }
     }
 }
 
-impl From<&str> for ApiError {
-    fn from(err: &str) -> Self {
-        ApiError::internal_error(err.to_string())
+impl SecurityMiddleware {
+    /// Validate request for security compliance
+    pub fn validate_request(&self, request_size: usize, client_ip: &str) -> Result<()> {
+        // Check request size limit
+        if request_size > self.max_request_size {
+            return Err(ApiError::bad_request("Request too large"));
+        }
+        
+        // Additional security validations can be added here
+        // - IP whitelist/blacklist checks
+        // - Geographic restrictions
+        // - User agent validation
+        // - Request pattern analysis
+        
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::http::StatusCode;
     
     #[test]
-    fn test_error_status_codes() {
-        assert_eq!(ApiError::NotFound("test".into()).status_code(), StatusCode::NOT_FOUND);
-        assert_eq!(ApiError::BadRequest("test".into()).status_code(), StatusCode::BAD_REQUEST);
-        assert_eq!(ApiError::RateLimitExceeded.status_code(), StatusCode::TOO_MANY_REQUESTS);
+    fn test_error_message_sanitization() {
+        let error = ApiError::new(500, "Database connection failed with password 'secret123'");
+        assert!(!error.message.contains("password"));
+        assert!(!error.message.contains("secret123"));
+        assert!(error.message.contains("credential"));
     }
     
     #[test]
-    fn test_error_response_format() {
-        let error = ApiError::NotFound("resource".into());
-        let response = error.error_response();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    fn test_error_message_length_limit() {
+        let long_message = "a".repeat(300);
+        let error = ApiError::new(500, &long_message);
+        assert!(error.message.len() <= 200);
+        assert!(error.message.ends_with("..."));
+    }
+    
+    #[test]
+    fn test_status_code_mapping() {
+        let error = ApiError::bad_request("test");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, "BAD_REQUEST");
+    }
+    
+    #[test]
+    fn test_security_middleware_validation() {
+        let middleware = SecurityMiddleware::default();
+        
+        // Valid request
+        assert!(middleware.validate_request(1000, "127.0.0.1").is_ok());
+        
+        // Request too large
+        assert!(middleware.validate_request(2 * 1024 * 1024, "127.0.0.1").is_err());
     }
 } 

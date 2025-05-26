@@ -1,4 +1,5 @@
-use crate::network::{NetworkCommand, Message, PeerId};
+use crate::network::{NetworkCommand, NetworkMessage};
+use crate::network::protocol::Message;
 use crate::storage::{BlockchainDB, StorageError, ChainState};
 use btclib::types::block::{Block, BlockHeader};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -14,6 +15,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use tokio::time::timeout;
 use crate::storage::persistence::{ReorganizationEvent, ForkInfo, ForkChoiceReason};
+use libp2p::PeerId;
 
 // Constants for sync configuration
 const MAX_HEADERS_PER_REQUEST: u64 = 2000;

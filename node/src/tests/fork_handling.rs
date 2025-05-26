@@ -1,7 +1,8 @@
 use crate::storage::persistence::{ChainState, ForkChoiceReason};
 use crate::storage::database::BlockchainDB;
 use crate::network::sync::ChainSync;
-use btclib::types::block::Block;
+use btclib::types::block::{Block, BlockHeader};
+use btclib::types::transaction::Transaction;
 use tempfile::tempdir;
 use std::sync::Arc;
 use std::time::Duration;
@@ -114,10 +115,15 @@ async fn test_fork_choice_reasons() {
     
     // First block has different transactions to avoid hash collision
     let mut equal_work_block = Block::new(
-        (current_height + 1) as u32,
-        prev_hash,
+        BlockHeader::new(
+            1, // version
+            prev_hash,
+            [0u8; 32], // merkle_root
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            u32::MAX / 2, // bits
+            0, // nonce
+        ),
         vec![],  // Empty tx list to make different hash
-        u32::MAX / 2
     );
     
     // This should not trigger a reorg since it's equal work but our fork was seen first
@@ -128,10 +134,15 @@ async fn test_fork_choice_reasons() {
     
     // Now create a higher difficulty fork
     let higher_work_block = Block::new(
-        (current_height + 1) as u32,
-        prev_hash,
+        BlockHeader::new(
+            1, // version
+            prev_hash,
+            [0u8; 32], // merkle_root
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            u32::MAX / 4, // bits - Even higher difficulty
+            0, // nonce
+        ),
         vec![],
-        u32::MAX / 4  // Even higher difficulty
     );
     
     // This should trigger a reorg due to higher chain work

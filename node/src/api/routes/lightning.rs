@@ -42,7 +42,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_lightning_info(
+pub async fn get_lightning_info(
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<LightningInfo> {
     match lightning.get_info() {
@@ -54,6 +54,17 @@ async fn get_lightning_info(
 /// Get a list of Lightning Network channels
 ///
 /// Returns information about the node's active Lightning Network channels.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetChannelsParams {
+    /// Whether to include inactive channels (default: false)
+    #[param(default = "false")]
+    include_inactive: Option<bool>,
+    
+    /// Whether to include pending channels (default: true)
+    #[param(default = "true")]
+    include_pending: Option<bool>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/lightning/channels",
@@ -66,18 +77,7 @@ async fn get_lightning_info(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetChannelsParams {
-    /// Whether to include inactive channels (default: false)
-    #[param(default = "false")]
-    include_inactive: Option<bool>,
-    
-    /// Whether to include pending channels (default: true)
-    #[param(default = "true")]
-    include_pending: Option<bool>,
-}
-
-async fn get_channels(
+pub async fn get_channels(
     params: web::Query<GetChannelsParams>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<Vec<LightningChannel>> {
@@ -105,7 +105,7 @@ async fn get_channels(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_channel(
+pub async fn get_channel(
     path: web::Path<String>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<LightningChannel> {
@@ -131,7 +131,7 @@ async fn get_channel(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn open_channel(
+pub async fn open_channel(
     request: web::Json<OpenChannelRequest>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<OpenChannelResponse> {
@@ -161,7 +161,7 @@ async fn open_channel(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn close_channel(
+pub async fn close_channel(
     request: web::Json<CloseChannelRequest>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<HttpResponse> {
@@ -177,18 +177,6 @@ async fn close_channel(
 /// Get a list of Lightning Network payments
 ///
 /// Returns information about the node's Lightning Network payments.
-#[utoipa::path(
-    get,
-    path = "/api/v1/lightning/payments",
-    params(
-        GetPaymentsParams
-    ),
-    responses(
-        (status = 200, description = "Lightning Network payments retrieved successfully", body = Vec<LightningPayment>),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
 #[derive(Debug, Deserialize, IntoParams)]
 struct GetPaymentsParams {
     /// Optional payment index to start from
@@ -203,7 +191,19 @@ struct GetPaymentsParams {
     include_pending: Option<bool>,
 }
 
-async fn get_payments(
+#[utoipa::path(
+    get,
+    path = "/api/v1/lightning/payments",
+    params(
+        GetPaymentsParams
+    ),
+    responses(
+        (status = 200, description = "Lightning Network payments retrieved successfully", body = Vec<LightningPayment>),
+        (status = 400, description = "Invalid request parameters", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+pub async fn get_payments(
     params: web::Query<GetPaymentsParams>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<Vec<LightningPayment>> {
@@ -230,7 +230,7 @@ async fn get_payments(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn send_payment(
+pub async fn send_payment(
     request: web::Json<PaymentRequest>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<PaymentResponse> {
@@ -248,18 +248,6 @@ async fn send_payment(
 /// Get a list of Lightning Network invoices
 ///
 /// Returns information about the node's Lightning Network invoices.
-#[utoipa::path(
-    get,
-    path = "/api/v1/lightning/invoices",
-    params(
-        GetInvoicesParams
-    ),
-    responses(
-        (status = 200, description = "Lightning Network invoices retrieved successfully", body = Vec<LightningInvoice>),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
 #[derive(Debug, Deserialize, IntoParams)]
 struct GetInvoicesParams {
     /// Whether to include pending invoices (default: true)
@@ -274,7 +262,19 @@ struct GetInvoicesParams {
     num_max_invoices: Option<u64>,
 }
 
-async fn get_invoices(
+#[utoipa::path(
+    get,
+    path = "/api/v1/lightning/invoices",
+    params(
+        GetInvoicesParams
+    ),
+    responses(
+        (status = 200, description = "Lightning Network invoices retrieved successfully", body = Vec<LightningInvoice>),
+        (status = 400, description = "Invalid request parameters", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+pub async fn get_invoices(
     params: web::Query<GetInvoicesParams>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<Vec<LightningInvoice>> {
@@ -301,7 +301,7 @@ async fn get_invoices(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn create_invoice(
+pub async fn create_invoice(
     request: web::Json<InvoiceRequest>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<InvoiceResponse> {
@@ -319,6 +319,13 @@ async fn create_invoice(
 /// Get a list of Lightning Network nodes
 ///
 /// Returns information about nodes in the Lightning Network.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetNetworkNodesParams {
+    /// Optional limit for the number of nodes to return (default: 100)
+    #[param(default = "100")]
+    limit: Option<u32>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/lightning/nodes",
@@ -331,14 +338,7 @@ async fn create_invoice(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetNetworkNodesParams {
-    /// Optional limit for the number of nodes to return (default: 100)
-    #[param(default = "100")]
-    limit: Option<u32>,
-}
-
-async fn get_network_nodes(
+pub async fn get_network_nodes(
     params: web::Query<GetNetworkNodesParams>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<Vec<NodeInfo>> {
@@ -365,7 +365,7 @@ async fn get_network_nodes(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_node_info(
+pub async fn get_node_info(
     path: web::Path<String>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<NodeInfo> {
@@ -381,19 +381,6 @@ async fn get_node_info(
 /// Find a route through the Lightning Network
 ///
 /// Finds a route to send a payment to a destination node.
-#[utoipa::path(
-    get,
-    path = "/api/v1/lightning/routes",
-    params(
-        FindRouteParams
-    ),
-    responses(
-        (status = 200, description = "Route found successfully", body = Route),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 404, description = "No route found", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
 #[derive(Debug, Deserialize, IntoParams)]
 struct FindRouteParams {
     /// Destination node ID (public key)
@@ -407,7 +394,20 @@ struct FindRouteParams {
     fee_limit_msat: Option<u64>,
 }
 
-async fn find_route(
+#[utoipa::path(
+    get,
+    path = "/api/v1/lightning/routes",
+    params(
+        FindRouteParams
+    ),
+    responses(
+        (status = 200, description = "Route found successfully", body = Route),
+        (status = 400, description = "Invalid request parameters", body = ApiError),
+        (status = 404, description = "No route found", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+pub async fn find_route(
     params: web::Query<FindRouteParams>,
     lightning: web::Data<Arc<LightningManager>>,
 ) -> ApiResult<Route> {

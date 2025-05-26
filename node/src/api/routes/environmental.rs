@@ -25,6 +25,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 /// Get overall environmental impact data
 ///
 /// Returns comprehensive data about the node's environmental impact.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetEnvironmentalImpactParams {
+    /// Time period in seconds for which to retrieve data (default: 86400 - 1 day)
+    #[param(default = "86400")]
+    period: Option<u64>,
+    
+    /// Level of detail for the report (default: "standard")
+    #[param(default = "standard")]
+    detail: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/environmental/impact",
@@ -37,18 +48,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetEnvironmentalImpactParams {
-    /// Time period in seconds for which to retrieve data (default: 86400 - 1 day)
-    #[param(default = "86400")]
-    period: Option<u64>,
-    
-    /// Level of detail for the report (default: "standard")
-    #[param(default = "standard")]
-    detail: Option<String>,
-}
-
-async fn get_environmental_impact(
+pub async fn get_environmental_impact(
     params: web::Query<GetEnvironmentalImpactParams>,
     monitor: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalImpact> {
@@ -64,6 +64,17 @@ async fn get_environmental_impact(
 /// Get energy usage data
 ///
 /// Returns detailed information about the node's energy consumption.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetEnergyUsageParams {
+    /// Time period in seconds for which to retrieve data (default: 3600 - 1 hour)
+    #[param(default = "3600")]
+    period: Option<u64>,
+    
+    /// Whether to include historical data (default: false)
+    #[param(default = "false")]
+    include_history: Option<bool>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/environmental/energy",
@@ -76,18 +87,7 @@ async fn get_environmental_impact(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetEnergyUsageParams {
-    /// Time period in seconds for which to retrieve data (default: 3600 - 1 hour)
-    #[param(default = "3600")]
-    period: Option<u64>,
-    
-    /// Whether to include historical data (default: false)
-    #[param(default = "false")]
-    include_history: Option<bool>,
-}
-
-async fn get_energy_usage(
+pub async fn get_energy_usage(
     params: web::Query<GetEnergyUsageParams>,
     monitor: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnergyUsage> {
@@ -103,6 +103,17 @@ async fn get_energy_usage(
 /// Get carbon footprint data
 ///
 /// Returns information about the node's carbon emissions.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetCarbonFootprintParams {
+    /// Time period in seconds for which to retrieve data (default: 86400 - 1 day)
+    #[param(default = "86400")]
+    period: Option<u64>,
+    
+    /// Whether to include offset information (default: true)
+    #[param(default = "true")]
+    include_offsets: Option<bool>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/environmental/carbon",
@@ -115,18 +126,7 @@ async fn get_energy_usage(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetCarbonFootprintParams {
-    /// Time period in seconds for which to retrieve data (default: 86400 - 1 day)
-    #[param(default = "86400")]
-    period: Option<u64>,
-    
-    /// Whether to include offset information (default: true)
-    #[param(default = "true")]
-    include_offsets: Option<bool>,
-}
-
-async fn get_carbon_footprint(
+pub async fn get_carbon_footprint(
     params: web::Query<GetCarbonFootprintParams>,
     monitor: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<CarbonFootprint> {
@@ -142,6 +142,13 @@ async fn get_carbon_footprint(
 /// Get resource utilization data
 ///
 /// Returns information about the node's hardware resource utilization.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetResourceUtilizationParams {
+    /// Time period in seconds for which to retrieve data (default: 300 - 5 minutes)
+    #[param(default = "300")]
+    period: Option<u64>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/environmental/resources",
@@ -154,14 +161,7 @@ async fn get_carbon_footprint(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetResourceUtilizationParams {
-    /// Time period in seconds for which to retrieve data (default: 300 - 5 minutes)
-    #[param(default = "300")]
-    period: Option<u64>,
-}
-
-async fn get_resource_utilization(
+pub async fn get_resource_utilization(
     params: web::Query<GetResourceUtilizationParams>,
     monitor: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<ResourceUtilization> {
@@ -184,7 +184,7 @@ async fn get_resource_utilization(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_environmental_settings(
+pub async fn get_environmental_settings(
     monitor: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalSettings> {
     match monitor.get_settings() {
@@ -206,7 +206,7 @@ async fn get_environmental_settings(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn update_environmental_settings(
+pub async fn update_environmental_settings(
     request: web::Json<EnvironmentalSettings>,
     monitor: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalSettings> {

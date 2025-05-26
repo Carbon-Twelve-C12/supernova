@@ -200,7 +200,7 @@ impl MessageHandler {
     }
     
     /// Validate a message and check for duplicates
-    fn validate_message(&self, message: &NetworkMessage) -> Result<bool, String> {
+    fn validate_message(&mut self, message: &NetworkMessage) -> Result<bool, String> {
         // Serialize message to get hash for duplicate detection
         let message_bytes = match bincode::serialize(&message.message) {
             Ok(bytes) => bytes,
