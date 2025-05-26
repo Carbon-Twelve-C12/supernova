@@ -16,4 +16,4 @@ pub use database::BlockchainDB;
 pub use backup::{BackupManager, BackupOperation, RecoveryManager};
 pub use checkpoint::{CheckpointManager, CheckpointConfig, CheckpointType, CheckpointInfo};
 pub use corruption::{CorruptionError, CorruptionHandler};
-pub use utxo_set::UTXOSet;
+pub use utxo_set::UtxoSet;

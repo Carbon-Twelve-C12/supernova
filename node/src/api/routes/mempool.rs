@@ -34,7 +34,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_mempool_info(
+pub async fn get_mempool_info(
     mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<MempoolInfo> {
     let info = mempool.get_info();
@@ -44,18 +44,6 @@ async fn get_mempool_info(
 /// Get a list of transactions in the mempool
 ///
 /// Returns a paginated list of transaction IDs in the mempool.
-#[utoipa::path(
-    get,
-    path = "/api/v1/mempool/transactions",
-    params(
-        GetMempoolTransactionsParams
-    ),
-    responses(
-        (status = 200, description = "Mempool transactions retrieved successfully", body = Vec<MempoolTransaction>),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
 #[derive(Debug, Deserialize, IntoParams)]
 struct GetMempoolTransactionsParams {
     /// Optional limit for the number of transactions to return (default: 100)
@@ -71,7 +59,19 @@ struct GetMempoolTransactionsParams {
     sort: Option<String>,
 }
 
-async fn get_mempool_transactions(
+#[utoipa::path(
+    get,
+    path = "/api/v1/mempool/transactions",
+    params(
+        GetMempoolTransactionsParams
+    ),
+    responses(
+        (status = 200, description = "Mempool transactions retrieved successfully", body = Vec<MempoolTransaction>),
+        (status = 400, description = "Invalid request parameters", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+pub async fn get_mempool_transactions(
     params: web::Query<GetMempoolTransactionsParams>,
     mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<Vec<MempoolTransaction>> {
@@ -101,7 +101,7 @@ async fn get_mempool_transactions(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_mempool_transaction(
+pub async fn get_mempool_transaction(
     path: web::Path<String>,
     mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<MempoolTransaction> {
@@ -122,16 +122,6 @@ async fn get_mempool_transaction(
 /// Submit a raw transaction to the mempool
 ///
 /// Submits a raw transaction to be included in the mempool.
-#[utoipa::path(
-    post,
-    path = "/api/v1/mempool/transaction",
-    request_body = SubmitTransactionRequest,
-    responses(
-        (status = 200, description = "Transaction submitted successfully", body = MempoolTransactionSubmissionResponse),
-        (status = 400, description = "Invalid transaction data", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 struct SubmitTransactionRequest {
     /// Raw transaction data in hexadecimal format
@@ -142,7 +132,17 @@ struct SubmitTransactionRequest {
     allow_high_fees: Option<bool>,
 }
 
-async fn submit_mempool_transaction(
+#[utoipa::path(
+    post,
+    path = "/api/v1/mempool/transaction",
+    request_body = SubmitTransactionRequest,
+    responses(
+        (status = 200, description = "Transaction submitted successfully", body = MempoolTransactionSubmissionResponse),
+        (status = 400, description = "Invalid transaction data", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+pub async fn submit_mempool_transaction(
     request: web::Json<SubmitTransactionRequest>,
     mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<MempoolTransactionSubmissionResponse> {
@@ -166,6 +166,12 @@ async fn submit_mempool_transaction(
 /// Validate a transaction without submitting it to the mempool
 ///
 /// Validates a transaction without adding it to the mempool.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+struct ValidateTransactionRequest {
+    /// Raw transaction data in hexadecimal format
+    raw_tx: String,
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/mempool/validate_transaction",
@@ -176,13 +182,7 @@ async fn submit_mempool_transaction(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-struct ValidateTransactionRequest {
-    /// Raw transaction data in hexadecimal format
-    raw_tx: String,
-}
-
-async fn validate_transaction(
+pub async fn validate_transaction(
     request: web::Json<ValidateTransactionRequest>,
     mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<TransactionValidationResult> {
@@ -202,6 +202,13 @@ async fn validate_transaction(
 /// Estimate transaction fee based on current mempool state
 ///
 /// Estimates the fee required for a transaction to be confirmed within a certain number of blocks.
+#[derive(Debug, Deserialize, IntoParams)]
+struct EstimateFeeParams {
+    /// Target confirmation in number of blocks (default: 6)
+    #[param(default = "6")]
+    target_conf: Option<u32>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/mempool/estimate_fee",
@@ -214,14 +221,7 @@ async fn validate_transaction(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct EstimateFeeParams {
-    /// Target confirmation in number of blocks (default: 6)
-    #[param(default = "6")]
-    target_conf: Option<u32>,
-}
-
-async fn estimate_fee(
+pub async fn estimate_fee(
     params: web::Query<EstimateFeeParams>,
     mempool: web::Data<Arc<TransactionPool>>,
 ) -> ApiResult<TransactionFees> {

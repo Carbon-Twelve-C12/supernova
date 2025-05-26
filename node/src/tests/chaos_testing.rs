@@ -523,7 +523,7 @@ impl ChaosTest {
 }
 
 // Chaos event types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ChaosEventType {
     NodeFailure,
     NodeRestart,

@@ -5,15 +5,17 @@ use axum::{
     Json,
     routing::{get, post},
     Router,
+    response::Json as ResponseJson,
 };
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use tracing::{debug, error, info, warn};
 use actix_web::web;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::node::Node;
 use crate::api::error::ApiError;
-use crate::testnet::faucet::FaucetError;
+use btclib::testnet::faucet::FaucetError;
 
 /// Faucet status response
 #[derive(Debug, Serialize)]
@@ -145,7 +147,7 @@ async fn request_tokens(
                     "Faucet has insufficient funds"
                 )
             },
-            FaucetError::InvalidAddress => {
+            FaucetError::InvalidAddress(_) => {
                 actix_web::error::ErrorBadRequest(
                     "Invalid recipient address"
                 )
@@ -198,13 +200,15 @@ async fn get_recent_transactions(
 async fn get_faucet_status_axum(
     Extension(node): Extension<Arc<Node>>,
 ) -> Result<Json<FaucetStatusResponse>, ApiError> {
+    debug!("Getting faucet status via axum handler");
+    
     // Get faucet from node
     let faucet = node.get_faucet()
-        .ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Faucet is not enabled on this node"))?;
+        .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Get faucet status
     let status = faucet.status().await
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to get faucet status: {}", e)))?;
+        .map_err(|e| ApiError::internal_error(&format!("Failed to get faucet status: {}", e)))?;
     
     // Return response
     Ok(Json(FaucetStatusResponse {
@@ -222,46 +226,33 @@ async fn request_tokens_axum(
     Extension(node): Extension<Arc<Node>>,
     Json(request): Json<FaucetRequest>,
 ) -> Result<Json<FaucetResponse>, ApiError> {
+    debug!("Processing faucet request for address: {}", request.address);
+    
     // Validate request
     if request.address.is_empty() {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "Recipient address cannot be empty"));
+        return Err(ApiError::bad_request("Recipient address cannot be empty"));
     }
     
     // Get faucet from node
     let faucet = node.get_faucet()
-        .ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Faucet is not enabled on this node"))?;
+        .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Request tokens
     let result = faucet.distribute_coins(&request.address).await
         .map_err(|e| match e {
             FaucetError::CooldownPeriod { remaining_time } => {
-                ApiError::new(
-                    StatusCode::TOO_MANY_REQUESTS, 
-                    &format!("Please wait {} seconds before requesting again", remaining_time)
-                )
+                ApiError::rate_limited(&format!("Please wait {} seconds before requesting again", remaining_time))
             },
             FaucetError::DailyLimitExceeded => {
-                ApiError::new(
-                    StatusCode::TOO_MANY_REQUESTS, 
-                    "Daily distribution limit reached for this address/IP"
-                )
+                ApiError::rate_limited("Daily distribution limit reached for this address/IP")
             },
             FaucetError::InsufficientFunds => {
-                ApiError::new(
-                    StatusCode::SERVICE_UNAVAILABLE, 
-                    "Faucet has insufficient funds"
-                )
+                ApiError::service_unavailable("Faucet has insufficient funds")
             },
-            FaucetError::InvalidAddress => {
-                ApiError::new(
-                    StatusCode::BAD_REQUEST, 
-                    "Invalid recipient address"
-                )
+            FaucetError::InvalidAddress(_) => {
+                ApiError::bad_request("Invalid recipient address")
             },
-            _ => ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR, 
-                &format!("Failed to distribute coins: {}", e)
-            ),
+            _ => ApiError::internal_error(&format!("Failed to distribute coins: {}", e)),
         })?;
     
     // Return response
@@ -277,13 +268,15 @@ async fn request_tokens_axum(
 async fn get_recent_transactions_axum(
     Extension(node): Extension<Arc<Node>>,
 ) -> Result<Json<RecentTransactionsResponse>, ApiError> {
+    debug!("Getting recent faucet transactions via axum handler");
+    
     // Get faucet from node
     let faucet = node.get_faucet()
-        .ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Faucet is not enabled on this node"))?;
+        .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Get recent transactions
     let transactions = faucet.get_recent_transactions().await
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to get recent transactions: {}", e)))?;
+        .map_err(|e| ApiError::internal_error(&format!("Failed to get recent transactions: {}", e)))?;
     
     // Convert to response format
     let tx_responses = transactions.into_iter()

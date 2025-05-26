@@ -151,7 +151,7 @@ impl TestNetManager {
     /// Request coins from the test faucet
     pub fn request_faucet_coins(&mut self, recipient: &str) -> Result<u64, String> {
         if let Some(faucet) = &mut self.faucet {
-            faucet.distribute_coins(recipient)
+            faucet.distribute_coins(recipient).map_err(|e| e.to_string())
         } else {
             Err("Faucet is not enabled for this test network".to_string())
         }

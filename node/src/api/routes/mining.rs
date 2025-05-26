@@ -37,7 +37,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_mining_info(
+pub async fn get_mining_info(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningInfo> {
     match mining.get_mining_info() {
@@ -49,6 +49,16 @@ async fn get_mining_info(
 /// Get mining template for block creation
 ///
 /// Returns data needed to construct a block for mining.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetMiningTemplateParams {
+    /// Comma-separated list of capabilities (default: "standard")
+    #[param(default = "standard")]
+    capabilities: Option<String>,
+    
+    /// Maximum number of transactions to include (default: all available)
+    max_transactions: Option<u32>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/mining/template",
@@ -61,17 +71,7 @@ async fn get_mining_info(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetMiningTemplateParams {
-    /// Comma-separated list of capabilities (default: "standard")
-    #[param(default = "standard")]
-    capabilities: Option<String>,
-    
-    /// Maximum number of transactions to include (default: all available)
-    max_transactions: Option<u32>,
-}
-
-async fn get_mining_template(
+pub async fn get_mining_template(
     params: web::Query<GetMiningTemplateParams>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningTemplate> {
@@ -97,7 +97,7 @@ async fn get_mining_template(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn submit_block(
+pub async fn submit_block(
     request: web::Json<SubmitBlockRequest>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<SubmitBlockResponse> {
@@ -117,6 +117,13 @@ async fn submit_block(
 /// Get mining statistics
 ///
 /// Returns statistics about mining operations.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetMiningStatsParams {
+    /// Time period in seconds (default: 3600)
+    #[param(default = "3600")]
+    period: Option<u64>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/mining/stats",
@@ -129,14 +136,7 @@ async fn submit_block(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetMiningStatsParams {
-    /// Time period in seconds (default: 3600)
-    #[param(default = "3600")]
-    period: Option<u64>,
-}
-
-async fn get_mining_stats(
+pub async fn get_mining_stats(
     params: web::Query<GetMiningStatsParams>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningStats> {
@@ -159,7 +159,7 @@ async fn get_mining_stats(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_mining_status(
+pub async fn get_mining_status(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningStatus> {
     match mining.get_mining_status() {
@@ -171,6 +171,12 @@ async fn get_mining_status(
 /// Start mining
 ///
 /// Starts the mining operation.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+struct StartMiningRequest {
+    /// Number of threads to use for mining (default: use system-determined optimal value)
+    threads: Option<u32>,
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/mining/start",
@@ -181,13 +187,7 @@ async fn get_mining_status(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-struct StartMiningRequest {
-    /// Number of threads to use for mining (default: use system-determined optimal value)
-    threads: Option<u32>,
-}
-
-async fn start_mining(
+pub async fn start_mining(
     request: web::Json<StartMiningRequest>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<HttpResponse> {
@@ -210,7 +210,7 @@ async fn start_mining(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn stop_mining(
+pub async fn stop_mining(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<HttpResponse> {
     match mining.stop_mining() {
@@ -230,7 +230,7 @@ async fn stop_mining(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_mining_config(
+pub async fn get_mining_config(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningConfiguration> {
     match mining.get_mining_config() {
@@ -252,7 +252,7 @@ async fn get_mining_config(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn update_mining_config(
+pub async fn update_mining_config(
     request: web::Json<MiningConfiguration>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningConfiguration> {

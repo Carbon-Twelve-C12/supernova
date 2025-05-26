@@ -18,6 +18,7 @@ notify = { version = "5.0", features = ["serde"] }
 
 # P2P networking dependencies
 libp2p = { version = "0.41", features = ["tcp-tokio", "mdns", "gossipsub", "noise", "mplex", "yamux", "identify", "kad"] }
+libp2p-swarm-derive = "0.25"
 futures = "0.3"
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
@@ -32,6 +33,7 @@ actix-web = "4.0"
 actix-rt = "2.0"
 actix-cors = "0.6"
 utoipa = { version = "4.0", features = ["actix_extras"] }
+utoipa-swagger-ui = { version = "4.0", features = ["actix-web"] }
 
 # Storage and utils
 sled = "0.34"
@@ -47,6 +49,12 @@ sysinfo = "0.29"
 blake3 = "1.5"
 maxminddb = "0.24"
 warp = "0.3"
+memmap2 = "0.9"
+chrono = { version = "0.4", features = ["serde"] }
+axum = "0.7"
+geo = "0.27"
+tower = "0.4"
+tower-http = { version = "0.4", features = ["cors", "trace"] }
 
 [lib]
 name = "node"

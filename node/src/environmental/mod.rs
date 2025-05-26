@@ -1,12 +1,17 @@
+use sysinfo::{System, SystemExt, DiskExt, CpuExt};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::time::sleep;
+use tracing::{debug, info, warn, error};
+use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
+use thiserror::Error;
+
 use crate::api::types::{
     EnvironmentalImpact, EnergyUsage, CarbonFootprint, EnvironmentalSettings,
     ResourceUtilization, EmissionsSource, EnergySource, CarbonOffset, EnergyUsageHistory
 };
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use sysinfo::{System, SystemExt, ProcessorExt, DiskExt};
-use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum EnvironmentalError {
@@ -172,7 +177,7 @@ impl EnvironmentalMonitor {
         
         // Calculate energy usage based on system resources
         let system = self.system.lock().unwrap();
-        let cpu_usage = system.global_processor_info().cpu_usage() as f64 / 100.0;
+        let cpu_usage = system.global_cpu_info().cpu_usage() as f64 / 100.0;
         
         // Estimate energy usage based on CPU usage and a base consumption model
         // This is a simplified model and would be replaced with more accurate measurements
@@ -294,7 +299,7 @@ impl EnvironmentalMonitor {
         
         // Calculate net emissions after offsets
         let net_emissions_g = if let Some(offset_list) = &offsets {
-            let total_offset = offset_list.iter().map(|o| o.quantity_g).sum::<f64>();
+            let total_offset = offset_list.iter().map(|o| o.amount).sum::<f64>();
             total_emissions_g - total_offset
         } else {
             total_emissions_g
@@ -330,7 +335,7 @@ impl EnvironmentalMonitor {
         system.refresh_all();
         
         // Calculate CPU usage
-        let cpu_usage = system.global_processor_info().cpu_usage() as f64;
+        let cpu_usage = system.global_cpu_info().cpu_usage() as f64;
         
         // Calculate memory usage
         let total_memory = system.total_memory() as f64;
@@ -390,7 +395,7 @@ impl EnvironmentalMonitor {
     pub fn update_settings(&self, new_settings: EnvironmentalSettings) -> Result<EnvironmentalSettings, EnvironmentalError> {
         // Validate settings
         if let Some(loc) = &new_settings.location_code {
-            if !self.emission_factors.contains_key(loc) {
+            if !self.emission_factors.contains_key::<str>(loc) {
                 return Err(EnvironmentalError::InvalidRegion(loc.clone()));
             }
         }

@@ -2132,7 +2132,7 @@ impl BlockchainDB {
     }
 
     /// Invalidate caches when necessary (e.g., during chain reorganization)
-    pub fn invalidate_caches(&self) -> Result<(), StorageError> {
+    pub fn invalidate_caches(&mut self) -> Result<(), StorageError> {
         if let Some(block_cache) = &self.block_cache {
             block_cache.clear();
         }
@@ -2161,6 +2161,83 @@ impl BlockchainDB {
         }
         
         Ok(())
+    }
+
+    /// Create a new in-memory database for testing
+    pub fn create_in_memory() -> Result<Self, StorageError> {
+        let config = sled::Config::new().temporary(true);
+        let db = config.open()?;
+        
+        let db_config = BlockchainDBConfig::default();
+        
+        let blocks = db.open_tree(BLOCKS_TREE)?;
+        let transactions = db.open_tree(TXNS_TREE)?;
+        let utxos = db.open_tree(UTXO_TREE)?;
+        let metadata = db.open_tree(METADATA_TREE)?;
+        let block_height_index = db.open_tree(BLOCK_HEIGHT_INDEX_TREE)?;
+        let tx_index = db.open_tree(TX_INDEX_TREE)?;
+        let headers = db.open_tree(HEADERS_TREE)?;
+        let pending_blocks = db.open_tree(PENDING_BLOCKS_TREE)?;
+        let pending_blocks_meta = db.open_tree(PENDING_BLOCKS_META_TREE)?;
+        let pending_blocks_index = db.open_tree(PENDING_BLOCKS_INDEX_TREE)?;
+        
+        let block_filter = Arc::new(RwLock::new(BloomFilter::new(
+            db_config.bloom_filter_capacity,
+            db_config.bloom_filter_fpr,
+        )));
+        
+        let tx_filter = Arc::new(RwLock::new(BloomFilter::new(
+            db_config.bloom_filter_capacity,
+            db_config.bloom_filter_fpr,
+        )));
+        
+        let block_cache = if db_config.use_lru_cache {
+            Some(Arc::new(DatabaseCache::new(db_config.block_cache_capacity)))
+        } else {
+            None
+        };
+        
+        let tx_cache = if db_config.use_lru_cache {
+            Some(Arc::new(DatabaseCache::new(db_config.tx_cache_capacity)))
+        } else {
+            None
+        };
+        
+        let header_cache = if db_config.use_lru_cache {
+            Some(Arc::new(DatabaseCache::new(db_config.header_cache_capacity)))
+        } else {
+            None
+        };
+        
+        let utxo_cache = if db_config.use_lru_cache {
+            Some(Arc::new(DatabaseCache::new(db_config.utxo_cache_capacity)))
+        } else {
+            None
+        };
+        
+        Ok(Self {
+            db: Arc::new(db),
+            db_path: std::path::PathBuf::from(":memory:"),
+            blocks,
+            transactions,
+            utxos,
+            metadata,
+            block_height_index,
+            tx_index,
+            headers,
+            pending_blocks,
+            pending_blocks_meta,
+            pending_blocks_index,
+            pending_block_expiry: db_config.pending_block_expiry,
+            max_pending_blocks: db_config.max_pending_blocks,
+            block_filter,
+            tx_filter,
+            config: db_config,
+            block_cache,
+            tx_cache,
+            header_cache,
+            utxo_cache,
+        })
     }
 }
 

@@ -40,7 +40,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_node_info(
+pub async fn get_node_info(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeInfo> {
     // TODO: Implement real node info retrieval
@@ -60,7 +60,7 @@ async fn get_node_info(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_system_info(
+pub async fn get_system_info(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<SystemInfo> {
     // TODO: Implement real system info retrieval
@@ -72,18 +72,6 @@ async fn get_system_info(
 /// Get node logs
 ///
 /// Returns logs from the node's operation.
-#[utoipa::path(
-    get,
-    path = "/api/v1/node/logs",
-    params(
-        GetLogsParams
-    ),
-    responses(
-        (status = 200, description = "Logs retrieved successfully", body = Vec<LogEntry>),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
 #[derive(Debug, Deserialize, IntoParams)]
 struct GetLogsParams {
     /// Optional log level filter (default: "info")
@@ -102,7 +90,19 @@ struct GetLogsParams {
     offset: Option<u32>,
 }
 
-async fn get_logs(
+#[utoipa::path(
+    get,
+    path = "/api/v1/node/logs",
+    params(
+        GetLogsParams
+    ),
+    responses(
+        (status = 200, description = "Logs retrieved successfully", body = Vec<LogEntry>),
+        (status = 400, description = "Invalid request parameters", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+pub async fn get_logs(
     params: web::Query<GetLogsParams>,
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<Vec<LogEntry>> {
@@ -128,7 +128,7 @@ async fn get_logs(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_node_status(
+pub async fn get_node_status(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeStatus> {
     // TODO: Implement real node status retrieval
@@ -148,7 +148,7 @@ async fn get_node_status(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_node_version(
+pub async fn get_node_version(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeVersion> {
     // TODO: Implement real node version retrieval
@@ -160,6 +160,13 @@ async fn get_node_version(
 /// Get node performance metrics
 ///
 /// Returns performance metrics for the node.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetNodeMetricsParams {
+    /// Time period in seconds for which to retrieve metrics (default: 300 - 5 minutes)
+    #[param(default = "300")]
+    period: Option<u64>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/node/metrics",
@@ -172,14 +179,7 @@ async fn get_node_version(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetNodeMetricsParams {
-    /// Time period in seconds for which to retrieve metrics (default: 300 - 5 minutes)
-    #[param(default = "300")]
-    period: Option<u64>,
-}
-
-async fn get_node_metrics(
+pub async fn get_node_metrics(
     params: web::Query<GetNodeMetricsParams>,
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeMetrics> {
@@ -202,7 +202,7 @@ async fn get_node_metrics(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_node_config(
+pub async fn get_node_config(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeConfiguration> {
     // TODO: Implement real node configuration retrieval
@@ -224,7 +224,7 @@ async fn get_node_config(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn update_node_config(
+pub async fn update_node_config(
     request: web::Json<NodeConfiguration>,
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<NodeConfiguration> {
@@ -237,16 +237,6 @@ async fn update_node_config(
 /// Create a node backup
 ///
 /// Creates a backup of the node's data.
-#[utoipa::path(
-    post,
-    path = "/api/v1/node/backup",
-    request_body = CreateBackupRequest,
-    responses(
-        (status = 200, description = "Backup created successfully", body = BackupInfo),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 struct CreateBackupRequest {
     /// Optional destination path for the backup (default: system-determined location)
@@ -261,9 +251,19 @@ struct CreateBackupRequest {
     encrypt: Option<bool>,
 }
 
-async fn create_backup(
+#[utoipa::path(
+    post,
+    path = "/api/v1/node/backup",
+    request_body = CreateBackupRequest,
+    responses(
+        (status = 200, description = "Backup created successfully", body = BackupInfo),
+        (status = 400, description = "Invalid request parameters", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+pub async fn create_backup(
     request: web::Json<CreateBackupRequest>,
-    node: web::Data<Arc<NodeManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<BackupInfo> {
     let destination = request.destination.clone();
     let include_wallet = request.include_wallet.unwrap_or(true);
@@ -286,8 +286,8 @@ async fn create_backup(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_backup_info(
-    node: web::Data<Arc<NodeManager>>,
+pub async fn get_backup_info(
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<Vec<BackupInfo>> {
     // TODO: Implement real backup info retrieval
     let backup_info = node.get_backup_info()?;
@@ -306,8 +306,8 @@ async fn get_backup_info(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn restart_node(
-    node: web::Data<Arc<NodeManager>>,
+pub async fn restart_node(
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // TODO: Implement real node restart
     node.restart()?;
@@ -326,8 +326,8 @@ async fn restart_node(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn shutdown_node(
-    node: web::Data<Arc<NodeManager>>,
+pub async fn shutdown_node(
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // TODO: Implement real node shutdown
     node.shutdown()?;
@@ -346,8 +346,8 @@ async fn shutdown_node(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_debug_info(
-    node: web::Data<Arc<NodeManager>>,
+pub async fn get_debug_info(
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<DebugInfo> {
     // TODO: Implement real debug info retrieval
     let debug_info = node.get_debug_info()?;

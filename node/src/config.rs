@@ -315,7 +315,7 @@ impl NodeConfig {
                 .try_parsing(true),
         );
 
-        let config: NodeConfig = config.build()?.try_deserialize()?;
+        let mut config: NodeConfig = config.build()?.try_deserialize()?;
         Self::ensure_directories(&config)?;
 
         // If api bind address is not set, use the same as the p2p address

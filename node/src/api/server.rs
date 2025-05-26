@@ -89,9 +89,9 @@ impl ApiServer {
     
     /// Set API server configuration
     pub fn with_config(mut self, config: ApiConfig) -> Self {
-        self.config = config;
         self.bind_address = config.bind_address.clone();
         self.port = config.port;
+        self.config = config;
         self
     }
     
@@ -120,11 +120,16 @@ impl ApiServer {
                 // Configure JSON extractor limits
                 .app_data(web::JsonConfig::default().limit(4096))
                 .wrap(middleware::Compress::default())
+                .wrap(
+                    middleware::DefaultHeaders::new()
+                        .add(("X-Version", "1.0"))
+                        .add(("X-Frame-Options", "DENY"))
+                )
                 .wrap(middleware::NormalizePath::new(
                     middleware::TrailingSlash::Trim
                 ));
-                
-            // Add CORS middleware if configured
+
+            // Apply conditional middleware
             if !config.cors_allowed_origins.is_empty() {
                 app = app.wrap(
                     Cors::default()
@@ -134,28 +139,23 @@ impl ApiServer {
                         .max_age(3600)
                 );
             }
-            
-            // Add logging middleware
+
             if config.detailed_logging {
                 app = app.wrap(logging::ApiLogger::new());
             } else {
                 app = app.wrap(middleware::Logger::default());
             }
-            
-            // Add authentication middleware if enabled
-            if config.enable_auth {
-                if let Some(api_keys) = &config.api_keys {
-                    if !api_keys.is_empty() {
-                        app = app.wrap(auth::ApiAuth::new(api_keys.clone()));
-                    }
+
+            if let Some(api_keys) = &config.api_keys {
+                if !api_keys.is_empty() {
+                    app = app.wrap(auth::ApiAuth::new(api_keys.clone()));
                 }
             }
-            
-            // Add rate limiting middleware if configured
+
             if let Some(rate) = config.rate_limit {
                 app = app.wrap(rate_limiting::RateLimiter::new(rate));
             }
-            
+
             // Configure API routes
             app = app.configure(routes::configure);
             

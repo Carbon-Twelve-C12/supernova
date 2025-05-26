@@ -2,6 +2,8 @@ use dashmap::DashMap;
 use btclib::types::transaction::Transaction;
 use std::time::{Duration, SystemTime};
 use crate::config;
+use crate::api::types::{MempoolInfo, MempoolTransaction, TransactionFees, TransactionValidationResult, MempoolTransactionSubmissionResponse};
+use hex;
 
 /// Configuration for the transaction memory pool
 #[derive(Debug, Clone)]
@@ -284,6 +286,184 @@ impl TransactionPool {
         }
         
         conflicting_txs
+    }
+
+    /// Get mempool information for API
+    pub fn get_info(&self) -> MempoolInfo {
+        let transaction_count = self.transactions.len();
+        let total_size: usize = self.transactions.iter().map(|entry| entry.size).sum();
+        let total_fee: u64 = self.transactions.iter().map(|entry| entry.fee_rate * entry.size as u64).sum();
+        
+        // Calculate average fee rate
+        let avg_fee_rate = if transaction_count > 0 {
+            total_fee / total_size as u64
+        } else {
+            0
+        };
+        
+        MempoolInfo {
+            transaction_count,
+            total_size,
+            total_fee,
+            min_fee_rate: self.config.min_fee_rate,
+            max_fee_rate: self.transactions.iter().map(|entry| entry.fee_rate).max().unwrap_or(0),
+            avg_fee_rate,
+        }
+    }
+    
+    /// Get transactions with pagination and sorting
+    pub fn get_transactions(&self, limit: usize, offset: usize, sort: &str) -> Result<Vec<MempoolTransaction>, MempoolError> {
+        let mut entries: Vec<_> = self.transactions.iter().map(|entry| {
+            let tx_hash = *entry.key();
+            let entry_val = entry.value();
+            MempoolTransaction {
+                txid: hex::encode(tx_hash),
+                size: entry_val.size,
+                fee: entry_val.fee_rate * entry_val.size as u64,
+                fee_rate: entry_val.fee_rate,
+                time: entry_val.timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
+            }
+        }).collect();
+        
+        // Sort based on the sort parameter
+        match sort {
+            "fee_desc" => entries.sort_by(|a, b| b.fee.cmp(&a.fee)),
+            "fee_asc" => entries.sort_by(|a, b| a.fee.cmp(&b.fee)),
+            "time_desc" => entries.sort_by(|a, b| b.time.cmp(&a.time)),
+            "time_asc" => entries.sort_by(|a, b| a.time.cmp(&b.time)),
+            "size_desc" => entries.sort_by(|a, b| b.size.cmp(&a.size)),
+            "size_asc" => entries.sort_by(|a, b| a.size.cmp(&b.size)),
+            _ => entries.sort_by(|a, b| b.fee_rate.cmp(&a.fee_rate)), // Default to fee_rate desc
+        }
+        
+        // Apply pagination
+        let start = offset.min(entries.len());
+        let end = (offset + limit).min(entries.len());
+        
+        Ok(entries[start..end].to_vec())
+    }
+    
+    /// Get a specific transaction by hex string ID
+    pub fn get_transaction(&self, txid: &str) -> Result<Option<MempoolTransaction>, MempoolError> {
+        // Parse hex string to bytes
+        let tx_hash_bytes = hex::decode(txid).map_err(|_| MempoolError::SerializationError)?;
+        if tx_hash_bytes.len() != 32 {
+            return Err(MempoolError::SerializationError);
+        }
+        
+        let mut tx_hash = [0u8; 32];
+        tx_hash.copy_from_slice(&tx_hash_bytes);
+        
+        if let Some(entry) = self.transactions.get(&tx_hash) {
+            Ok(Some(MempoolTransaction {
+                txid: txid.to_string(),
+                size: entry.size,
+                fee: entry.fee_rate * entry.size as u64,
+                fee_rate: entry.fee_rate,
+                time: entry.timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+    
+    /// Submit a transaction from raw bytes
+    pub fn submit_transaction(&self, raw_tx: &[u8], allow_high_fees: bool) -> Result<String, MempoolError> {
+        // Deserialize the transaction
+        let transaction: Transaction = bincode::deserialize(raw_tx)
+            .map_err(|_| MempoolError::SerializationError)?;
+        
+        let tx_hash = transaction.hash();
+        
+        // Calculate a basic fee rate (this is simplified)
+        let tx_size = raw_tx.len();
+        let fee_rate = self.config.min_fee_rate; // Simplified fee calculation
+        
+        // Check for high fees if not allowed
+        if !allow_high_fees && fee_rate > self.config.min_fee_rate * 10 {
+            return Err(MempoolError::FeeTooLow);
+        }
+        
+        // Add to mempool
+        self.add_transaction(transaction, fee_rate)?;
+        
+        Ok(hex::encode(tx_hash))
+    }
+    
+    /// Validate a transaction without adding it to mempool
+    pub fn validate_transaction(&self, raw_tx: &[u8]) -> Result<TransactionValidationResult, MempoolError> {
+        // Deserialize the transaction
+        let transaction: Transaction = bincode::deserialize(raw_tx)
+            .map_err(|_| MempoolError::SerializationError)?;
+        
+        let tx_hash = transaction.hash();
+        
+        // Check if already in mempool
+        if self.transactions.contains_key(&tx_hash) {
+            return Ok(TransactionValidationResult {
+                valid: false,
+                error: Some("Transaction already in mempool".to_string()),
+                fee_rate: None,
+                size: Some(raw_tx.len()),
+            });
+        }
+        
+        // Check for double spend
+        if self.check_double_spend(&transaction) {
+            return Ok(TransactionValidationResult {
+                valid: false,
+                error: Some("Double spend detected".to_string()),
+                fee_rate: None,
+                size: Some(raw_tx.len()),
+            });
+        }
+        
+        // Basic validation passed
+        let fee_rate = self.config.min_fee_rate; // Simplified
+        
+        Ok(TransactionValidationResult {
+            valid: true,
+            error: None,
+            fee_rate: Some(fee_rate),
+            size: Some(raw_tx.len()),
+        })
+    }
+    
+    /// Estimate fee for target confirmation
+    pub fn estimate_fee(&self, target_conf: u32) -> Result<TransactionFees, MempoolError> {
+        // Simple fee estimation based on current mempool state
+        let transaction_count = self.transactions.len();
+        
+        let (low_priority, normal_priority, high_priority) = if transaction_count == 0 {
+            // Empty mempool, use minimum rates
+            (self.config.min_fee_rate, self.config.min_fee_rate * 2, self.config.min_fee_rate * 5)
+        } else {
+            // Calculate percentiles from current mempool
+            let mut fee_rates: Vec<u64> = self.transactions.iter().map(|entry| entry.fee_rate).collect();
+            fee_rates.sort();
+            
+            let len = fee_rates.len();
+            let low = fee_rates[len / 4].max(self.config.min_fee_rate);
+            let normal = fee_rates[len / 2].max(self.config.min_fee_rate * 2);
+            let high = fee_rates[len * 3 / 4].max(self.config.min_fee_rate * 5);
+            
+            (low, normal, high)
+        };
+        
+        // Adjust based on target confirmation time
+        let multiplier = match target_conf {
+            1 => 2.0,      // Next block - high priority
+            2..=3 => 1.5,  // 2-3 blocks - normal priority  
+            4..=6 => 1.0,  // 4-6 blocks - normal
+            _ => 0.8,      // 7+ blocks - low priority
+        };
+        
+        Ok(TransactionFees {
+            low_priority: (low_priority as f64 * multiplier * 0.8) as u64,
+            normal_priority: (normal_priority as f64 * multiplier) as u64,
+            high_priority: (high_priority as f64 * multiplier * 1.2) as u64,
+            target_blocks: target_conf,
+        })
     }
 }
 

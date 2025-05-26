@@ -1,14 +1,22 @@
 use libp2p::{
-    core::{ConnectedPoint, Multiaddr, PeerId, connection::ConnectionId},
-    swarm::{DialError, NetworkBehaviour},
+    core::{
+        muxing::StreamMuxerBox,
+        transport::Boxed,
+        upgrade::{self, InboundUpgrade, OutboundUpgrade, UpgradeInfo, Negotiated},
+        ConnectedPoint, PeerId, Multiaddr,
+    },
+    swarm::{DialError, NetworkBehaviour, ProtocolsHandler, KeepAlive, SubstreamProtocol},
+    identity::Keypair,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use serde::{Serialize, Deserialize};
+use tracing::{debug, info, warn, error};
 use tokio::sync::mpsc;
 use crate::network::peer::{PeerState, PeerManager};
 use crate::network::peer_diversity::PeerDiversityManager;
-use tracing::{debug, info, warn, error};
+use void::Void;
 
 /// State of a connection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,9 +53,9 @@ pub enum ConnectionEvent {
 /// Manager for handling peer connections
 pub struct ConnectionManager {
     /// Active connections by peer ID
-    connections: HashMap<PeerId, Vec<ConnectionId>>,
+    connections: HashMap<PeerId, Vec<u64>>,
     /// Connection states
-    connection_states: HashMap<(PeerId, ConnectionId), ConnectionState>,
+    connection_states: HashMap<(PeerId, u64), ConnectionState>,
     /// Pending outbound connection attempts
     pending_dials: HashSet<PeerId>,
     /// Queue of peers to connect to when slots are available
@@ -78,6 +86,8 @@ pub struct ConnectionManager {
     feeler_addresses: HashMap<PeerId, Instant>,
     /// Maximum feeler connections per cycle
     max_feeler_connections: usize,
+    /// Next connection ID
+    next_connection_id: u64,
 }
 
 impl ConnectionManager {
@@ -106,6 +116,7 @@ impl ConnectionManager {
             idle_timeout: Duration::from_secs(60 * 10), // 10 minutes
             feeler_addresses: HashMap::new(),
             max_feeler_connections: 2,
+            next_connection_id: 0,
         }
     }
     
@@ -156,7 +167,7 @@ impl ConnectionManager {
     pub fn handle_connection_established(
         &mut self,
         peer_id: &PeerId, 
-        connection_id: ConnectionId,
+        connection_id: u64,
         endpoint: ConnectedPoint,
     ) {
         let is_inbound = match &endpoint {
@@ -202,7 +213,7 @@ impl ConnectionManager {
     pub fn handle_connection_closed(
         &mut self,
         peer_id: &PeerId, 
-        connection_id: ConnectionId,
+        connection_id: u64,
     ) {
         // Get endpoint before removing connection
         let endpoint = self.peer_endpoints.remove(peer_id);
@@ -274,7 +285,7 @@ impl ConnectionManager {
     pub fn update_connection_state(
         &mut self,
         peer_id: &PeerId, 
-        connection_id: ConnectionId,
+        connection_id: u64,
         state: ConnectionState,
     ) {
         // Update connection state
@@ -511,15 +522,84 @@ impl ConnectionManager {
     }
 }
 
+// Simple dummy handler for libp2p 0.41 compatibility
+#[derive(Debug)]
+pub struct DummyHandler;
+
+impl ProtocolsHandler for DummyHandler {
+    type InEvent = Void;
+    type OutEvent = Void;
+    type Error = Void;
+    type InboundProtocol = libp2p::core::upgrade::DeniedUpgrade;
+    type OutboundProtocol = libp2p::core::upgrade::DeniedUpgrade;
+    type OutboundOpenInfo = Void;
+    type InboundOpenInfo = ();
+
+    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
+        SubstreamProtocol::new(libp2p::core::upgrade::DeniedUpgrade, ())
+    }
+
+    fn inject_fully_negotiated_inbound(
+        &mut self,
+        _: <Self::InboundProtocol as libp2p::core::InboundUpgrade<Negotiated<StreamMuxerBox>>>::Output,
+        _: Self::InboundOpenInfo,
+    ) {
+        // Handle fully negotiated inbound connection
+    }
+
+    fn inject_fully_negotiated_outbound(
+        &mut self,
+        _: <Self::OutboundProtocol as libp2p::core::OutboundUpgrade<Negotiated<StreamMuxerBox>>>::Output,
+        _: Self::OutboundOpenInfo,
+    ) {
+        // Handle fully negotiated outbound connection
+    }
+
+    fn inject_event(&mut self, _: Self::InEvent) {}
+
+    fn inject_address_change(&mut self, _: &Multiaddr) {}
+
+    fn inject_dial_upgrade_error(&mut self, _: Self::OutboundOpenInfo, _: libp2p::swarm::ProtocolsHandlerUpgrErr<Self::Error>) {}
+
+    fn inject_listen_upgrade_error(&mut self, _: Self::InboundOpenInfo, _: libp2p::swarm::ProtocolsHandlerUpgrErr<Self::Error>) {}
+
+    fn connection_keep_alive(&self) -> KeepAlive {
+        KeepAlive::No
+    }
+
+    fn poll(
+        &mut self,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<libp2p::swarm::ProtocolsHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>> {
+        std::task::Poll::Pending
+    }
+}
+
 // Implementation for libp2p NetworkBehaviour trait
-impl<THandshake> NetworkBehaviour for ConnectionManager
-where
-    THandshake: libp2p::core::upgrade::ConnectionLevelUpgrade<libp2p::core::transport::OutboundConnectionDialer>,
-{
-    // Not actually used directly in the struct, this is just a placeholder
-    // because Rust requires us to specify the THandshake type
-    type ConnectionHandler = THandshake;
+impl NetworkBehaviour for ConnectionManager {
+    type ProtocolsHandler = DummyHandler;
     type OutEvent = ConnectionEvent;
+
+    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+        DummyHandler
+    }
+
+    fn inject_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection: u64, // Using u64 instead of ConnectionId
+        _event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+    ) {
+        // No events from DummyHandler
+    }
+
+    fn poll(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+        _params: &mut impl libp2p::swarm::PollParameters,
+    ) -> std::task::Poll<libp2p::swarm::NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler, <Self::ProtocolsHandler as ProtocolsHandler>::InEvent>> {
+        std::task::Poll::Pending
+    }
 }
 
 #[cfg(test)]
@@ -549,7 +629,7 @@ mod tests {
     fn test_connection_tracking() {
         let mut manager = create_test_manager();
         let peer_id = PeerId::random();
-        let connection_id = ConnectionId::new(1);
+        let connection_id = 1;
         let endpoint = ConnectedPoint::Dialer {
             address: "/ip4/127.0.0.1/tcp/8000".parse().unwrap(),
             role_override: libp2p::core::Endpoint::Dialer,
@@ -583,7 +663,7 @@ mod tests {
         // Fill outbound slots
         for i in 0..3 {
             let peer_id = PeerId::random();
-            let connection_id = ConnectionId::new(i);
+            let connection_id = i as u64;
             let endpoint = ConnectedPoint::Dialer {
                 address: "/ip4/127.0.0.1/tcp/8000".parse().unwrap(),
                 role_override: libp2p::core::Endpoint::Dialer,
@@ -599,7 +679,7 @@ mod tests {
         // Fill inbound slots
         for i in 0..5 {
             let peer_id = PeerId::random();
-            let connection_id = ConnectionId::new(i + 10);
+            let connection_id = (i + 10) as u64;
             let endpoint = ConnectedPoint::Listener {
                 local_addr: "/ip4/127.0.0.1/tcp/8000".parse().unwrap(),
                 send_back_addr: "/ip4/192.168.1.1/tcp/9000".parse().unwrap(),

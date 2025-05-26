@@ -16,6 +16,21 @@ const PARALLEL_VERIFICATION_CHUNKS: usize = 4;
 const MAX_RECOVERY_ATTEMPTS: usize = 3;
 const INCREMENTAL_REBUILD_BATCH: usize = 1000;
 
+/// Types of backup operations that can be performed
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BackupOperation {
+    /// Create a full backup of the database
+    FullBackup,
+    /// Create an incremental backup since the last backup
+    IncrementalBackup,
+    /// Verify the integrity of an existing backup
+    VerifyBackup,
+    /// Restore from a backup
+    RestoreBackup,
+    /// Clean up old backups
+    CleanupBackups,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecoveryCheckpoint {
     pub height: u64,

@@ -34,7 +34,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_network_info(
+pub async fn get_network_info(
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<NetworkInfo> {
     // Retrieve network information from the P2PNetwork
@@ -57,7 +57,7 @@ async fn get_network_info(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_connection_count(
+pub async fn get_connection_count(
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<ConnectionCount> {
     // Retrieve connection count from the P2PNetwork
@@ -72,6 +72,16 @@ async fn get_connection_count(
 /// Get a list of connected peers
 ///
 /// Returns information about all peers currently connected to the node.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetPeersParams {
+    /// Optional connection state filter
+    connection_state: Option<String>,
+    
+    /// Include detailed information (default: false)
+    #[param(default = "false")]
+    verbose: Option<bool>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/network/peers",
@@ -84,17 +94,7 @@ async fn get_connection_count(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetPeersParams {
-    /// Optional connection state filter
-    connection_state: Option<String>,
-    
-    /// Include detailed information (default: false)
-    #[param(default = "false")]
-    verbose: Option<bool>,
-}
-
-async fn get_peers(
+pub async fn get_peers(
     params: web::Query<GetPeersParams>,
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<Vec<PeerInfo>> {
@@ -125,7 +125,7 @@ async fn get_peers(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn get_peer(
+pub async fn get_peer(
     path: web::Path<String>,
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<PeerInfo> {
@@ -151,7 +151,7 @@ async fn get_peer(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn add_peer(
+pub async fn add_peer(
     request: web::Json<PeerAddRequest>,
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<PeerAddResponse> {
@@ -179,7 +179,7 @@ async fn add_peer(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-async fn remove_peer(
+pub async fn remove_peer(
     path: web::Path<String>,
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<HttpResponse> {
@@ -196,6 +196,13 @@ async fn remove_peer(
 /// Get bandwidth usage statistics
 ///
 /// Returns information about the node's bandwidth usage.
+#[derive(Debug, Deserialize, IntoParams)]
+struct GetBandwidthParams {
+    /// Time period in seconds (default: 3600)
+    #[param(default = "3600")]
+    period: Option<u64>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/network/bandwidth",
@@ -208,14 +215,7 @@ async fn remove_peer(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetBandwidthParams {
-    /// Time period in seconds (default: 3600)
-    #[param(default = "3600")]
-    period: Option<u64>,
-}
-
-async fn get_bandwidth_usage(
+pub async fn get_bandwidth_usage(
     params: web::Query<GetBandwidthParams>,
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<BandwidthUsage> {

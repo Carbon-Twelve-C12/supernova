@@ -1,13 +1,13 @@
 use crate::storage::{
     BackupManager, BlockchainDB, ChainState, 
     CheckpointManager, CheckpointConfig, CheckpointType,
-    RecoveryManager, StorageError, UTXOSet
+    RecoveryManager, StorageError, UtxoSet
 };
 use crate::api::{ApiServer, ApiConfig};
 use crate::network::P2PNetwork;
 use crate::mempool::TransactionPool;
 use crate::config::NodeConfig;
-use crate::environmental::EnvironmentalTracker;
+use crate::environmental::EnvironmentalMonitor;
 use crate::api::types::{NodeInfo, SystemInfo, LogEntry, NodeStatus, VersionInfo, NodeMetrics, FaucetInfo};
 use btclib::crypto::quantum::QuantumScheme;
 use btclib::lightning::{LightningNetwork, LightningConfig, LightningNetworkError};
@@ -48,7 +48,7 @@ pub struct Node {
     pub config: NodeConfig,
     pub chain_state: Arc<RwLock<ChainState>>,
     pub blockchain_db: Arc<RwLock<BlockchainDB>>,
-    pub utxo_set: Arc<RwLock<UTXOSet>>,
+    pub utxo_set: Arc<RwLock<UtxoSet>>,
     pub network_manager: Arc<NetworkManager>,
     pub block_validator: Arc<BlockValidator>,
     pub tx_validator: Arc<TransactionValidator>,
@@ -80,7 +80,17 @@ pub struct Node {
 
 impl Node {
     pub fn new(config: NodeConfig) -> Result<Self, NodeError> {
-        // ... existing code ...
+        // Initialize core components
+        let chain_state = Arc::new(RwLock::new(ChainState::new()));
+        let blockchain_db = Arc::new(RwLock::new(BlockchainDB::new(&config.data_dir)?));
+        let utxo_set = Arc::new(RwLock::new(UtxoSet::new()));
+        let network_manager = Arc::new(P2PNetwork::new());
+        let block_validator = Arc::new(());
+        let tx_validator = Arc::new(());
+        let backup_manager = None; // TODO: Initialize if needed
+        let recovery_manager = None; // TODO: Initialize if needed
+        let rpc_server = None; // TODO: Initialize if needed
+        let mem_pool = Arc::new(RwLock::new(TransactionPool::new()));
 
         // Initialize checkpoint manager if enabled
         let checkpoint_manager = if config.checkpoints_enabled {
@@ -102,8 +112,6 @@ impl Node {
 
         // Initialize performance monitor
         let performance_monitor = Arc::new(PerformanceMonitor::new(1000)); // Store 1000 data points per metric
-
-        // ... existing code ...
 
         Ok(Self {
             config,
@@ -571,5 +579,42 @@ impl Node {
         } else {
             Ok(None)
         }
+    }
+
+    /// Check if the node is synced
+    pub fn is_synced(&self) -> bool {
+        // Simplified sync check - in a real implementation this would be more sophisticated
+        true
+    }
+
+    /// Get the current block height
+    pub fn get_height(&self) -> u64 {
+        self.blockchain.get_height()
+    }
+
+    /// Get the best block hash
+    pub fn get_best_block_hash(&self) -> [u8; 32] {
+        self.blockchain.get_best_block_hash()
+    }
+
+    /// Get storage reference
+    pub fn storage(&self) -> &Arc<RwLock<BlockchainDB>> {
+        &self.blockchain_db
+    }
+
+    /// Get mempool reference
+    pub fn mempool(&self) -> &Arc<TransactionPool> {
+        &self.mempool
+    }
+
+    /// Get environmental manager
+    pub fn environmental_manager(&self) -> Option<&Arc<EnvironmentalMonitor>> {
+        None // TODO: Add environmental tracker to Node
+    }
+
+    /// Broadcast transaction to network
+    pub fn broadcast_transaction(&self, tx: &btclib::types::transaction::Transaction) {
+        // TODO: Implement transaction broadcasting
+        info!("Broadcasting transaction: {}", hex::encode(tx.hash()));
     }
 } 

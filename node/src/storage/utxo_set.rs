@@ -281,18 +281,19 @@ impl UtxoSet {
     }
     
     /// Add a new UTXO
-    pub fn add(&self, outpoint: OutPoint, output: UnspentOutput) {
+    pub fn add(&mut self, outpoint: OutPoint, output: UnspentOutput) {
         self.utxos.insert(outpoint, output);
         self.dirty = true;
     }
     
     /// Remove a UTXO (spend it)
-    pub fn remove(&self, outpoint: &OutPoint) -> Option<UnspentOutput> {
-        let result = self.utxos.remove(outpoint).map(|(_, v)| v);
-        if result.is_some() {
+    pub fn remove(&mut self, outpoint: &OutPoint) -> Option<UnspentOutput> {
+        if let Some(output) = self.utxos.remove(outpoint) {
             self.dirty = true;
+            Some(output)
+        } else {
+            None
         }
-        result
     }
     
     /// Process a new transaction (add its outputs, remove spent inputs)
@@ -376,7 +377,7 @@ impl UtxoSet {
     }
     
     /// Verify the UTXO set against a commitment
-    pub fn verify_commitment(&self, commitment: &UtxoCommitment) -> Result<bool, StorageError> {
+    pub fn verify_commitment(&mut self, commitment: &UtxoCommitment) -> Result<bool, StorageError> {
         // Quick check on UTXO count
         if self.utxos.len() != commitment.utxo_count {
             debug!("UTXO count mismatch: {} vs {}", self.utxos.len(), commitment.utxo_count);
@@ -437,7 +438,7 @@ impl UtxoSet {
     }
     
     /// Clear the UTXO set (for reinitialization)
-    pub fn clear(&self) {
+    pub fn clear(&mut self) {
         self.utxos.clear();
         self.dirty = true;
     }

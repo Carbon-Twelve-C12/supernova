@@ -1,6 +1,24 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
+use thiserror::Error;
+
+/// Errors that can occur during faucet operations
+#[derive(Error, Debug)]
+pub enum FaucetError {
+    #[error("Cooldown period not elapsed, remaining time: {remaining_time} seconds")]
+    CooldownPeriod { remaining_time: u64 },
+    #[error("Daily distribution limit exceeded")]
+    DailyLimitExceeded,
+    #[error("Insufficient funds in faucet")]
+    InsufficientFunds,
+    #[error("Invalid recipient address: {0}")]
+    InvalidAddress(String),
+    #[error("Faucet is disabled")]
+    FaucetDisabled,
+    #[error("Internal error: {0}")]
+    Internal(String),
+}
 
 /// Faucet for distributing test coins
 pub struct Faucet {
@@ -34,7 +52,7 @@ impl Faucet {
     }
     
     /// Distribute coins to a recipient
-    pub fn distribute_coins(&mut self, recipient: &str) -> Result<u64, String> {
+    pub fn distribute_coins(&mut self, recipient: &str) -> Result<u64, FaucetError> {
         // Validate recipient address
         self.validate_address(recipient)?;
         
@@ -44,11 +62,8 @@ impl Faucet {
             let cooldown = Duration::from_secs(self.cooldown_period);
             
             if elapsed < cooldown {
-                let remaining = cooldown.as_secs() - elapsed.as_secs();
-                return Err(format!(
-                    "Cooldown period not elapsed. Please wait {} more seconds",
-                    remaining
-                ));
+                let remaining_time = cooldown.as_secs() - elapsed.as_secs();
+                return Err(FaucetError::CooldownPeriod { remaining_time });
             }
         }
         
@@ -77,10 +92,10 @@ impl Faucet {
     }
     
     /// Validate a recipient address
-    fn validate_address(&self, address: &str) -> Result<(), String> {
+    fn validate_address(&self, address: &str) -> Result<(), FaucetError> {
         // Basic validation for demonstration
         if address.is_empty() {
-            return Err("Empty address is not valid".to_string());
+            return Err(FaucetError::InvalidAddress("Empty address is not valid".to_string()));
         }
         
         // More comprehensive validation would be implemented in a real system

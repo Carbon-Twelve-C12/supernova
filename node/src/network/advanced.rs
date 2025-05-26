@@ -1,11 +1,10 @@
 use libp2p::{
     core::Multiaddr,
     PeerId,
-    ping::{Ping, PingConfig},
+    ping::{Ping, PingConfig, PingEvent},
     identify::{Identify, IdentifyConfig, IdentifyEvent},
-    swarm::{NetworkBehaviour, SwarmEvent},
+    swarm::{SwarmEvent, NetworkBehaviour},
     mdns::{Mdns, MdnsEvent},
-    rendezvous::{client::Behaviour as RendezvousBehaviour, server::Behaviour as RendezvousServer},
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -62,28 +61,22 @@ impl Default for AdvancedNetworkConfig {
 }
 
 /// Network behavior for advanced networking features
-#[derive(NetworkBehaviour)]
-#[behaviour(out_event = "AdvancedNetworkEvent")]
 pub struct AdvancedNetworkBehaviour {
     ping: Ping,
     identify: Identify,
     mdns: Mdns,
-    rendezvous_client: RendezvousBehaviour,
-    rendezvous_server: RendezvousServer,
 }
 
 /// Events emitted by the advanced network behavior
 #[derive(Debug)]
 pub enum AdvancedNetworkEvent {
-    Ping(libp2p::ping::PingEvent),
+    Ping(PingEvent),
     Identify(IdentifyEvent),
     Mdns(MdnsEvent),
-    RendezvousClient(libp2p::rendezvous::client::Event),
-    RendezvousServer(libp2p::rendezvous::server::Event),
 }
 
-impl From<libp2p::ping::PingEvent> for AdvancedNetworkEvent {
-    fn from(event: libp2p::ping::PingEvent) -> Self {
+impl From<PingEvent> for AdvancedNetworkEvent {
+    fn from(event: PingEvent) -> Self {
         AdvancedNetworkEvent::Ping(event)
     }
 }
@@ -97,18 +90,6 @@ impl From<IdentifyEvent> for AdvancedNetworkEvent {
 impl From<MdnsEvent> for AdvancedNetworkEvent {
     fn from(event: MdnsEvent) -> Self {
         AdvancedNetworkEvent::Mdns(event)
-    }
-}
-
-impl From<libp2p::rendezvous::client::Event> for AdvancedNetworkEvent {
-    fn from(event: libp2p::rendezvous::client::Event) -> Self {
-        AdvancedNetworkEvent::RendezvousClient(event)
-    }
-}
-
-impl From<libp2p::rendezvous::server::Event> for AdvancedNetworkEvent {
-    fn from(event: libp2p::rendezvous::server::Event) -> Self {
-        AdvancedNetworkEvent::RendezvousServer(event)
     }
 }
 
@@ -408,8 +389,8 @@ impl AdvancedNetworkService {
         
         match geo_db.lookup::<City>(ip_addr) {
             Ok(city) => {
-                let country = city.country.and_then(|c| c.iso_code.map(|code| code.to_string()));
-                let country_name = city.country.and_then(|c| c.names.and_then(|n| n.get("en").map(|&s| s.to_string())));
+                let country = city.country.as_ref().and_then(|c| c.iso_code.map(|code| code.to_string()));
+                let country_name = city.country.as_ref().and_then(|c| c.names.as_ref().and_then(|n| n.get("en").map(|&s| s.to_string())));
                 let city_name = city.city.and_then(|c| c.names.and_then(|n| n.get("en").map(|&s| s.to_string())));
                 let latitude = city.location.as_ref().and_then(|l| l.latitude);
                 let longitude = city.location.as_ref().and_then(|l| l.longitude);

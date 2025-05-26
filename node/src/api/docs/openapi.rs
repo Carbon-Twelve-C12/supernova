@@ -1,5 +1,5 @@
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
-use utoipa::{Modify, OpenApi};
+use utoipa::{Modify, OpenApi, ToSchema};
 use crate::api::types;
 use crate::api::routes::{
     blockchain,
@@ -9,7 +9,9 @@ use crate::api::routes::{
     environmental,
     lightning,
     node,
+    faucet,
 };
+use serde::{Deserialize, Serialize};
 
 /// API security schema modification
 struct SecurityAddon;
@@ -101,6 +103,9 @@ impl Modify for SecurityAddon {
         node::restart_node,
         node::shutdown_node,
         node::get_debug_info,
+        
+        // Faucet routes
+        faucet::get_faucet_status_axum,
     ),
     components(
         schemas(
@@ -177,6 +182,9 @@ impl Modify for SecurityAddon {
             types::DebugInfo,
             node::CreateBackupRequest,
             
+            // Faucet types
+            faucet::FaucetStatusResponse,
+            
             // Error types
             types::ApiErrorResponse,
         )
@@ -189,7 +197,8 @@ impl Modify for SecurityAddon {
         (name = "mining", description = "Mining API endpoints"),
         (name = "environmental", description = "Environmental monitoring API endpoints"),
         (name = "lightning", description = "Lightning Network API endpoints"),
-        (name = "node", description = "Node management API endpoints")
+        (name = "node", description = "Node management API endpoints"),
+        (name = "faucet", description = "Testnet faucet API endpoints"),
     ),
     info(
         title = "SuperNova Node API",
