@@ -190,6 +190,7 @@ impl From<FalconError> for QuantumError {
             FalconError::CryptoOperationFailed(msg) => QuantumError::CryptoOperationFailed(format!("Falcon operation failed: {}", msg)),
             FalconError::InvalidPublicKey => QuantumError::InvalidKey("Invalid Falcon public key format".to_string()),
             FalconError::InvalidSecretKey => QuantumError::InvalidKey("Invalid Falcon secret key format".to_string()),
+            FalconError::InvalidMessage(msg) => QuantumError::InvalidKey(format!("Invalid message for Falcon signature: {}", msg)),
         }
     }
 }

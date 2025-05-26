@@ -12,10 +12,17 @@ use thiserror::Error;
 use tracing::{debug, info, warn, error};
 use rand::{Rng, RngCore};
 use hex;
+use std::fmt;
 
 /// Payment hash - SHA256 hash of payment preimage
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PaymentHash([u8; 32]);
+
+impl fmt::Display for PaymentHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
+}
 
 impl PaymentHash {
     pub fn new(hash: [u8; 32]) -> Self {
@@ -55,7 +62,7 @@ impl PaymentHash {
 }
 
 /// Payment preimage - 32 bytes of random data
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaymentPreimage([u8; 32]);
 
 impl PaymentPreimage {

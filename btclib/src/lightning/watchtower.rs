@@ -235,17 +235,17 @@ impl Watchtower {
         let observed_commitment_number = self.extract_commitment_number(observed_transaction)?;
         
         // Check if this is an old commitment (breach attempt)
-        if observed_commitment_number < channel_info.latest_commitment_number {
+        if (observed_commitment_number as u64) < channel_info.latest_commitment_number {
             warn!("Detected breach attempt on channel {}: observed commitment {} < latest {}", 
                   channel_id, observed_commitment_number, channel_info.latest_commitment_number);
             
             // Find the appropriate breach remedy
-            if let Some(remedy) = channel_info.breach_remedies.get(&observed_commitment_number) {
+            if let Some(remedy) = channel_info.breach_remedies.get(&(observed_commitment_number as u64)) {
                 info!("Broadcasting justice transaction for channel {}", channel_id);
                 return Ok(Some(remedy.justice_transaction.clone()));
             } else {
                 warn!("No breach remedy found for commitment number {}", observed_commitment_number);
-                return Err(WatchError::NoBreachRemedy(observed_commitment_number));
+                return Err(WatchError::NoBreachRemedy(observed_commitment_number as u64));
             }
         }
         
@@ -309,7 +309,7 @@ impl Watchtower {
     }
     
     /// Extract commitment number from a transaction
-    fn extract_commitment_number(&self, transaction: &Transaction) -> Result<u64, WatchError> {
+    fn extract_commitment_number(&self, transaction: &Transaction) -> Result<u32, WatchError> {
         // Parse the transaction to extract the commitment number from witness data
         // In Lightning Network, commitment transactions have a specific structure
         // where the commitment number is encoded in the locktime or witness data
@@ -318,29 +318,28 @@ impl Watchtower {
         // In a real implementation, this would parse the witness stack
         let locktime = transaction.lock_time();
         
-        // The commitment number is typically encoded in the lower 48 bits of locktime
-        // with the upper 16 bits used for other purposes
-        let commitment_number = locktime & 0x0000_FFFF_FFFF_FFFF;
+        // The commitment number is typically encoded in the lower 32 bits of locktime
+        let commitment_number = locktime;
         
         // Validate that this looks like a commitment transaction
         if transaction.inputs().is_empty() || transaction.outputs().len() < 2 {
-            return Err(WatchError::InvalidCommitmentNumber(commitment_number));
+            return Err(WatchError::InvalidCommitmentNumber(commitment_number as u64));
         }
         
         // Additional validation: check if the transaction has the expected structure
         // Commitment transactions should have specific output patterns
         let has_to_local = transaction.outputs().iter().any(|output| {
             // Check for to_local output pattern (simplified)
-            output.script_pubkey().len() > 20 // Basic size check
+            output.pub_key_script.len() > 20 // Basic size check
         });
         
         let has_to_remote = transaction.outputs().iter().any(|output| {
             // Check for to_remote output pattern (simplified)
-            output.script_pubkey().len() >= 20 && output.script_pubkey().len() <= 25
+            output.pub_key_script.len() >= 20 && output.pub_key_script.len() <= 25
         });
         
         if !has_to_local && !has_to_remote {
-            return Err(WatchError::InvalidCommitmentNumber(commitment_number));
+            return Err(WatchError::InvalidCommitmentNumber(commitment_number as u64));
         }
         
         Ok(commitment_number)

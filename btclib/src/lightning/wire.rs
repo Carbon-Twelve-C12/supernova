@@ -4,7 +4,7 @@
 // which handles message serialization, encryption, and exchange between nodes.
 
 use crate::lightning::channel::{ChannelId, ChannelState};
-use crate::lightning::invoice::{PaymentHash, PaymentPreimage};
+use crate::lightning::payment::{PaymentHash, PaymentPreimage};
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 use std::time::{SystemTime, UNIX_EPOCH};

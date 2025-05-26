@@ -2,7 +2,6 @@
 // This binary provides a command-line interface for interacting with the SuperNova blockchain
 
 use std::env;
-use std::process::exit;
 use std::io::{self, Write};
 
 fn main() {

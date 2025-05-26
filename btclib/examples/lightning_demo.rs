@@ -57,10 +57,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Open a new channel
     let peer_id = "029a059f014307e795a31e1ddfdd19c7df6c7b1e2d09d6788c31ca4c38bac0f9ab";
-    let channel_capacity = 10_000_000; // 0.1 BTC in satoshis
-    let push_amount = 1_000_000;       // 0.01 BTC in satoshis
+    let channel_capacity = 10_000_000; // 0.1 Nova 
+    let push_amount = 1_000_000;       // 0.01 Nova
     
-    info!("Opening channel with peer {} with capacity of {} satoshis", peer_id, channel_capacity);
+    info!("Opening channel with peer {} with capacity of {} Nova", peer_id, channel_capacity);
     
     let channel_id = lightning.open_channel(
         peer_id,

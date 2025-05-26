@@ -108,7 +108,7 @@ pub struct RouteHint {
 }
 
 /// A hop in a payment path
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathHop {
     /// Node ID
     pub node_id: NodeId,
@@ -116,13 +116,13 @@ pub struct PathHop {
     /// Channel ID
     pub channel_id: ChannelId,
     
-    /// Amount to forward in millisatoshis
+    /// Amount to forward in millinovas
     pub amount_msat: u64,
     
     /// CLTV expiry
     pub cltv_expiry: u32,
     
-    /// Base fee in millisatoshis
+    /// Base fee in millinovas
     pub base_fee_msat: u32,
     
     /// Fee rate in parts per million

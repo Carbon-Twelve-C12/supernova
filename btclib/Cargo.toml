@@ -10,6 +10,7 @@ lightning = []  # Re-enabled - core blockchain is production-ready
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_bytes = "0.11"
 bincode = "1.3"
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

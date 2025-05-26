@@ -12,6 +12,9 @@ use rand::{thread_rng, Rng, RngCore};
 use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
 
+// Import shared payment types
+use super::payment::{PaymentHash, PaymentPreimage};
+
 /// Error types for invoice operations
 #[derive(Debug, Error)]
 pub enum InvoiceError {
@@ -41,141 +44,6 @@ pub enum InvoiceError {
     
     #[error("Unsupported feature bit: {0}")]
     UnsupportedFeature(u32),
-}
-
-/// Payment hash
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct PaymentHash([u8; 32]);
-
-impl PaymentHash {
-    /// Create a new payment hash
-    pub fn new(hash: [u8; 32]) -> Self {
-        Self(hash)
-    }
-    
-    /// Generate a random payment hash
-    pub fn random() -> Self {
-        let mut rng = thread_rng();
-        let mut hash = [0u8; 32];
-        for i in 0..32 {
-            hash[i] = rng.gen();
-        }
-        Self(hash)
-    }
-    
-    /// Get the raw hash bytes
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-    
-    /// Get inner value
-    pub fn into_inner(self) -> [u8; 32] {
-        self.0
-    }
-    
-    /// Convert to hex string
-    pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
-    }
-}
-
-impl FromStr for PaymentHash {
-    type Err = InvoiceError;
-    
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() != 64 {
-            return Err(InvoiceError::InvalidHash(
-                format!("Payment hash must be 64 hex characters, got {}", s.len())
-            ));
-        }
-        
-        let mut hash = [0u8; 32];
-        hex::decode_to_slice(s, &mut hash)
-            .map_err(|e| InvoiceError::InvalidHash(e.to_string()))?;
-        
-        Ok(Self(hash))
-    }
-}
-
-impl fmt::Display for PaymentHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.0))
-    }
-}
-
-/// Payment preimage
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct PaymentPreimage([u8; 32]);
-
-impl PaymentPreimage {
-    /// Create a new payment preimage
-    pub fn new(preimage: [u8; 32]) -> Self {
-        Self(preimage)
-    }
-    
-    /// Generate a random preimage
-    pub fn random() -> Self {
-        let mut rng = thread_rng();
-        let mut preimage = [0u8; 32];
-        rng.fill_bytes(&mut preimage);
-        Self(preimage)
-    }
-    
-    /// Generate a random payment preimage for testing
-    pub fn new_random() -> Self {
-        Self::random()
-    }
-    
-    /// Get payment hash from preimage
-    pub fn hash(&self) -> PaymentHash {
-        let mut hasher = Sha256::new();
-        hasher.update(self.0);
-        let result = hasher.finalize();
-        
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        
-        PaymentHash(hash)
-    }
-    
-    /// Get the raw preimage bytes
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-    
-    /// Get inner value
-    pub fn into_inner(self) -> [u8; 32] {
-        self.0
-    }
-    
-    /// Convert to hex string
-    pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
-    }
-}
-
-impl FromStr for PaymentPreimage {
-    type Err = InvoiceError;
-    
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() != 64 {
-            return Err(InvoiceError::InvalidHash(
-                format!("Payment preimage must be 64 hex characters, got {}", s.len())
-            ));
-        }
-        
-        let mut preimage = [0u8; 32];
-        hex::decode_to_slice(s, &mut preimage)
-            .map_err(|e| InvoiceError::InvalidHash(e.to_string()))?;
-        
-        Ok(Self(preimage))
-    }
-}
-
-impl fmt::Display for PaymentPreimage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.0))
-    }
 }
 
 /// Route hint for private channels
@@ -310,7 +178,7 @@ impl Invoice {
         }
         
         // Generate payment hash from preimage
-        let payment_hash = payment_preimage.hash();
+        let payment_hash = payment_preimage.payment_hash();
         
         // For demonstration, we'll use a fixed node ID
         // In a real implementation, this would be derived from the node's public key

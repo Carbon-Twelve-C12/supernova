@@ -893,6 +893,40 @@ impl EmissionsTracker {
     pub fn update_config(&mut self, config: EmissionsConfig) {
         self.config = config;
     }
+
+    /// Get network-wide carbon intensity
+    pub fn get_network_carbon_intensity(&self) -> Result<f64, EmissionsError> {
+        // Calculate weighted average carbon intensity across all regions
+        let mut total_weighted_intensity = 0.0;
+        let mut total_hashrate = 0.0;
+        
+        for (region, hashrate) in &self.region_hashrates {
+            if let Some(emission_factor) = self.region_emission_factors.get(region) {
+                total_weighted_intensity += emission_factor.grid_emissions_factor * hashrate.0;
+                total_hashrate += hashrate.0;
+            }
+        }
+        
+        if total_hashrate > 0.0 {
+            Ok(total_weighted_intensity / total_hashrate)
+        } else {
+            Ok(self.config.default_carbon_intensity)
+        }
+    }
+    
+    /// Get network-wide hashrate in TH/s
+    pub fn get_network_hashrate(&self) -> Result<f64, EmissionsError> {
+        let total_hashrate: f64 = self.region_hashrates.values()
+            .map(|hashrate| hashrate.0)
+            .sum();
+        
+        if total_hashrate > 0.0 {
+            Ok(total_hashrate)
+        } else {
+            // Return estimated network hashrate if no regions registered
+            Ok(200_000_000.0) // Approximate current network hashrate in TH/s
+        }
+    }
 }
 
 impl EmissionFactor {

@@ -734,13 +734,13 @@ mod tests {
         let green_miner = MinerEnvironmentalInfo {
             miner_id: "green_miner".to_string(),
             name: "Green Miner".to_string(),
-            region: "North America".to_string(),
+            region: Region::NorthAmerica,
             location_verification: None,
-            hardware_types: vec!["ASIC".to_string()],
+            hardware_types: vec![HardwareType::Asic],
             energy_sources: {
                 let mut sources = HashMap::new();
-                sources.insert("Solar".to_string(), 80.0);
-                sources.insert("Wind".to_string(), 20.0);
+                sources.insert(EnergySource::Solar, 80.0);
+                sources.insert(EnergySource::Wind, 20.0);
                 sources
             },
             renewable_percentage: 100.0,
@@ -760,20 +760,20 @@ mod tests {
             rec_certificates: Vec::new(),
             carbon_offsets: Vec::new(),
             environmental_score: Some(95.0),
-            preferred_energy_type: Some("Solar".to_string()),
+            preferred_energy_type: Some(EnergySource::Solar),
         };
         
         // Create a REC-backed miner
         let rec_miner = MinerEnvironmentalInfo {
             miner_id: "rec_miner".to_string(),
             name: "REC-Backed Miner".to_string(),
-            region: "Europe".to_string(),
+            region: Region::Europe,
             location_verification: None,
-            hardware_types: vec!["ASIC".to_string()],
+            hardware_types: vec![HardwareType::Asic],
             energy_sources: {
                 let mut sources = HashMap::new();
-                sources.insert("Coal".to_string(), 70.0);
-                sources.insert("Solar".to_string(), 30.0);
+                sources.insert(EnergySource::Coal, 70.0);
+                sources.insert(EnergySource::Solar, 30.0);
                 sources
             },
             renewable_percentage: 30.0,
@@ -793,7 +793,7 @@ mod tests {
             rec_certificates: Vec::new(),
             carbon_offsets: Vec::new(),
             environmental_score: Some(70.0),
-            preferred_energy_type: Some("Wind".to_string()),
+            preferred_energy_type: Some(EnergySource::Wind),
         };
         
         // Register miners

@@ -554,9 +554,9 @@ impl EnvironmentalTreasury {
     
     /// Transfer funds between treasury accounts
     pub fn transfer_between_accounts(
-        &self, 
-        from_account: TreasuryAccountType, 
-        to_account: TreasuryAccountType, 
+        &self,
+        from_account: TreasuryAccountType,
+        to_account: TreasuryAccountType,
         amount: u64
     ) -> Result<(), TreasuryError> {
         // In current implementation, we only have a single balance
