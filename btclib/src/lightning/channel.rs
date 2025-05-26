@@ -513,14 +513,16 @@ impl Channel {
         // 3. Add outputs for any pending HTLCs
         // 4. Set proper sequence numbers for timelocks
         
+        let funding_outpoint = self.funding_outpoint.as_ref().unwrap();
+        
         let commitment_tx = Transaction::new(
             2, // version
             vec![
                 TxIn::new(
-                    self.funding_outpoint.as_ref().unwrap().txid,
-                    self.funding_outpoint.as_ref().unwrap().vout,
-                    Script::new().0, // Empty for witness
-                    0xFFFFFFFF,      // No RBF
+                    funding_outpoint.txid,
+                    funding_outpoint.vout,
+                    Vec::new(), // Script sig (will be filled with signatures)
+                    0xffffffff, // Sequence
                 )
             ],
             vec![
@@ -559,36 +561,38 @@ impl Channel {
     ) -> ChannelResult<u64> {
         if self.state != ChannelState::Active {
             return Err(ChannelError::InvalidState(
-                "Channel must be active to add HTLCs".to_string()
+                "Channel must be active to add HTLC".to_string()
             ));
         }
         
-        // Check if we can afford this HTLC
-        if is_outgoing {
-            if self.local_balance_novas < amount_novas + self.channel_reserve_novas {
-                return Err(ChannelError::HtlcError(
-                    "Insufficient balance for HTLC".to_string()
-                ));
-            }
-        }
-        
-        // Check if the amount is above minimum
-        if amount_novas < self.min_htlc_value_novas {
-            return Err(ChannelError::HtlcError(
-                format!("HTLC amount {} is below minimum {}", 
-                    amount_novas, self.min_htlc_value_novas)
+        // Check if we have enough balance
+        if is_outgoing && self.local_balance_novas < amount_novas {
+            return Err(ChannelError::InsufficientFunds(
+                format!("Insufficient local balance: {} < {}", self.local_balance_novas, amount_novas)
             ));
         }
         
-        // Check if we've reached the maximum number of HTLCs
+        if !is_outgoing && self.remote_balance_novas < amount_novas {
+            return Err(ChannelError::InsufficientFunds(
+                format!("Insufficient remote balance: {} < {}", self.remote_balance_novas, amount_novas)
+            ));
+        }
+        
+        // Check HTLC limits
         if self.pending_htlcs.len() >= self.max_accepted_htlcs as usize {
             return Err(ChannelError::HtlcError(
                 "Maximum number of HTLCs reached".to_string()
             ));
         }
         
-        // Generate a unique HTLC ID
-        let htlc_id = rand::random::<u64>();
+        if amount_novas < self.min_htlc_value_novas {
+            return Err(ChannelError::HtlcError(
+                format!("HTLC amount {} below minimum {}", amount_novas, self.min_htlc_value_novas)
+            ));
+        }
+        
+        // Generate HTLC ID
+        let htlc_id = self.pending_htlcs.len() as u64;
         
         // Create HTLC
         let htlc = Htlc {
@@ -599,93 +603,98 @@ impl Channel {
             id: htlc_id,
         };
         
-        // Add to pending HTLCs
-        self.pending_htlcs.push(htlc);
-        
-        // Update balances (in a real implementation, this would only happen after the commitment
-        // transaction has been signed by both parties)
+        // Update balances
         if is_outgoing {
-            self.local_balance_sat -= amount_sat;
+            self.local_balance_novas -= amount_novas;
         } else {
-            self.remote_balance_sat -= amount_sat;
+            self.remote_balance_novas -= amount_novas;
         }
         
-        // Update the commitment transaction
-        let _ = self.create_commitment_transaction()?;
+        // Add HTLC to pending list
+        self.pending_htlcs.push(htlc);
+        
+        // Update commitment number
+        self.commitment_number += 1;
+        
+        info!("Added HTLC {} for {} novas", htlc_id, amount_novas);
         
         Ok(htlc_id)
     }
     
     /// Settle an HTLC with a preimage
     pub fn settle_htlc(&mut self, htlc_id: u64, preimage: [u8; 32]) -> ChannelResult<()> {
-        if self.state != ChannelState::Active {
-            return Err(ChannelError::InvalidState(
-                "Channel must be active to settle HTLCs".to_string()
-            ));
-        }
-        
         // Find the HTLC
-        let htlc_index = self.pending_htlcs.iter().position(|h| h.id == htlc_id)
-            .ok_or_else(|| ChannelError::HtlcError(format!("HTLC {} not found", htlc_id)))?;
+        let htlc_index = self.pending_htlcs.iter()
+            .position(|h| h.id == htlc_id)
+            .ok_or_else(|| ChannelError::HtlcError(
+                format!("HTLC {} not found", htlc_id)
+            ))?;
         
         let htlc = &self.pending_htlcs[htlc_index];
         
-        // Verify the preimage
-        let mut hasher = sha2::Sha256::new();
+        // Verify preimage
+        let mut hasher = Sha256::new();
         hasher.update(&preimage);
         let hash = hasher.finalize();
         
-        if hash.as_slice() != htlc.payment_hash {
-            return Err(ChannelError::HtlcError("Invalid preimage".to_string()));
+        if hash.as_slice() != &htlc.payment_hash {
+            return Err(ChannelError::HtlcError(
+                "Invalid preimage for HTLC".to_string()
+            ));
         }
         
-        // Update balances
+        // Update balances based on HTLC direction
         if htlc.is_outgoing {
-            self.remote_balance_sat += htlc.amount_sat;
+            // We sent this HTLC, so the remote party gets the funds
+            self.remote_balance_novas += htlc.amount_novas;
         } else {
-            self.local_balance_sat += htlc.amount_sat;
+            // We received this HTLC, so we get the funds
+            self.local_balance_novas += htlc.amount_novas;
         }
         
-        // Remove the HTLC
+        // Remove HTLC from pending list
         self.pending_htlcs.remove(htlc_index);
         
-        // Update the commitment transaction
-        let _ = self.create_commitment_transaction()?;
+        // Update commitment number
+        self.commitment_number += 1;
+        
+        info!("Settled HTLC {} with preimage", htlc_id);
         
         Ok(())
     }
     
     /// Fail an HTLC
     pub fn fail_htlc(&mut self, htlc_id: u64, reason: &str) -> ChannelResult<()> {
-        if self.state != ChannelState::Active {
-            return Err(ChannelError::InvalidState(
-                "Channel must be active to fail HTLCs".to_string()
-            ));
-        }
-        
         // Find the HTLC
-        let htlc_index = self.pending_htlcs.iter().position(|h| h.id == htlc_id)
-            .ok_or_else(|| ChannelError::HtlcError(format!("HTLC {} not found", htlc_id)))?;
+        let htlc_index = self.pending_htlcs.iter()
+            .position(|h| h.id == htlc_id)
+            .ok_or_else(|| ChannelError::HtlcError(
+                format!("HTLC {} not found", htlc_id)
+            ))?;
         
         let htlc = &self.pending_htlcs[htlc_index];
         
-        // Update balances - return funds to sender
+        // Return funds to the sender
         if htlc.is_outgoing {
-            self.local_balance_sat += htlc.amount_sat;
+            // We sent this HTLC, so we get the funds back
+            self.local_balance_novas += htlc.amount_novas;
         } else {
-            self.remote_balance_sat += htlc.amount_sat;
+            // Remote party sent this HTLC, so they get the funds back
+            self.remote_balance_novas += htlc.amount_novas;
         }
         
-        // Remove the HTLC
+        // Remove HTLC from pending list
         self.pending_htlcs.remove(htlc_index);
         
-        // Update the commitment transaction
-        let _ = self.create_commitment_transaction()?;
+        // Update commitment number
+        self.commitment_number += 1;
+        
+        warn!("Failed HTLC {} with reason: {}", htlc_id, reason);
         
         Ok(())
     }
     
-    /// Initiate cooperative channel closure
+    /// Initiate cooperative channel close
     pub fn initiate_close(&mut self) -> ChannelResult<Transaction> {
         if self.state != ChannelState::Active {
             return Err(ChannelError::InvalidState(
@@ -693,99 +702,109 @@ impl Channel {
             ));
         }
         
-        // Change state to closing
-        self.state = ChannelState::ClosingNegotiation;
-        
-        // Create a closing transaction spending from the funding transaction
-        // and paying directly to both parties
-        
-        if self.funding_outpoint.is_none() {
-            return Err(ChannelError::FundingError("No funding outpoint".to_string()));
-        }
-        
-        // In a real implementation, this would create a properly signed
-        // transaction paying both parties their final balances
-        
-        let commitment_tx = Transaction::new(
-            2, // version
-            vec![
-                TxIn::new(
-                    self.funding_outpoint.as_ref().unwrap().txid,
-                    self.funding_outpoint.as_ref().unwrap().vout,
-                    Script::new().0, // Empty for witness
-                    0xFFFFFFFF      // No RBF
-                )
-            ],
-            vec![
-                // Output to local with their balance
-                TxOut::new(
-                    self.local_balance_sat,
-                    Script::new_p2wpkh(&self.local_node_id.serialize()).0,
-                ),
-                // Output to remote with their balance
-                TxOut::new(
-                    self.remote_balance_sat,
-                    Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
-                ),
-            ],
-            0, // lock_time
-        );
-        
-        Ok(commitment_tx)
-    }
-    
-    /// Complete channel closure
-    pub fn complete_close(&mut self, closing_tx: Transaction) -> ChannelResult<()> {
-        if self.state != ChannelState::ClosingNegotiation {
+        // Check if there are pending HTLCs
+        if !self.pending_htlcs.is_empty() {
             return Err(ChannelError::InvalidState(
-                "Channel must be in closing negotiation to complete close".to_string()
+                "Cannot close channel with pending HTLCs".to_string()
             ));
         }
         
-        // Validate the closing transaction
-        // In a real implementation, this would verify signatures, amounts, etc.
+        // Create closing transaction
+        let closing_tx = self.create_closing_transaction()?;
         
-        // Mark channel as closed
+        // Update state
+        self.state = ChannelState::ClosingNegotiation;
+        
+        info!("Initiated cooperative close for channel {}", hex::encode(&self.channel_id));
+        
+        Ok(closing_tx)
+    }
+    
+    /// Create a closing transaction
+    fn create_closing_transaction(&self) -> ChannelResult<Transaction> {
+        let funding_outpoint = self.funding_outpoint
+            .as_ref()
+            .ok_or_else(|| ChannelError::InvalidState(
+                "No funding outpoint available".to_string()
+            ))?;
+        
+        // Create inputs from funding transaction
+        let input = TxIn::new(
+            funding_outpoint.txid,
+            funding_outpoint.vout,
+            Vec::new(), // Script sig (will be filled with signatures)
+            0xffffffff, // Sequence
+        );
+        
+        // Create outputs for final balances
+        let mut outputs = Vec::new();
+        
+        // Local output (if we have balance)
+        if self.local_balance_novas > 0 {
+            outputs.push(TxOut::new(
+                self.local_balance_novas,
+                Script::new_p2wpkh(&[0u8; 20]).0, // Placeholder script
+            ));
+        }
+        
+        // Remote output (if they have balance)
+        if self.remote_balance_novas > 0 {
+            outputs.push(TxOut::new(
+                self.remote_balance_novas,
+                Script::new_p2wpkh(&[0u8; 20]).0, // Placeholder script
+            ));
+        }
+        
+        Ok(Transaction::new(
+            2, // version
+            vec![input],
+            outputs,
+            0, // lock_time
+        ))
+    }
+    
+    /// Complete cooperative channel close
+    pub fn complete_close(&mut self, closing_tx: Transaction) -> ChannelResult<()> {
+        if self.state != ChannelState::ClosingNegotiation {
+            return Err(ChannelError::InvalidState(
+                "Channel must be in closing negotiation state".to_string()
+            ));
+        }
+        
+        // In a real implementation, we would verify the closing transaction
+        // and ensure it matches our expectations
+        
+        // Update state
         self.state = ChannelState::Closed;
         
-        // Update the last update timestamp
-        self.last_update = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-            
+        info!("Completed cooperative close for channel {}", hex::encode(&self.channel_id));
+        
         Ok(())
     }
     
     /// Force close the channel
     pub fn force_close(&mut self) -> ChannelResult<Transaction> {
-        if self.state != ChannelState::Active && self.state != ChannelState::ClosingNegotiation {
+        if self.state == ChannelState::Closed || self.state == ChannelState::ForceClosed {
             return Err(ChannelError::InvalidState(
-                "Channel must be active or in closing negotiation to force close".to_string()
+                "Channel is already closed".to_string()
             ));
         }
         
-        // In a real implementation, this would broadcast the latest commitment transaction
+        // Create force close transaction (commitment transaction)
+        let force_close_tx = self.commitment_tx.clone()
+            .ok_or_else(|| ChannelError::InvalidState(
+                "No commitment transaction available for force close".to_string()
+            ))?;
         
-        if self.commitment_tx.is_none() {
-            return Err(ChannelError::CommitmentError("No commitment transaction".to_string()));
-        }
-        
-        let commitment_tx = self.commitment_tx.as_ref().unwrap().clone();
-        
-        // Mark channel as force-closed
+        // Update state
         self.state = ChannelState::ForceClosed;
         
-        // Update the last update timestamp
-        self.last_update = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-            
-        Ok(commitment_tx)
+        warn!("Force closed channel {}", hex::encode(&self.channel_id));
+        
+        Ok(force_close_tx)
     }
 
-    /// Create a new channel (static method for opening a channel)
+    /// Open a new channel
     pub fn open(
         peer_id: String,
         capacity: u64,
@@ -793,98 +812,116 @@ impl Channel {
         config: ChannelConfig,
         quantum_scheme: Option<QuantumScheme>,
     ) -> ChannelResult<Self> {
-        // Convert peer_id string to PublicKey (placeholder implementation)
-        let remote_node_id = PublicKey([0u8; 33]); // In real implementation, parse from peer_id
-        let local_node_id = PublicKey([0u8; 33]); // In real implementation, get from local keystore
+        // Generate temporary keys for this example
+        let local_private_key = PrivateKey::new([1u8; 32]);
+        let local_node_id = PublicKey::from_private_key(&local_private_key);
+        let remote_node_id = PublicKey([2u8; 33]); // Placeholder
         
-        let mut channel = Self::new(
+        let mut channel = Channel::new(
             local_node_id,
-            remote_node_id, 
+            remote_node_id,
             capacity,
-            true, // is_initiator
-            config.announce_channel
+            true, // We are the initiator
+            config.announce_channel,
         );
         
-        // Apply push amount
+        // Apply configuration
+        channel.channel_reserve_novas = config.channel_reserve_novas;
+        channel.min_htlc_value_novas = config.min_htlc_value_msat / 1000; // Convert from msat to novas
+        channel.max_accepted_htlcs = config.max_accepted_htlcs;
+        
+        // If there's a push amount, adjust balances
         if push_amount > 0 {
-            if push_amount >= capacity {
-            return Err(ChannelError::InvalidState(
-                    "Push amount must be less than capacity".to_string()
+            if push_amount > capacity {
+                return Err(ChannelError::InvalidState(
+                    "Push amount cannot exceed channel capacity".to_string()
                 ));
             }
-            channel.local_balance_sat = capacity - push_amount;
-            channel.remote_balance_sat = push_amount;
+            channel.local_balance_novas = capacity - push_amount;
+            channel.remote_balance_novas = push_amount;
         }
         
         Ok(channel)
     }
 
-    /// Get the channel ID
+    /// Get channel ID
     pub fn id(&self) -> ChannelId {
-        ChannelId::from_funding_outpoint(&self.channel_id, 0)
+        ChannelId::from_bytes(self.channel_id)
     }
-    
-    /// Cooperative close the channel
+
+    /// Create a cooperative close transaction
     pub fn cooperative_close(&self) -> ChannelResult<Transaction> {
         if self.state != ChannelState::Active {
             return Err(ChannelError::InvalidState(
-                "Channel must be active to cooperatively close".to_string()
+                "Channel must be active for cooperative close".to_string()
             ));
         }
         
-        if self.funding_outpoint.is_none() {
-            return Err(ChannelError::FundingError("No funding outpoint".to_string()));
+        if !self.pending_htlcs.is_empty() {
+            return Err(ChannelError::InvalidState(
+                "Cannot cooperatively close channel with pending HTLCs".to_string()
+            ));
         }
         
-        // Create a closing transaction
-        let closing_tx = Transaction::new(
-            2, // version
-            vec![
-                TxIn::new(
-                    self.funding_outpoint.as_ref().unwrap().txid,
-                    self.funding_outpoint.as_ref().unwrap().vout,
-                    Script::new().0,
-                    0xFFFFFFFF,
-                )
-            ],
-            vec![
-                TxOut::new(
-                    self.local_balance_sat,
-                    Script::new_p2wpkh(&self.local_node_id.serialize()).0,
-                ),
-                TxOut::new(
-                    self.remote_balance_sat,
-                    Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
-                ),
-            ],
-            0, // lock_time
+        let funding_outpoint = self.funding_outpoint
+            .as_ref()
+            .ok_or_else(|| ChannelError::InvalidState(
+                "No funding outpoint available".to_string()
+            ))?;
+        
+        let input = TxIn::new(
+            funding_outpoint.txid,
+            funding_outpoint.vout,
+            Vec::new(),
+            0xffffffff,
         );
         
-        Ok(closing_tx)
+        let mut outputs = Vec::new();
+        
+        if self.local_balance_novas > 0 {
+            outputs.push(TxOut::new(
+                self.local_balance_novas,
+                Script::new_p2wpkh(&[0u8; 20]).0,
+            ));
+        }
+        
+        if self.remote_balance_novas > 0 {
+            outputs.push(TxOut::new(
+                self.remote_balance_novas,
+                Script::new_p2wpkh(&[0u8; 20]).0,
+            ));
+        }
+        
+        Ok(Transaction::new(
+            2,
+            vec![input],
+            outputs,
+            0,
+        ))
     }
-    
-    /// Fulfill an HTLC
+
+    /// Fulfill an HTLC (alias for settle_htlc)
     pub fn fulfill_htlc(&mut self, htlc_id: u64, preimage: [u8; 32]) -> ChannelResult<()> {
         self.settle_htlc(htlc_id, preimage)
     }
-    
+
     /// Get pending HTLCs
     pub fn get_pending_htlcs(&self) -> Vec<Htlc> {
         self.pending_htlcs.clone()
     }
-    
-    /// Get channel info
+
+    /// Get channel information
     pub fn get_info(&self) -> ChannelInfo {
         ChannelInfo {
-            id: ChannelId::from_funding_outpoint(&self.channel_id, 0),
+            id: ChannelId::from_bytes(self.channel_id),
             state: self.state,
-            capacity: self.capacity_sat,
-            local_balance_msat: self.local_balance_sat * 1000,
-            remote_balance_msat: self.remote_balance_sat * 1000,
+            capacity: self.capacity_novas,
+            local_balance_msat: self.local_balance_novas * 1000, // Convert to millisatoshis
+            remote_balance_msat: self.remote_balance_novas * 1000,
             is_public: self.is_public,
             pending_htlcs: self.pending_htlcs.len() as u16,
-            config: ChannelConfig::default(), // TODO: Store actual config
-            uptime_seconds: 0, // TODO: Calculate uptime
+            config: ChannelConfig::default(), // In real implementation, store actual config
+            uptime_seconds: 0, // Would track actual uptime
             update_count: self.commitment_number,
         }
     }
