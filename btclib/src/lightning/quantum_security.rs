@@ -247,9 +247,8 @@ impl QuantumChannelSecurity {
         
         // Convert Vec<u8> to QuantumSignature
         let quantum_signature = QuantumSignature {
-            algorithm: keypair.get_algorithm(),
-            signature_data: signature_bytes,
-            security_level: self.config.security_level as u8,
+            signature: signature_bytes,
+            parameters: keypair.parameters.clone(),
         };
         
         Ok(quantum_signature)

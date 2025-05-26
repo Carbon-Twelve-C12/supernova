@@ -24,23 +24,125 @@ pub const SHARED_SECRET_SIZE: usize = 32;
 /// Size of per-hop payload
 pub const PER_HOP_PAYLOAD_SIZE: usize = 65;
 
-/// Onion packet for routing payments
+/// Onion packet for Lightning Network payments
 #[derive(Debug, Clone)]
 pub struct OnionPacket {
     /// Version byte
     pub version: u8,
     
     /// Public key for ECDH
-    #[serde(with = "serde_bytes")]
     pub public_key: [u8; 33],
     
     /// Encrypted routing information
-    #[serde(with = "serde_bytes")]
-    pub routing_info: [u8; 1300],
+    pub routing_info: Vec<u8>,
     
     /// HMAC for integrity
-    #[serde(with = "serde_bytes")]
     pub hmac: [u8; 32],
+}
+
+impl Serialize for OnionPacket {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("OnionPacket", 4)?;
+        state.serialize_field("version", &self.version)?;
+        state.serialize_field("public_key", &self.public_key.as_slice())?;
+        state.serialize_field("routing_info", &self.routing_info)?;
+        state.serialize_field("hmac", &self.hmac.as_slice())?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for OnionPacket {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
+        use std::fmt;
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field { Version, PublicKey, RoutingInfo, Hmac }
+
+        struct OnionPacketVisitor;
+
+        impl<'de> Visitor<'de> for OnionPacketVisitor {
+            type Value = OnionPacket;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct OnionPacket")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<OnionPacket, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut version = None;
+                let mut public_key = None;
+                let mut routing_info = None;
+                let mut hmac = None;
+                
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Version => {
+                            if version.is_some() {
+                                return Err(de::Error::duplicate_field("version"));
+                            }
+                            version = Some(map.next_value()?);
+                        }
+                        Field::PublicKey => {
+                            if public_key.is_some() {
+                                return Err(de::Error::duplicate_field("public_key"));
+                            }
+                            let pk_vec: Vec<u8> = map.next_value()?;
+                            if pk_vec.len() != 33 {
+                                return Err(de::Error::invalid_length(pk_vec.len(), &"33"));
+                            }
+                            let mut pk_array = [0u8; 33];
+                            pk_array.copy_from_slice(&pk_vec);
+                            public_key = Some(pk_array);
+                        }
+                        Field::RoutingInfo => {
+                            if routing_info.is_some() {
+                                return Err(de::Error::duplicate_field("routing_info"));
+                            }
+                            routing_info = Some(map.next_value()?);
+                        }
+                        Field::Hmac => {
+                            if hmac.is_some() {
+                                return Err(de::Error::duplicate_field("hmac"));
+                            }
+                            let hmac_vec: Vec<u8> = map.next_value()?;
+                            if hmac_vec.len() != 32 {
+                                return Err(de::Error::invalid_length(hmac_vec.len(), &"32"));
+                            }
+                            let mut hmac_array = [0u8; 32];
+                            hmac_array.copy_from_slice(&hmac_vec);
+                            hmac = Some(hmac_array);
+                        }
+                    }
+                }
+                
+                let version = version.ok_or_else(|| de::Error::missing_field("version"))?;
+                let public_key = public_key.ok_or_else(|| de::Error::missing_field("public_key"))?;
+                let routing_info = routing_info.ok_or_else(|| de::Error::missing_field("routing_info"))?;
+                let hmac = hmac.ok_or_else(|| de::Error::missing_field("hmac"))?;
+                
+                Ok(OnionPacket {
+                    version,
+                    public_key,
+                    routing_info,
+                    hmac,
+                })
+            }
+        }
+
+        const FIELDS: &'static [&'static str] = &["version", "public_key", "routing_info", "hmac"];
+        deserializer.deserialize_struct("OnionPacket", FIELDS, OnionPacketVisitor)
+    }
 }
 
 /// Per-hop payload containing routing instructions

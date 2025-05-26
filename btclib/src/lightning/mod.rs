@@ -14,18 +14,14 @@ pub mod quantum_security;
 pub mod manager;
 
 pub use channel::{Channel, ChannelId, ChannelState, ChannelConfig, ChannelError, ChannelManager};
-pub use invoice::{Invoice, InvoiceError, EnhancedInvoice, InvoiceDatabase};
-pub use payment::{Payment, PaymentProcessor, PaymentError, PaymentStats, Htlc as PaymentHtlc, HtlcState};
+pub use invoice::{Invoice, InvoiceError, EnhancedInvoice, InvoiceDatabase, RouteHint};
+pub use payment::{PaymentHash, PaymentPreimage, PaymentStatus, PaymentError, PaymentProcessor, Payment, RouteHop, Htlc, HtlcState};
 pub use router::{Router, RoutingError, PaymentPath, PathHop, ChannelInfo as RouterChannelInfo, NodeId};
 pub use wallet::{LightningWallet, WalletError};
 pub use watchtower::{Watchtower, WatchError, WatchtowerConfig, WatchtowerClient, BreachRemedy, ChannelMonitor, EncryptedChannelState};
 pub use onion::{OnionRouter, OnionPacket, PerHopPayload, SharedSecret};
 pub use quantum_security::{QuantumChannelSecurity, QuantumSecurityError, QuantumChannelConfig};
 pub use manager::{LightningManager, ManagerError, LightningInfo, LightningChannel, LightningPayment, LightningInvoice};
-
-// Re-export specific types to avoid conflicts
-pub use payment::{PaymentHash, PaymentPreimage, PaymentStatus, RouteHop as PaymentRouteHop};
-pub use invoice::{PaymentHash as InvoicePaymentHash, PaymentPreimage as InvoicePaymentPreimage, RouteHint as InvoiceRouteHint};
 
 use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
@@ -306,12 +302,14 @@ impl LightningNetwork {
         
         // For multi-hop payments, we need to handle the routing
         // First, create a payment hash and shared secret for each hop
-        let payment_hash = invoice.payment_hash().clone();
+        let payment_hash = invoice.payment_hash();
+        let payment_hash_bytes = payment_hash.into_inner(); // Store the bytes once
         let mut next_hop_shared_secret = [0u8; 32]; // Would be derived in a real implementation
         
         // Generate random payment preimages for testing
         let mut rng = rand::thread_rng();
         let payment_preimage = payment::PaymentPreimage::new_random();
+        let payment_preimage_bytes = payment_preimage.into_inner(); // Store the bytes once
         
         // Track the current payment amount (decreases as we move through the route due to fees)
         let mut remaining_amount = invoice.amount_msat();
@@ -378,7 +376,7 @@ impl LightningNetwork {
             
             // Add HTLC to channel
             let htlc_id = channel.add_htlc(
-                payment_hash.into_inner(),
+                payment_hash_bytes,
                 forward_amount / 1000, // Convert from msat to sat
                 timelock,
                 matches!(HtlcDirection::Offered, HtlcDirection::Offered), // Convert enum to bool
@@ -389,10 +387,10 @@ impl LightningNetwork {
                 // For test purposes, we'll simulate the fulfillment
                 // In a real implementation, we would listen for the fulfillment or failure
                 
-                preimage = Some(payment_preimage);
+                preimage = Some(payment::PaymentPreimage::new(payment_preimage_bytes));
                 
                 // Fulfill the HTLC (simulate remote fulfillment)
-                channel.fulfill_htlc(htlc_id, payment_preimage.into_inner())?;
+                channel.fulfill_htlc(htlc_id, payment_preimage_bytes)?;
             }
         }
         
@@ -415,8 +413,8 @@ impl LightningNetwork {
             // For now, we'll simulate finding the right HTLC
             let htlcs = channel.get_pending_htlcs();
             
-            if let Some(htlc) = htlcs.iter().find(|h| h.payment_hash == payment_hash.into_inner()) {
-                channel.fulfill_htlc(htlc.id, payment_preimage.into_inner())?;
+            if let Some(htlc) = htlcs.iter().find(|h| h.payment_hash == payment_hash_bytes) {
+                channel.fulfill_htlc(htlc.id, payment_preimage_bytes)?;
             }
         }
         
@@ -516,17 +514,18 @@ impl LightningNetwork {
             
             // Get the payment preimage
             let preimage = invoice.payment_preimage();
+            let preimage_bytes = preimage.into_inner();
             
             // Fulfill the HTLC
             {
                 let mut channel = channel_arc.write().unwrap();
-                channel.fulfill_htlc(htlc_id, preimage.into_inner())?;
+                channel.fulfill_htlc(htlc_id, preimage_bytes)?;
             }
             
             // Mark the invoice as paid
             wallet.mark_invoice_paid(&payment_hash)?;
             
-            Ok(Some(preimage))
+            Ok(Some(payment::PaymentPreimage::new(preimage_bytes)))
         } else {
             debug!("We are forwarding this HTLC");
             

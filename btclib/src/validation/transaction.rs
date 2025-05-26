@@ -95,12 +95,12 @@ impl TransactionValidator {
             allowed_signature_types: Vec::new(), // Will be populated in constructor
         };
         
-        Self { 
+        Self {
             config,
             crypto_validator: CryptoValidator::new(crypto_config),
         }
     }
-    
+
     /// Create a new transaction validator with custom config
     pub fn with_config(config: ValidationConfig) -> Self {
         let crypto_config = CryptoValidationConfig {
@@ -110,7 +110,7 @@ impl TransactionValidator {
             allowed_signature_types: Vec::new(), // Will be populated in constructor
         };
         
-        Self { 
+        Self {
             config,
             crypto_validator: CryptoValidator::new(crypto_config),
         }
@@ -338,8 +338,8 @@ impl TransactionValidator {
                 enable_batch: false,
                 additional_params: std::collections::HashMap::new(),
             };
-            
-            // Verify the signature
+        
+        // Verify the signature
             match self.crypto_validator.validate_signature(
                 &sig_data.data,
                 &sig_data.public_key,

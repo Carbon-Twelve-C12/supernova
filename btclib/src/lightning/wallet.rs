@@ -4,7 +4,8 @@
 // including key management, invoice handling, and payment processing.
 
 use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
-use crate::lightning::invoice::{Invoice, InvoiceError, PaymentHash, PaymentPreimage};
+use crate::lightning::payment::{PaymentHash, PaymentPreimage};
+use crate::lightning::invoice::{Invoice, InvoiceError};
 use crate::lightning::channel::ChannelId;
 
 use std::collections::HashMap;
@@ -375,7 +376,7 @@ impl LightningWallet {
         let preimage = invoice.payment_preimage();
         
         // Verify that the preimage matches the payment hash
-        let computed_hash = preimage.hash();
+        let computed_hash = preimage.payment_hash();
         if computed_hash != payment_hash {
             return Err(WalletError::PaymentError(
                 "Invoice preimage does not match payment hash".to_string()
@@ -474,31 +475,6 @@ impl LightningWallet {
         self.payments.insert(hash, payment);
         
         Ok(())
-    }
-    
-    /// Create a new Lightning wallet with default parameters
-    pub fn new() -> Self {
-        // Use a random seed for default wallet
-        let mut rng = thread_rng();
-        let mut seed = vec![0u8; 32];
-        for byte in seed.iter_mut() {
-            *byte = rng.gen();
-        }
-        
-        let key_manager = KeyManager::new(
-            seed,
-            false,
-            None,
-        ).expect("Failed to create key manager for default wallet");
-        
-        Self {
-            key_manager,
-            on_chain_balance: 1_000_000, // Default 1M satoshis for testing
-            channel_balances: HashMap::new(),
-            invoices: HashMap::new(),
-            payments: HashMap::new(),
-            preimages: HashMap::new(),
-        }
     }
     
     /// Create a funding transaction for a channel

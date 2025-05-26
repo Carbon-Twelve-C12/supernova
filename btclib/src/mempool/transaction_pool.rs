@@ -345,6 +345,11 @@ impl TransactionPool {
         self.transactions.len()
     }
     
+    /// Get the number of transactions in the pool (alias for count)
+    pub fn get_transaction_count(&self) -> usize {
+        self.transactions.len()
+    }
+    
     /// Get the fee for a transaction by its hash (hex string)
     pub fn get_transaction_fee(&self, tx_hash_hex: &str) -> Option<u64> {
         // Parse hex string to bytes

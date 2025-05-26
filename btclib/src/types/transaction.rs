@@ -189,6 +189,11 @@ impl TransactionOutput {
     pub fn value(&self) -> u64 {
         self.amount
     }
+
+    /// Get the script pubkey
+    pub fn script_pubkey(&self) -> &[u8] {
+        &self.pub_key_script
+    }
 }
 
 impl Transaction {
@@ -265,6 +270,11 @@ impl Transaction {
     /// Get the transaction version
     pub fn version(&self) -> u32 {
         self.version
+    }
+
+    /// Get the lock time
+    pub fn lock_time(&self) -> u32 {
+        self.lock_time
     }
 
     /// Get reference to inputs

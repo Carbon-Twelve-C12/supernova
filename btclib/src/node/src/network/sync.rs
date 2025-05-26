@@ -205,7 +205,7 @@ impl ChainSync {
             debug!("Received empty headers response from {}", peer_id);
             return Ok(());
         }
-        
+
         info!("Received {} headers from peer {} starting at height {}", protocol_headers.len(), peer_id, start_height);
         
         // Convert protocol headers to core headers
@@ -297,7 +297,7 @@ impl ChainSync {
                 self.request_next_headers_batch().await?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -650,7 +650,7 @@ impl ChainSync {
         
         Ok(())
     }
-    
+
     /// Handle a checkpoint announcement from a peer
     pub async fn handle_checkpoint_announcement(&mut self, peer_id: PeerId, height: u64, hash: [u8; 32]) -> Result<(), Box<dyn Error>> {
         // If this is a checkpoint we already have, ignore it

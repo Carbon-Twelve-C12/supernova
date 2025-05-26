@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc, Duration};
-use crate::environmental::emissions::{Emissions, EmissionsTracker, Region, EmissionFactor};
+use crate::environmental::emissions::{Emissions, EmissionsTracker, Region, EmissionFactor, EmissionsConfig, HashRate};
 use crate::environmental::types::EmissionsFactorType;
-use crate::environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetPurchase, EnvironmentalAssetType};
+use crate::environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetPurchase, EnvironmentalAssetType, TreasuryConfig};
 use crate::environmental::miner_reporting::{MinerReportingManager, MinerEnvironmentalReport, MinerVerificationStatus};
 use std::fmt;
 use std::path::Path;
@@ -791,6 +791,46 @@ mod tests {
     use super::*;
     use crate::environmental::emissions::{EmissionsConfig, EmissionsTracker, HashRate};
     
+    // Mock implementation for testing
+    struct MockEnvironmentalApi;
+    
+    impl MockEnvironmentalApi {
+        fn new() -> Self {
+            Self
+        }
+    }
+    
+    impl EnvironmentalApiTrait for MockEnvironmentalApi {
+        fn get_network_emissions(&self) -> Result<NetworkEmissionsData, String> {
+            Ok(NetworkEmissionsData {
+                total_emissions: 1000.0,
+                emissions_per_transaction: 0.01,
+                renewable_percentage: 50.0,
+                timestamp: Utc::now(),
+            })
+        }
+        
+        fn get_all_miners(&self) -> Result<Vec<MinerEnvironmentalInfo>, String> {
+            Ok(vec![])
+        }
+        
+        fn get_recent_asset_purchases(&self, _limit: usize) -> Result<Vec<AssetPurchaseRecord>, String> {
+            Ok(vec![])
+        }
+        
+        fn get_treasury_balance(&self) -> Result<f64, String> {
+            Ok(50000.0)
+        }
+        
+        fn get_emissions_history(&self, _days: u32) -> Result<Vec<(DateTime<Utc>, f64)>, String> {
+            Ok(vec![])
+        }
+        
+        fn get_all_asset_purchases(&self) -> Result<Vec<AssetPurchaseRecord>, String> {
+            Ok(vec![])
+        }
+    }
+    
     #[test]
     fn test_dashboard_basic_functionality() {
         // Create emissions tracker
@@ -807,6 +847,9 @@ mod tests {
             verify_miner_locations: true,
             prioritize_rec_verification: true,
             emissions_api_key: None,
+            default_carbon_intensity: 475.0,
+            default_renewable_percentage: 0.3,
+            mining_pue_factor: 1.2,
         });
         
         // Add some test data
@@ -817,14 +860,24 @@ mod tests {
         );
         
         // Create treasury
-        let treasury = EnvironmentalTreasury::new(
-            2.0,
-            vec!["signer1".to_string()],
-            1,
-        );
+        let treasury = EnvironmentalTreasury::new(TreasuryConfig {
+            fee_allocation_percentage: 2.0,
+            required_signatures: 1,
+            signers: vec!["signer1".to_string()],
+            min_purchase_amount: 1000.0,
+            max_purchase_amount: 100000.0,
+            auto_purchase_threshold: 10000.0,
+            enable_auto_purchase: true,
+            preferred_asset_type: EnvironmentalAssetType::REC,
+            backup_asset_type: Some(EnvironmentalAssetType::CarbonOffset),
+            verification_required: true,
+            max_asset_age_days: 365,
+            diversification_enabled: true,
+            max_single_asset_percentage: 50.0,
+        });
         
         // Create dashboard
-        let mut dashboard = EnvironmentalDashboard::new(emissions_tracker, treasury, Box::new(EnvironmentalApiTrait::default()));
+        let mut dashboard = EnvironmentalDashboard::new(emissions_tracker, treasury, Box::new(MockEnvironmentalApi::new()));
         
         // Generate metrics for a day (with some transactions)
         let transaction_count = 100_000;

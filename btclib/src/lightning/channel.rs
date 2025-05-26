@@ -219,10 +219,10 @@ pub struct ChannelConfig {
     pub cltv_expiry_delta: u16,
     
     /// Channel reserve value
-    pub channel_reserve_satoshis: u64,
+    pub channel_reserve_novas: u64,
     
     /// Dust limit for outputs
-    pub dust_limit_satoshis: u64,
+    pub dust_limit_novas: u64,
     
     /// Maximum number of commitment transactions to keep
     pub max_commitment_transactions: u32,
@@ -244,12 +244,12 @@ impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
             announce_channel: true,
-            max_htlc_value_in_flight_msat: 100_000_000, // 0.001 Nova in millisatoshis
-            min_htlc_value_msat: 1_000,                // 1 satoshi
+            max_htlc_value_in_flight_msat: 100_000_000, // 0.001 NOVA in millinovas
+            min_htlc_value_msat: 1_000,                // 1 millinova
             max_accepted_htlcs: 30,
             cltv_expiry_delta: 40,
-            channel_reserve_satoshis: 10_000,          // 0.0001 Nova
-            dust_limit_satoshis: 546,
+            channel_reserve_novas: 10_000,          // 0.0001 NOVA
+            dust_limit_novas: 546,                  // Dust limit in novas
             max_commitment_transactions: 10,
             use_quantum_signatures: false,
             force_close_timeout_seconds: 86400,        // 24 hours
@@ -264,8 +264,8 @@ impl Default for ChannelConfig {
 pub struct Htlc {
     /// Payment hash
     pub payment_hash: [u8; 32],
-    /// Amount in satoshis
-    pub amount_sat: u64,
+    /// Amount in novas
+    pub amount_novas: u64,
     /// Expiry block height
     pub expiry_height: u32,
     /// Direction (true if offering, false if receiving)
@@ -335,14 +335,14 @@ pub struct Channel {
     /// Funding transaction outpoint
     pub funding_outpoint: Option<OutPoint>,
     
-    /// Capacity of the channel in satoshis
-    pub capacity_sat: u64,
+    /// Capacity of the channel in novas
+    pub capacity_novas: u64,
     
-    /// Our balance in the channel in satoshis
-    pub local_balance_sat: u64,
+    /// Our balance in the channel in novas
+    pub local_balance_novas: u64,
     
-    /// Their balance in the channel in satoshis
-    pub remote_balance_sat: u64,
+    /// Their balance in the channel in novas
+    pub remote_balance_novas: u64,
     
     /// Our node ID (public key)
     pub local_node_id: PublicKey,
@@ -366,10 +366,10 @@ pub struct Channel {
     pub to_self_delay: u16,
     
     /// Channel reserve amount (minimum balance)
-    pub channel_reserve_sat: u64,
+    pub channel_reserve_novas: u64,
     
     /// Minimum HTLC value accepted
-    pub min_htlc_value_sat: u64,
+    pub min_htlc_value_novas: u64,
     
     /// Maximum number of pending HTLCs
     pub max_accepted_htlcs: u16,
@@ -389,7 +389,7 @@ impl Channel {
     pub fn new(
         local_node_id: PublicKey,
         remote_node_id: PublicKey,
-        capacity_sat: u64,
+        capacity_novas: u64,
         is_initiator: bool,
         is_public: bool,
     ) -> Self {
@@ -405,9 +405,9 @@ impl Channel {
             channel_id,
             state: ChannelState::Initializing,
             funding_outpoint: None,
-            capacity_sat,
-            local_balance_sat: if is_initiator { capacity_sat } else { 0 },
-            remote_balance_sat: if is_initiator { 0 } else { capacity_sat },
+            capacity_novas,
+            local_balance_novas: if is_initiator { capacity_novas } else { 0 },
+            remote_balance_novas: if is_initiator { 0 } else { capacity_novas },
             local_node_id,
             remote_node_id,
             is_initiator,
@@ -415,8 +415,8 @@ impl Channel {
             commitment_number: 0,
             pending_htlcs: Vec::new(),
             to_self_delay: 144, // 1 day default
-            channel_reserve_sat: capacity_sat / 100, // 1% default
-            min_htlc_value_sat: 1000, // 1000 sats minimum
+            channel_reserve_novas: capacity_novas / 100, // 1% default
+            min_htlc_value_novas: 1000, // 1000 sats minimum
             max_accepted_htlcs: 30,
             is_public,
             features: Vec::new(),
@@ -449,7 +449,7 @@ impl Channel {
             funding_inputs,
             vec![
                 TxOut::new(
-                    self.capacity_sat,
+                    self.capacity_novas,
                     Script::new_p2wsh(&vec![
                         // In a real implementation, this would be:
                         // OP_2 <local_pubkey> <remote_pubkey> OP_2 OP_CHECKMULTISIG
@@ -498,7 +498,7 @@ impl Channel {
     /// Create initial commitment transaction
     pub fn create_commitment_transaction(&mut self) -> ChannelResult<Transaction> {
         if self.state != ChannelState::FundingCreated && self.state != ChannelState::Active {
-            return Err(ChannelError::InvalidState(
+                return Err(ChannelError::InvalidState(
                 "Channel must be funded to create commitment transaction".to_string()
             ));
         }
@@ -526,12 +526,12 @@ impl Channel {
             vec![
                 // Output to local with their balance
                 TxOut::new(
-                    self.local_balance_sat,
+                    self.local_balance_novas,
                     Script::new_p2wpkh(&self.local_node_id.serialize()).0,
                 ),
                 // Output to remote with their balance
                 TxOut::new(
-                    self.remote_balance_sat,
+                    self.remote_balance_novas,
                     Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
                 ),
             ],
@@ -553,7 +553,7 @@ impl Channel {
     pub fn add_htlc(
         &mut self,
         payment_hash: [u8; 32],
-        amount_sat: u64,
+        amount_novas: u64,
         expiry_height: u32,
         is_outgoing: bool,
     ) -> ChannelResult<u64> {
@@ -565,7 +565,7 @@ impl Channel {
         
         // Check if we can afford this HTLC
         if is_outgoing {
-            if self.local_balance_sat < amount_sat + self.channel_reserve_sat {
+            if self.local_balance_novas < amount_novas + self.channel_reserve_novas {
                 return Err(ChannelError::HtlcError(
                     "Insufficient balance for HTLC".to_string()
                 ));
@@ -573,10 +573,10 @@ impl Channel {
         }
         
         // Check if the amount is above minimum
-        if amount_sat < self.min_htlc_value_sat {
+        if amount_novas < self.min_htlc_value_novas {
             return Err(ChannelError::HtlcError(
                 format!("HTLC amount {} is below minimum {}", 
-                    amount_sat, self.min_htlc_value_sat)
+                    amount_novas, self.min_htlc_value_novas)
             ));
         }
         
@@ -593,7 +593,7 @@ impl Channel {
         // Create HTLC
         let htlc = Htlc {
             payment_hash,
-            amount_sat,
+            amount_novas,
             expiry_height,
             is_outgoing,
             id: htlc_id,
@@ -808,7 +808,7 @@ impl Channel {
         // Apply push amount
         if push_amount > 0 {
             if push_amount >= capacity {
-                return Err(ChannelError::InvalidState(
+            return Err(ChannelError::InvalidState(
                     "Push amount must be less than capacity".to_string()
                 ));
             }
