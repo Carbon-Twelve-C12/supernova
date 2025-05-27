@@ -41,7 +41,33 @@ pub async fn get_mining_info(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningInfo> {
     match mining.get_mining_info() {
-        Ok(info) => Ok(HttpResponse::Ok().json(info)),
+        Ok(btclib_info) => {
+            // Convert btclib::mining::MiningInfo to api::types::MiningInfo
+            let api_info = MiningInfo {
+                is_mining: btclib_info.is_mining,
+                mining_threads: btclib_info.mining_threads,
+                hashrate: btclib_info.hashrate,
+                difficulty: btclib_info.difficulty,
+                network_hashrate: btclib_info.network_hashrate,
+                current_height: btclib_info.current_height,
+                seconds_since_last_block: btclib_info.seconds_since_last_block,
+                fee_rates: crate::api::types::FeeTiers {
+                    high_priority: btclib_info.fee_rates.high_priority,
+                    medium_priority: btclib_info.fee_rates.medium_priority,
+                    low_priority: btclib_info.fee_rates.low_priority,
+                    minimum: btclib_info.fee_rates.minimum,
+                },
+                environmental_impact: btclib_info.environmental_impact.map(|ei| {
+                    crate::api::types::EnvironmentalImpact {
+                        power_consumption_watts: ei.power_consumption_watts,
+                        carbon_emissions_per_hour: ei.carbon_emissions_per_hour,
+                        renewable_percentage: ei.renewable_percentage,
+                        energy_efficiency: ei.energy_efficiency,
+                    }
+                }),
+            };
+            Ok(api_info)
+        },
         Err(e) => Err(ApiError::internal_error(format!("Failed to get mining info: {}", e))),
     }
 }
@@ -72,14 +98,10 @@ struct GetMiningTemplateParams {
     )
 )]
 pub async fn get_mining_template(
-    params: web::Query<GetMiningTemplateParams>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningTemplate> {
-    let capabilities = params.capabilities.clone().unwrap_or_else(|| "standard".to_string());
-    let max_transactions = params.max_transactions;
-    
-    match mining.get_mining_template(&capabilities, max_transactions) {
-        Ok(template) => Ok(HttpResponse::Ok().json(template)),
+    match mining.get_block_template() {
+        Ok(template) => Ok(template),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get mining template: {}", e))),
     }
 }
@@ -101,15 +123,8 @@ pub async fn submit_block(
     request: web::Json<SubmitBlockRequest>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<SubmitBlockResponse> {
-    let block_data = &request.block_data;
-    
-    // Validate block data format
-    let block_bytes = Vec::from_hex(block_data).map_err(|_| {
-        ApiError::bad_request("Invalid block data format")
-    })?;
-    
-    match mining.submit_block(&block_bytes) {
-        Ok(response) => Ok(HttpResponse::Ok().json(response)),
+    match mining.submit_block(&request.block_data) {
+        Ok(response) => Ok(response),
         Err(e) => Err(ApiError::internal_error(format!("Failed to submit block: {}", e))),
     }
 }
@@ -137,13 +152,10 @@ struct GetMiningStatsParams {
     )
 )]
 pub async fn get_mining_stats(
-    params: web::Query<GetMiningStatsParams>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningStats> {
-    let period = params.period.unwrap_or(3600);
-    
-    match mining.get_mining_stats(period) {
-        Ok(stats) => Ok(HttpResponse::Ok().json(stats)),
+    match mining.get_mining_stats() {
+        Ok(stats) => Ok(stats),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get mining stats: {}", e))),
     }
 }
@@ -163,7 +175,7 @@ pub async fn get_mining_status(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningStatus> {
     match mining.get_mining_status() {
-        Ok(status) => Ok(HttpResponse::Ok().json(status)),
+        Ok(status) => Ok(status),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get mining status: {}", e))),
     }
 }
@@ -234,7 +246,7 @@ pub async fn get_mining_config(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningConfiguration> {
     match mining.get_mining_config() {
-        Ok(config) => Ok(HttpResponse::Ok().json(config)),
+        Ok(config) => Ok(config),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get mining config: {}", e))),
     }
 }
@@ -256,8 +268,29 @@ pub async fn update_mining_config(
     request: web::Json<MiningConfiguration>,
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningConfiguration> {
-    match mining.update_mining_config(request.0) {
-        Ok(updated_config) => Ok(HttpResponse::Ok().json(updated_config)),
+    // Convert API MiningConfiguration to btclib MiningConfiguration
+    let btclib_config = btclib::mining::manager::MiningConfiguration {
+        threads: request.threads,
+        intensity: request.intensity,
+        target_temperature: request.target_temperature,
+        green_mining_enabled: request.green_mining_enabled,
+        quantum_resistant: request.quantum_resistant,
+        algorithm_params: request.algorithm_params.clone(),
+    };
+    
+    match mining.update_mining_config(btclib_config) {
+        Ok(updated_btclib_config) => {
+            // Convert back to API MiningConfiguration
+            let api_config = MiningConfiguration {
+                threads: updated_btclib_config.threads,
+                intensity: updated_btclib_config.intensity,
+                target_temperature: updated_btclib_config.target_temperature,
+                green_mining_enabled: updated_btclib_config.green_mining_enabled,
+                quantum_resistant: updated_btclib_config.quantum_resistant,
+                algorithm_params: updated_btclib_config.algorithm_params,
+            };
+            Ok(api_config)
+        },
         Err(e) => Err(ApiError::internal_error(format!("Failed to update mining config: {}", e))),
     }
 } 

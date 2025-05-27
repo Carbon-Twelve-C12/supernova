@@ -10,6 +10,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use utoipa_swagger_ui::SwaggerUi;
+use utoipa::OpenApi;
 use tracing::{info, error};
 
 use crate::node::Node;
@@ -114,7 +115,7 @@ impl ApiServer {
         
         // Set up the HTTP server
         let server = HttpServer::new(move || {
-            let mut app = App::new()
+            App::new()
                 .app_data(node_data.clone())
                 .app_data(metrics_data.clone())
                 // Configure JSON extractor limits
@@ -127,47 +128,24 @@ impl ApiServer {
                 )
                 .wrap(middleware::NormalizePath::new(
                     middleware::TrailingSlash::Trim
-                ));
-
-            // Apply conditional middleware
-            if !config.cors_allowed_origins.is_empty() {
-                app = app.wrap(
+                ))
+                .wrap(
                     Cors::default()
                         .allow_any_origin()
                         .allow_any_method()
                         .allow_any_header()
                         .max_age(3600)
-                );
-            }
-
-            if config.detailed_logging {
-                app = app.wrap(logging::ApiLogger::new());
-            } else {
-                app = app.wrap(middleware::Logger::default());
-            }
-
-            if let Some(api_keys) = &config.api_keys {
-                if !api_keys.is_empty() {
-                    app = app.wrap(auth::ApiAuth::new(api_keys.clone()));
-                }
-            }
-
-            if let Some(rate) = config.rate_limit {
-                app = app.wrap(rate_limiting::RateLimiter::new(rate));
-            }
-
-            // Configure API routes
-            app = app.configure(routes::configure);
-            
-            // Add OpenAPI documentation if enabled
-            if config.enable_docs {
-                app = app.service(
+                )
+                .wrap(middleware::Logger::default())
+                .wrap(auth::ApiAuth::new(config.api_keys.clone().unwrap_or_default()))
+                .wrap(rate_limiting::RateLimiter::new(config.rate_limit.unwrap_or(100)))
+                // Configure API routes
+                .configure(routes::configure)
+                // Add OpenAPI documentation if enabled
+                .service(
                     SwaggerUi::new("/swagger-ui/{_:.*}")
                         .url("/api-docs/openapi.json", openapi.clone())
-                );
-            }
-            
-            app
+                )
         })
         .client_request_timeout(std::time::Duration::from_secs(config.request_timeout))
         .bind(socket_addr)?

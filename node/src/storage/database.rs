@@ -2239,6 +2239,93 @@ impl BlockchainDB {
             utxo_cache,
         })
     }
+
+    /// Get block hash by height
+    pub fn get_block_hash_by_height(&self, height: u64) -> Result<Option<[u8; 32]>, StorageError> {
+        let height_key = height.to_be_bytes();
+        if let Some(hash_data) = self.block_height_index.get(&height_key)? {
+            if hash_data.len() == 32 {
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&hash_data);
+                Ok(Some(hash))
+            } else {
+                Err(StorageError::InvalidBlock)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get block height by hash
+    pub fn get_block_height(&self, block_hash: &[u8; 32]) -> Result<Option<u64>, StorageError> {
+        // Search through the height index to find the height for this hash
+        for result in self.block_height_index.iter() {
+            let (height_bytes, hash_bytes) = result?;
+            if hash_bytes.as_ref() == block_hash {
+                let height = u64::from_be_bytes(
+                    height_bytes.as_ref().try_into()
+                        .map_err(|_| StorageError::InvalidBlock)?
+                );
+                return Ok(Some(height));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Get the block that contains a specific transaction
+    pub fn get_transaction_block(&self, tx_hash: &[u8; 32]) -> Result<Option<[u8; 32]>, StorageError> {
+        // Check if we have an index for this transaction
+        if let Some(block_hash_data) = self.tx_index.get(tx_hash)? {
+            if block_hash_data.len() == 32 {
+                let mut block_hash = [0u8; 32];
+                block_hash.copy_from_slice(&block_hash_data);
+                Ok(Some(block_hash))
+            } else {
+                Err(StorageError::InvalidBlock)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get a transaction output
+    pub fn get_transaction_output(&self, tx_hash: &[u8; 32], vout: u32) -> Result<Option<Vec<u8>>, StorageError> {
+        let utxo_key = create_utxo_key(tx_hash, vout);
+        if let Some(output_data) = self.utxos.get(&utxo_key)? {
+            Ok(Some(output_data.to_vec()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Check if an output is spent
+    pub fn is_output_spent(&self, tx_hash: &[u8; 32], vout: u32) -> Result<Option<[u8; 32]>, StorageError> {
+        let utxo_key = create_utxo_key(tx_hash, vout);
+        // If the UTXO exists, it's unspent
+        if self.utxos.contains_key(&utxo_key)? {
+            Ok(None) // Not spent
+        } else {
+            // For now, we don't track which transaction spent it
+            // In a full implementation, we'd have a spent_outputs index
+            Ok(Some([0u8; 32])) // Spent by unknown transaction
+        }
+    }
+
+    /// Get current blockchain height
+    pub fn get_height(&self) -> Result<u64, StorageError> {
+        if let Some(height_data) = self.get_metadata(b"height")? {
+            let height_bytes: [u8; 8] = height_data.as_ref().try_into()
+                .map_err(|_| StorageError::InvalidBlock)?;
+            Ok(u64::from_be_bytes(height_bytes))
+        } else {
+            Ok(0) // Genesis height
+        }
+    }
+
+    /// Set current blockchain height
+    pub fn set_height(&self, height: u64) -> Result<(), StorageError> {
+        self.store_metadata(b"height", &height.to_be_bytes())
+    }
 }
 
 fn create_utxo_key(tx_hash: &[u8; 32], index: u32) -> Vec<u8> {

@@ -1,10 +1,15 @@
 // Lightning Network API endpoints
 
+// Lightning API temporarily disabled due to thread safety issues with libp2p Swarm
+// TODO: Refactor to use proper async/await patterns and thread-safe types
+
+use warp::Filter;
+
+/*
 use crate::node::Node;
 use std::sync::{Arc, Mutex};
-use warp::{Filter, Rejection, Reply};
+use warp::{Filter, Reply};
 use serde::{Deserialize, Serialize};
-use tracing::{info, error, warn};
 
 /// Request to open a new payment channel
 #[derive(Debug, Deserialize)]
@@ -12,10 +17,10 @@ pub struct OpenChannelRequest {
     /// Remote peer ID
     pub peer_id: String,
     
-    /// Channel capacity in satoshis
+    /// Channel capacity in millanova
     pub capacity: u64,
     
-    /// Amount to push to the remote side (in satoshis)
+    /// Amount to push to the remote side (in millanova)
     pub push_amount: u64,
 }
 
@@ -51,25 +56,39 @@ pub struct PayInvoiceRequest {
 
 /// Response for a successful operation
 #[derive(Debug, Serialize)]
-pub struct SuccessResponse {
+pub struct LightningResponse<T> {
     /// Success status
     pub success: bool,
     
     /// Result of the operation
-    pub result: String,
+    pub data: Option<T>,
+    
+    /// Error message
+    pub error: Option<String>,
 }
 
-/// Response for an error
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    /// Error message
-    pub error: String,
+impl<T> LightningResponse<T> {
+    pub fn success(data: T) -> Self {
+        Self {
+            success: true,
+            data: Some(data),
+            error: None,
+        }
+    }
+    
+    pub fn error(message: String) -> Self {
+        Self {
+            success: false,
+            data: None,
+            error: Some(message),
+        }
+    }
 }
 
 /// Create a router for Lightning Network API endpoints
 pub fn lightning_routes(
     node: Arc<Mutex<Node>>,
-) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
     let node_clone = node.clone();
     let open_channel = warp::path!("lightning" / "channel" / "open")
         .and(warp::post())
@@ -129,25 +148,16 @@ fn with_node(
 async fn handle_open_channel(
     request: OpenChannelRequest,
     node: Arc<Mutex<Node>>,
-) -> Result<impl Reply, Rejection> {
-    info!("Received request to open payment channel: {:?}", request);
-    
+) -> Result<impl Reply, warp::Rejection> {
     let node = node.lock().unwrap();
     
     match node.open_payment_channel(&request.peer_id, request.capacity, request.push_amount).await {
         Ok(channel_id) => {
-            let response = SuccessResponse {
-                success: true,
-                result: channel_id,
-            };
-            
+            let response = LightningResponse::success(channel_id);
             Ok(warp::reply::json(&response))
-        },
+        }
         Err(e) => {
-            let response = ErrorResponse {
-                error: e,
-            };
-            
+            let response: LightningResponse<String> = LightningResponse::error(e);
             Ok(warp::reply::json(&response))
         }
     }
@@ -157,25 +167,16 @@ async fn handle_open_channel(
 async fn handle_close_channel(
     request: CloseChannelRequest,
     node: Arc<Mutex<Node>>,
-) -> Result<impl Reply, Rejection> {
-    info!("Received request to close payment channel: {:?}", request);
-    
+) -> Result<impl Reply, warp::Rejection> {
     let node = node.lock().unwrap();
     
     match node.close_payment_channel(&request.channel_id, request.force_close).await {
         Ok(tx_id) => {
-            let response = SuccessResponse {
-                success: true,
-                result: tx_id,
-            };
-            
+            let response = LightningResponse::success(tx_id);
             Ok(warp::reply::json(&response))
-        },
+        }
         Err(e) => {
-            let response = ErrorResponse {
-                error: e,
-            };
-            
+            let response: LightningResponse<String> = LightningResponse::error(e);
             Ok(warp::reply::json(&response))
         }
     }
@@ -185,25 +186,16 @@ async fn handle_close_channel(
 async fn handle_create_invoice(
     request: CreateInvoiceRequest,
     node: Arc<Mutex<Node>>,
-) -> Result<impl Reply, Rejection> {
-    info!("Received request to create invoice: {:?}", request);
-    
+) -> Result<impl Reply, warp::Rejection> {
     let node = node.lock().unwrap();
     
     match node.create_invoice(request.amount_msat, &request.description, request.expiry_seconds) {
         Ok(invoice) => {
-            let response = SuccessResponse {
-                success: true,
-                result: invoice,
-            };
-            
+            let response = LightningResponse::success(invoice);
             Ok(warp::reply::json(&response))
-        },
+        }
         Err(e) => {
-            let response = ErrorResponse {
-                error: e,
-            };
-            
+            let response: LightningResponse<String> = LightningResponse::error(e);
             Ok(warp::reply::json(&response))
         }
     }
@@ -213,25 +205,16 @@ async fn handle_create_invoice(
 async fn handle_pay_invoice(
     request: PayInvoiceRequest,
     node: Arc<Mutex<Node>>,
-) -> Result<impl Reply, Rejection> {
-    info!("Received request to pay invoice");
-    
+) -> Result<impl Reply, warp::Rejection> {
     let node = node.lock().unwrap();
     
     match node.pay_invoice(&request.invoice).await {
         Ok(preimage) => {
-            let response = SuccessResponse {
-                success: true,
-                result: preimage,
-            };
-            
+            let response = LightningResponse::success(preimage);
             Ok(warp::reply::json(&response))
-        },
+        }
         Err(e) => {
-            let response = ErrorResponse {
-                error: e,
-            };
-            
+            let response: LightningResponse<String> = LightningResponse::error(e);
             Ok(warp::reply::json(&response))
         }
     }
@@ -240,20 +223,16 @@ async fn handle_pay_invoice(
 /// Handle listing all channels
 async fn handle_list_channels(
     node: Arc<Mutex<Node>>,
-) -> Result<impl Reply, Rejection> {
-    info!("Received request to list channels");
-    
+) -> Result<impl Reply, warp::Rejection> {
     let node = node.lock().unwrap();
     
     match node.list_channels() {
         Ok(channels) => {
-            Ok(warp::reply::json(&channels))
-        },
+            let response = LightningResponse::success(channels);
+            Ok(warp::reply::json(&response))
+        }
         Err(e) => {
-            let response = ErrorResponse {
-                error: e,
-            };
-            
+            let response: LightningResponse<Vec<String>> = LightningResponse::error(e);
             Ok(warp::reply::json(&response))
         }
     }
@@ -263,21 +242,30 @@ async fn handle_list_channels(
 async fn handle_get_channel_info(
     channel_id: String,
     node: Arc<Mutex<Node>>,
-) -> Result<impl Reply, Rejection> {
-    info!("Received request to get channel info: {}", channel_id);
-    
+) -> Result<impl Reply, warp::Rejection> {
     let node = node.lock().unwrap();
     
     match node.get_channel_info(&channel_id) {
         Ok(info) => {
-            Ok(warp::reply::json(&info))
-        },
+            let response = LightningResponse::success(info);
+            Ok(warp::reply::json(&response))
+        }
         Err(e) => {
-            let response = ErrorResponse {
-                error: e,
-            };
-            
+            let response: LightningResponse<serde_json::Value> = LightningResponse::error(e);
             Ok(warp::reply::json(&response))
         }
     }
+}
+*/
+
+// Placeholder for Lightning API - will be re-enabled after thread safety fixes
+pub fn lightning_routes() -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path("lightning")
+        .and(warp::any())
+        .map(|| {
+            warp::reply::with_status(
+                "Lightning API temporarily disabled",
+                warp::http::StatusCode::SERVICE_UNAVAILABLE,
+            )
+        })
 } 

@@ -9,12 +9,14 @@ use std::sync::Arc;
 use utoipa::OpenApi;
 use tracing::{info, warn, error, debug};
 use std::time::{SystemTime, UNIX_EPOCH};
+use serde::{Deserialize, Serialize};
+use bincode;
 
 use crate::node::Node;
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::types::{
     ApiResponse, BlockInfo, TransactionInfo, BlockchainInfo, BlockHeightParams, BlockHashParams, TxHashParams, SubmitTxRequest,
-    TransactionSubmissionResponse, TransactionInput, TransactionOutput,
+    TransactionSubmissionResponse, TransactionInput, TransactionOutput, BlockchainStats,
 };
 use crate::storage::StorageError;
 use btclib::types::transaction::{Transaction, TransactionError};
@@ -24,367 +26,406 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/blockchain")
             .route("/info", web::get().to(get_blockchain_info))
-            .route("/block/height/{height}", web::get().to(get_block_by_height))
+            .route("/block/{height}", web::get().to(get_block_by_height))
             .route("/block/hash/{hash}", web::get().to(get_block_by_hash))
-            .route("/tx/{txid}", web::get().to(get_transaction))
-            .route("/tx", web::post().to(submit_transaction)),
+            .route("/transaction/{txid}", web::get().to(get_transaction))
+            .route("/submit", web::post().to(submit_transaction))
+            .route("/stats", web::get().to(get_blockchain_stats)),
     );
 }
 
 /// Get blockchain information
 ///
-/// Returns general information about the current state of the blockchain.
+/// Returns general information about the blockchain state.
 #[utoipa::path(
     get,
     path = "/api/v1/blockchain/info",
-    tag = "blockchain",
     responses(
         (status = 200, description = "Blockchain information retrieved successfully", body = BlockchainInfo),
-        (status = 503, description = "Node is syncing"),
-        (status = 500, description = "Internal server error"),
+        (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-pub async fn get_blockchain_info(node: web::Data<Arc<Node>>) -> ApiResult<BlockchainInfo> {
-    let chain_state = &node.chain_state;
-    let storage = &node.blockchain_db;
+pub async fn get_blockchain_info(
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<BlockchainInfo> {
+    let storage = node.storage();
+    let height = storage.read().unwrap().get_height()
+        .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
     
-    // Get current blockchain state
-    let height = chain_state.read().unwrap().get_height();
-    let best_block_hash = hex::encode(chain_state.read().unwrap().get_best_block_hash());
-    let is_syncing = !node.is_synced();
-    let sync_progress = if is_syncing { 0.5 } else { 1.0 }; // Simplified
+    let best_block_hash = if height > 0 {
+        storage.read().unwrap().get_block_hash_by_height(height)
+            .map_err(|e| ApiError::internal_error(format!("Failed to get best block hash: {}", e)))?
+            .unwrap_or([0u8; 32])
+    } else {
+        [0u8; 32]
+    };
     
-    // Get network statistics
-    let network_hashrate = 100_000_000_000_000_u64; // Placeholder
-    
-    // Get storage statistics
-    let size_on_disk = 1024 * 1024 * 1024; // Placeholder: 1GB
-    let median_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let difficulty = 1.0; // TODO: Get actual difficulty
+    let total_work = "0x1".to_string(); // TODO: Calculate total work
     
     let info = BlockchainInfo {
         height,
-        best_block_hash,
-        difficulty: 1.0, // TODO: Get from blockchain
-        median_time,
-        chain_work: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        verification_progress: sync_progress,
-        size_on_disk,
-        network_hashrate,
-        is_synced: !is_syncing,
-        sync_progress,
+        best_block_hash: hex::encode(best_block_hash),
+        difficulty,
+        total_work,
+        network: node.config.network.network_id.clone(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
     };
     
-    Ok(HttpResponse::Ok().json(info))
+    Ok(info)
 }
 
-/// Get block by height
+/// Get a block by height
 ///
 /// Returns detailed information about a block at the specified height.
 #[utoipa::path(
     get,
-    path = "/api/v1/blockchain/block/height/{height}",
-    tag = "blockchain",
+    path = "/api/v1/blockchain/block/{height}",
     params(
-        ("height" = u64, Path, description = "Block height"),
+        ("height" = u64, Path, description = "Block height")
     ),
     responses(
-        (status = 200, description = "Block information retrieved successfully", body = BlockInfo),
-        (status = 404, description = "Block not found"),
-        (status = 500, description = "Internal server error"),
+        (status = 200, description = "Block retrieved successfully", body = BlockInfo),
+        (status = 404, description = "Block not found", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
 pub async fn get_block_by_height(
+    path: web::Path<u64>,
     node: web::Data<Arc<Node>>,
-    path: web::Path<BlockHeightParams>,
-) -> Result<impl Responder, ApiError> {
-    let height = path.height;
+) -> ApiResult<BlockInfo> {
+    let height = path.into_inner();
     let storage = node.storage();
     
-    // Get block hash by height
     let block_hash = storage.read().unwrap().get_block_hash_by_height(height)
-        .ok_or_else(|| ApiError::not_found(format!("Block at height {} not found", height)))?;
+        .map_err(|e| ApiError::internal_error(format!("Failed to get block hash: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    // Get block by hash
-    let block = storage.get_block(&block_hash)?
-        .ok_or_else(|| ApiError::not_found(format!("Block with hash {} not found", hex::encode(block_hash))))?;
+    let block = storage.read().unwrap().get_block(&block_hash)
+        .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    // Convert to BlockInfo
-    let confirmations = node.chain_state().get_height().saturating_sub(height) + 1;
-    let total_fees = block.calculate_total_fees()?;
+    let confirmations = node.chain_state.read().unwrap().get_height().saturating_sub(height) + 1;
     
     let block_info = BlockInfo {
-        hash: hex::encode(block.hash()),
+        hash: hex::encode(block_hash),
         height,
-        prev_hash: hex::encode(block.prev_block_hash()),
-        merkle_root: hex::encode(block.merkle_root()),
-        timestamp: block.timestamp(),
-        version: block.version(),
-        target: block.target(),
-        nonce: block.nonce(),
-        tx_count: block.transactions().len(),
-        size: block.size(),
-        weight: block.weight(),
-        fees: total_fees,
-        confirmed: true,
         confirmations,
+        size: bincode::serialize(&block).unwrap_or_default().len() as u64,
+        weight: 0, // TODO: Calculate weight
+        version: block.version(),
+        merkle_root: hex::encode(block.merkle_root()),
+        time: block.timestamp(),
+        nonce: block.nonce(),
+        difficulty: 1.0, // TODO: Get actual difficulty
+        previous_block_hash: hex::encode(block.prev_block_hash()),
+        next_block_hash: None, // TODO: Get next block hash if exists
+        transaction_count: block.transactions().len() as u32,
+        transactions: block.transactions().iter().map(|tx| hex::encode(tx.hash())).collect(),
     };
     
-    Ok(HttpResponse::Ok().json(ApiResponse::success(block_info)))
+    Ok(block_info)
 }
 
-/// Get block by hash
+/// Get a block by hash
 ///
 /// Returns detailed information about a block with the specified hash.
 #[utoipa::path(
     get,
     path = "/api/v1/blockchain/block/hash/{hash}",
-    tag = "blockchain",
     params(
-        ("hash" = String, Path, description = "Block hash (hex encoded)"),
+        ("hash" = String, Path, description = "Block hash")
     ),
     responses(
-        (status = 200, description = "Block information retrieved successfully", body = BlockInfo),
-        (status = 400, description = "Invalid block hash format"),
-        (status = 404, description = "Block not found"),
-        (status = 500, description = "Internal server error"),
+        (status = 200, description = "Block retrieved successfully", body = BlockInfo),
+        (status = 404, description = "Block not found", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
 pub async fn get_block_by_hash(
+    path: web::Path<String>,
     node: web::Data<Arc<Node>>,
-    path: web::Path<BlockHashParams>,
-) -> Result<impl Responder, ApiError> {
-    let hash_hex = &path.hash;
+) -> ApiResult<BlockInfo> {
+    let hash_str = path.into_inner();
+    let hash = hex::decode(&hash_str)
+        .map_err(|_| ApiError::bad_request("Invalid block hash format"))?;
     
-    // Parse hex hash
-    let hash: [u8; 32] = Vec::from_hex(hash_hex)
-        .map_err(|_| ApiError::bad_request(format!("Invalid block hash format: {}", hash_hex)))?
-        .try_into()
-        .map_err(|_| ApiError::bad_request(format!("Invalid block hash length: {}", hash_hex)))?;
+    if hash.len() != 32 {
+        return Err(ApiError::bad_request("Invalid block hash length"));
+    }
+    
+    let mut block_hash = [0u8; 32];
+    block_hash.copy_from_slice(&hash);
     
     let storage = node.storage();
+    let block = storage.read().unwrap().get_block(&block_hash)
+        .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    // Get block by hash
-    let block = storage.get_block(&hash)?
-        .ok_or_else(|| ApiError::not_found(format!("Block with hash {} not found", hash_hex)))?;
+    let height = storage.read().unwrap().get_block_height(&block_hash)
+        .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
+        .unwrap_or(0);
     
-    // Get height for this block
-    let height = storage.get_block_height(&hash)?
-        .ok_or_else(|| ApiError::not_found(format!("Block height for hash {} not found", hash_hex)))?;
-    
-    // Convert to BlockInfo
-    let confirmations = node.chain_state().get_height().saturating_sub(height) + 1;
-    let total_fees = block.calculate_total_fees()?;
+    let confirmations = node.chain_state.read().unwrap().get_height().saturating_sub(height) + 1;
     
     let block_info = BlockInfo {
-        hash: hex::encode(block.hash()),
+        hash: hash_str,
         height,
-        prev_hash: hex::encode(block.prev_block_hash()),
-        merkle_root: hex::encode(block.merkle_root()),
-        timestamp: block.timestamp(),
-        version: block.version(),
-        target: block.target(),
-        nonce: block.nonce(),
-        tx_count: block.transactions().len(),
-        size: block.size(),
-        weight: block.weight(),
-        fees: total_fees,
-        confirmed: true,
         confirmations,
+        size: bincode::serialize(&block).unwrap_or_default().len() as u64,
+        weight: 0, // TODO: Calculate weight
+        version: block.version(),
+        merkle_root: hex::encode(block.merkle_root()),
+        time: block.timestamp(),
+        nonce: block.nonce(),
+        difficulty: 1.0, // TODO: Get actual difficulty
+        previous_block_hash: hex::encode(block.prev_block_hash()),
+        next_block_hash: None, // TODO: Get next block hash if exists
+        transaction_count: block.transactions().len() as u32,
+        transactions: block.transactions().iter().map(|tx| hex::encode(tx.hash())).collect(),
     };
     
-    Ok(HttpResponse::Ok().json(ApiResponse::success(block_info)))
+    Ok(block_info)
 }
 
-/// Get transaction
+/// Get a transaction by ID
 ///
-/// Returns detailed information about a transaction with the specified hash.
+/// Returns detailed information about a transaction.
 #[utoipa::path(
     get,
-    path = "/api/v1/blockchain/tx/{txid}",
-    tag = "blockchain",
+    path = "/api/v1/blockchain/transaction/{txid}",
     params(
-        ("txid" = String, Path, description = "Transaction ID (hex encoded hash)"),
+        ("txid" = String, Path, description = "Transaction ID")
     ),
     responses(
-        (status = 200, description = "Transaction information retrieved successfully", body = TransactionInfo),
-        (status = 400, description = "Invalid transaction hash format"),
-        (status = 404, description = "Transaction not found"),
-        (status = 500, description = "Internal server error"),
+        (status = 200, description = "Transaction retrieved successfully", body = TransactionInfo),
+        (status = 404, description = "Transaction not found", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
 pub async fn get_transaction(
+    path: web::Path<String>,
     node: web::Data<Arc<Node>>,
-    path: web::Path<TxHashParams>,
-) -> Result<impl Responder, ApiError> {
-    let txid_hex = &path.txid;
+) -> ApiResult<TransactionInfo> {
+    let txid_str = path.into_inner();
+    let txid = hex::decode(&txid_str)
+        .map_err(|_| ApiError::bad_request("Invalid transaction ID format"))?;
     
-    // Parse hex hash
-    let txid: [u8; 32] = Vec::from_hex(txid_hex)
-        .map_err(|_| ApiError::bad_request(format!("Invalid transaction hash format: {}", txid_hex)))?
-        .try_into()
-        .map_err(|_| ApiError::bad_request(format!("Invalid transaction hash length: {}", txid_hex)))?;
+    if txid.len() != 32 {
+        return Err(ApiError::bad_request("Invalid transaction ID length"));
+    }
+    
+    let mut tx_hash = [0u8; 32];
+    tx_hash.copy_from_slice(&txid);
     
     let storage = node.storage();
     
-    // Check mempool first
-    let tx = match node.mempool().get_transaction(&txid) {
-        Some(tx) => {
-            // Transaction is in mempool (unconfirmed)
-            tx
-        },
-        None => {
-            // Check in blockchain storage
-            storage.get_transaction(&txid)?
-                .ok_or_else(|| ApiError::not_found(format!("Transaction with hash {} not found", txid_hex)))?
-        }
-    };
+    // First check mempool
+    if let Some(mempool_tx) = node.mempool().get_transaction(&tx_hash) {
+        let tx_info = TransactionInfo {
+            txid: txid_str,
+            hash: txid_str.clone(),
+            version: mempool_tx.version(),
+            size: bincode::serialize(&mempool_tx).unwrap_or_default().len() as u64,
+            vsize: 0, // TODO: Calculate virtual size
+            weight: 0, // TODO: Calculate weight
+            locktime: mempool_tx.lock_time(),
+            inputs: mempool_tx.inputs().iter().map(|input| {
+                serde_json::json!({
+                    "txid": hex::encode(input.prev_tx_hash()),
+                    "vout": input.prev_output_index(),
+                    "script_sig": hex::encode(input.script_sig()),
+                    "sequence": input.sequence()
+                })
+            }).collect(),
+            outputs: mempool_tx.outputs().iter().enumerate().map(|(i, output)| {
+                serde_json::json!({
+                    "value": output.value(),
+                    "n": i,
+                    "script_pubkey": hex::encode(output.script_pubkey())
+                })
+            }).collect(),
+            block_hash: None,
+            block_height: None,
+            confirmations: 0,
+            time: None,
+            block_time: None,
+        };
+        return Ok(tx_info);
+    }
     
-    // Get block information if transaction is confirmed
-    let (block_hash, block_height, confirmed_time, confirmations) = if let Some(block_hash) = storage.get_transaction_block(&txid)? {
-        let block_height = storage.get_block_height(&block_hash)?
-            .ok_or_else(|| ApiError::internal_error("Block height not found for transaction block".to_string()))?;
+    // Check blockchain storage
+    let tx = storage.read().unwrap().get_transaction(&tx_hash)
+        .map_err(|e| ApiError::internal_error(format!("Failed to get transaction: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
+    
+    // Get block information if transaction is in a block
+    let (block_hash, block_height, confirmations) = if let Some(block_hash) = storage.read().unwrap().get_transaction_block(&tx_hash)
+        .map_err(|e| ApiError::internal_error(format!("Failed to get transaction block: {}", e)))? {
+        let block_height = storage.read().unwrap().get_block_height(&block_hash)
+            .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
+            .unwrap_or(0);
         
-        let block = storage.get_block(&block_hash)?
-            .ok_or_else(|| ApiError::internal_error("Block not found for transaction".to_string()))?;
-            
-        let confirmations = node.chain_state().get_height().saturating_sub(block_height) + 1;
+        let block = storage.read().unwrap().get_block(&block_hash)
+            .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Block not found"))?;
         
-        (Some(hex::encode(block_hash)), Some(block_height), Some(block.timestamp()), confirmations)
+        let confirmations = node.chain_state.read().unwrap().get_height().saturating_sub(block_height) + 1;
+        
+        (Some(hex::encode(block_hash)), Some(block_height), confirmations)
     } else {
-        (None, None, None, 0)
+        (None, None, 0)
     };
     
-    // Calculate fee
-    let fee = tx.calculate_fee(&|outpoint| {
-        storage.get_transaction_output(&outpoint.txid, outpoint.vout).ok().flatten()
-    })?;
-    
-    // Convert inputs and outputs to API format
-    let inputs = tx.inputs().iter().map(|input| {
-        let prev_output = storage.get_transaction_output(&input.outpoint().txid, input.outpoint().vout)
-            .ok()
-            .flatten();
+    // Get input and output information
+    let inputs: Vec<serde_json::Value> = tx.inputs().iter().map(|input| {
+        let prev_output = storage.read().unwrap().get_transaction_output(&input.prev_tx_hash(), input.prev_output_index())
+            .ok().flatten();
         
-        let value = prev_output.as_ref().map(|o| o.value()).unwrap_or(0);
-        let address = prev_output.as_ref().and_then(|o| o.extract_address()).map(|a| a.to_string());
-        
-        crate::api::types::TransactionInput {
-            txid: hex::encode(input.outpoint().txid),
-            vout: input.outpoint().vout,
-            script_sig: hex::encode(input.script_sig()),
-            script_sig_asm: input.script_sig_asm(),
-            witness: if input.witness().is_empty() {
-                None
-            } else {
-                Some(input.witness().iter().map(hex::encode).collect())
-            },
-            sequence: input.sequence(),
-            value,
-            address,
-        }
+        serde_json::json!({
+            "txid": hex::encode(input.prev_tx_hash()),
+            "vout": input.prev_output_index(),
+            "script_sig": hex::encode(input.script_sig()),
+            "sequence": input.sequence(),
+            "prev_output": prev_output.map(|data| hex::encode(data))
+        })
     }).collect();
     
-    let outputs = tx.outputs().iter().enumerate().map(|(i, output)| {
-        // Check if this output has been spent
-        let (spent, spent_by_tx) = match storage.is_output_spent(&txid, i as u32)? {
-            Some(spending_tx) => (Some(true), Some(hex::encode(spending_tx))),
-            None => (Some(false), None),
+    let outputs: Vec<serde_json::Value> = tx.outputs().iter().enumerate().map(|(i, output)| {
+        let spent_info = storage.read().unwrap().get_transaction_output(&tx_hash, i as u32)
+            .ok().flatten();
+        let is_spent = spent_info.is_none();
+        let spent_by_tx = if is_spent {
+            storage.read().unwrap().is_output_spent(&tx_hash, i as u32)
+                .ok().flatten().map(|hash| hex::encode(hash))
+        } else {
+            None
         };
         
-        crate::api::types::TransactionOutput {
-            value: output.value(),
-            script_pub_key: hex::encode(output.script_pubkey()),
-            script_pub_key_asm: output.script_pubkey_asm(),
-            script_type: output.script_type().to_string(),
-            address: output.extract_address().map(|a| a.to_string()),
-            spent,
-            spent_by_tx,
-        }
-    }).collect::<Result<Vec<_>, _>>()?;
+        serde_json::json!({
+            "value": output.value(),
+            "n": i,
+            "script_pubkey": hex::encode(output.script_pubkey()),
+            "spent": is_spent,
+            "spent_by": spent_by_tx
+        })
+    }).collect();
     
-    // Calculate fee rate
-    let fee_rate = if tx.size() > 0 {
-        fee as f64 / tx.size() as f64
+    // Calculate environmental impact if available
+    let _environmental_impact = if let Some(_em) = node.environmental_manager() {
+        // TODO: Implement transaction emissions calculation
+        None
     } else {
-        0.0
+        None
     };
-    
-    // Fetch environmental data if available
-    let estimated_emissions = node.environmental_manager().map(|em| {
-        em.calculate_transaction_emissions(&tx).ok()
-    }).flatten();
     
     let tx_info = TransactionInfo {
-        txid: hex::encode(tx.hash()),
+        txid: txid_str,
+        hash: hex::encode(tx.hash()),
         version: tx.version(),
-        size: tx.size(),
-        weight: tx.weight(),
-        locktime: tx.locktime(),
-        block_hash,
-        block_height,
+        size: bincode::serialize(&tx).unwrap_or_default().len() as u64,
+        vsize: 0, // TODO: Calculate virtual size
+        weight: 0, // TODO: Calculate weight
+        locktime: tx.lock_time(),
         inputs,
         outputs,
-        fee,
-        fee_rate,
+        block_hash,
+        block_height,
         confirmations,
-        confirmed_time,
-        estimated_emissions,
+        time: block_height.map(|_| 0), // TODO: Get actual block time
+        block_time: block_height.map(|_| 0), // TODO: Get actual block time
     };
     
-    Ok(HttpResponse::Ok().json(ApiResponse::success(tx_info)))
+    Ok(tx_info)
 }
 
-/// Submit transaction
+/// Submit a transaction to the blockchain
 ///
-/// Submits a new transaction to the network.
+/// Submits a new transaction to the mempool for validation and broadcasting.
 #[utoipa::path(
     post,
-    path = "/api/v1/blockchain/tx",
-    tag = "blockchain",
+    path = "/api/v1/blockchain/submit",
     request_body = SubmitTxRequest,
     responses(
-        (status = 200, description = "Transaction submitted successfully"),
-        (status = 400, description = "Invalid transaction format"),
-        (status = 409, description = "Transaction validation failed"),
-        (status = 500, description = "Internal server error"),
+        (status = 200, description = "Transaction submitted successfully", body = TransactionSubmissionResponse),
+        (status = 400, description = "Invalid transaction", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
 pub async fn submit_transaction(
-    node: web::Data<Arc<Node>>,
     request: web::Json<SubmitTxRequest>,
-) -> Result<impl Responder, ApiError> {
-    let tx_data = Vec::from_hex(&request.tx_data)
-        .map_err(|_| ApiError::bad_request("Invalid transaction hex format".to_string()))?;
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<TransactionSubmissionResponse> {
+    // Parse the raw transaction
+    let tx_data = hex::decode(&request.raw_tx)
+        .map_err(|_| ApiError::bad_request("Invalid transaction format"))?;
     
-    // Deserialize transaction
-    let tx: Transaction = bincode::deserialize(&tx_data)
-        .map_err(|e| ApiError::bad_request(format!("Invalid transaction format: {}", e)))?;
+    // Deserialize the transaction
+    let tx = bincode::deserialize::<btclib::types::transaction::Transaction>(&tx_data)
+        .map_err(|_| ApiError::bad_request("Invalid transaction format"))?;
     
-    // Validate and add to mempool
-    match node.mempool().add_transaction(tx.clone()) {
-        Ok(_) => {
-            // Broadcast the transaction to peers
+    let txid = hex::encode(tx.hash());
+    
+    // Add to mempool with default fee rate
+    match node.mempool().add_transaction(tx.clone(), 1000) {
+        Ok(()) => {
+            // Broadcast to network
             node.broadcast_transaction(&tx);
             
-            // Return success with txid
-            Ok(HttpResponse::Ok().json(ApiResponse::success(serde_json::json!({
-                "txid": hex::encode(tx.hash()),
-                "status": "accepted",
-            }))))
+            Ok(TransactionSubmissionResponse {
+                txid: Some(txid),
+                accepted: true,
+                error: None,
+            })
         },
         Err(e) => {
             match e {
-                TransactionError::InvalidFormat(msg) => {
-                    Err(ApiError::bad_request(format!("Transaction validation failed: {}", msg)))
+                crate::mempool::pool::MempoolError::TransactionExists => {
+                    Err(ApiError::conflict("Transaction already exists in mempool"))
                 },
-                TransactionError::InsufficientFunds => {
-                    Err(ApiError::bad_request("Insufficient funds".to_string()))
+                crate::mempool::pool::MempoolError::InvalidTransaction(msg) => {
+                    Err(ApiError::bad_request(format!("Invalid transaction: {}", msg)))
                 },
-                TransactionError::DoubleSpend => {
-                    Err(ApiError::bad_request("Transaction already in mempool".to_string()))
+                crate::mempool::pool::MempoolError::InsufficientFee => {
+                    Err(ApiError::bad_request("Insufficient transaction fee"))
                 },
-                err => Err(ApiError::internal_error(format!("Failed to add transaction: {}", err))),
+                _ => {
+                    Err(ApiError::internal_error(format!("Failed to add transaction to mempool: {}", e)))
+                }
             }
         }
     }
+}
+
+/// Get blockchain statistics
+///
+/// Returns statistical information about the blockchain.
+#[utoipa::path(
+    get,
+    path = "/api/v1/blockchain/stats",
+    responses(
+        (status = 200, description = "Blockchain statistics retrieved successfully", body = BlockchainStats),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+pub async fn get_blockchain_stats(
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<BlockchainStats> {
+    let storage = node.storage();
+    let height = storage.read().unwrap().get_height()
+        .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
+    
+    let stats = BlockchainStats {
+        height,
+        total_transactions: 0, // TODO: Count total transactions
+        total_blocks: height + 1,
+        difficulty: 1.0, // TODO: Get actual difficulty
+        hashrate: 0, // TODO: Calculate network hashrate
+        mempool_size: node.mempool().size(),
+        mempool_bytes: node.mempool().size_in_bytes(),
+        utxo_set_size: 0, // TODO: Count UTXO set size
+        chain_size_bytes: 0, // TODO: Calculate chain size
+    };
+    
+    Ok(stats)
 } 

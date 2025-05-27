@@ -171,6 +171,16 @@ impl TransactionInput {
     pub fn signature_script(&self) -> &[u8] {
         &self.signature_script
     }
+
+    /// Get the script sig (alias for signature_script)
+    pub fn script_sig(&self) -> &[u8] {
+        &self.signature_script
+    }
+
+    /// Get the sequence number
+    pub fn sequence(&self) -> u32 {
+        self.sequence
+    }
 }
 
 impl TransactionOutput {

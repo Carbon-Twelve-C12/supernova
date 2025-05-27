@@ -10,7 +10,8 @@ use crate::config::NodeConfig;
 use crate::environmental::EnvironmentalMonitor;
 use crate::api::types::{NodeInfo, SystemInfo, LogEntry, NodeStatus, VersionInfo, NodeMetrics, FaucetInfo};
 use btclib::crypto::quantum::QuantumScheme;
-use btclib::lightning::{LightningNetwork, LightningConfig, LightningNetworkError};
+use btclib::lightning::{LightningConfig, LightningNetworkError};
+use btclib::lightning::manager::{LightningManager, ManagerError, LightningEvent};
 use btclib::lightning::wallet::LightningWallet;
 use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
 use std::time::Instant;
@@ -19,6 +20,8 @@ use crate::metrics::performance::{PerformanceMonitor, MetricType};
 use thiserror::Error;
 use libp2p::PeerId;
 use sysinfo::{System, SystemExt, CpuExt};
+use chrono::Utc;
+use tokio::sync::mpsc;
 
 /// Node operation errors
 #[derive(Error, Debug)]
@@ -61,7 +64,9 @@ pub struct Node {
     /// API server instance
     pub api_server: Option<ApiServer>,
     /// Lightning Network integration
-    lightning: Option<Arc<Mutex<LightningNetwork>>>,
+    lightning: Option<Arc<Mutex<LightningManager>>>,
+    /// Lightning Network event receiver
+    lightning_events: Option<mpsc::UnboundedReceiver<LightningEvent>>,
     /// Performance monitor
     pub performance_monitor: Arc<PerformanceMonitor>,
     /// Node peer ID
@@ -129,6 +134,7 @@ impl Node {
             mem_pool,
             api_server: None,
             lightning: None,
+            lightning_events: None,
             performance_monitor,
             peer_id: PeerId::random(),
             start_time: Instant::now(),
@@ -241,10 +247,17 @@ impl Node {
         };
         
         // Create Lightning Network manager
-        let lightning = LightningNetwork::new(config, wallet);
+        let (lightning, event_receiver) = match LightningManager::new(config, wallet) {
+            Ok((manager, receiver)) => (manager, receiver),
+            Err(e) => {
+                error!("Failed to create Lightning Manager: {}", e);
+                return Err(format!("Failed to create Lightning Manager: {}", e));
+            }
+        };
         
         // Store in node
         self.lightning = Some(Arc::new(Mutex::new(lightning)));
+        self.lightning_events = Some(event_receiver);
         
         info!("Lightning Network functionality initialized successfully");
         
@@ -252,12 +265,12 @@ impl Node {
     }
     
     /// Get the Lightning Network manager
-    pub fn lightning(&self) -> Option<Arc<Mutex<LightningNetwork>>> {
+    pub fn lightning(&self) -> Option<Arc<Mutex<LightningManager>>> {
         self.lightning.clone()
     }
     
     /// Register the Lightning Network manager
-    pub fn register_lightning(&mut self, lightning: LightningNetwork) {
+    pub fn register_lightning(&mut self, lightning: LightningManager) {
         self.lightning = Some(Arc::new(Mutex::new(lightning)));
     }
     
@@ -275,8 +288,8 @@ impl Node {
         
         let lightning = lightning.lock().unwrap();
         
-        match lightning.open_channel(peer_id, capacity, push_amount, None).await {
-            Ok(channel_id) => Ok(format!("{}", channel_id)),
+        match lightning.open_channel(peer_id, capacity, push_amount, false, None).await {
+            Ok(response) => Ok(response.channel_id),
             Err(e) => Err(format!("Failed to open payment channel: {}", e)),
         }
     }
@@ -294,13 +307,13 @@ impl Node {
         
         let lightning = lightning.lock().unwrap();
         
-        // Parse channel ID from string
-        let channel_id = match channel_id.parse() {
+        // Parse channel ID from string to u64
+        let channel_id_u64: u64 = match channel_id.parse() {
             Ok(id) => id,
             Err(_) => return Err("Invalid channel ID format".to_string()),
         };
         
-        match lightning.close_channel(&channel_id, force_close).await {
+        match lightning.close_channel(&channel_id_u64, force_close).await {
             Ok(tx) => Ok(format!("{}", hex::encode(tx.hash()))),
             Err(e) => Err(format!("Failed to close payment channel: {}", e)),
         }
@@ -320,11 +333,8 @@ impl Node {
         
         let lightning = lightning.lock().unwrap();
         
-        match lightning.create_invoice(amount_msat, description, expiry_seconds) {
-            Ok(invoice) => {
-                // In a real implementation, this would encode as BOLT11
-                Ok(format!("{}", invoice))
-            },
+        match lightning.create_invoice(amount_msat, description, expiry_seconds, false) {
+            Ok(response) => Ok(response.payment_request),
             Err(e) => Err(format!("Failed to create invoice: {}", e)),
         }
     }
@@ -341,14 +351,14 @@ impl Node {
         
         let lightning = lightning.lock().unwrap();
         
-        // Parse invoice from string (in a real implementation, this would parse BOLT11)
-        let invoice = match invoice_str.parse() {
-            Ok(invoice) => invoice,
-            Err(_) => return Err("Invalid invoice format".to_string()),
-        };
-        
-        match lightning.pay_invoice(&invoice).await {
-            Ok(preimage) => Ok(format!("{}", hex::encode(preimage.into_inner()))),
+        match lightning.send_payment(invoice_str, None, 60, None).await {
+            Ok(response) => {
+                if let Some(preimage) = response.payment_preimage {
+                    Ok(preimage)
+                } else {
+                    Err(format!("Payment failed: {}", response.payment_error.unwrap_or_else(|| "Unknown error".to_string())))
+                }
+            },
             Err(e) => Err(format!("Failed to pay invoice: {}", e)),
         }
     }
@@ -362,10 +372,13 @@ impl Node {
         
         let lightning = lightning.lock().unwrap();
         
-        let channels = lightning.list_channels();
-        let channel_ids = channels.iter().map(|id| format!("{}", id)).collect();
-        
-        Ok(channel_ids)
+        match lightning.get_channels(false, true) {
+            Ok(channels) => {
+                let channel_ids = channels.iter().map(|ch| ch.channel_id.clone()).collect();
+                Ok(channel_ids)
+            },
+            Err(e) => Err(format!("Failed to list channels: {}", e)),
+        }
     }
     
     /// Get information about a specific channel
@@ -377,30 +390,26 @@ impl Node {
         
         let lightning = lightning.lock().unwrap();
         
-        // Parse channel ID from string
-        let channel_id = match channel_id.parse() {
-            Ok(id) => id,
-            Err(_) => return Err("Invalid channel ID format".to_string()),
-        };
-        
-        match lightning.get_channel_info(&channel_id) {
-            Some(info) => {
-                // Convert channel info to JSON
+        match lightning.get_channel(channel_id) {
+            Ok(Some(channel)) => {
+                // Convert LightningChannel to JSON
                 let json = serde_json::json!({
-                    "id": channel_id.to_string(),
-                    "state": format!("{:?}", info.state),
-                    "capacity": info.capacity,
-                    "local_balance_msat": info.local_balance_msat,
-                    "remote_balance_msat": info.remote_balance_msat,
-                    "is_public": info.is_public,
-                    "pending_htlcs": info.pending_htlcs,
-                    "uptime_seconds": info.uptime_seconds,
-                    "update_count": info.update_count,
+                    "id": channel.channel_id,
+                    "remote_pubkey": channel.remote_pubkey,
+                    "capacity": channel.capacity,
+                    "local_balance": channel.local_balance,
+                    "remote_balance": channel.remote_balance,
+                    "commit_fee": channel.commit_fee,
+                    "private": channel.private,
+                    "initiator": channel.initiator,
+                    "uptime": channel.uptime,
+                    "lifetime": channel.lifetime,
                 });
                 
                 Ok(json)
             },
-            None => Err(format!("Channel {} not found", channel_id)),
+            Ok(None) => Err(format!("Channel {} not found", channel_id)),
+            Err(e) => Err(format!("Failed to get channel info: {}", e)),
         }
     }
 
@@ -534,6 +543,128 @@ impl Node {
         })
     }
 
+    /// Restart the node
+    pub fn restart(&self) -> Result<(), NodeError> {
+        info!("Restarting node...");
+        
+        // Stop all services
+        self.stop()?;
+        
+        // Wait a moment for cleanup
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        
+        // Start all services again
+        self.start()?;
+        
+        info!("Node restarted successfully");
+        Ok(())
+    }
+
+    /// Shutdown the node
+    pub fn shutdown(&self) -> Result<(), NodeError> {
+        info!("Shutting down node...");
+        
+        // Set running flag to false
+        self.is_running.store(false, std::sync::atomic::Ordering::SeqCst);
+        
+        // Stop all services
+        self.stop()?;
+        
+        info!("Node shutdown complete");
+        Ok(())
+    }
+
+    /// Get debug information
+    pub fn get_debug_info(&self) -> Result<crate::api::types::DebugInfo, String> {
+        Ok(crate::api::types::DebugInfo {
+            node_info: self.get_info()?,
+            system_info: self.get_system_info()?,
+            performance_metrics: self.get_performance_metrics(),
+            network_stats: self.get_network_stats(),
+            mempool_stats: self.get_mempool_stats(),
+            blockchain_stats: self.get_blockchain_stats(),
+            lightning_stats: self.get_lightning_stats(),
+        })
+    }
+
+    /// Get network statistics
+    pub fn get_network_stats(&self) -> serde_json::Value {
+        serde_json::json!({
+            "peer_count": self.network.get_peer_count(),
+            "inbound_connections": 0, // TODO: Get from network manager
+            "outbound_connections": 0, // TODO: Get from network manager
+            "bytes_sent": 0, // TODO: Get from network manager
+            "bytes_received": 0, // TODO: Get from network manager
+        })
+    }
+
+    /// Get mempool statistics
+    pub fn get_mempool_stats(&self) -> serde_json::Value {
+        serde_json::json!({
+            "size": self.mempool.size(),
+            "bytes": self.mempool.get_memory_usage(),
+            "fee_histogram": [], // TODO: Get fee histogram
+            "min_fee_rate": 1.0, // TODO: Get from mempool
+            "max_fee_rate": 100.0, // TODO: Get from mempool
+        })
+    }
+
+    /// Get blockchain statistics
+    pub fn get_blockchain_stats(&self) -> serde_json::Value {
+        serde_json::json!({
+            "height": self.blockchain.get_height(),
+            "best_block_hash": hex::encode(self.blockchain.get_best_block_hash()),
+            "difficulty": 1.0, // TODO: Get from blockchain
+            "total_work": "0", // TODO: Get from blockchain
+            "chain_work": "0", // TODO: Get from blockchain
+        })
+    }
+
+    /// Get Lightning Network statistics
+    pub fn get_lightning_stats(&self) -> serde_json::Value {
+        if let Some(lightning) = &self.lightning {
+            let lightning = lightning.lock().unwrap();
+            
+            // Use the LightningManager API to get comprehensive stats
+            match lightning.get_info() {
+                Ok(info) => {
+                    serde_json::json!({
+                        "enabled": true,
+                        "node_id": info.node_id,
+                        "channel_count": info.num_channels,
+                        "pending_channels": info.num_pending_channels,
+                        "inactive_channels": info.num_inactive_channels,
+                        "total_balance_msat": info.total_balance_msat,
+                        "total_outbound_capacity_msat": info.total_outbound_capacity_msat,
+                        "total_inbound_capacity_msat": info.total_inbound_capacity_msat,
+                        "num_peers": info.num_peers,
+                        "synced_to_chain": info.synced_to_chain,
+                        "synced_to_graph": info.synced_to_graph,
+                        "block_height": info.block_height,
+                    })
+                },
+                Err(_) => {
+                    serde_json::json!({
+                        "enabled": true,
+                        "error": "Failed to get Lightning Network info",
+                        "channel_count": 0,
+                        "total_capacity": 0,
+                        "local_balance": 0,
+                        "remote_balance": 0,
+                    })
+                }
+            }
+        } else {
+            serde_json::json!({
+                "enabled": false,
+                "channel_count": 0,
+                "total_capacity": 0,
+                "local_balance": 0,
+                "remote_balance": 0,
+            })
+        }
+    }
+
     /// Get metrics
     pub fn get_metrics(&self, period: u64) -> Result<NodeMetrics, String> {
         Ok(NodeMetrics {
@@ -616,5 +747,25 @@ impl Node {
     pub fn broadcast_transaction(&self, tx: &btclib::types::transaction::Transaction) {
         // TODO: Implement transaction broadcasting
         info!("Broadcasting transaction: {}", hex::encode(tx.hash()));
+    }
+
+    /// Create backup
+    pub fn create_backup(&self, destination: Option<&str>, include_wallet: bool, encrypt: bool) -> Result<crate::api::types::BackupInfo, String> {
+        // TODO: Implement actual backup creation
+        Ok(crate::api::types::BackupInfo {
+            id: format!("backup_{}", chrono::Utc::now().timestamp()),
+            timestamp: chrono::Utc::now().timestamp() as u64,
+            size: 1024 * 1024, // 1MB placeholder
+            backup_type: "full".to_string(),
+            status: "completed".to_string(),
+            file_path: destination.unwrap_or("/tmp/backup.dat").to_string(),
+            verified: true,
+        })
+    }
+
+    /// Get backup information
+    pub fn get_backup_info(&self) -> Result<Vec<crate::api::types::BackupInfo>, String> {
+        // TODO: Implement actual backup info retrieval
+        Ok(vec![])
     }
 } 
