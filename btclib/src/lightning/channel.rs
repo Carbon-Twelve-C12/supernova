@@ -833,7 +833,7 @@ impl Channel {
         // If there's a push amount, adjust balances
         if push_amount > 0 {
             if push_amount > capacity {
-                return Err(ChannelError::InvalidState(
+            return Err(ChannelError::InvalidState(
                     "Push amount cannot exceed channel capacity".to_string()
                 ));
             }

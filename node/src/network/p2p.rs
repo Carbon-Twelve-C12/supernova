@@ -639,12 +639,12 @@ impl P2PNetwork {
                     let mut swarm_guard = swarm.write().await;
                     if let Some(swarm) = swarm_guard.as_mut() {
                         match swarm.dial(addr.clone()) {
-                            Ok(_) => {
+                        Ok(_) => {
                                 debug!("Dialing peer at {}", addr);
                                 let mut stats_guard = stats.write().await;
                                 stats_guard.connection_attempts += 1;
-                            }
-                            Err(e) => {
+                        }
+                        Err(e) => {
                                 warn!("Failed to dial peer at {}: {}", addr, e);
                                 let _ = event_sender.send(NetworkEvent::Error {
                                     peer_id: None,
@@ -731,45 +731,45 @@ impl P2PNetwork {
     ) {
         let mut swarm_guard = swarm.write().await;
         if let Some(swarm) = swarm_guard.as_mut() {
-            // Serialize the message
-            let encoded = match bincode::serialize(&message) {
-                Ok(data) => data,
-                Err(e) => {
-                    warn!("Failed to serialize message: {}", e);
+                    // Serialize the message
+                    let encoded = match bincode::serialize(&message) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            warn!("Failed to serialize message: {}", e);
                     return;
-                }
-            };
-            
-            // Determine the topic
-            let topic_name = match &message {
-                Message::Block { .. } | Message::NewBlock { .. } => "blocks",
-                Message::Transaction { .. } => "transactions",
-                Message::GetHeaders { .. } | Message::Headers { .. } => "headers",
-                Message::Status { .. } | Message::GetStatus => "status",
-                Message::GetMempool { .. } | Message::Mempool { .. } => "mempool",
-                _ => "status", // Default
-            };
-            
-            let topic = gossipsub::IdentTopic::new(topic_name);
-            
-            // Publish the message
-            if let Some(behaviour) = swarm.behaviour_mut().as_mut() {
+                        }
+                    };
+                    
+                    // Determine the topic
+                    let topic_name = match &message {
+                        Message::Block { .. } | Message::NewBlock { .. } => "blocks",
+                        Message::Transaction { .. } => "transactions",
+                        Message::GetHeaders { .. } | Message::Headers { .. } => "headers",
+                        Message::Status { .. } | Message::GetStatus => "status",
+                        Message::GetMempool { .. } | Message::Mempool { .. } => "mempool",
+                        _ => "status", // Default
+                    };
+                    
+                    let topic = gossipsub::IdentTopic::new(topic_name);
+                    
+                    // Publish the message
+                    if let Some(behaviour) = swarm.behaviour_mut().as_mut() {
                 match behaviour.publish(topic, encoded.clone()) {
-                    Ok(msg_id) => {
-                        debug!("Published message with ID: {:?}", msg_id);
+                            Ok(msg_id) => {
+                                debug!("Published message with ID: {:?}", msg_id);
                         let mut stats_guard = stats.write().await;
                         stats_guard.messages_sent += 1;
                         
                         let mut bandwidth_guard = bandwidth_tracker.write().await;
                         bandwidth_guard.record_sent(encoded.len() as u64);
-                    }
-                    Err(e) => {
-                        warn!("Failed to publish message: {}", e);
+                            }
+                            Err(e) => {
+                                warn!("Failed to publish message: {}", e);
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
     
     /// Send a message to a specific peer (static version)
     async fn send_to_peer_static(
@@ -1632,7 +1632,7 @@ fn count_leading_zero_bits(hash: &[u8]) -> u8 {
     for &byte in hash {
         if byte == 0 {
             count += 8;
-        } else {
+    } else {
             // Count leading zeros in this byte
             let mut mask = 0x80;
             while mask & byte == 0 && mask > 0 {

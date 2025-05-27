@@ -44,112 +44,6 @@ impl<T> ApiResponse<T> {
 // Blockchain data types
 //
 
-/// Block information response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct BlockInfo {
-    /// Block hash
-    pub hash: String,
-    /// Block height
-    pub height: u64,
-    /// Previous block hash
-    pub prev_hash: String,
-    /// Merkle root
-    pub merkle_root: String,
-    /// Block timestamp
-    pub timestamp: u64,
-    /// Block version
-    pub version: u32,
-    /// Block difficulty target
-    pub target: u32,
-    /// Block nonce
-    pub nonce: u32,
-    /// Number of transactions in block
-    pub tx_count: usize,
-    /// Size of block in bytes
-    pub size: usize,
-    /// Block weight
-    pub weight: usize,
-    /// Total transaction fees
-    pub fees: u64,
-    /// Confirmed status
-    pub confirmed: bool,
-    /// Confirmations
-    pub confirmations: u64,
-}
-
-/// Transaction information response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TransactionInfo {
-    /// Transaction ID
-    pub txid: String,
-    /// Transaction version
-    pub version: u32,
-    /// Transaction size in bytes
-    pub size: usize,
-    /// Transaction weight
-    pub weight: usize,
-    /// Locktime
-    pub locktime: u32,
-    /// Block hash containing this transaction (if confirmed)
-    pub block_hash: Option<String>,
-    /// Block height containing this transaction (if confirmed)
-    pub block_height: Option<u64>,
-    /// Transaction inputs
-    pub inputs: Vec<TransactionInput>,
-    /// Transaction outputs
-    pub outputs: Vec<TransactionOutput>,
-    /// Transaction fee
-    pub fee: u64,
-    /// Fee rate in satoshis per byte
-    pub fee_rate: f64,
-    /// Confirmations
-    pub confirmations: u64,
-    /// Timestamp of confirmation (if confirmed)
-    pub confirmed_time: Option<u64>,
-    /// Transaction carbon emissions estimate
-    pub estimated_emissions: Option<EmissionsInfo>,
-}
-
-/// Transaction input
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TransactionInput {
-    /// Previous transaction ID
-    pub txid: String,
-    /// Previous transaction output index
-    pub vout: u32,
-    /// Script signature
-    pub script_sig: String,
-    /// Script signature as human-readable ASM
-    pub script_sig_asm: String,
-    /// Witness data (segwit only)
-    pub witness: Option<Vec<String>>,
-    /// Sequence number
-    pub sequence: u32,
-    /// Previous output value in satoshis
-    pub value: u64,
-    /// Address (if available)
-    pub address: Option<String>,
-}
-
-/// Transaction output
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TransactionOutput {
-    /// Output value in satoshis
-    pub value: u64,
-    /// Output script
-    pub script_pub_key: String,
-    /// Output script as human-readable ASM
-    pub script_pub_key_asm: String,
-    /// Output script type
-    pub script_type: String,
-    /// Address (if available)
-    pub address: Option<String>,
-    /// Whether this output has been spent
-    pub spent: Option<bool>,
-    /// Transaction ID of spending transaction (if spent)
-    pub spent_by_tx: Option<String>,
-}
-
 /// Blockchain information response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct BlockchainInfo {
@@ -159,56 +53,118 @@ pub struct BlockchainInfo {
     pub best_block_hash: String,
     /// Current difficulty
     pub difficulty: f64,
-    /// Median time of past several blocks
-    pub median_time: u64,
-    /// Chain work
-    pub chain_work: String,
-    /// Verification progress
-    pub verification_progress: f64,
-    /// Chain size on disk in bytes
-    pub size_on_disk: u64,
-    /// Network hashrate estimate
-    pub network_hashrate: u64,
-    /// Whether the blockchain is synced
-    pub is_synced: bool,
-    /// Sync progress percentage
-    pub sync_progress: f64,
+    /// Total work
+    pub total_work: String,
+    /// Network name
+    pub network: String,
+    /// Software version
+    pub version: String,
 }
 
-//
-// Mempool data types
-//
+/// Block information response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BlockInfo {
+    /// Block hash
+    pub hash: String,
+    /// Block height
+    pub height: u64,
+    /// Number of confirmations
+    pub confirmations: u64,
+    /// Block size in bytes
+    pub size: u64,
+    /// Block weight
+    pub weight: u64,
+    /// Block version
+    pub version: u32,
+    /// Merkle root
+    pub merkle_root: String,
+    /// Block timestamp
+    pub time: u64,
+    /// Block nonce
+    pub nonce: u32,
+    /// Block difficulty
+    pub difficulty: f64,
+    /// Previous block hash
+    pub previous_block_hash: String,
+    /// Next block hash (if exists)
+    pub next_block_hash: Option<String>,
+    /// Number of transactions
+    pub transaction_count: u32,
+    /// Transaction IDs
+    pub transactions: Vec<String>,
+}
+
+/// Transaction information response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TransactionInfo {
+    /// Transaction ID
+    pub txid: String,
+    /// Transaction hash
+    pub hash: String,
+    /// Transaction version
+    pub version: u32,
+    /// Transaction size in bytes
+    pub size: u64,
+    /// Virtual size
+    pub vsize: u64,
+    /// Transaction weight
+    pub weight: u64,
+    /// Locktime
+    pub locktime: u32,
+    /// Transaction inputs
+    pub inputs: Vec<serde_json::Value>,
+    /// Transaction outputs
+    pub outputs: Vec<serde_json::Value>,
+    /// Block hash containing this transaction (if confirmed)
+    pub block_hash: Option<String>,
+    /// Block height containing this transaction (if confirmed)
+    pub block_height: Option<u64>,
+    /// Number of confirmations
+    pub confirmations: u64,
+    /// Block time (if confirmed)
+    pub time: Option<u64>,
+    /// Block time (if confirmed)
+    pub block_time: Option<u64>,
+}
+
+/// Blockchain statistics
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BlockchainStats {
+    /// Current block height
+    pub height: u64,
+    /// Total number of transactions
+    pub total_transactions: u64,
+    /// Total number of blocks
+    pub total_blocks: u64,
+    /// Current difficulty
+    pub difficulty: f64,
+    /// Network hashrate estimate
+    pub hashrate: u64,
+    /// Current mempool size
+    pub mempool_size: usize,
+    /// Current mempool size in bytes
+    pub mempool_bytes: usize,
+    /// UTXO set size
+    pub utxo_set_size: u64,
+    /// Chain size in bytes
+    pub chain_size_bytes: u64,
+}
 
 /// Mempool information response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct MempoolInfo {
     /// Number of transactions in mempool
-    pub size: usize,
+    pub transaction_count: usize,
     /// Total size of mempool in bytes
-    pub bytes: usize,
-    /// Current memory usage of mempool in bytes
-    pub usage: usize,
-    /// Maximum memory usage allowed
-    pub max_memory_usage: usize,
-    /// Whether the mempool is full
-    pub full: bool,
-    /// Mempool statistics
-    pub statistics: MempoolStatistics,
-}
-
-/// Mempool statistics
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct MempoolStatistics {
-    /// Total number of transactions
-    pub total_transaction_count: usize,
+    pub total_size: usize,
     /// Total fees in the mempool
     pub total_fee: u64,
-    /// Minimum fee per KB
-    pub min_fee_per_kb: f64,
-    /// Maximum fee per KB
-    pub max_fee_per_kb: f64,
-    /// Average fee per KB
-    pub average_fee_per_kb: f64,
+    /// Minimum fee rate
+    pub min_fee_rate: u64,
+    /// Maximum fee rate
+    pub max_fee_rate: u64,
+    /// Average fee rate
+    pub avg_fee_rate: u64,
 }
 
 /// Mempool transaction information
@@ -221,36 +177,9 @@ pub struct MempoolTransaction {
     /// Transaction fee in satoshis
     pub fee: u64,
     /// Fee rate in satoshis per byte
-    pub fee_rate: f64,
+    pub fee_rate: u64,
     /// Time when transaction was added to mempool
     pub time: u64,
-    /// Block height (None for mempool transactions)
-    pub height: Option<u64>,
-    /// Number of descendant transactions
-    pub descendant_count: usize,
-    /// Total size of descendant transactions
-    pub descendant_size: usize,
-    /// Total fees of descendant transactions
-    pub descendant_fees: u64,
-    /// Number of ancestor transactions
-    pub ancestor_count: usize,
-    /// Total size of ancestor transactions
-    pub ancestor_size: usize,
-    /// Total fees of ancestor transactions
-    pub ancestor_fees: u64,
-    /// Transaction IDs this transaction depends on
-    pub depends: Vec<String>,
-    /// Transaction IDs that spend this transaction
-    pub spent_by: Vec<String>,
-}
-
-/// Response for mempool transaction submission
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct MempoolTransactionSubmissionResponse {
-    /// Transaction ID
-    pub txid: String,
-    /// Whether the transaction was accepted
-    pub accepted: bool,
 }
 
 /// Transaction validation result
@@ -258,35 +187,25 @@ pub struct MempoolTransactionSubmissionResponse {
 pub struct TransactionValidationResult {
     /// Whether the transaction is valid
     pub valid: bool,
-    /// Transaction ID (if parseable)
-    pub txid: Option<String>,
+    /// Validation error message
+    pub error: Option<String>,
+    /// Fee rate in satoshis per byte
+    pub fee_rate: Option<u64>,
     /// Transaction size in bytes
     pub size: Option<usize>,
-    /// Transaction fee in satoshis
-    pub fee: Option<u64>,
-    /// Fee rate in satoshis per byte
-    pub fee_rate: Option<f64>,
-    /// Validation errors
-    pub errors: Vec<String>,
-    /// Validation warnings
-    pub warnings: Vec<String>,
 }
 
 /// Transaction fee estimates
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TransactionFees {
-    /// Fast confirmation fee rate (satoshis per byte)
-    pub fast: f64,
-    /// Standard confirmation fee rate (satoshis per byte)
-    pub standard: f64,
-    /// Slow confirmation fee rate (satoshis per byte)
-    pub slow: f64,
-    /// Minimum fee rate (satoshis per byte)
-    pub minimum: f64,
+    /// Low priority fee rate (satoshis per byte)
+    pub low_priority: u64,
+    /// Normal priority fee rate (satoshis per byte)
+    pub normal_priority: u64,
+    /// High priority fee rate (satoshis per byte)
+    pub high_priority: u64,
     /// Target number of blocks for confirmation
     pub target_blocks: u32,
-    /// Estimated time to confirmation in minutes
-    pub estimated_time_minutes: f64,
 }
 
 //
@@ -1235,10 +1154,10 @@ pub struct SubmitTxRequest {
 /// Transaction submission response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TransactionSubmissionResponse {
-    /// Whether the transaction was accepted
-    pub accepted: bool,
     /// Transaction ID if accepted
     pub txid: Option<String>,
+    /// Whether the transaction was accepted
+    pub accepted: bool,
     /// Error message if rejected
     pub error: Option<String>,
 }
@@ -1302,19 +1221,23 @@ pub struct BackupInfo {
     pub verified: bool,
 }
 
-/// Debug information
+/// Debug information for troubleshooting
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DebugInfo {
-    /// Debug level
-    pub level: String,
-    /// Component name
-    pub component: String,
-    /// Debug message
-    pub message: String,
-    /// Timestamp
-    pub timestamp: u64,
-    /// Additional context
-    pub context: Option<HashMap<String, serde_json::Value>>,
+    /// Node information
+    pub node_info: NodeInfo,
+    /// System information
+    pub system_info: SystemInfo,
+    /// Performance metrics
+    pub performance_metrics: serde_json::Value,
+    /// Network statistics
+    pub network_stats: serde_json::Value,
+    /// Mempool statistics
+    pub mempool_stats: serde_json::Value,
+    /// Blockchain statistics
+    pub blockchain_stats: serde_json::Value,
+    /// Lightning Network statistics
+    pub lightning_stats: serde_json::Value,
 }
 
 /// Faucet information (for testnet)
@@ -1623,6 +1546,55 @@ pub struct UTXO {
     pub coinbase: bool,
     /// Spendable status
     pub spendable: bool,
+}
+
+/// Transaction input
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TransactionInput {
+    /// Previous transaction ID
+    pub txid: String,
+    /// Previous transaction output index
+    pub vout: u32,
+    /// Script signature
+    pub script_sig: String,
+    /// Script signature as human-readable ASM
+    pub script_sig_asm: String,
+    /// Witness data (segwit only)
+    pub witness: Option<Vec<String>>,
+    /// Sequence number
+    pub sequence: u32,
+    /// Previous output value in satoshis
+    pub value: u64,
+    /// Address (if available)
+    pub address: Option<String>,
+}
+
+/// Transaction output
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TransactionOutput {
+    /// Output value in satoshis
+    pub value: u64,
+    /// Output script
+    pub script_pub_key: String,
+    /// Output script as human-readable ASM
+    pub script_pub_key_asm: String,
+    /// Output script type
+    pub script_type: String,
+    /// Address (if available)
+    pub address: Option<String>,
+    /// Whether this output has been spent
+    pub spent: Option<bool>,
+    /// Transaction ID of spending transaction (if spent)
+    pub spent_by_tx: Option<String>,
+}
+
+/// Response for mempool transaction submission
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct MempoolTransactionSubmissionResponse {
+    /// Transaction ID
+    pub txid: String,
+    /// Whether the transaction was accepted
+    pub accepted: bool,
 }
 
 #[cfg(test)]

@@ -503,7 +503,7 @@ impl SignatureVerifier {
                                 let classical_scheme = Box::new(Ed25519Scheme);
                                 let quantum_scheme = Box::new(DilithiumScheme::new(self.security_level));
                                 let scheme = HybridScheme::new(classical_scheme, quantum_scheme);
-                                scheme.verify(public_key, message, signature)
+        scheme.verify(public_key, message, signature)
                             }
                         }
                     }

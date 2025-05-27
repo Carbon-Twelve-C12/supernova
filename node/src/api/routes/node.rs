@@ -8,6 +8,7 @@ use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
+use serde_json;
 
 /// Configure node API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -42,7 +43,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 )]
 pub async fn get_node_info(
     node: web::Data<Arc<Node>>,
-) -> ApiResult<NodeInfo> {
+) -> ApiResult<HttpResponse> {
     // TODO: Implement real node info retrieval
     let info = node.get_info()?;
     
@@ -62,7 +63,7 @@ pub async fn get_node_info(
 )]
 pub async fn get_system_info(
     node: web::Data<Arc<Node>>,
-) -> ApiResult<SystemInfo> {
+) -> ApiResult<HttpResponse> {
     // TODO: Implement real system info retrieval
     let info = node.get_system_info()?;
     
@@ -105,7 +106,7 @@ struct GetLogsParams {
 pub async fn get_logs(
     params: web::Query<GetLogsParams>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<Vec<LogEntry>> {
+) -> ApiResult<HttpResponse> {
     let level = params.level.clone().unwrap_or_else(|| "info".to_string());
     let component = params.component.clone();
     let limit = params.limit.unwrap_or(100);
@@ -130,7 +131,7 @@ pub async fn get_logs(
 )]
 pub async fn get_node_status(
     node: web::Data<Arc<Node>>,
-) -> ApiResult<NodeStatus> {
+) -> ApiResult<HttpResponse> {
     // TODO: Implement real node status retrieval
     let status = node.get_status()?;
     
@@ -150,7 +151,7 @@ pub async fn get_node_status(
 )]
 pub async fn get_node_version(
     node: web::Data<Arc<Node>>,
-) -> ApiResult<NodeVersion> {
+) -> ApiResult<HttpResponse> {
     // TODO: Implement real node version retrieval
     let version = node.get_version()?;
     
@@ -182,7 +183,7 @@ struct GetNodeMetricsParams {
 pub async fn get_node_metrics(
     params: web::Query<GetNodeMetricsParams>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<NodeMetrics> {
+) -> ApiResult<HttpResponse> {
     let period = params.period.unwrap_or(300);
     
     // TODO: Implement real node metrics retrieval
@@ -204,7 +205,7 @@ pub async fn get_node_metrics(
 )]
 pub async fn get_node_config(
     node: web::Data<Arc<Node>>,
-) -> ApiResult<NodeConfiguration> {
+) -> ApiResult<HttpResponse> {
     // TODO: Implement real node configuration retrieval
     let config = node.get_config()?;
     
@@ -227,9 +228,10 @@ pub async fn get_node_config(
 pub async fn update_node_config(
     request: web::Json<NodeConfiguration>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<NodeConfiguration> {
+) -> ApiResult<HttpResponse> {
     // TODO: Implement real node configuration update
-    let updated_config = node.update_config(request.0)?;
+    let config_value = serde_json::to_value(&request.0).map_err(|e| ApiError::bad_request(format!("Invalid configuration: {}", e)))?;
+    let updated_config = node.update_config(config_value)?;
     
     Ok(HttpResponse::Ok().json(updated_config))
 }
@@ -264,7 +266,7 @@ struct CreateBackupRequest {
 pub async fn create_backup(
     request: web::Json<CreateBackupRequest>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<BackupInfo> {
+) -> ApiResult<HttpResponse> {
     let destination = request.destination.clone();
     let include_wallet = request.include_wallet.unwrap_or(true);
     let encrypt = request.encrypt.unwrap_or(true);
@@ -288,7 +290,7 @@ pub async fn create_backup(
 )]
 pub async fn get_backup_info(
     node: web::Data<Arc<Node>>,
-) -> ApiResult<Vec<BackupInfo>> {
+) -> ApiResult<HttpResponse> {
     // TODO: Implement real backup info retrieval
     let backup_info = node.get_backup_info()?;
     
@@ -348,7 +350,7 @@ pub async fn shutdown_node(
 )]
 pub async fn get_debug_info(
     node: web::Data<Arc<Node>>,
-) -> ApiResult<DebugInfo> {
+) -> ApiResult<HttpResponse> {
     // TODO: Implement real debug info retrieval
     let debug_info = node.get_debug_info()?;
     

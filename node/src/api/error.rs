@@ -144,40 +144,40 @@ impl ApiError {
     }
     
     // Common error constructors for security
-    pub fn bad_request(message: &str) -> Self {
-        Self::new(400, message)
+    pub fn bad_request<S: AsRef<str>>(message: S) -> Self {
+        Self::new(400, message.as_ref())
     }
     
-    pub fn unauthorized(message: &str) -> Self {
-        Self::new(401, message)
+    pub fn unauthorized<S: AsRef<str>>(message: S) -> Self {
+        Self::new(401, message.as_ref())
     }
     
-    pub fn forbidden(message: &str) -> Self {
-        Self::new(403, message)
+    pub fn forbidden<S: AsRef<str>>(message: S) -> Self {
+        Self::new(403, message.as_ref())
     }
     
-    pub fn not_found(message: &str) -> Self {
-        Self::new(404, message)
+    pub fn not_found<S: AsRef<str>>(message: S) -> Self {
+        Self::new(404, message.as_ref())
     }
     
-    pub fn conflict(message: &str) -> Self {
-        Self::new(409, message)
+    pub fn conflict<S: AsRef<str>>(message: S) -> Self {
+        Self::new(409, message.as_ref())
     }
     
-    pub fn unprocessable_entity(message: &str) -> Self {
-        Self::new(422, message)
+    pub fn unprocessable_entity<S: AsRef<str>>(message: S) -> Self {
+        Self::new(422, message.as_ref())
     }
     
-    pub fn rate_limited(message: &str) -> Self {
-        Self::new(429, message)
+    pub fn rate_limited<S: AsRef<str>>(message: S) -> Self {
+        Self::new(429, message.as_ref())
     }
     
-    pub fn internal_error(message: &str) -> Self {
-        Self::new(500, message)
+    pub fn internal_error<S: AsRef<str>>(message: S) -> Self {
+        Self::new(500, message.as_ref())
     }
     
-    pub fn service_unavailable(message: &str) -> Self {
-        Self::new(503, message)
+    pub fn service_unavailable<S: AsRef<str>>(message: S) -> Self {
+        Self::new(503, message.as_ref())
     }
 }
 
@@ -219,6 +219,27 @@ impl From<bincode::Error> for ApiError {
     fn from(err: bincode::Error) -> Self {
         // Don't expose serialization details
         Self::internal_error("Data processing error")
+    }
+}
+
+impl From<String> for ApiError {
+    fn from(err: String) -> Self {
+        // Convert string errors to internal errors
+        Self::internal_error(&err)
+    }
+}
+
+impl From<crate::node::NodeError> for ApiError {
+    fn from(err: crate::node::NodeError) -> Self {
+        // Convert node errors to appropriate API errors
+        match err {
+            crate::node::NodeError::NetworkError(msg) => Self::service_unavailable(&msg),
+            crate::node::NodeError::ConfigError(msg) => Self::bad_request(&msg),
+            crate::node::NodeError::StorageError(_) => Self::internal_error("Storage operation failed"),
+            crate::node::NodeError::LightningError(_) => Self::service_unavailable("Lightning Network unavailable"),
+            crate::node::NodeError::IoError(_) => Self::internal_error("I/O operation failed"),
+            crate::node::NodeError::General(msg) => Self::internal_error(&msg),
+        }
     }
 }
 

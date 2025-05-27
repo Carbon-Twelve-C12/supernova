@@ -5,7 +5,7 @@ use crate::api::types::{
     PaymentRequest, PaymentResponse, InvoiceRequest, InvoiceResponse,
     NodeInfo, Route,
 };
-use btclib::lightning::manager::LightningManager;
+use crate::node::Node;
 use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -31,6 +31,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     );
 }
 
+/// Placeholder handler for Lightning Network endpoints
+async fn lightning_unavailable() -> ApiResult<HttpResponse> {
+    Ok(HttpResponse::ServiceUnavailable().json(serde_json::json!({
+        "error": "Lightning Network API temporarily disabled",
+        "message": "Lightning Network functionality is being refactored for improved thread safety",
+        "status": "service_unavailable"
+    })))
+}
+
 /// Get Lightning Network information
 ///
 /// Returns general information about the node's Lightning Network status.
@@ -43,8 +52,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     )
 )]
 pub async fn get_lightning_info(
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<LightningInfo> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
+    
     match lightning.get_info() {
         Ok(info) => Ok(HttpResponse::Ok().json(info)),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get Lightning info: {}", e))),
@@ -79,10 +95,17 @@ struct GetChannelsParams {
 )]
 pub async fn get_channels(
     params: web::Query<GetChannelsParams>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<Vec<LightningChannel>> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
     let include_inactive = params.include_inactive.unwrap_or(false);
     let include_pending = params.include_pending.unwrap_or(true);
+    
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
     
     match lightning.get_channels(include_inactive, include_pending) {
         Ok(channels) => Ok(HttpResponse::Ok().json(channels)),
@@ -107,9 +130,16 @@ pub async fn get_channels(
 )]
 pub async fn get_channel(
     path: web::Path<String>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<LightningChannel> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
     let channel_id = path.into_inner();
+    
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
     
     match lightning.get_channel(&channel_id) {
         Ok(Some(channel)) => Ok(HttpResponse::Ok().json(channel)),
@@ -133,8 +163,15 @@ pub async fn get_channel(
 )]
 pub async fn open_channel(
     request: web::Json<OpenChannelRequest>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<OpenChannelResponse> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
+    
     match lightning.open_channel(
         &request.node_id,
         request.local_funding_amount,
@@ -163,9 +200,16 @@ pub async fn open_channel(
 )]
 pub async fn close_channel(
     request: web::Json<CloseChannelRequest>,
-    lightning: web::Data<Arc<LightningManager>>,
+    node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     let force = request.force.unwrap_or(false);
+    
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
     
     match lightning.close_channel(&request.channel_id, force).await {
         Ok(true) => Ok(HttpResponse::Ok().finish()),
@@ -205,11 +249,18 @@ struct GetPaymentsParams {
 )]
 pub async fn get_payments(
     params: web::Query<GetPaymentsParams>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<Vec<LightningPayment>> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
     let index_offset = params.index_offset.unwrap_or(0);
     let max_payments = params.max_payments.unwrap_or(100);
     let include_pending = params.include_pending.unwrap_or(true);
+    
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
     
     match lightning.get_payments(index_offset, max_payments, include_pending) {
         Ok(payments) => Ok(HttpResponse::Ok().json(payments)),
@@ -232,8 +283,15 @@ pub async fn get_payments(
 )]
 pub async fn send_payment(
     request: web::Json<PaymentRequest>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<PaymentResponse> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
+    
     match lightning.send_payment(
         &request.payment_request,
         request.amount_msat,
@@ -276,11 +334,18 @@ struct GetInvoicesParams {
 )]
 pub async fn get_invoices(
     params: web::Query<GetInvoicesParams>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<Vec<LightningInvoice>> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
     let pending_only = params.pending_only.unwrap_or(true);
     let index_offset = params.index_offset.unwrap_or(0);
     let num_max_invoices = params.num_max_invoices.unwrap_or(100);
+    
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
     
     match lightning.get_invoices(pending_only, index_offset, num_max_invoices) {
         Ok(invoices) => Ok(HttpResponse::Ok().json(invoices)),
@@ -303,8 +368,15 @@ pub async fn get_invoices(
 )]
 pub async fn create_invoice(
     request: web::Json<InvoiceRequest>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<InvoiceResponse> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
+    
     match lightning.create_invoice(
         request.value_msat,
         &request.memo.clone().unwrap_or_default(),
@@ -340,9 +412,16 @@ struct GetNetworkNodesParams {
 )]
 pub async fn get_network_nodes(
     params: web::Query<GetNetworkNodesParams>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<Vec<NodeInfo>> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
     let limit = params.limit.unwrap_or(100);
+    
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
     
     match lightning.get_network_nodes(limit) {
         Ok(nodes) => Ok(HttpResponse::Ok().json(nodes)),
@@ -367,12 +446,19 @@ pub async fn get_network_nodes(
 )]
 pub async fn get_node_info(
     path: web::Path<String>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<NodeInfo> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
     let node_id = path.into_inner();
     
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
+    
     match lightning.get_node_info(&node_id) {
-        Ok(Some(node)) => Ok(HttpResponse::Ok().json(node)),
+        Ok(Some(node_info)) => Ok(HttpResponse::Ok().json(node_info)),
         Ok(None) => Err(ApiError::not_found("Node not found")),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get node info: {}", e))),
     }
@@ -409,11 +495,18 @@ struct FindRouteParams {
 )]
 pub async fn find_route(
     params: web::Query<FindRouteParams>,
-    lightning: web::Data<Arc<LightningManager>>,
-) -> ApiResult<Route> {
+    node: web::Data<Arc<Node>>,
+) -> ApiResult<HttpResponse> {
     let pub_key = params.pub_key.clone();
     let amt_msat = params.amt_msat;
     let fee_limit_msat = params.fee_limit_msat.unwrap_or(10000);
+    
+    let lightning = match node.lightning() {
+        Some(lightning) => lightning,
+        None => return Err(ApiError::service_unavailable("Lightning Network not initialized")),
+    };
+    
+    let lightning = lightning.lock().unwrap();
     
     match lightning.find_route(&pub_key, amt_msat, fee_limit_msat).await {
         Ok(Some(route)) => Ok(HttpResponse::Ok().json(route)),

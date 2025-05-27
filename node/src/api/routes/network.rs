@@ -8,6 +8,7 @@ use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
+use serde_json;
 
 /// Configure network API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -37,13 +38,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 pub async fn get_network_info(
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<NetworkInfo> {
-    // Retrieve network information from the P2PNetwork
-    let info = match network.get_network_info() {
+    let info = match network.get_network_info().await {
         Ok(info) => info,
         Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve network info: {}", e))),
     };
-    
-    Ok(HttpResponse::Ok().json(info))
+
+    Ok(info)
 }
 
 /// Get connection count
@@ -60,13 +60,12 @@ pub async fn get_network_info(
 pub async fn get_connection_count(
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<ConnectionCount> {
-    // Retrieve connection count from the P2PNetwork
-    let count = match network.get_connection_count() {
+    let count = match network.get_connection_count().await {
         Ok(count) => count,
         Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve connection count: {}", e))),
     };
-    
-    Ok(HttpResponse::Ok().json(count))
+
+    Ok(count)
 }
 
 /// Get a list of connected peers
@@ -98,16 +97,15 @@ pub async fn get_peers(
     params: web::Query<GetPeersParams>,
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<Vec<PeerInfo>> {
-    let connection_state = params.connection_state.clone();
+    let connection_state = params.connection_state.as_ref().map(|s| s.clone());
     let verbose = params.verbose.unwrap_or(false);
     
-    // Retrieve peers from the P2PNetwork with the specified filters
-    let peers = match network.get_peers(connection_state, verbose) {
+    let peers = match network.get_peers(connection_state, verbose).await {
         Ok(peers) => peers,
         Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve peers: {}", e))),
     };
-    
-    Ok(HttpResponse::Ok().json(peers))
+
+    Ok(peers)
 }
 
 /// Get information about a specific peer
@@ -131,9 +129,8 @@ pub async fn get_peer(
 ) -> ApiResult<PeerInfo> {
     let peer_id = path.into_inner();
     
-    // TODO: Implement real peer information retrieval
-    match network.get_peer(&peer_id)? {
-        Some(peer) => Ok(HttpResponse::Ok().json(peer)),
+    match network.get_peer(&peer_id).await? {
+        Some(peer) => Ok(peer),
         None => Err(ApiError::not_found("Peer not found")),
     }
 }
@@ -155,13 +152,12 @@ pub async fn add_peer(
     request: web::Json<PeerAddRequest>,
     network: web::Data<Arc<P2PNetwork>>,
 ) -> ApiResult<PeerAddResponse> {
-    let address = request.address.clone();
+    let address = &request.address;
     let permanent = request.permanent.unwrap_or(false);
     
-    // TODO: Implement real peer addition
-    let result = network.add_peer(&address, permanent)?;
-    
-    Ok(HttpResponse::Ok().json(result))
+    let result = network.add_peer(&address, permanent).await?;
+
+    Ok(result)
 }
 
 /// Remove a peer connection
@@ -182,14 +178,21 @@ pub async fn add_peer(
 pub async fn remove_peer(
     path: web::Path<String>,
     network: web::Data<Arc<P2PNetwork>>,
-) -> ApiResult<HttpResponse> {
+) -> ApiResult<serde_json::Value> {
     let peer_id = path.into_inner();
     
-    // TODO: Implement real peer removal
-    if network.remove_peer(&peer_id)? {
-        Ok(HttpResponse::Ok().finish())
-    } else {
-        Err(ApiError::not_found("Peer not found"))
+    match network.remove_peer(&peer_id).await {
+        Ok(success) => {
+            if success {
+                Ok(serde_json::json!({
+                    "success": true,
+                    "message": "Peer removed successfully"
+                }))
+            } else {
+                Err(ApiError::not_found("Peer not found"))
+            }
+        },
+        Err(e) => Err(ApiError::internal_error(format!("Failed to remove peer: {}", e))),
     }
 }
 
@@ -221,8 +224,7 @@ pub async fn get_bandwidth_usage(
 ) -> ApiResult<BandwidthUsage> {
     let period = params.period.unwrap_or(3600);
     
-    // TODO: Implement real bandwidth usage retrieval
-    let usage = network.get_bandwidth_usage(period)?;
+    let usage = network.get_bandwidth_usage(period).await?;
     
-    Ok(HttpResponse::Ok().json(usage))
+    Ok(usage)
 } 

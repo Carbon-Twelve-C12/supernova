@@ -136,7 +136,7 @@ impl BlockHeader {
     pub fn increment_nonce(&mut self) {
         self.nonce = self.nonce.wrapping_add(1);
     }
-    
+
     /// Convert to the network protocol format
     pub fn to_protocol_header(&self) -> network_protocol::BlockHeader {
         network_protocol::BlockHeader {
@@ -278,12 +278,12 @@ impl Block {
             transactions,
         }
     }
-    
+
     /// Get the block hash
     pub fn hash(&self) -> Hash256 {
         self.header.hash()
     }
-    
+
     /// Calculate the Merkle root of the transactions
     pub fn calculate_merkle_root(&self) -> Hash256 {
         if self.transactions.is_empty() {
@@ -295,7 +295,7 @@ impl Block {
             .iter()
             .map(|tx| tx.hash())
             .collect();
-        
+
         // Create Merkle tree
         let merkle_tree = MerkleTree::new(&tx_hashes);
         merkle_tree.root_hash()
@@ -323,15 +323,15 @@ impl Block {
         if !self.verify_merkle_root() {
             return false;
         }
-        
+
         // Validate transactions
         if !self.validate_transactions() {
             return false;
         }
-        
+
         true
     }
-    
+
     /// Validate all transactions in the block
     pub fn validate_transactions(&self) -> bool {
         // Check that there is at least one transaction (coinbase)
@@ -492,6 +492,16 @@ impl Block {
     /// This should be called by the chain state manager when adding blocks
     pub fn set_height(&mut self, height: u64) {
         self.header.set_height(height);
+    }
+
+    /// Get the version of this block (delegates to header)
+    pub fn version(&self) -> u32 {
+        self.header.version
+    }
+
+    /// Get the nonce of this block (delegates to header)
+    pub fn nonce(&self) -> u32 {
+        self.header.nonce
     }
 }
 

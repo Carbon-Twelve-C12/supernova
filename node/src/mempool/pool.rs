@@ -116,10 +116,7 @@ impl TransactionPool {
 
     /// Get a transaction by its hash
     pub fn get_transaction(&self, tx_hash: &[u8; 32]) -> Option<Transaction> {
-        match self.transactions.get(tx_hash) {
-            Some(entry) => Some(entry.transaction.clone()),
-            None => None
-        }
+        self.transactions.get(tx_hash).map(|entry| entry.transaction.clone())
     }
 
     /// Clear expired transactions from the pool
@@ -344,7 +341,7 @@ impl TransactionPool {
     }
     
     /// Get a specific transaction by hex string ID
-    pub fn get_transaction(&self, txid: &str) -> Result<Option<MempoolTransaction>, MempoolError> {
+    pub fn get_transaction_by_id(&self, txid: &str) -> Result<Option<MempoolTransaction>, MempoolError> {
         // Parse hex string to bytes
         let tx_hash_bytes = hex::decode(txid).map_err(|_| MempoolError::SerializationError)?;
         if tx_hash_bytes.len() != 32 {
@@ -465,18 +462,34 @@ impl TransactionPool {
             target_blocks: target_conf,
         })
     }
+
+    /// Get current mempool size (number of transactions)
+    pub fn size(&self) -> usize {
+        self.transactions.len()
+    }
+
+    /// Get current mempool size in bytes
+    pub fn size_in_bytes(&self) -> usize {
+        self.transactions.iter().map(|entry| entry.size).sum()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum MempoolError {
     #[error("Transaction already exists in mempool")]
     DuplicateTransaction,
+    #[error("Transaction already exists in mempool")]
+    TransactionExists,
     #[error("Mempool is full")]
     PoolFull,
     #[error("Transaction fee rate is too low")]
     FeeTooLow,
+    #[error("Insufficient fee")]
+    InsufficientFee,
     #[error("Double spend detected")]
     DoubleSpend,
+    #[error("Invalid transaction: {0}")]
+    InvalidTransaction(String),
     #[error("Failed to serialize transaction")]
     SerializationError,
     #[error("Replace-By-Fee is disabled")]

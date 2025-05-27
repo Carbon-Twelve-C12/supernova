@@ -50,14 +50,13 @@ struct GetEnvironmentalImpactParams {
 )]
 pub async fn get_environmental_impact(
     params: web::Query<GetEnvironmentalImpactParams>,
-    monitor: web::Data<Arc<EnvironmentalMonitor>>,
+    environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalImpact> {
-    let period = params.period.unwrap_or(86400);
-    let detail = params.detail.clone().unwrap_or_else(|| "standard".to_string());
+    let period = params.period.unwrap_or(3600);
     
-    match monitor.get_environmental_impact(period, &detail) {
-        Ok(impact) => Ok(HttpResponse::Ok().json(impact)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve environmental impact: {}", e))),
+    match environmental.get_environmental_impact(period) {
+        Ok(impact) => Ok(impact),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get environmental impact: {}", e))),
     }
 }
 
@@ -89,14 +88,13 @@ struct GetEnergyUsageParams {
 )]
 pub async fn get_energy_usage(
     params: web::Query<GetEnergyUsageParams>,
-    monitor: web::Data<Arc<EnvironmentalMonitor>>,
+    environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnergyUsage> {
     let period = params.period.unwrap_or(3600);
-    let include_history = params.include_history.unwrap_or(false);
     
-    match monitor.get_energy_usage(period, include_history) {
-        Ok(energy_data) => Ok(HttpResponse::Ok().json(energy_data)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve energy usage: {}", e))),
+    match environmental.get_energy_usage(period) {
+        Ok(energy_data) => Ok(energy_data),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get energy usage: {}", e))),
     }
 }
 
@@ -128,14 +126,13 @@ struct GetCarbonFootprintParams {
 )]
 pub async fn get_carbon_footprint(
     params: web::Query<GetCarbonFootprintParams>,
-    monitor: web::Data<Arc<EnvironmentalMonitor>>,
+    environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<CarbonFootprint> {
-    let period = params.period.unwrap_or(86400);
-    let include_offsets = params.include_offsets.unwrap_or(true);
+    let period = params.period.unwrap_or(3600);
     
-    match monitor.get_carbon_footprint(period, include_offsets) {
-        Ok(carbon_data) => Ok(HttpResponse::Ok().json(carbon_data)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve carbon footprint: {}", e))),
+    match environmental.get_carbon_footprint(period) {
+        Ok(carbon_data) => Ok(carbon_data),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get carbon footprint: {}", e))),
     }
 }
 
@@ -162,14 +159,11 @@ struct GetResourceUtilizationParams {
     )
 )]
 pub async fn get_resource_utilization(
-    params: web::Query<GetResourceUtilizationParams>,
-    monitor: web::Data<Arc<EnvironmentalMonitor>>,
+    environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<ResourceUtilization> {
-    let period = params.period.unwrap_or(300);
-    
-    match monitor.get_resource_utilization(period) {
-        Ok(resource_data) => Ok(HttpResponse::Ok().json(resource_data)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve resource utilization: {}", e))),
+    match environmental.get_resource_utilization() {
+        Ok(resource_data) => Ok(resource_data),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get resource utilization: {}", e))),
     }
 }
 
@@ -185,11 +179,11 @@ pub async fn get_resource_utilization(
     )
 )]
 pub async fn get_environmental_settings(
-    monitor: web::Data<Arc<EnvironmentalMonitor>>,
+    environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalSettings> {
-    match monitor.get_settings() {
-        Ok(settings) => Ok(HttpResponse::Ok().json(settings)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to retrieve environmental settings: {}", e))),
+    match environmental.get_environmental_settings() {
+        Ok(settings) => Ok(settings),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to get environmental settings: {}", e))),
     }
 }
 
@@ -208,18 +202,10 @@ pub async fn get_environmental_settings(
 )]
 pub async fn update_environmental_settings(
     request: web::Json<EnvironmentalSettings>,
-    monitor: web::Data<Arc<EnvironmentalMonitor>>,
+    environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalSettings> {
-    match monitor.update_settings(request.0) {
-        Ok(updated_settings) => Ok(HttpResponse::Ok().json(updated_settings)),
-        Err(e) => match e {
-            crate::environmental::EnvironmentalError::InvalidRegion(region) => {
-                Err(ApiError::bad_request(format!("Invalid region code: {}", region)))
-            },
-            crate::environmental::EnvironmentalError::InvalidSetting(msg) => {
-                Err(ApiError::bad_request(format!("Invalid setting: {}", msg)))
-            },
-            _ => Err(ApiError::internal_error(format!("Failed to update environmental settings: {}", e))),
-        },
+    match environmental.update_environmental_settings(request.into_inner()) {
+        Ok(updated_settings) => Ok(updated_settings),
+        Err(e) => Err(ApiError::internal_error(format!("Failed to update environmental settings: {}", e))),
     }
 } 

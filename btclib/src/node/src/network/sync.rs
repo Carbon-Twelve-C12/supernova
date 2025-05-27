@@ -632,7 +632,7 @@ impl ChainSync {
             error!("Failed to store checkpoint: {}", e);
             return Ok(());
         }
-        
+
         // Update last checkpoint height
         self.last_checkpoint_height = height;
         
@@ -641,13 +641,13 @@ impl ChainSync {
             height,
             hash,
         };
-        
+
         self.command_sender
             .send(NetworkCommand::BroadcastMessage(checkpoint_msg))
             .await?;
             
         info!("Checkpoint at height {} broadcast to peers", height);
-        
+
         Ok(())
     }
 
