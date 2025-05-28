@@ -9,11 +9,22 @@ pub mod checkpoint;
 pub mod corruption;
 pub mod integrity;
 pub mod utxo_set;
+pub mod atomic_utxo_set;
+pub mod database_shutdown;
+pub mod journal;
+
+#[cfg(test)]
+pub mod database_shutdown_tests;
+
+#[cfg(test)]
+mod utxo_attack_tests;
 
 pub use persistence::ChainState;
-pub use database::StorageError;
-pub use database::BlockchainDB;
-pub use backup::{BackupManager, BackupOperation, RecoveryManager};
-pub use checkpoint::{CheckpointManager, CheckpointConfig, CheckpointType, CheckpointInfo};
-pub use corruption::{CorruptionError, CorruptionHandler};
+pub use database::{BlockchainDB, BlockchainDBConfig, StorageError, IntegrityCheckLevel, IntegrityCheckResult};
+pub use backup::{BackupManager, BackupMode, BackupState, BackupError, BackupOperation, RecoveryManager};
+pub use checkpoint::{CheckpointManager, CheckpointType, CheckpointConfig, CheckpointError};
+pub use corruption::{CorruptionHandler, CorruptionError, IntegrityChecker, CorruptionInfo, CorruptionType, RepairPlan};
+pub use database_shutdown::{DatabaseShutdownHandler, DatabaseStartupHandler, ShutdownConfig};
+pub use journal::{WriteAheadLog, JournalEntry, WalError};
 pub use utxo_set::UtxoSet;
+pub use atomic_utxo_set::{AtomicUtxoSet, UnspentOutput, OutPoint};

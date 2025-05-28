@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Mutex};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 use crate::types::block::{Block, BlockHeader};
 use crate::types::transaction::{Transaction, OutPoint};
 use crate::storage::utxo_set::{UtxoSet, UtxoEntry, UtxoCommitment};
+use crate::consensus::secure_fork_resolution::{SecureForkResolver, SecureForkConfig};
 
 /// Errors that can occur in chain state operations
 #[derive(Debug, Error)]
@@ -123,11 +124,16 @@ pub struct ChainState {
     
     /// UTXO set reference
     utxo_set: Arc<UtxoSet>,
+    
+    /// Secure fork resolver
+    fork_resolver: Arc<Mutex<SecureForkResolver>>,
 }
 
 impl ChainState {
     /// Create a new chain state
     pub fn new(config: ChainStateConfig, utxo_set: Arc<UtxoSet>) -> Self {
+        let fork_config = SecureForkConfig::default();
+        
         Self {
             config,
             headers: Arc::new(RwLock::new(HashMap::new())),
@@ -138,6 +144,7 @@ impl ChainState {
             processed_blocks: Arc::new(RwLock::new(HashSet::new())),
             checkpoints: Arc::new(RwLock::new(HashMap::new())),
             utxo_set,
+            fork_resolver: Arc::new(Mutex::new(SecureForkResolver::new(fork_config))),
         }
     }
     
@@ -284,23 +291,34 @@ impl ChainState {
             height_map.entry(height_u32).or_default().push(block_hash);
         }
         
-        // Check if this is a better chain according to policy
+        // Check if this is a better chain according to secure fork resolution
         let current_tip = self.get_tip()?;
         let current_height = self.get_height()?;
         // Convert current_height to u64 for comparison
         let current_height_u64: u64 = current_height.into();
+        
         let should_reorg = if block_height > current_height_u64 {
             // New block is higher, potential reorg
             true
         } else if block_height == current_height_u64 {
-            // Same height, use fork resolution policy
-            match self.config.fork_resolution_policy {
-                ForkResolutionPolicy::MostWork => {
-                    // Compare accumulated work (simplified - use target as proxy)
-                    block.header().bits() < self.get_header(&current_tip)?.unwrap().bits()
-                },
-                ForkResolutionPolicy::FirstSeen => false, // Stick with what we saw first
-                ForkResolutionPolicy::MostBlocks => false, // Equal blocks, stick with current
+            // Same height, use secure fork resolution
+            // Create header getter closure
+            let headers_ref = self.headers.clone();
+            let get_header = move |hash: &[u8; 32]| -> Option<BlockHeader> {
+                headers_ref.read().ok()?.get(hash).cloned()
+            };
+            
+            // Use secure fork resolver
+            let mut resolver = self.fork_resolver.lock().map_err(|e| 
+                ChainStateError::StorageError(format!("Fork resolver lock poisoned: {}", e)))?;
+            
+            match resolver.compare_chains(&block_hash, &current_tip, get_header) {
+                Ok(new_chain_better) => new_chain_better,
+                Err(e) => {
+                    // Log error but don't fail - default to keeping current chain
+                    log::warn!("Fork resolution error: {}, keeping current chain", e);
+                    false
+                }
             }
         } else {
             // New block is lower height, no reorg

@@ -145,10 +145,15 @@ pub enum Message {
     Pong(u64),
     
     /// Identity verification challenge
-    IdentityChallenge(Vec<u8>),
+    IdentityChallenge {
+        nonce: Vec<u8>,
+        difficulty: u8,
+    },
     
     /// Response to identity verification challenge
-    IdentityChallengeResponse(Vec<u8>),
+    IdentityChallengeResponse {
+        solution: Vec<u8>,
+    },
     
     /// Quantum-resistant signature announcement
     QuantumSignatureAnnouncement {

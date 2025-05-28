@@ -16,6 +16,27 @@ use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Digest};
 use tokio::sync::mpsc;
 use tokio::time;
+use btclib::types::block::Block;
+use thiserror::Error;
+
+/// Checkpoint-related errors
+#[derive(Debug, Error)]
+pub enum CheckpointError {
+    #[error("Checkpoint creation failed: {0}")]
+    CreationFailed(String),
+    
+    #[error("Checkpoint validation failed: {0}")]
+    ValidationFailed(String),
+    
+    #[error("Checkpoint not found: {0}")]
+    NotFound(String),
+    
+    #[error("Storage error: {0}")]
+    Storage(#[from] StorageError),
+    
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] Box<bincode::ErrorKind>),
+}
 
 // Default checkpoint settings
 const DEFAULT_CHECKPOINT_INTERVAL_BLOCKS: u64 = 1000;

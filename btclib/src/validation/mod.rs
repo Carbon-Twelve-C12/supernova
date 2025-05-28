@@ -11,6 +11,9 @@ pub mod transaction;
 pub mod crypto;
 pub mod block;
 
+#[cfg(test)]
+mod block_validation_tests;
+
 /// Security level for cryptographic operations and validation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SecurityLevel {
@@ -203,4 +206,27 @@ pub use block::{
     BlockValidationConfig,
     BlockValidationError,
     BlockValidationResult,
-}; 
+    ValidationContext,
+};
+
+// Convenience functions for validation
+use crate::types::Block;
+use crate::types::transaction::Transaction;
+
+/// Validate a block with default configuration
+pub fn validate_block(block: &Block) -> Result<(), ValidationError> {
+    let validator = block::BlockValidator::new();
+    validator.validate_block(block)
+        .map_err(|e| ValidationError::Generic(e.to_string()))
+}
+
+/// Validate a transaction with default configuration
+pub fn validate_transaction(tx: &Transaction) -> Result<(), ValidationError> {
+    let validator = transaction::TransactionValidator::new();
+    match validator.validate(tx) {
+        Ok(transaction::ValidationResult::Valid) => Ok(()),
+        Ok(transaction::ValidationResult::Invalid(err)) => Err(err),
+        Ok(transaction::ValidationResult::SoftFail(err)) => Err(err),
+        Err(err) => Err(err),
+    }
+} 

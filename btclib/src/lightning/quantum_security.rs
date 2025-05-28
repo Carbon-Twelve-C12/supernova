@@ -9,10 +9,11 @@ use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
 use rand::{Rng, RngCore};
+use rand::{SeedableRng};
+use rand::distributions::{Distribution, Uniform};
+use rand::rngs::StdRng;
 use sha2::{Sha256, Digest};
 use std::sync::{Arc, Mutex};
-use rand::thread_rng;
-use rand::distributions::{Distribution, Uniform};
 
 /// Quantum security level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -288,14 +289,14 @@ impl QuantumChannelSecurity {
 /// Thread-safe quantum random number generator
 #[derive(Clone)]
 pub struct QuantumRng {
-    rng: Arc<Mutex<ThreadRng>>,
+    rng: Arc<Mutex<StdRng>>,
     entropy_pool: Arc<Mutex<Vec<u8>>>,
 }
 
 impl QuantumRng {
     pub fn new() -> Self {
         Self {
-            rng: Arc::new(Mutex::new(rand::thread_rng())),
+            rng: Arc::new(Mutex::new(StdRng::from_entropy())),
             entropy_pool: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -304,7 +305,7 @@ impl QuantumRng {
         // In a real implementation, this would use quantum entropy sources
         // For now, use cryptographically secure PRNG
         let mut rng = self.rng.lock().unwrap();
-        rand::RngCore::fill_bytes(&mut rng, dest);
+        rng.fill_bytes(dest);
         Ok(())
     }
 }

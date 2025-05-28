@@ -408,7 +408,14 @@ impl TransactionValidator {
         
         match tx.total_input(&get_output) {
             Some(total_in) => {
-                let total_out = tx.total_output();
+                let total_out = match tx.total_output() {
+                    Some(output) => output,
+                    None => {
+                        return Ok(ValidationResult::Invalid(
+                            ValidationError::InvalidStructure("Output amount overflow".to_string())
+                        ));
+                    }
+                };
                 
                 if total_out > total_in {
                     return Ok(ValidationResult::Invalid(

@@ -55,6 +55,9 @@ axum = "0.7"
 geo = "0.27"
 tower = "0.4"
 tower-http = { version = "0.4", features = ["cors", "trace"] }
+flate2 = "1.0"
+parking_lot = "0.12"
+actix-service = "2.0"
 
 [lib]
 name = "node"

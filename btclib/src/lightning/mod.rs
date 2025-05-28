@@ -12,6 +12,10 @@ pub mod watchtower;
 pub mod onion;
 pub mod quantum_security;
 pub mod manager;
+pub mod atomic_operations;
+
+#[cfg(test)]
+pub mod race_condition_tests;
 
 pub use channel::{Channel, ChannelId, ChannelState, ChannelConfig, ChannelError, ChannelManager};
 pub use invoice::{Invoice, InvoiceError, EnhancedInvoice, InvoiceDatabase, RouteHint};
@@ -22,6 +26,9 @@ pub use watchtower::{Watchtower, WatchError, WatchtowerConfig, WatchtowerClient,
 pub use onion::{OnionRouter, OnionPacket, PerHopPayload, SharedSecret};
 pub use quantum_security::{QuantumChannelSecurity, QuantumSecurityError, QuantumChannelConfig};
 pub use manager::{LightningManager, ManagerError, LightningInfo, LightningChannel, LightningPayment, LightningInvoice};
+pub use atomic_operations::{AtomicChannel, AtomicChannelState, AtomicOperationError};
+
+// Re-export main types from this module
 
 use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};

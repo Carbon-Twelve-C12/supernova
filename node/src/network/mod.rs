@@ -4,9 +4,16 @@ pub mod peer;
 pub mod protocol;
 pub mod sync;
 pub mod peer_diversity;
+pub mod eclipse_prevention;
 pub mod p2p;
 pub mod advanced;
 pub mod discovery;
+pub mod rate_limiter;
+
+#[cfg(test)]
+pub mod eclipse_prevention_tests;
+#[cfg(test)]
+pub mod rate_limiter_tests;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -23,6 +30,7 @@ pub use peer::{PeerState, PeerInfo, PeerMetadata};
 pub use protocol::{ProtocolError, Message as ProtocolMessage};
 pub use p2p::{NetworkCommand, NetworkEvent, NetworkStats as P2PNetworkStats, P2PNetwork, NetworkHealth};
 pub use discovery::DiscoveryEvent;
+pub use rate_limiter::{NetworkRateLimiter, RateLimitConfig, RateLimitError};
 
 /// Maximum number of peers to connect to
 pub const MAX_PEERS: usize = 50;

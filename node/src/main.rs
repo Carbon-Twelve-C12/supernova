@@ -16,6 +16,8 @@ use hex;
 use std::thread::JoinHandle;
 use btclib::monitoring::mempool::MempoolMetrics;
 use clap::Parser;
+use serde_json;
+use chrono;
 
 // Command-line arguments
 #[derive(Parser, Debug)]
@@ -750,13 +752,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             // Handle shutdown signal
             _ = tokio::signal::ctrl_c() => {
-                info!("Shutting down...");
+                info!("Received shutdown signal...");
                 break;
             }
         }
     }
 
     // Clean shutdown
+    info!("Beginning graceful shutdown...");
+    
+    // Abort running tasks
     sync_timeout_handle.abort();
     event_handle.abort();
     network_handle.abort();
@@ -767,34 +772,94 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle.abort();
     }
 
+    // Create final database backup if enabled
     let config_lock = node_handle.config.lock().await;
     if config_lock.backup.enable_automated_backups {
+        info!("Creating final backup before shutdown...");
         match node_handle.backup_manager.create_backup().await {
             Ok(backup_path) => info!("Created final backup at {:?}", backup_path),
             Err(e) => warn!("Failed to create final backup during shutdown: {}", e),
         }
     }
+    drop(config_lock);
 
-    // Final database integrity checkpoint before shutdown
+    // Perform database shutdown procedures
     {
+        info!("Performing database shutdown procedures...");
+        
+        // Get database reference
+        let db = node_handle.chain_state.get_db();
+        
+        // Mark shutdown in progress
+        if let Err(e) = db.store_metadata(b"shutdown_in_progress", b"true") {
+            warn!("Failed to mark shutdown in progress: {}", e);
+        }
+        
+        // Create final integrity checkpoint
         let height = node_handle.chain_state.get_height();
         let block_hash = node_handle.chain_state.get_best_block_hash();
-        let mut handler = node_handle.corruption_handler.lock().await;
-        if let Err(e) = handler.create_checkpoint(height, block_hash).await {
-            warn!("Failed to create final integrity checkpoint: {}", e);
-        } else {
-            info!("Created final integrity checkpoint at height {}", height);
+        
+        if let Ok(mut handler) = node_handle.corruption_handler.lock().await {
+            if let Err(e) = handler.create_checkpoint(height, block_hash).await {
+                warn!("Failed to create final integrity checkpoint: {}", e);
+            } else {
+                info!("Created final integrity checkpoint at height {}", height);
+            }
         }
-    }
-
-    // Start API server if enabled
-    if config_lock.api.port > 0 {
-        info!("Starting API server on {}:{}", config_lock.api.bind_address, config_lock.api.port);
-        if let Err(e) = node.start_api_with_config(config_lock.api).await {
-            error!("Failed to start API server: {}", e);
+        
+        // Store shutdown checkpoint metadata
+        let checkpoint_data = serde_json::json!({
+            "type": "shutdown_checkpoint",
+            "height": height,
+            "best_hash": hex::encode(block_hash),
+            "timestamp": chrono::Utc::now().timestamp(),
+            "clean_shutdown": true,
+        });
+        
+        if let Err(e) = db.store_metadata(
+            b"last_shutdown_checkpoint",
+            checkpoint_data.to_string().as_bytes()
+        ) {
+            warn!("Failed to store shutdown checkpoint: {}", e);
         }
-    } else {
-        info!("API server disabled");
+        
+        // Flush all pending writes
+        info!("Flushing database to disk...");
+        if let Err(e) = db.flush() {
+            error!("Failed to flush database: {}", e);
+        }
+        
+        // Quick compaction if time permits
+        info!("Performing quick database compaction...");
+        match tokio::time::timeout(
+            Duration::from_secs(10),
+            tokio::task::spawn_blocking({
+                let db = db.clone();
+                move || db.compact()
+            })
+        ).await {
+            Ok(Ok(Ok(()))) => info!("Database compaction completed"),
+            Ok(Ok(Err(e))) => warn!("Database compaction failed: {}", e),
+            _ => warn!("Database compaction timed out or failed"),
+        }
+        
+        // Mark clean shutdown
+        let timestamp = chrono::Utc::now().timestamp();
+        if let Err(e) = db.store_metadata(b"last_clean_shutdown", timestamp.to_string().as_bytes()) {
+            warn!("Failed to mark clean shutdown: {}", e);
+        }
+        
+        // Clear shutdown in progress flag
+        if let Err(e) = db.store_metadata(b"shutdown_in_progress", b"false") {
+            warn!("Failed to clear shutdown flag: {}", e);
+        }
+        
+        // Final flush
+        if let Err(e) = db.flush() {
+            error!("Failed final database flush: {}", e);
+        }
+        
+        info!("Database shutdown procedures completed");
     }
 
     info!("Shutdown complete");

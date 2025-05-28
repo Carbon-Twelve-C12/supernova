@@ -24,9 +24,9 @@ use super::types;
         crate::api::routes::mempool::get_mempool_info,
         crate::api::routes::mempool::get_mempool_transactions,
         crate::api::routes::mempool::get_mempool_transaction,
-        crate::api::routes::mempool::submit_mempool_transaction,
+        crate::api::routes::mempool::submit_transaction,
         crate::api::routes::mempool::validate_transaction,
-        crate::api::routes::mempool::estimate_fee,
+        crate::api::routes::mempool::get_fee_estimates,
         
         // Network routes
         crate::api::routes::network::get_network_info,
@@ -105,8 +105,7 @@ use super::types;
             types::MempoolTransactionSubmissionResponse,
             types::TransactionValidationResult,
             types::TransactionFees,
-            crate::api::routes::mempool::SubmitTransactionRequest,
-            crate::api::routes::mempool::ValidateTransactionRequest,
+            crate::api::routes::mempool::SubmitTxRequest,
             
             // Network
             types::NetworkInfo,
@@ -167,7 +166,6 @@ use super::types;
             types::BlockHeightParams,
             types::BlockHashParams,
             types::TxHashParams,
-            types::SubmitTxRequest,
         )
     ),
     tags(
@@ -189,8 +187,8 @@ use super::types;
         ),
         contact(
             name = "SuperNova Developer Team",
-            url = "https://supernova.io",
-            email = "dev@supernova.io"
+            url = "https://supernovanetwork.xyz",
+            email = "dev@supernovanetwork.xyz"
         )
     )
 )]

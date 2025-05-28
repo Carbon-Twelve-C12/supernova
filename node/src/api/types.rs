@@ -182,6 +182,29 @@ pub struct MempoolTransaction {
     pub time: u64,
 }
 
+/// Mempool statistics
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct MempoolStatistics {
+    /// Number of transactions
+    pub transaction_count: usize,
+    /// Total size in bytes
+    pub total_size: usize,
+    /// Average transaction size
+    pub avg_transaction_size: f64,
+    /// Total fees
+    pub total_fees: u64,
+    /// Average fee rate
+    pub avg_fee_rate: f64,
+    /// Memory usage in bytes
+    pub memory_usage: usize,
+    /// Minimum fee rate in mempool
+    pub min_fee_rate: u64,
+    /// Maximum fee rate in mempool
+    pub max_fee_rate: u64,
+    /// Age of oldest transaction (seconds)
+    pub oldest_transaction_age: u64,
+}
+
 /// Transaction validation result
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TransactionValidationResult {

@@ -223,8 +223,8 @@ pub async fn get_transaction(
     // First check mempool
     if let Some(mempool_tx) = node.mempool().get_transaction(&tx_hash) {
         let tx_info = TransactionInfo {
-            txid: txid_str,
-            hash: txid_str.clone(),
+            txid: txid_str.clone(),
+            hash: txid_str,
             version: mempool_tx.version(),
             size: bincode::serialize(&mempool_tx).unwrap_or_default().len() as u64,
             vsize: 0, // TODO: Calculate virtual size
@@ -311,16 +311,8 @@ pub async fn get_transaction(
         })
     }).collect();
     
-    // Calculate environmental impact if available
-    let _environmental_impact = if let Some(_em) = node.environmental_manager() {
-        // TODO: Implement transaction emissions calculation
-        None
-    } else {
-        None
-    };
-    
     let tx_info = TransactionInfo {
-        txid: txid_str,
+        txid: txid_str.clone(),
         hash: hex::encode(tx.hash()),
         version: tx.version(),
         size: bincode::serialize(&tx).unwrap_or_default().len() as u64,
@@ -380,13 +372,13 @@ pub async fn submit_transaction(
         },
         Err(e) => {
             match e {
-                crate::mempool::pool::MempoolError::TransactionExists => {
+                crate::mempool::MempoolError::TransactionExists => {
                     Err(ApiError::conflict("Transaction already exists in mempool"))
                 },
-                crate::mempool::pool::MempoolError::InvalidTransaction(msg) => {
+                crate::mempool::MempoolError::InvalidTransaction(msg) => {
                     Err(ApiError::bad_request(format!("Invalid transaction: {}", msg)))
                 },
-                crate::mempool::pool::MempoolError::InsufficientFee => {
+                crate::mempool::MempoolError::InsufficientFee => {
                     Err(ApiError::bad_request("Insufficient transaction fee"))
                 },
                 _ => {
@@ -425,6 +417,14 @@ pub async fn get_blockchain_stats(
         mempool_bytes: node.mempool().size_in_bytes(),
         utxo_set_size: 0, // TODO: Count UTXO set size
         chain_size_bytes: 0, // TODO: Calculate chain size
+    };
+    
+    // Calculate environmental impact if available
+    let _environmental_impact: Option<f64> = if let Some(_em) = node.environmental_manager() {
+        // TODO: Implement transaction emissions calculation
+        None
+    } else {
+        None
     };
     
     Ok(stats)

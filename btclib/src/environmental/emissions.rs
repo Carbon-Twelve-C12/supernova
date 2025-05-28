@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc, NaiveDateTime};
 use crate::types::transaction::Transaction;
 use crate::config::Config;
 use crate::environmental::types::{EmissionsDataSource, EmissionsFactorType, Region as TypesRegion, EmissionFactor as TypesEmissionFactor};
+use crate::environmental::oracle::EnvironmentalOracle;
 use reqwest::Client;
 use tokio::sync::RwLock;
 use std::sync::Arc;
@@ -400,6 +401,8 @@ pub struct EmissionsTracker {
     http_client: Option<Client>,
     /// Last data update timestamp
     last_update: Option<DateTime<Utc>>,
+    /// Environmental oracle system for verification
+    oracle_system: Option<Arc<EnvironmentalOracle>>,
 }
 
 impl EmissionsTracker {
@@ -419,6 +422,7 @@ impl EmissionsTracker {
             config,
             http_client,
             last_update: None,
+            oracle_system: None,
         }
     }
 
@@ -724,22 +728,30 @@ impl EmissionsTracker {
         })
     }
     
-    /// Verify renewable energy certificate claims
+    /// Verify renewable energy certificate claims through oracle consensus
     pub fn verify_rec_claim(&self, certificate: &RECCertificateInfo) -> VerificationStatus {
-        // This is a placeholder implementation
-        // In a production system, this would connect to a verification service
-        
-        // Check if the certificate has expired
-        let now = Utc::now();
-        if certificate.generation_end < now - chrono::Duration::days(365) {
-            return VerificationStatus::Expired;
-        }
-        
-        // For demo purposes, simulate verification
-        if certificate.certificate_url.is_some() && !certificate.certificate_id.is_empty() {
-            VerificationStatus::Verified
+        // Use the oracle system for real verification
+        if let Some(oracle) = &self.oracle_system {
+            match oracle.verify_rec_certificate(certificate) {
+                Ok(status) => status,
+                Err(e) => {
+                    log::error!("Oracle verification failed: {}", e);
+                    VerificationStatus::Failed
+                }
+            }
         } else {
-            VerificationStatus::Pending
+            // Fallback to basic validation if oracle system not available
+            let now = Utc::now();
+            if certificate.generation_end < now - chrono::Duration::days(365) {
+                return VerificationStatus::Expired;
+            }
+            
+            // Without oracle, can only do basic checks
+            if certificate.certificate_url.is_some() && !certificate.certificate_id.is_empty() {
+                VerificationStatus::Pending // Cannot verify without oracle
+            } else {
+                VerificationStatus::Failed
+            }
         }
     }
     
@@ -926,6 +938,11 @@ impl EmissionsTracker {
             // Return estimated network hashrate if no regions registered
             Ok(200_000_000.0) // Approximate current network hashrate in TH/s
         }
+    }
+
+    /// Set the oracle system for verification
+    pub fn set_oracle_system(&mut self, oracle: Arc<EnvironmentalOracle>) {
+        self.oracle_system = Some(oracle);
     }
 }
 

@@ -110,7 +110,11 @@ impl TransactionProcessor {
             }
         }
         
-        let total_output = transaction.total_output();
+        let total_output = transaction.total_output()
+            .ok_or_else(|| TransactionProcessorError::InvalidTransaction(
+                "Output amount overflow".to_string()
+            ))?;
+            
         if total_input < total_output {
             return Err(TransactionProcessorError::InsufficientFunds);
         }

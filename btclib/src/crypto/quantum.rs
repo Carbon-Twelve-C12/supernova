@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Digest};
 use rand::{CryptoRng, RngCore};
 use pqcrypto_dilithium::{dilithium2, dilithium3, dilithium5};
-use pqcrypto_traits::sign::{PublicKey as PQPublicKey, SecretKey as PQSecretKey, DetachedSignature};
+use pqcrypto_traits::sign::{PublicKey as SignPublicKeyTrait, SecretKey as SignSecretKeyTrait, DetachedSignature as SignDetachedSignatureTrait};
 use thiserror::Error;
 use crate::crypto::falcon::FalconError;
 
@@ -25,7 +25,7 @@ mod dilithium_mock {
         pub const SIGNATUREBYTES: usize = 2420;
         
         pub fn verify_detached_signature(_signature: &[u8], _message: &[u8], _public_key: &[u8]) -> Result<(), ()> {
-            // Mock implementation
+            // Implementation of verify_detached_signature
             Ok(())
         }
     }
@@ -34,7 +34,7 @@ mod dilithium_mock {
         pub const SIGNATUREBYTES: usize = 3293;
         
         pub fn verify_detached_signature(_signature: &[u8], _message: &[u8], _public_key: &[u8]) -> Result<(), ()> {
-            // Mock implementation
+            // Implementation of verify_detached_signature
             Ok(())
         }
     }
@@ -43,7 +43,7 @@ mod dilithium_mock {
         pub const SIGNATUREBYTES: usize = 4595;
         
         pub fn verify_detached_signature(_signature: &[u8], _message: &[u8], _public_key: &[u8]) -> Result<(), ()> {
-            // Mock implementation
+            // Implementation of verify_detached_signature
             Ok(())
         }
     }

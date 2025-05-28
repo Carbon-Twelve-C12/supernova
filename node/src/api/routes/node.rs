@@ -240,7 +240,7 @@ pub async fn update_node_config(
 ///
 /// Creates a backup of the node's data.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
-struct CreateBackupRequest {
+pub struct CreateBackupRequest {
     /// Optional destination path for the backup (default: system-determined location)
     destination: Option<String>,
     
