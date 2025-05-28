@@ -59,7 +59,7 @@ impl MerkleTree {
     pub fn new<T: AsRef<[u8]>>(data: &[T]) -> Self {
         if data.is_empty() {
             // Empty tree has a special zero root
-            return Self {
+            return Self { 
                 leaves: Vec::new(),
                 nodes: Vec::new(),
                 root: [0u8; 32],
@@ -84,7 +84,7 @@ impl MerkleTree {
         while nodes[level].len() > 1 {
             let current_level = &nodes[level];
             let mut next_level = Vec::new();
-            
+
             // Combine pairs of nodes to create the next level
             for i in (0..current_level.len()).step_by(2) {
                 if i + 1 < current_level.len() {
@@ -96,14 +96,14 @@ impl MerkleTree {
                     next_level.push(current_level[i]);
                 }
             }
-            
+
             nodes.push(next_level);
             level += 1;
         }
         
         // The last level should contain only the root
         let root = nodes.last().unwrap()[0];
-        
+
         Self {
             leaves,
             nodes,
@@ -255,7 +255,7 @@ impl fmt::Display for MerkleProof {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_empty_tree() {
         let tree = MerkleTree::new::<&[u8]>(&[]);
@@ -279,7 +279,7 @@ mod tests {
         
         assert_eq!(tree.root, expected);
     }
-    
+
     #[test]
     fn test_multiple_leaves() {
         let data = vec![
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(tree.len(), 4);
         assert_eq!(tree.nodes.len(), 3); // Leaves + 2 levels
     }
-    
+
     #[test]
     fn test_proof_creation_and_verification() {
         let data = vec![

@@ -181,7 +181,7 @@ pub async fn get_resource_utilization(
 pub async fn get_environmental_settings(
     environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalSettings> {
-    match environmental.get_environmental_settings() {
+    match environmental.get_settings() {
         Ok(settings) => Ok(settings),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get environmental settings: {}", e))),
     }
@@ -204,7 +204,7 @@ pub async fn update_environmental_settings(
     request: web::Json<EnvironmentalSettings>,
     environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalSettings> {
-    match environmental.update_environmental_settings(request.into_inner()) {
+    match environmental.update_settings(request.into_inner()) {
         Ok(updated_settings) => Ok(updated_settings),
         Err(e) => Err(ApiError::internal_error(format!("Failed to update environmental settings: {}", e))),
     }

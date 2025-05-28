@@ -17,6 +17,8 @@ use crate::network::{
     peer_diversity::{PeerDiversityManager, ConnectionStrategy, IpSubnet},
     message::{MessageHandler, NetworkMessage, MessageEvent},
     discovery::{PeerDiscovery, DiscoveryEvent},
+    eclipse_prevention::{EclipsePreventionSystem, EclipsePreventionConfig, EclipseRiskLevel},
+    rate_limiter::{NetworkRateLimiter, RateLimitConfig, RateLimitError, RateLimitMetrics},
     MAX_PEERS, MAX_INBOUND_CONNECTIONS, MAX_OUTBOUND_CONNECTIONS,
 };
 use btclib::{Block, BlockHeader, Transaction};
@@ -249,8 +251,8 @@ pub enum NetworkEvent {
     /// Listening on address
     Listening(Multiaddr),
     
-    /// Error occurred
-    Error(String),
+    /// General network error
+    NetworkError(String),
 }
 
 /// Enhanced P2P network implementation with peer management
@@ -271,6 +273,10 @@ pub struct P2PNetwork {
     connection_manager: Arc<RwLock<ConnectionManager>>,
     /// Diversity manager for Sybil protection
     diversity_manager: Arc<PeerDiversityManager>,
+    /// Eclipse prevention system
+    eclipse_prevention: Arc<EclipsePreventionSystem>,
+    /// Network rate limiter
+    rate_limiter: Arc<NetworkRateLimiter>,
     /// Message handler
     message_handler: MessageHandler,
     /// Peer discovery system
@@ -414,6 +420,14 @@ impl P2PNetwork {
             10,  // Max connection attempts per minute
         ));
         
+        // Create eclipse prevention system
+        let eclipse_config = EclipsePreventionConfig::default();
+        let eclipse_prevention = Arc::new(EclipsePreventionSystem::new(eclipse_config));
+        
+        // Create network rate limiter
+        let rate_limit_config = RateLimitConfig::default();
+        let rate_limiter = Arc::new(NetworkRateLimiter::new(rate_limit_config));
+        
         // Create message handler
         let message_handler = MessageHandler::new();
         
@@ -435,6 +449,8 @@ impl P2PNetwork {
                 peer_manager,
                 connection_manager: Arc::new(RwLock::new(connection_manager)),
                 diversity_manager,
+                eclipse_prevention,
+                rate_limiter,
                 message_handler,
                 discovery: Arc::new(RwLock::new(None)),
                 stats: Arc::new(RwLock::new(NetworkStats::default())),
@@ -569,9 +585,15 @@ impl P2PNetwork {
         let stats = Arc::clone(&self.stats);
         let connected_peers = Arc::clone(&self.connected_peers);
         let bandwidth_tracker = Arc::clone(&self.bandwidth_tracker);
+        let rate_limiter = Arc::clone(&self.rate_limiter);
+        let banned_peers = Arc::clone(&self.banned_peers);
         
         let task = tokio::spawn(async move {
             let mut command_rx = command_receiver.write().await.take().unwrap();
+            
+            // Create interval timers
+            let mut rate_limit_cleanup_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+            let mut ban_cleanup_interval = tokio::time::interval(Duration::from_secs(60)); // 1 minute
             
             loop {
                 let is_running = *running.read().await;
@@ -612,6 +634,24 @@ impl P2PNetwork {
                             }
                         }
                     } => {}
+                    
+                    // Periodic rate limiter cleanup
+                    _ = rate_limit_cleanup_interval.tick() => {
+                        debug!("Cleaning up rate limiter entries");
+                        rate_limiter.cleanup();
+                        
+                        // Log rate limiter metrics
+                        let metrics = rate_limiter.metrics();
+                        info!("Rate limiter metrics - Total requests: {}, Rejected: {}, Banned IPs: {}",
+                              metrics.total_requests, metrics.rejected_requests, metrics.banned_ips);
+                    }
+                    
+                    // Periodic ban cleanup
+                    _ = ban_cleanup_interval.tick() => {
+                        debug!("Cleaning up expired bans");
+                        let now = Instant::now();
+                        banned_peers.write().await.retain(|_, ban_time| *ban_time > now);
+                    }
                 }
             }
             
@@ -836,12 +876,23 @@ impl P2PNetwork {
             } => {
                 info!("Connected to {}", peer_id);
                 
+                // Extract IP address from endpoint
+                let ip_address = match &endpoint {
+                    ConnectedPoint::Dialer { address, .. } => {
+                        extract_ip_from_multiaddr(address)
+                    }
+                    ConnectedPoint::Listener { send_back_addr, .. } => {
+                        extract_ip_from_multiaddr(send_back_addr)
+                    }
+                };
+                
                 // Create peer info
+                let is_inbound = matches!(endpoint, ConnectedPoint::Listener { .. });
                 let peer_info = PeerInfo {
                     peer_id: peer_id.clone(),
                     addresses: vec![], // Will be populated later
                     state: PeerState::Connected,
-                    is_inbound: matches!(endpoint, ConnectedPoint::Listener { .. }),
+                    is_inbound,
                     protocol_version: 1,
                     user_agent: "supernova/1.0.0".to_string(),
                     height: 0,
@@ -865,6 +916,7 @@ impl P2PNetwork {
                 } else {
                     stats_guard.inbound_connections += 1;
                 }
+                stats_guard.connection_attempts += 1;
             }
             SwarmEvent::ConnectionClosed { 
                 peer_id, 
@@ -1596,6 +1648,83 @@ impl P2PNetwork {
             subnets.len() as f64 / peers.len() as f64
         }
     }
+    
+    /// Perform peer rotation for eclipse attack prevention
+    pub async fn perform_peer_rotation(&self) -> Result<(), Box<dyn Error>> {
+        info!("Starting peer rotation for eclipse prevention");
+        
+        // Check if rotation is needed
+        if !self.eclipse_prevention.check_rotation_needed().await {
+            debug!("Peer rotation not needed at this time");
+            return Ok(());
+        }
+        
+        // Get peers to disconnect
+        let rotation_candidates = self.eclipse_prevention.get_rotation_candidates().await;
+        info!("Rotating {} peers", rotation_candidates.len());
+        
+        // Disconnect selected peers
+        for peer_id in rotation_candidates {
+            info!("Disconnecting peer {} for rotation", peer_id);
+            self.command_receiver.write().await.send(NetworkCommand::DisconnectPeer(peer_id))?;
+        }
+        
+        // Connect to new diverse peers
+        // In production, this would use peer discovery to find new peers
+        // that improve network diversity
+        
+        Ok(())
+    }
+    
+    /// Get eclipse attack risk level
+    pub async fn get_eclipse_risk_level(&self) -> EclipseRiskLevel {
+        self.eclipse_prevention.get_eclipse_risk_level().await
+    }
+    
+    /// Handle identity challenge response
+    pub async fn handle_identity_challenge_response(&self, peer_id: &PeerId, solution: &[u8]) -> bool {
+        self.eclipse_prevention.verify_pow_challenge(peer_id, solution).await
+    }
+    
+    /// Update peer behavior score based on actions
+    pub async fn update_peer_behavior(&self, peer_id: &PeerId, delta: f64) {
+        self.eclipse_prevention.update_behavior_score(peer_id, delta).await;
+    }
+    
+    /// Record peer advertisements for eclipse detection
+    pub async fn record_peer_advertisements(&self, from_peer: PeerId, advertised_peers: Vec<PeerId>) {
+        self.eclipse_prevention.record_peer_advertisement(from_peer, advertised_peers).await;
+    }
+    
+    /// Check if an incoming connection should be allowed
+    pub async fn should_allow_connection(&self, socket_addr: std::net::SocketAddr) -> bool {
+        // Check rate limiting
+        match self.rate_limiter.check_connection(socket_addr).await {
+            Ok(permit) => {
+                // Connection allowed by rate limiter
+                debug!("Connection from {} passed rate limiting", socket_addr);
+                // Record success
+                permit.record_success();
+                true
+            }
+            Err(e) => {
+                // Connection rejected by rate limiter
+                warn!("Connection from {} rejected by rate limiter: {}", socket_addr, e);
+                self.rate_limiter.record_failure();
+                false
+            }
+        }
+    }
+    
+    /// Get rate limiter metrics
+    pub fn get_rate_limiter_metrics(&self) -> RateLimitMetrics {
+        self.rate_limiter.metrics()
+    }
+    
+    /// Configure rate limiting
+    pub async fn configure_rate_limiting(&mut self, config: RateLimitConfig) {
+        self.rate_limiter = Arc::new(NetworkRateLimiter::new(config));
+    }
 }
 
 /// Network health metrics
@@ -1628,22 +1757,51 @@ fn build_transport(
 /// Count the number of leading zero bits in a hash
 fn count_leading_zero_bits(hash: &[u8]) -> u8 {
     let mut count = 0;
-    
-    for &byte in hash {
-        if byte == 0 {
+    for byte in hash {
+        if *byte == 0 {
             count += 8;
-    } else {
-            // Count leading zeros in this byte
-            let mut mask = 0x80;
-            while mask & byte == 0 && mask > 0 {
-                count += 1;
-                mask >>= 1;
-            }
+        } else {
+            count += byte.leading_zeros() as u8;
             break;
         }
     }
-    
     count
+}
+
+/// Extract IP address from multiaddr
+fn extract_ip_from_multiaddr(addr: &Multiaddr) -> Option<IpAddr> {
+    use libp2p::multiaddr::Protocol;
+    
+    for proto in addr.iter() {
+        match proto {
+            Protocol::Ip4(ip) => return Some(IpAddr::V4(ip)),
+            Protocol::Ip6(ip) => return Some(IpAddr::V6(ip)),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Extract socket address from multiaddr
+fn extract_socket_addr_from_multiaddr(addr: &Multiaddr) -> Option<std::net::SocketAddr> {
+    use libp2p::multiaddr::Protocol;
+    
+    let mut ip_addr = None;
+    let mut port = None;
+    
+    for proto in addr.iter() {
+        match proto {
+            Protocol::Ip4(ip) => ip_addr = Some(IpAddr::V4(ip)),
+            Protocol::Ip6(ip) => ip_addr = Some(IpAddr::V6(ip)),
+            Protocol::Tcp(p) => port = Some(p),
+            _ => {}
+        }
+    }
+    
+    match (ip_addr, port) {
+        (Some(ip), Some(p)) => Some(std::net::SocketAddr::new(ip, p)),
+        _ => None,
+    }
 }
 
 /// Solve a proof-of-work challenge with required difficulty
@@ -1695,6 +1853,8 @@ impl P2PNetwork {
                 MAX_OUTBOUND_CONNECTIONS,
             ))),
             diversity_manager: Arc::new(PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 10)),
+            eclipse_prevention: Arc::new(EclipsePreventionSystem::new(EclipsePreventionConfig::default())),
+            rate_limiter: Arc::new(NetworkRateLimiter::new(RateLimitConfig::default())),
             message_handler: MessageHandler::new(),
             discovery: Arc::new(RwLock::new(None)),
             stats: Arc::new(RwLock::new(NetworkStats::default())),

@@ -5,7 +5,7 @@
 //! environmental data, and Lightning Network functionality.
 
 mod error;
-mod types;
+pub mod types;
 mod server;
 pub mod routes;
 pub mod middleware;
@@ -24,6 +24,9 @@ pub mod metrics;
 pub use error::{ApiError, Result};
 pub use types::*;
 pub use server::{ApiServer, ApiConfig};
+
+// Re-export thread safety types
+pub use crate::thread_safety_fix::{ThreadSafeNode, NodeApiFacade};
 
 use crate::node::Node;
 use std::sync::Arc;

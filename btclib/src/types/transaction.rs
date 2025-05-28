@@ -308,11 +308,11 @@ impl Transaction {
     }
 
     /// Calculate the total output amount
-    pub fn total_output(&self) -> u64 {
+    pub fn total_output(&self) -> Option<u64> {
         self.outputs
             .iter()
             .map(|output| output.amount)
-            .sum()
+            .try_fold(0u64, |acc, amount| acc.checked_add(amount))
     }
 
     /// Basic validation of the transaction
@@ -323,14 +323,13 @@ impl Transaction {
         }
 
         // Verify total input amount is greater than or equal to total output amount
-        match self.total_input(&get_output) {
-            Some(total_in) => {
-                let total_out = self.total_output();
+        match (self.total_input(&get_output), self.total_output()) {
+            (Some(total_in), Some(total_out)) => {
                 if total_in < total_out {
                     return false;
                 }
             }
-            None => return false, // Couldn't find an input's previous output
+            _ => return false, // Couldn't calculate totals (overflow or missing outputs)
         }
 
         // Verify signatures for each input
@@ -702,7 +701,7 @@ impl Transaction {
     /// Calculate the transaction fee (inputs - outputs)
     pub fn calculate_fee(&self, get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>) -> Option<u64> {
         if let Some(total_input) = self.total_input(&get_output) {
-            let total_output = self.total_output();
+            let total_output = self.total_output().unwrap_or(0);
             
             if total_input > total_output {
                 return Some(total_input - total_output);
@@ -881,7 +880,7 @@ mod tests {
 
         let tx = Transaction::new(1, inputs, outputs, 0);
         assert_eq!(tx.version, 1);
-        assert_eq!(tx.total_output(), 50_000_000);
+        assert_eq!(tx.total_output().unwrap(), 50_000_000);
     }
 
     #[test]

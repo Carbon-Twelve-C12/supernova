@@ -177,6 +177,11 @@ impl BlockHeader {
         &self.prev_block_hash
     }
     
+    /// Get the timestamp
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+    
     /// Set the height of this block header
     pub fn set_height(&mut self, height: u64) {
         self.height = height;

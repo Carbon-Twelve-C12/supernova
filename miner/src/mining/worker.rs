@@ -1,6 +1,6 @@
 use btclib::types::block::Block;
 use crate::mining::template::BlockTemplate;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing;
@@ -71,7 +71,7 @@ pub struct MiningStats {
 pub struct MiningWorker {
     pub(crate) stop_signal: Arc<AtomicBool>,
     pub(crate) block_sender: mpsc::Sender<Block>,
-    pub(crate) target: u32,
+    pub(crate) target: AtomicU32,
     pub(crate) worker_id: usize,
     pub(crate) mempool: Arc<dyn MempoolInterface + Send + Sync>,
     pub metrics: Arc<MiningMetrics>,
@@ -82,7 +82,7 @@ impl MiningWorker {
     pub fn new(
         stop_signal: Arc<AtomicBool>,
         block_sender: mpsc::Sender<Block>,
-        target: u32,
+        target: AtomicU32,
         worker_id: usize,
         mempool: Arc<dyn MempoolInterface + Send + Sync>,
     ) -> Self {
@@ -118,7 +118,7 @@ impl MiningWorker {
         let mut template = BlockTemplate::new(
             version,
             prev_block_hash,
-            self.target,
+            self.target.load(Ordering::Relaxed) as u32,
             reward_address.clone(),
             self.mempool.as_ref(),
         ).await;
@@ -162,7 +162,7 @@ impl MiningWorker {
                 template = BlockTemplate::new(
                     version,
                     prev_block_hash,
-                    self.target,
+                    self.target.load(Ordering::Relaxed) as u32,
                     reward_address.clone(),
                     self.mempool.as_ref(),
                 ).await;
@@ -180,7 +180,7 @@ impl MiningWorker {
         let mut hash_value = [0u8; 8];
         hash_value[..4].copy_from_slice(&hash[..4]);
         let hash_value = u64::from_be_bytes(hash_value);
-        hash_value as u32 <= self.target
+        hash_value as u32 <= self.target.load(Ordering::Relaxed) as u32
     }
     
     // Extract block header for hashing
@@ -280,7 +280,7 @@ mod tests {
         let worker = MiningWorker::new(
             Arc::clone(&stop_signal),
             tx,
-            u32::MAX, // Easiest possible target for fast test completion
+            AtomicU32::new(u32::MAX), // Easiest possible target for fast test completion
             0,
             mempool,
         );
@@ -311,7 +311,7 @@ mod tests {
         let worker = MiningWorker::new(
             Arc::clone(&stop_signal),
             tx,
-            u32::MAX,
+            AtomicU32::new(u32::MAX),
             0,
             mempool,
         );

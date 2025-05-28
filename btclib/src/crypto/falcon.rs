@@ -8,6 +8,15 @@ use sha2::{Sha256, Digest};
 
 use crate::validation::SecurityLevel;
 
+/// Type alias for Falcon public key
+pub type FalconPublicKey = Vec<u8>;
+
+/// Type alias for Falcon signature
+pub type FalconSignature = Vec<u8>;
+
+/// Type alias for Falcon secret key
+pub type FalconSecretKey = Vec<u8>;
+
 /// Errors that can occur during Falcon operations
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum FalconError {

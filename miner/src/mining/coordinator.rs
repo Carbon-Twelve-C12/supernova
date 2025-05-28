@@ -3,7 +3,7 @@ use super::worker::MiningWorker;
 use super::template::{BlockTemplate, MempoolInterface};
 use crate::difficulty::DifficultyAdjuster;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tracing::{info, error};
 use std::time::{Duration, Instant};
@@ -90,7 +90,7 @@ impl Miner {
             workers.push(Arc::new(MiningWorker::new(
                 Arc::clone(&stop_signal),
                 tx.clone(),
-                initial_target,
+                AtomicU32::new(initial_target),
                 i,
                 Arc::clone(&mempool),
             )));
@@ -214,13 +214,19 @@ impl Miner {
     }
     
     pub fn adjust_difficulty(&mut self, height: u64, timestamp: u64, blocks_since_adjustment: u64) -> u32 {
-        let new_target = self.difficulty_adjuster.adjust_difficulty(height, timestamp, blocks_since_adjustment);
-        
-        for worker in &self.workers {
-            worker.update_target(new_target);
+        match self.difficulty_adjuster.adjust_difficulty(height, timestamp, blocks_since_adjustment) {
+            Ok(new_target) => {
+                for worker in &self.workers {
+                    worker.update_target(new_target);
+                }
+                new_target
+            },
+            Err(e) => {
+                error!("Failed to adjust difficulty: {}", e);
+                // Return current target on error
+                self.difficulty_adjuster.get_current_target()
+            }
         }
-        
-        new_target
     }
 
     // Helper method to get current target
@@ -236,7 +242,7 @@ impl Miner {
 
 impl MiningWorker {
     pub fn update_target(&self, new_target: u32) {
-        std::sync::atomic::AtomicU32::new(new_target).store(new_target, Ordering::Relaxed);
+        self.target.store(new_target, Ordering::Relaxed);
     }
     
     pub async fn mine_block_with_template(

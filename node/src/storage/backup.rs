@@ -1,5 +1,5 @@
 use super::database::{BlockchainDB, StorageError};
-use super::persistence::ChainState;
+use super::persistence;
 use crate::metrics::BackupMetrics;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
@@ -10,11 +10,63 @@ use std::sync::Arc;
 use futures::future::join_all;
 use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
+use std::io::{Read, Write};
+use btclib::types::block::Block;
+use btclib::storage::chain_state::ChainState;
+use thiserror::Error;
+use tokio::sync::RwLock;
+use flate2::write::GzEncoder;
+use flate2::read::GzDecoder;
+use flate2::Compression;
+use chrono::{DateTime, Utc};
 
 const CHECKPOINT_INTERVAL: u64 = 10000;
 const PARALLEL_VERIFICATION_CHUNKS: usize = 4;
 const MAX_RECOVERY_ATTEMPTS: usize = 3;
 const INCREMENTAL_REBUILD_BATCH: usize = 1000;
+
+/// Backup mode options
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum BackupMode {
+    /// Full backup - includes all data
+    Full,
+    /// Incremental backup - only changes since last backup
+    Incremental,
+    /// Differential backup - changes since last full backup
+    Differential,
+}
+
+/// Backup state tracking
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackupState {
+    /// No backup in progress
+    Idle,
+    /// Backup is being created
+    InProgress,
+    /// Backup completed successfully
+    Completed,
+    /// Backup failed
+    Failed,
+}
+
+/// Backup-related errors
+#[derive(Debug, Error)]
+pub enum BackupError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+    
+    #[error("Invalid backup: {0}")]
+    InvalidBackup(String),
+    
+    #[error("Backup not found: {0}")]
+    NotFound(String),
+    
+    #[error("Storage error: {0}")]
+    Storage(#[from] StorageError),
+}
 
 /// Types of backup operations that can be performed
 #[derive(Debug, Clone, Serialize, Deserialize)]

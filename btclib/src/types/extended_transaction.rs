@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
+use pqcrypto_traits::sign::{PublicKey as SignPublicKeyTrait, SecretKey as SignSecretKeyTrait, DetachedSignature as SignDetachedSignatureTrait};
 use crate::crypto::quantum::{QuantumScheme, QuantumParameters, QuantumError, ClassicalScheme};
 use crate::crypto::zkp::{Commitment, ZeroKnowledgeProof, ZkpParams};
 use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
@@ -172,21 +173,40 @@ impl QuantumTransaction {
                     return Err(QuantumError::InvalidSignature("Invalid signature length".into()));
                 }
                 
-                // Implementation would use Dilithium verify function with constant-time operations
-                // For production this would call the actual Dilithium verification
-                // TODO: Replace with actual implementation calling:
-                // pqcrypto_dilithium::dilithiumX::verify_detached_signature()
-                
-                // Production TODO: replace with actual verification
-                Ok(true)
+                // Use the Dilithium verification based on security level
+                match self.security_level {
+                    2 => {
+                        use pqcrypto_dilithium::dilithium2;
+                        let pk = dilithium2::PublicKey::from_bytes(public_key)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium2 public key".to_string()))?;
+                        let sig = dilithium2::DetachedSignature::from_bytes(&self.signature)
+                            .map_err(|_| QuantumError::InvalidSignature("Invalid Dilithium2 signature".into()))?;
+                        Ok(dilithium2::verify_detached_signature(&sig, &tx_hash, &pk).is_ok())
+                    },
+                    3 => {
+                        use pqcrypto_dilithium::dilithium3;
+                        let pk = dilithium3::PublicKey::from_bytes(public_key)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium3 public key".to_string()))?;
+                        let sig = dilithium3::DetachedSignature::from_bytes(&self.signature)
+                            .map_err(|_| QuantumError::InvalidSignature("Invalid Dilithium3 signature".into()))?;
+                        Ok(dilithium3::verify_detached_signature(&sig, &tx_hash, &pk).is_ok())
+                    },
+                    5 => {
+                        use pqcrypto_dilithium::dilithium5;
+                        let pk = dilithium5::PublicKey::from_bytes(public_key)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium5 public key".to_string()))?;
+                        let sig = dilithium5::DetachedSignature::from_bytes(&self.signature)
+                            .map_err(|_| QuantumError::InvalidSignature("Invalid Dilithium5 signature".into()))?;
+                        Ok(dilithium5::verify_detached_signature(&sig, &tx_hash, &pk).is_ok())
+                    },
+                    _ => Err(QuantumError::InvalidKey("Invalid security level for Dilithium".to_string())),
+                }
             },
             QuantumScheme::Falcon => {
                 // Validate key length based on security level
                 let expected_key_len = match self.security_level {
-                    // Falcon-512
-                    1 => 897,
-                    // Falcon-1024
-                    5 => 1793,
+                    1 => 897, // Falcon-512 public key
+                    5 => 1793, // Falcon-1024 public key
                     _ => return Err(QuantumError::InvalidKey("Invalid security level for Falcon".to_string())),
                 };
                 
@@ -194,12 +214,22 @@ impl QuantumTransaction {
                     return Err(QuantumError::InvalidKey(format!("Invalid Falcon public key length: expected {}, got {}", expected_key_len, public_key.len())));
                 }
                 
-                // Verify signature - would call actual Falcon verification
-                // TODO: Production implementation should verify by calling 
-                // pqcrypto_falcon::falcon::verify_detached_signature()
+                // Use our quantum module for Falcon verification
+                use crate::crypto::quantum::QuantumKeyPair;
                 
-                // Production TODO: replace with actual verification
-                Ok(true)
+                let params = QuantumParameters {
+                    scheme: QuantumScheme::Falcon,
+                    security_level: self.security_level,
+                };
+                
+                let keypair = QuantumKeyPair {
+                    public_key: public_key.to_vec(),
+                    secret_key: vec![], // Not needed for verification
+                    parameters: params,
+                };
+                
+                keypair.verify(&tx_hash, &self.signature)
+                    .map_err(|e| QuantumError::VerificationFailed(format!("Falcon verification failed: {}", e)))
             },
             QuantumScheme::Sphincs => {
                 // Validate key length based on security level 
@@ -214,12 +244,14 @@ impl QuantumTransaction {
                     return Err(QuantumError::InvalidKey(format!("Invalid SPHINCS+ public key length: expected {}, got {}", expected_key_len, public_key.len())));
                 }
                 
-                // Verify signature - would call actual SPHINCS+ verification
-                // TODO: Production implementation should verify with
-                // pqcrypto_sphincsplus::sphincsshake256f::verify_detached_signature()
+                // Use the SPHINCS+ verification
+                use pqcrypto_sphincsplus::sphincsshake128fsimple;
                 
-                // Production TODO: replace with actual verification
-                Ok(true)
+                let pk = sphincsshake128fsimple::PublicKey::from_bytes(public_key)
+                    .map_err(|_| QuantumError::InvalidKey("Invalid SPHINCS+ public key".to_string()))?;
+                let sig = sphincsshake128fsimple::DetachedSignature::from_bytes(&self.signature)
+                    .map_err(|_| QuantumError::InvalidSignature("Invalid SPHINCS+ signature".into()))?;
+                Ok(sphincsshake128fsimple::verify_detached_signature(&sig, &tx_hash, &pk).is_ok())
             },
             QuantumScheme::Hybrid(classical_scheme) => {
                 // Split signature into quantum and classical parts
@@ -227,27 +259,84 @@ impl QuantumTransaction {
                     return Err(QuantumError::InvalidSignature("Hybrid signature too short".into()));
                 }
                 
-                // A real implementation would:
-                // 1. Parse the signature format to extract quantum and classical components
-                // 2. Verify both signatures separately
-                // 3. Only return true if both verifications pass
-                
-                // For classical signature, different verification based on scheme
-                match classical_scheme {
-                    ClassicalScheme::Secp256k1 => {
-                        // TODO: Production implementation should verify secp256k1 signature
-                        // using libsecp256k1 with constant-time operations
-                    }
-                    ClassicalScheme::Ed25519 => {
-                        // TODO: Production implementation should verify Ed25519 signature
-                        // using ed25519-dalek with constant-time operations
-                    }
+                // Parse the hybrid signature format
+                // Format: [classical_sig_len (2 bytes)][classical_sig][quantum_sig]
+                if self.signature.len() < 2 {
+                    return Err(QuantumError::InvalidSignature("Invalid hybrid signature format".into()));
                 }
                 
-                // Then verify quantum signature part
+                let classical_sig_len = u16::from_be_bytes([self.signature[0], self.signature[1]]) as usize;
+                if self.signature.len() < 2 + classical_sig_len {
+                    return Err(QuantumError::InvalidSignature("Invalid hybrid signature length".into()));
+                }
                 
-                // Production TODO: replace with actual verification
-                Ok(true)
+                let classical_sig = &self.signature[2..2+classical_sig_len];
+                let quantum_sig = &self.signature[2+classical_sig_len..];
+                
+                // Parse the hybrid public key format
+                // Format: [classical_pk_len (2 bytes)][classical_pk][quantum_pk]
+                if public_key.len() < 2 {
+                    return Err(QuantumError::InvalidKey("Invalid hybrid public key format".to_string()));
+                }
+                
+                let classical_pk_len = u16::from_be_bytes([public_key[0], public_key[1]]) as usize;
+                if public_key.len() < 2 + classical_pk_len {
+                    return Err(QuantumError::InvalidKey("Invalid hybrid public key length".to_string()));
+                }
+                
+                let classical_pk = &public_key[2..2+classical_pk_len];
+                let quantum_pk = &public_key[2+classical_pk_len..];
+                
+                // Verify classical signature
+                let classical_valid = match classical_scheme {
+                    ClassicalScheme::Secp256k1 => {
+                        use secp256k1::{Secp256k1, Message, PublicKey, ecdsa::Signature};
+                        
+                        let secp = Secp256k1::verification_only();
+                        let msg = Message::from_slice(&tx_hash)
+                            .map_err(|_| QuantumError::InvalidSignature("Invalid message hash for secp256k1".into()))?;
+                        let pk = PublicKey::from_slice(classical_pk)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid secp256k1 public key".to_string()))?;
+                        let sig = Signature::from_compact(classical_sig)
+                            .map_err(|_| QuantumError::InvalidSignature("Invalid secp256k1 signature".into()))?;
+                        
+                        secp.verify_ecdsa(&msg, &sig, &pk).is_ok()
+                    }
+                    ClassicalScheme::Ed25519 => {
+                        use ed25519_dalek::{Signature, VerifyingKey, Verifier};
+                        
+                        let pk = VerifyingKey::from_bytes(classical_pk.try_into()
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Ed25519 public key length".to_string()))?)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Ed25519 public key".to_string()))?;
+                        let sig = Signature::from_bytes(classical_sig.try_into()
+                            .map_err(|_| QuantumError::InvalidSignature("Invalid Ed25519 signature length".into()))?);
+                        
+                        pk.verify_strict(&tx_hash, &sig).is_ok()
+                    }
+                };
+                
+                if !classical_valid {
+                    return Ok(false);
+                }
+                
+                // Verify quantum signature (assuming Dilithium for quantum part)
+                // Determine security level from quantum signature length
+                let quantum_security_level = match quantum_sig.len() {
+                    2420 => 2, // Dilithium2
+                    3293 => 3, // Dilithium3
+                    4595 => 5, // Dilithium5
+                    _ => return Err(QuantumError::InvalidSignature("Invalid quantum signature length in hybrid signature".into())),
+                };
+                
+                // Create a temporary quantum transaction for verification
+                let quantum_tx = QuantumTransaction {
+                    transaction: self.transaction.clone(),
+                    scheme: QuantumScheme::Dilithium,
+                    security_level: quantum_security_level,
+                    signature: quantum_sig.to_vec(),
+                };
+                
+                quantum_tx.verify_signature(quantum_pk)
             },
         }
     }
@@ -423,8 +512,8 @@ impl QuantumTransactionBuilder {
                 }
             },
             (QuantumScheme::Hybrid(ClassicalScheme::Ed25519), _) => {
-                // 64 bytes for Ed25519 + quantum key length
-                64 + match self.security_level {
+                // 32 bytes for Ed25519 + quantum key length
+                32 + match self.security_level {
                     2 => 2528, // Dilithium2 + Ed25519
                     3 => 4000, // Dilithium3 + Ed25519
                     5 => 4864, // Dilithium5 + Ed25519
@@ -447,54 +536,58 @@ impl QuantumTransactionBuilder {
         // Generate the signature based on the scheme
         let signature = match self.scheme {
             QuantumScheme::Dilithium => {
-                // TODO: For production, this would use pqcrypto_dilithium to sign with appropriate
-                // security level (dilithium2/3/5) and constant-time operations:
-                // 
-                // let sk = pqcrypto_dilithium::dilithiumX::SecretKey::from_bytes(private_key)?;
-                // let sig = pqcrypto_dilithium::dilithiumX::detached_sign(&tx_hash, &sk);
-                // sig.as_bytes().to_vec()
-                
-                // Return placeholder signature with appropriate length for the security level
-                let sig_len = match self.security_level {
-                    2 => 2420, // Dilithium2 signature
-                    3 => 3293, // Dilithium3 signature
-                    5 => 4595, // Dilithium5 signature
+                // Use the actual Dilithium signing based on security level
+                match self.security_level {
+                    2 => {
+                        use pqcrypto_dilithium::dilithium2;
+                        let sk = <dilithium2::SecretKey as SignSecretKeyTrait>::from_bytes(private_key)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium2 secret key".to_string()))?;
+                        let sig = dilithium2::detached_sign(&tx_hash, &sk);
+                        sig.as_bytes().to_vec()
+                    },
+                    3 => {
+                        use pqcrypto_dilithium::dilithium3;
+                        let sk = <dilithium3::SecretKey as SignSecretKeyTrait>::from_bytes(private_key)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium3 secret key".to_string()))?;
+                        let sig = dilithium3::detached_sign(&tx_hash, &sk);
+                        sig.as_bytes().to_vec()
+                    },
+                    5 => {
+                        use pqcrypto_dilithium::dilithium5;
+                        let sk = <dilithium5::SecretKey as SignSecretKeyTrait>::from_bytes(private_key)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium5 secret key".to_string()))?;
+                        let sig = dilithium5::detached_sign(&tx_hash, &sk);
+                        sig.as_bytes().to_vec()
+                    },
                     _ => return Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
-                };
-                vec![0u8; sig_len]
+                }
             },
             QuantumScheme::Falcon => {
-                // TODO: For production, this would use pqcrypto_falcon to sign 
-                // with appropriate falcon implementation (512/1024) and constant-time operations:
-                //
-                // let sk = pqcrypto_falcon::falcon::SecretKey::from_bytes(private_key)?;
-                // let sig = pqcrypto_falcon::falcon::detached_sign(&tx_hash, &sk);
-                // sig.as_bytes().to_vec()
+                // Use our quantum module for Falcon signing
+                use crate::crypto::quantum::QuantumKeyPair;
                 
-                // Return placeholder signature with appropriate length for the security level
-                let sig_len = match self.security_level {
-                    1 => 690,  // Falcon-512 signature
-                    5 => 1330, // Falcon-1024 signature
-                    _ => return Err(QuantumError::UnsupportedScheme("Unsupported security level for Falcon".to_string())),
+                let params = QuantumParameters {
+                    scheme: QuantumScheme::Falcon,
+                    security_level: self.security_level,
                 };
-                vec![0u8; sig_len]
+                
+                let keypair = QuantumKeyPair {
+                    public_key: vec![], // Not needed for signing
+                    secret_key: private_key.to_vec(),
+                    parameters: params,
+                };
+                
+                keypair.sign(&tx_hash)
+                    .map_err(|e| QuantumError::SigningFailed(format!("Falcon signing failed: {}", e)))?
             },
             QuantumScheme::Sphincs => {
-                // TODO: For production, this would use pqcrypto_sphincsplus to sign
-                // with appropriate security level and constant-time operations:
-                //
-                // let sk = pqcrypto_sphincsplus::sphincsshake256f::SecretKey::from_bytes(private_key)?;
-                // let sig = pqcrypto_sphincsplus::sphincsshake256f::detached_sign(&tx_hash, &sk);
-                // sig.as_bytes().to_vec()
+                // Use the actual SPHINCS+ signing
+                use pqcrypto_sphincsplus::sphincsshake128fsimple;
                 
-                // Return placeholder signature with appropriate length for the security level
-                let sig_len = match self.security_level {
-                    1 => 17088, // SPHINCS+-128f signature
-                    3 => 35664, // SPHINCS+-192f signature
-                    5 => 49856, // SPHINCS+-256f signature
-                    _ => return Err(QuantumError::UnsupportedScheme("Unsupported security level for SPHINCS+".to_string())),
-                };
-                vec![0u8; sig_len]
+                let sk = <sphincsshake128fsimple::SecretKey as SignSecretKeyTrait>::from_bytes(private_key)
+                    .map_err(|_| QuantumError::InvalidKey("Invalid SPHINCS+ secret key".to_string()))?;
+                let sig = sphincsshake128fsimple::detached_sign(&tx_hash, &sk);
+                sig.as_bytes().to_vec()
             },
             QuantumScheme::Hybrid(classical_scheme) => {
                 // For hybrid schemes, we need to:
@@ -504,35 +597,97 @@ impl QuantumTransactionBuilder {
                 
                 match classical_scheme {
                     ClassicalScheme::Secp256k1 => {
-                        // TODO: For production, this would:
-                        // 1. Extract secp256k1 key (first 32 bytes)
-                        // 2. Sign with secp256k1 in constant time
-                        // 3. Extract quantum key (remaining bytes)
-                        // 4. Sign with quantum algorithm
-                        // 5. Combine signatures with length prefix
+                        // Extract keys
+                        let classical_sk = &private_key[0..32];
+                        let quantum_sk = &private_key[32..];
                         
-                        // For now, return placeholder with appropriate length
-                        let quantum_sig_len = match self.security_level {
-                            2 => 2420, // Dilithium2 signature
-                            3 => 3293, // Dilithium3 signature 
-                            5 => 4595, // Dilithium5 signature
-                            _ => return Err(QuantumError::UnsupportedScheme("Unsupported security level for hybrid Secp256k1 scheme".to_string())),
+                        // Sign with secp256k1
+                        use secp256k1::{Secp256k1, Message, SecretKey};
+                        
+                        let secp = Secp256k1::signing_only();
+                        let msg = Message::from_slice(&tx_hash)
+                            .map_err(|_| QuantumError::SigningFailed("Invalid message hash for secp256k1".to_string()))?;
+                        let sk = SecretKey::from_slice(classical_sk)
+                            .map_err(|_| QuantumError::InvalidKey("Invalid secp256k1 secret key".to_string()))?;
+                        let sig = secp.sign_ecdsa(&msg, &sk);
+                        let classical_sig = sig.serialize_compact();
+                        
+                        // Sign with quantum algorithm (Dilithium)
+                        let quantum_sig = match self.security_level {
+                            2 => {
+                                use pqcrypto_dilithium::dilithium2;
+                                let sk = <dilithium2::SecretKey as SignSecretKeyTrait>::from_bytes(quantum_sk)
+                                    .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium2 secret key in hybrid".to_string()))?;
+                                dilithium2::detached_sign(&tx_hash, &sk).as_bytes().to_vec()
+                            },
+                            3 => {
+                                use pqcrypto_dilithium::dilithium3;
+                                let sk = <dilithium3::SecretKey as SignSecretKeyTrait>::from_bytes(quantum_sk)
+                                    .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium3 secret key in hybrid".to_string()))?;
+                                dilithium3::detached_sign(&tx_hash, &sk).as_bytes().to_vec()
+                            },
+                            5 => {
+                                use pqcrypto_dilithium::dilithium5;
+                                let sk = <dilithium5::SecretKey as SignSecretKeyTrait>::from_bytes(quantum_sk)
+                                    .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium5 secret key in hybrid".to_string()))?;
+                                dilithium5::detached_sign(&tx_hash, &sk).as_bytes().to_vec()
+                            },
+                            _ => return Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
                         };
-                        let secp_sig_len = 64; // Compact signature (r,s)
-                        vec![0u8; quantum_sig_len + secp_sig_len]
+                        
+                        // Combine signatures
+                        // Format: [classical_sig_len (2 bytes)][classical_sig][quantum_sig]
+                        let mut combined_sig = Vec::new();
+                        let classical_sig_len = classical_sig.len() as u16;
+                        combined_sig.extend_from_slice(&classical_sig_len.to_be_bytes());
+                        combined_sig.extend_from_slice(&classical_sig);
+                        combined_sig.extend_from_slice(&quantum_sig);
+                        combined_sig
                     },
                     ClassicalScheme::Ed25519 => {
-                        // TODO: For production, similar to above but with Ed25519
+                        // Extract keys
+                        let classical_sk = &private_key[0..32]; // Ed25519 secret key is 32 bytes
+                        let quantum_sk = &private_key[32..];
                         
-                        // For now, return placeholder with appropriate length
-                        let quantum_sig_len = match self.security_level {
-                            2 => 2420, // Dilithium2 signature
-                            3 => 3293, // Dilithium3 signature
-                            5 => 4595, // Dilithium5 signature
-                            _ => return Err(QuantumError::UnsupportedScheme("Unsupported security level for hybrid Ed25519 scheme".to_string())),
+                        // Sign with Ed25519
+                        use ed25519_dalek::{SigningKey, Signer};
+                        
+                        let sk = SigningKey::from_bytes(classical_sk.try_into()
+                            .map_err(|_| QuantumError::InvalidKey("Invalid Ed25519 secret key length".to_string()))?);
+                        let sig = sk.sign(&tx_hash);
+                        let classical_sig = sig.to_bytes();
+                        
+                        // Sign with quantum algorithm (Dilithium)
+                        let quantum_sig = match self.security_level {
+                            2 => {
+                                use pqcrypto_dilithium::dilithium2;
+                                let sk = <dilithium2::SecretKey as SignSecretKeyTrait>::from_bytes(quantum_sk)
+                                    .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium2 secret key in hybrid".to_string()))?;
+                                dilithium2::detached_sign(&tx_hash, &sk).as_bytes().to_vec()
+                            },
+                            3 => {
+                                use pqcrypto_dilithium::dilithium3;
+                                let sk = <dilithium3::SecretKey as SignSecretKeyTrait>::from_bytes(quantum_sk)
+                                    .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium3 secret key in hybrid".to_string()))?;
+                                dilithium3::detached_sign(&tx_hash, &sk).as_bytes().to_vec()
+                            },
+                            5 => {
+                                use pqcrypto_dilithium::dilithium5;
+                                let sk = <dilithium5::SecretKey as SignSecretKeyTrait>::from_bytes(quantum_sk)
+                                    .map_err(|_| QuantumError::InvalidKey("Invalid Dilithium5 secret key in hybrid".to_string()))?;
+                                dilithium5::detached_sign(&tx_hash, &sk).as_bytes().to_vec()
+                            },
+                            _ => return Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
                         };
-                        let ed_sig_len = 64; // Ed25519 signature
-                        vec![0u8; quantum_sig_len + ed_sig_len]
+                        
+                        // Combine signatures
+                        // Format: [classical_sig_len (2 bytes)][classical_sig][quantum_sig]
+                        let mut combined_sig = Vec::new();
+                        let classical_sig_len = classical_sig.len() as u16;
+                        combined_sig.extend_from_slice(&classical_sig_len.to_be_bytes());
+                        combined_sig.extend_from_slice(&classical_sig);
+                        combined_sig.extend_from_slice(&quantum_sig);
+                        combined_sig
                     },
                 }
             },

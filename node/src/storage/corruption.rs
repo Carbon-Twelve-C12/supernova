@@ -84,6 +84,138 @@ pub struct RepairResult {
     pub backup_used: Option<PathBuf>,
 }
 
+/// Information about detected corruption
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorruptionInfo {
+    pub corruption_type: CorruptionType,
+    pub severity: CorruptionSeverity,
+    pub affected_trees: Vec<String>,
+    pub affected_key_count: usize,
+    pub detected_at: SystemTime,
+    pub description: String,
+}
+
+/// Severity levels for corruption
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum CorruptionSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+/// Repair plan for fixing corruption
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairPlan {
+    pub corruption_info: CorruptionInfo,
+    pub recommended_strategy: RecoveryStrategy,
+    pub alternative_strategies: Vec<RecoveryStrategy>,
+    pub estimated_repair_time: Duration,
+    pub data_loss_risk: DataLossRisk,
+}
+
+/// Data loss risk levels
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataLossRisk {
+    None,
+    Minimal,
+    Moderate,
+    High,
+}
+
+/// Integrity checker for periodic database validation
+pub struct IntegrityChecker {
+    handler: CorruptionHandler,
+    check_interval: Duration,
+    last_check: Option<SystemTime>,
+}
+
+impl IntegrityChecker {
+    /// Create a new integrity checker
+    pub fn new(db: Arc<BlockchainDB>, backup_dir: PathBuf, check_interval: Duration) -> Self {
+        Self {
+            handler: CorruptionHandler::new(db, backup_dir),
+            check_interval,
+            last_check: None,
+        }
+    }
+    
+    /// Run integrity check if needed
+    pub async fn check_if_needed(&mut self) -> Result<Option<Vec<CorruptionInfo>>, CorruptionError> {
+        let now = SystemTime::now();
+        
+        if let Some(last_check) = self.last_check {
+            if now.duration_since(last_check).unwrap_or_default() < self.check_interval {
+                return Ok(None);
+            }
+        }
+        
+        self.last_check = Some(now);
+        let is_healthy = self.handler.check_database_integrity().await?;
+        
+        if is_healthy {
+            Ok(None)
+        } else {
+            Ok(Some(self.handler.get_corruption_info()))
+        }
+    }
+    
+    /// Force an immediate integrity check
+    pub async fn force_check(&mut self) -> Result<Vec<CorruptionInfo>, CorruptionError> {
+        self.handler.check_database_integrity().await?;
+        Ok(self.handler.get_corruption_info())
+    }
+    
+    /// Generate repair plans for detected corruptions
+    pub fn generate_repair_plans(&self, corruptions: &[CorruptionInfo]) -> Vec<RepairPlan> {
+        corruptions.iter().map(|info| {
+            let strategy = self.handler.determine_repair_strategy(&info.corruption_type);
+            RepairPlan {
+                corruption_info: info.clone(),
+                recommended_strategy: strategy.clone(),
+                alternative_strategies: self.get_alternative_strategies(&info.corruption_type),
+                estimated_repair_time: self.estimate_repair_time(&strategy),
+                data_loss_risk: self.assess_data_loss_risk(&strategy),
+            }
+        }).collect()
+    }
+    
+    fn get_alternative_strategies(&self, corruption_type: &CorruptionType) -> Vec<RecoveryStrategy> {
+        match corruption_type {
+            CorruptionType::RecordCorruption { .. } => vec![
+                RecoveryStrategy::RestoreFromBackup,
+                RecoveryStrategy::RebuildChainState { start_height: 0, end_height: None },
+            ],
+            CorruptionType::IndexCorruption { .. } => vec![
+                RecoveryStrategy::RestoreFromBackup,
+            ],
+            _ => vec![RecoveryStrategy::RestoreFromBackup],
+        }
+    }
+    
+    fn estimate_repair_time(&self, strategy: &RecoveryStrategy) -> Duration {
+        match strategy {
+            RecoveryStrategy::RestoreFromBackup => Duration::from_secs(300),
+            RecoveryStrategy::RebuildCorruptedRecords { keys, .. } => {
+                Duration::from_secs((keys.len() as u64) * 2)
+            },
+            RecoveryStrategy::RebuildIndexes { .. } => Duration::from_secs(600),
+            RecoveryStrategy::RevertToCheckpoint { .. } => Duration::from_secs(180),
+            RecoveryStrategy::RebuildChainState { .. } => Duration::from_secs(3600),
+        }
+    }
+    
+    fn assess_data_loss_risk(&self, strategy: &RecoveryStrategy) -> DataLossRisk {
+        match strategy {
+            RecoveryStrategy::RestoreFromBackup => DataLossRisk::Minimal,
+            RecoveryStrategy::RebuildCorruptedRecords { .. } => DataLossRisk::None,
+            RecoveryStrategy::RebuildIndexes { .. } => DataLossRisk::None,
+            RecoveryStrategy::RevertToCheckpoint { .. } => DataLossRisk::Moderate,
+            RecoveryStrategy::RebuildChainState { .. } => DataLossRisk::High,
+        }
+    }
+}
+
 /// Checkpoint information for recovery
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointInfo {
@@ -628,17 +760,15 @@ impl CorruptionHandler {
             .max_by_key(|c| c.height)
     }
     
-    // Repair implementation stubs - to be completed as needed
-    
     /// Restore from backup
-    async fn repair_from_backup(&self) -> Result<(bool, usize, usize, Option<PathBuf>), CorruptionError> {
+    pub async fn repair_from_backup(&self) -> Result<(bool, usize, usize, Option<PathBuf>), CorruptionError> {
         info!("Repairing from backup");
         // Actual implementation would restore from the latest backup
         Ok((true, 1, 1, None))
     }
     
     /// Rebuild corrupted records
-    async fn rebuild_corrupted_records(&self, tree_name: &str, keys: &[Vec<u8>]) 
+    pub async fn rebuild_corrupted_records(&self, tree_name: &str, keys: &[Vec<u8>]) 
         -> Result<(bool, usize, usize, Option<PathBuf>), CorruptionError> {
         info!("Rebuilding {} corrupted records in {}", keys.len(), tree_name);
         // Actual implementation would rebuild specific records
@@ -646,7 +776,7 @@ impl CorruptionHandler {
     }
     
     /// Rebuild indexes
-    async fn rebuild_indexes(&self, source_tree: &str, target_index: &str)
+    pub async fn rebuild_indexes(&self, source_tree: &str, target_index: &str)
         -> Result<(bool, usize, usize, Option<PathBuf>), CorruptionError> {
         info!("Rebuilding index {} from {}", target_index, source_tree);
         // Actual implementation would rebuild the index
@@ -654,7 +784,7 @@ impl CorruptionHandler {
     }
     
     /// Revert to checkpoint
-    async fn revert_to_checkpoint(&self, checkpoint_height: u64)
+    pub async fn revert_to_checkpoint(&self, checkpoint_height: u64)
         -> Result<(bool, usize, usize, Option<PathBuf>), CorruptionError> {
         info!("Reverting to checkpoint at height {}", checkpoint_height);
         // Actual implementation would revert to checkpoint
@@ -662,11 +792,45 @@ impl CorruptionHandler {
     }
     
     /// Rebuild chain state
-    async fn rebuild_chain_state(&self, start_height: u64, end_height: Option<u64>)
+    pub async fn rebuild_chain_state(&self, start_height: u64, end_height: Option<u64>)
         -> Result<(bool, usize, usize, Option<PathBuf>), CorruptionError> {
         info!("Rebuilding chain state from height {}", start_height);
         // Actual implementation would rebuild chain state
         Ok((true, 1, 1, None))
+    }
+    
+    /// Get information about detected corruptions
+    pub fn get_corruption_info(&self) -> Vec<CorruptionInfo> {
+        self.corruption_log.iter().map(|corruption_type| {
+            let (severity, affected_trees, affected_key_count) = match corruption_type {
+                CorruptionType::FileLevelCorruption => {
+                    (CorruptionSeverity::Critical, vec!["all".to_string()], 0)
+                },
+                CorruptionType::RecordCorruption { tree_name, affected_keys } => {
+                    (CorruptionSeverity::High, vec![tree_name.clone()], affected_keys.len())
+                },
+                CorruptionType::IndexCorruption { primary_tree, index_tree, mismatched_keys } => {
+                    (CorruptionSeverity::Medium, vec![primary_tree.clone(), index_tree.clone()], mismatched_keys.len())
+                },
+                CorruptionType::LogicalCorruption { description, .. } => {
+                    let severity = if description.contains("Missing") {
+                        CorruptionSeverity::Critical
+                    } else {
+                        CorruptionSeverity::High
+                    };
+                    (severity, vec!["blockchain".to_string()], 0)
+                },
+            };
+            
+            CorruptionInfo {
+                corruption_type: corruption_type.clone(),
+                severity,
+                affected_trees,
+                affected_key_count,
+                detected_at: SystemTime::now(),
+                description: format!("{:?}", corruption_type),
+            }
+        }).collect()
     }
 }
 

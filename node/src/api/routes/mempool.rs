@@ -166,13 +166,13 @@ pub async fn submit_transaction(
         },
         Err(e) => {
             match e {
-                crate::mempool::pool::MempoolError::TransactionExists => {
+                crate::mempool::MempoolError::TransactionExists => {
                     Err(ApiError::conflict("Transaction already exists in mempool"))
                 },
-                crate::mempool::pool::MempoolError::InvalidTransaction(msg) => {
+                crate::mempool::MempoolError::InvalidTransaction(msg) => {
                     Err(ApiError::bad_request(format!("Invalid transaction: {}", msg)))
                 },
-                crate::mempool::pool::MempoolError::InsufficientFee => {
+                crate::mempool::MempoolError::InsufficientFee => {
                     Err(ApiError::bad_request("Insufficient transaction fee"))
                 },
                 _ => {

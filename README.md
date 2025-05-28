@@ -3,7 +3,7 @@
 <div align="center">
 
   <p>
-    <h2><strong>A production-grade PoW blockchain implementation written in Rust</strong></h2>
+    <h2><strong>A next-generation PoW blockchain combining quantum-resistant cryptography, advanced security features, and environmental consciousness for a secure, scalable, and sustainable future.</strong></h2>
   </p>
   
   <p align="center">
@@ -16,7 +16,6 @@
 
   <p align="center">
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/rust.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/rust.yml/badge.svg" alt="Rust" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/code-coverage.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/code-coverage.yml/badge.svg" alt="Code Coverage" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/security-audit.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/security-audit.yml/badge.svg" alt="Security Audit" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml/badge.svg" alt="Clippy" /></a>
     <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml/badge.svg" alt="Benchmarks" /></a>
@@ -143,6 +142,12 @@ Supernova features the **world's first quantum-resistant Lightning Network**, en
 - **Hybrid signatures** (classical + quantum schemes)
 - **Advanced HTLCs** with post-quantum cryptography
 - **Unique advantage**: Only quantum-resistant Lightning Network
+
+### **Enhanced Security Features** 🔒
+- **Atomic Operations**: All channel state changes are atomic, preventing race conditions
+- **Fund Safety**: Mathematical proof that funds cannot be created or destroyed
+- **Thread-Safe Design**: Concurrent operations handled safely with mutex protection
+- **Attack Prevention**: Comprehensive protection against known Lightning Network vulnerabilities
 
 ### **Environmental Consciousness**
 - **Carbon footprint tracking** for Lightning transactions

@@ -1,5 +1,12 @@
 use std::cmp::{min, max};
 use thiserror::Error;
+use crate::consensus::timestamp_validation::{TimestampValidator, TimestampValidationError};
+
+/// Target time between blocks in seconds (10 minutes)
+pub const BLOCK_TIME_TARGET: u64 = 600;
+
+/// Type alias for DifficultyAdjuster (same as DifficultyAdjustment)
+pub type DifficultyAdjuster = DifficultyAdjustment;
 
 /// Errors related to difficulty adjustment
 #[derive(Debug, Error)]
@@ -18,6 +25,9 @@ pub enum DifficultyAdjustmentError {
     
     #[error("Invalid calculation: {0}")]
     InvalidCalculation(String),
+    
+    #[error("Timestamp validation failed: {0}")]
+    TimestampValidation(#[from] TimestampValidationError),
 }
 
 /// Configuration for difficulty adjustment algorithm
@@ -49,6 +59,9 @@ pub struct DifficultyAdjustmentConfig {
     
     /// Use median-of-three for timestamps to prevent time-warp attacks
     pub use_median_time_past: bool,
+    
+    /// Enable strict timestamp validation
+    pub validate_timestamps: bool,
 }
 
 impl Default for DifficultyAdjustmentConfig {
@@ -63,6 +76,7 @@ impl Default for DifficultyAdjustmentConfig {
             max_downward_adjustment: 4.0, // Max 4x difficulty increase
             use_weighted_timespan: true,
             use_median_time_past: true,
+            validate_timestamps: true,  // Enable timestamp validation by default
         }
     }
 }
@@ -70,6 +84,7 @@ impl Default for DifficultyAdjustmentConfig {
 /// Manages consensus rules for difficulty adjustment
 pub struct DifficultyAdjustment {
     config: DifficultyAdjustmentConfig,
+    timestamp_validator: TimestampValidator,
 }
 
 impl DifficultyAdjustment {
@@ -77,12 +92,16 @@ impl DifficultyAdjustment {
     pub fn new() -> Self {
         Self {
             config: DifficultyAdjustmentConfig::default(),
+            timestamp_validator: TimestampValidator::new(),
         }
     }
     
     /// Create a new difficulty adjustment manager with custom configuration
     pub fn with_config(config: DifficultyAdjustmentConfig) -> Self {
-        Self { config }
+        Self { 
+            config,
+            timestamp_validator: TimestampValidator::new(),
+        }
     }
     
     /// Calculate the next target difficulty based on the history of block timestamps
@@ -95,6 +114,15 @@ impl DifficultyAdjustment {
         // Check if we have enough blocks
         if block_timestamps.len() < 2 {
             return Err(DifficultyAdjustmentError::InsufficientHistory(2));
+        }
+        
+        // Validate timestamps if enabled
+        if self.config.validate_timestamps {
+            self.timestamp_validator.validate_difficulty_timestamps(
+                block_timestamps,
+                block_heights,
+                self.config.adjustment_interval,
+            )?;
         }
         
         // Check if we're at an adjustment interval
@@ -129,7 +157,7 @@ impl DifficultyAdjustment {
         self.enforce_target_bounds(new_target)
     }
     
-    /// Calculate the actual timespan considering special rules
+    /// Calculate the actual timespan considering special rules and timestamp validation
     fn calculate_timespan(&self, timestamps: &[u64]) -> Result<u64, DifficultyAdjustmentError> {
         if timestamps.len() < 2 {
             return Err(DifficultyAdjustmentError::InsufficientHistory(2));
@@ -165,7 +193,13 @@ impl DifficultyAdjustment {
             return self.calculate_weighted_timespan(timestamps);
         }
         
-        Ok(timespan)
+        // Apply bounds to prevent extreme manipulation
+        // Minimum timespan is 1/4 of target
+        let min_timespan = self.config.target_block_time * (timestamps.len() as u64 - 1) / 4;
+        // Maximum timespan is 4x target
+        let max_timespan = self.config.target_block_time * (timestamps.len() as u64 - 1) * 4;
+        
+        Ok(timespan.clamp(min_timespan, max_timespan))
     }
     
     /// Calculate a weighted timespan that reduces impact of outliers
@@ -210,7 +244,13 @@ impl DifficultyAdjustment {
         let filtered_count = filtered_intervals.len() as u64;
         let expected_count = timestamps.len() as u64 - 1;
         
-        Ok(sum * expected_count / filtered_count)
+        let weighted_timespan = sum * expected_count / filtered_count;
+        
+        // Apply bounds to prevent extreme manipulation
+        let min_timespan = self.config.target_block_time * expected_count / 4;
+        let max_timespan = self.config.target_block_time * expected_count * 4;
+        
+        Ok(weighted_timespan.clamp(min_timespan, max_timespan))
     }
     
     /// Get the median timestamp from a slice of timestamps
@@ -325,6 +365,31 @@ impl DifficultyAdjustment {
         // Combine exponent and mantissa
         (exponent as u32) << 24 | mantissa
     }
+}
+
+/// Calculate the required work (target hash) from a difficulty value
+pub fn calculate_required_work(difficulty: u32) -> [u8; 32] {
+    // Convert compact difficulty to 256-bit target hash
+    let exponent = ((difficulty >> 24) & 0xFF) as usize;
+    let mantissa = difficulty & 0x00FFFFFF;
+    
+    let mut target = [0u8; 32];
+    
+    if exponent >= 3 && exponent <= 32 {
+        let pos = 32 - exponent;
+        // Set the mantissa bytes
+        if pos < 30 {
+            target[pos] = ((mantissa >> 16) & 0xFF) as u8;
+            if pos < 31 {
+                target[pos + 1] = ((mantissa >> 8) & 0xFF) as u8;
+                if pos < 32 {
+                    target[pos + 2] = (mantissa & 0xFF) as u8;
+                }
+            }
+        }
+    }
+    
+    target
 }
 
 #[cfg(test)]

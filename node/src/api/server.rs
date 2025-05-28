@@ -11,7 +11,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use utoipa_swagger_ui::SwaggerUi;
 use utoipa::OpenApi;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 
 use crate::node::Node;
 use crate::metrics::ApiMetrics;
@@ -53,8 +53,11 @@ impl Default for ApiConfig {
             enable_docs: true,
             cors_allowed_origins: vec!["*".to_string()],
             rate_limit: Some(100),
-            enable_auth: false,
-            api_keys: None,
+            enable_auth: true,  // SECURITY: Authentication enabled by default
+            api_keys: Some(vec![
+                // Default secure API key - MUST be changed in production
+                "CHANGE-ME-IN-PRODUCTION-supernova-default-key".to_string()
+            ]),
             detailed_logging: true,
             max_json_payload_size: 5, // 5 MB
             request_timeout: 30, // 30 seconds
@@ -79,9 +82,15 @@ pub struct ApiServer {
 impl ApiServer {
     /// Create a new API server instance
     pub fn new(node: Arc<Node>, bind_address: &str, port: u16) -> Self {
+        // Warn about default API key usage
+        let config = ApiConfig::default();
+        if config.api_keys.as_ref().map(|keys| keys.iter().any(|k| k.contains("CHANGE-ME"))).unwrap_or(false) {
+            warn!("SECURITY WARNING: Using default API key. Change this in production!");
+        }
+        
         Self {
             node,
-            config: ApiConfig::default(),
+            config,
             bind_address: bind_address.to_string(),
             port,
             metrics: Arc::new(ApiMetrics::new()),
@@ -102,6 +111,23 @@ impl ApiServer {
         let metrics_data = web::Data::new(self.metrics.clone());
         let config = self.config.clone();
         
+        // Validate API key configuration
+        if config.enable_auth {
+            let api_keys = config.api_keys.clone().unwrap_or_default();
+            if api_keys.is_empty() {
+                error!("SECURITY ERROR: Authentication is enabled but no API keys configured");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Authentication enabled but no API keys configured"
+                ));
+            }
+            
+            // Warn about default key usage
+            if api_keys.iter().any(|k| k.contains("CHANGE-ME")) {
+                warn!("SECURITY WARNING: Default API key detected. This MUST be changed in production!");
+            }
+        }
+        
         // Create OpenAPI documentation
         let openapi = ApiDoc::openapi();
         
@@ -112,10 +138,15 @@ impl ApiServer {
         );
         
         info!("Starting API server on {}", socket_addr);
+        if config.enable_auth {
+            info!("API authentication is ENABLED");
+        } else {
+            warn!("API authentication is DISABLED - not recommended for production");
+        }
         
         // Set up the HTTP server
         let server = HttpServer::new(move || {
-            App::new()
+            let mut app = App::new()
                 .app_data(node_data.clone())
                 .app_data(metrics_data.clone())
                 // Configure JSON extractor limits
@@ -125,6 +156,8 @@ impl ApiServer {
                     middleware::DefaultHeaders::new()
                         .add(("X-Version", "1.0"))
                         .add(("X-Frame-Options", "DENY"))
+                        .add(("X-Content-Type-Options", "nosniff"))
+                        .add(("X-XSS-Protection", "1; mode=block"))
                 )
                 .wrap(middleware::NormalizePath::new(
                     middleware::TrailingSlash::Trim
@@ -136,8 +169,23 @@ impl ApiServer {
                         .allow_any_header()
                         .max_age(3600)
                 )
-                .wrap(middleware::Logger::default())
-                .wrap(auth::ApiAuth::new(config.api_keys.clone().unwrap_or_default()))
+                .wrap(middleware::Logger::default());
+            
+            // Add authentication middleware if enabled
+            if config.enable_auth {
+                let api_keys = config.api_keys.clone().unwrap_or_default();
+                match auth::ApiAuth::new(api_keys) {
+                    Ok(auth_middleware) => {
+                        app = app.wrap(auth_middleware);
+                    }
+                    Err(e) => {
+                        error!("Failed to create authentication middleware: {}", e);
+                        panic!("SECURITY: Cannot start server without proper authentication");
+                    }
+                }
+            }
+            
+            app
                 .wrap(rate_limiting::RateLimiter::new(config.rate_limit.unwrap_or(100)))
                 // Configure API routes
                 .configure(routes::configure)

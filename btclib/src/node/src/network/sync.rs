@@ -265,7 +265,7 @@ impl ChainSync {
             
             return Ok(());
         }
-        
+
         // Add valid headers to pending queue
         for header in valid_headers {
             self.pending_headers.push_back(header);
@@ -469,11 +469,11 @@ impl ChainSync {
                 let message = Message::GetHeaders {
                     start_height,
                     count: HEADERS_BATCH_SIZE,
-                };
-                
-                self.command_sender
+        };
+
+        self.command_sender
                     .send(NetworkCommand::SendMessage(peer_id, message))
-                    .await?;
+            .await?;
             } else {
                 warn!("No suitable peers available for headers sync");
                 // Retry after delay
@@ -519,10 +519,10 @@ impl ChainSync {
         if requested > 0 {
             info!("Requested {} blocks in parallel", requested);
         }
-        
+
         Ok(())
     }
-    
+
     /// Request a specific block by height
     async fn request_block_at_height(&mut self, height: u64) -> Result<(), Box<dyn Error>> {
         // If we don't have the header for this height, we can't request the block

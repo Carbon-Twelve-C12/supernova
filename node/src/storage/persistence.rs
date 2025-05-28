@@ -203,7 +203,7 @@ impl ChainState {
 
         let new_chain_work = self.calculate_chain_work(&block)?;
 
-        if prev_hash != self.best_block_hash {
+        if *prev_hash != self.best_block_hash {
             let current_work = match self.chain_work.get(&self.best_block_hash) {
                 Some(work) => *work,
                 None => {
@@ -291,7 +291,7 @@ impl ChainState {
             self.store_block(block.clone())?;
             self.chain_work.insert(block_hash, new_chain_work);
             
-            // Update block metadata
+            // Update chain state
             self.current_height = block.height();
             self.best_block_hash = block_hash;
             

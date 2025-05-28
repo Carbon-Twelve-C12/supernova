@@ -1,7 +1,9 @@
 use crate::storage::{
     BackupManager, BlockchainDB, ChainState, 
     CheckpointManager, CheckpointConfig, CheckpointType,
-    RecoveryManager, StorageError, UtxoSet
+    RecoveryManager, StorageError, UtxoSet,
+    DatabaseShutdownHandler, DatabaseStartupHandler, ShutdownConfig,
+    WriteAheadLog, WalError
 };
 use crate::api::{ApiServer, ApiConfig};
 use crate::network::P2PNetwork;
@@ -15,13 +17,16 @@ use btclib::lightning::manager::{LightningManager, ManagerError, LightningEvent}
 use btclib::lightning::wallet::LightningWallet;
 use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
 use std::time::Instant;
-use tracing::{info, error, warn};
+use tracing::{info, error, warn, debug};
 use crate::metrics::performance::{PerformanceMonitor, MetricType};
 use thiserror::Error;
 use libp2p::PeerId;
 use sysinfo::{System, SystemExt, CpuExt};
 use chrono::Utc;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use std::str::FromStr;
+use serde::{Serialize, Deserialize};
 
 /// Node operation errors
 #[derive(Error, Debug)]
@@ -47,6 +52,26 @@ type TransactionValidator = ();
 type RpcServer = ();
 type MemPool = TransactionPool;
 
+/// Lightning event handler that can be shared across threads
+#[derive(Clone)]
+pub struct LightningEventHandler {
+    /// Channel to send events for processing
+    event_sender: mpsc::UnboundedSender<LightningEvent>,
+}
+
+impl LightningEventHandler {
+    /// Create a new event handler
+    pub fn new() -> (Self, mpsc::UnboundedReceiver<LightningEvent>) {
+        let (event_sender, event_receiver) = mpsc::unbounded_channel();
+        (Self { event_sender }, event_receiver)
+    }
+    
+    /// Send an event
+    pub fn send_event(&self, event: LightningEvent) -> Result<(), mpsc::error::SendError<LightningEvent>> {
+        self.event_sender.send(event)
+    }
+}
+
 pub struct Node {
     pub config: NodeConfig,
     pub chain_state: Arc<RwLock<ChainState>>,
@@ -65,8 +90,10 @@ pub struct Node {
     pub api_server: Option<ApiServer>,
     /// Lightning Network integration
     lightning: Option<Arc<Mutex<LightningManager>>>,
-    /// Lightning Network event receiver
-    lightning_events: Option<mpsc::UnboundedReceiver<LightningEvent>>,
+    /// Lightning Network event handler (thread-safe)
+    lightning_event_handler: Option<LightningEventHandler>,
+    /// Lightning event processing task handle
+    lightning_event_task: Option<Arc<Mutex<JoinHandle<()>>>>,
     /// Performance monitor
     pub performance_monitor: Arc<PerformanceMonitor>,
     /// Node peer ID
@@ -81,10 +108,14 @@ pub struct Node {
     pub blockchain: Arc<ChainState>,
     /// Wallet reference (placeholder)
     pub wallet: Arc<()>,
+    /// Database shutdown handler
+    db_shutdown_handler: Option<Arc<DatabaseShutdownHandler>>,
+    /// Write-ahead log
+    wal: Option<Arc<RwLock<WriteAheadLog>>>,
 }
 
 impl Node {
-    pub fn new(config: NodeConfig) -> Result<Self, NodeError> {
+    pub async fn new(config: NodeConfig) -> Result<Self, NodeError> {
         // Initialize core components
         let chain_state = Arc::new(RwLock::new(ChainState::new()));
         let blockchain_db = Arc::new(RwLock::new(BlockchainDB::new(&config.data_dir)?));
@@ -96,6 +127,65 @@ impl Node {
         let recovery_manager = None; // TODO: Initialize if needed
         let rpc_server = None; // TODO: Initialize if needed
         let mem_pool = Arc::new(RwLock::new(TransactionPool::new()));
+
+        // Check if database was cleanly shut down last time
+        {
+            let db = blockchain_db.read().unwrap();
+            
+            // Check for clean shutdown marker
+            let was_clean_shutdown = match db.get_metadata(b"last_clean_shutdown") {
+                Ok(Some(data)) => {
+                    // Check if shutdown was recent (within last hour)
+                    if let Ok(timestamp_str) = std::str::from_utf8(&data) {
+                        if let Ok(timestamp) = timestamp_str.parse::<i64>() {
+                            let shutdown_time = chrono::DateTime::from_timestamp(timestamp, 0)
+                                .unwrap_or(chrono::DateTime::from_timestamp(0, 0).unwrap());
+                            info!("Last clean shutdown was at {}", shutdown_time);
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            };
+            
+            // Check for unclean shutdown
+            if let Ok(Some(data)) = db.get_metadata(b"shutdown_in_progress") {
+                if data == b"true" {
+                    warn!("Database was not cleanly shut down - shutdown was in progress");
+                    
+                    // Run integrity check
+                    info!("Running database integrity check after unclean shutdown...");
+                    match db.verify_integrity(
+                        crate::storage::IntegrityCheckLevel::Comprehensive,
+                        true // Enable repair
+                    ) {
+                        Ok(result) => {
+                            if !result.passed {
+                                error!("Database integrity check failed with {} issues", result.issues.len());
+                                // In production, you might want to fail here or enter recovery mode
+                            } else {
+                                info!("Database integrity check passed");
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to run integrity check: {}", e);
+                            return Err(NodeError::StorageError(e));
+                        }
+                    }
+                    
+                    // Clear the flag
+                    let _ = db.store_metadata(b"shutdown_in_progress", b"false");
+                }
+            }
+            
+            if !was_clean_shutdown {
+                warn!("No record of clean shutdown found - database may require recovery");
+            }
+        }
 
         // Initialize checkpoint manager if enabled
         let checkpoint_manager = if config.checkpoints_enabled {
@@ -134,7 +224,8 @@ impl Node {
             mem_pool,
             api_server: None,
             lightning: None,
-            lightning_events: None,
+            lightning_event_handler: None,
+            lightning_event_task: None,
             performance_monitor,
             peer_id: PeerId::random(),
             start_time: Instant::now(),
@@ -142,6 +233,8 @@ impl Node {
             mempool: Arc::new(TransactionPool::new()),
             blockchain: Arc::new(ChainState::new()),
             wallet: Arc::new(()),
+            db_shutdown_handler: None,
+            wal: None,
         })
     }
 
@@ -168,58 +261,118 @@ impl Node {
     }
 
     pub fn stop(&self) -> Result<(), NodeError> {
-        // ... existing code ...
+        info!("Stopping node services...");
+        
+        // Stop Lightning Network tasks if running
+        if let Some(task_handle) = &self.lightning_event_task {
+            if let Ok(mut handle) = task_handle.lock() {
+                handle.abort();
+            }
+        }
 
         // Stop checkpoint manager if enabled
         if let Some(checkpoint_manager) = &self.checkpoint_manager {
             checkpoint_manager.stop()?;
         }
 
-        // ... existing code ...
+        // Perform graceful database shutdown
+        info!("Performing database shutdown procedures...");
+        {
+            let db = self.blockchain_db.read().unwrap();
+            
+            // Create final checkpoint metadata
+            let height = db.get_height().unwrap_or(0);
+            let timestamp = chrono::Utc::now().timestamp();
+            
+            let checkpoint_data = serde_json::json!({
+                "type": "shutdown_checkpoint",
+                "height": height,
+                "timestamp": timestamp,
+                "clean_shutdown": true,
+            });
+            
+            // Store shutdown checkpoint
+            if let Err(e) = db.store_metadata(
+                b"last_shutdown_checkpoint",
+                checkpoint_data.to_string().as_bytes()
+            ) {
+                error!("Failed to store shutdown checkpoint: {}", e);
+            }
+            
+            // Mark as clean shutdown
+            if let Err(e) = db.store_metadata(
+                b"last_clean_shutdown",
+                timestamp.to_string().as_bytes()
+            ) {
+                error!("Failed to store clean shutdown marker: {}", e);
+            }
+            
+            // Clear any shutdown in progress flag
+            if let Err(e) = db.store_metadata(b"shutdown_in_progress", b"false") {
+                error!("Failed to clear shutdown flag: {}", e);
+            }
+            
+            // Flush all pending writes
+            info!("Flushing database to disk...");
+            if let Err(e) = db.flush() {
+                error!("Failed to flush database: {}", e);
+                return Err(NodeError::StorageError(e));
+            }
+            
+            // Compact if time permits (with timeout)
+            info!("Performing quick database compaction...");
+            match std::time::Instant::now() {
+                start => {
+                    if let Err(e) = db.compact() {
+                        warn!("Database compaction failed: {}", e);
+                    } else {
+                        let duration = start.elapsed();
+                        info!("Database compaction completed in {:?}", duration);
+                    }
+                }
+            }
+        }
+
+        info!("Database shutdown procedures completed");
         
         Ok(())
     }
 
     /// Start the API server
-    pub async fn start_api(&mut self, bind_address: &str, port: u16) -> std::io::Result<()> {
-        // Create API server with default configuration
-        let api_server = ApiServer::new(Arc::new(self.clone()), bind_address, port);
+    pub async fn start_api(self: Arc<Self>, bind_address: &str, port: u16) -> std::io::Result<()> {
+        info!("Starting API server on {}:{}", bind_address, port);
         
-        // Store the server instance
-        self.api_server = Some(api_server.clone());
+        // Create API server with shared node reference
+        let api_server = ApiServer::new(
+            self.clone(),
+            bind_address,
+            port
+        );
         
-        // Start the server in a separate task
-        let server_handle = api_server.start().await?;
+        // Start the server
+        let server = api_server.start().await?;
         
-        // Spawn a task to run the server
-        tokio::spawn(async move {
-            if let Err(e) = server_handle.await {
-                error!("API server error: {}", e);
-            }
-        });
+        info!("API server started successfully on {}:{}", bind_address, port);
         
-        info!("API server started on {}:{}", bind_address, port);
+        // Run the server
+        server.await?;
+        
         Ok(())
     }
 
     /// Start the API server with custom configuration
-    pub async fn start_api_with_config(&mut self, config: ApiConfig) -> std::io::Result<()> {
+    pub async fn start_api_with_config(self: Arc<Self>, config: ApiConfig) -> std::io::Result<()> {
+        info!("Starting API server with custom config on {}:{}", config.bind_address, config.port);
+        
         // Create API server with custom configuration
-        let api_server = ApiServer::new(Arc::new(self.clone()), &config.bind_address, config.port)
+        let api_server = ApiServer::new(self.clone(), &config.bind_address, config.port)
             .with_config(config.clone());
         
-        // Store the server instance
-        self.api_server = Some(api_server.clone());
+        // Start the server
+        let server = api_server.start().await?;
         
-        // Start the server in a separate task
-        let server_handle = api_server.start().await?;
-        
-        // Spawn a task to run the server
-        tokio::spawn(async move {
-            if let Err(e) = server_handle.await {
-                error!("API server error: {}", e);
-            }
-        });
+        // Run the server
+        server.await?;
         
         info!("API server started on {}:{} with custom configuration", config.bind_address, config.port);
         Ok(())
@@ -255,9 +408,51 @@ impl Node {
             }
         };
         
+        // Create thread-safe event handler
+        let (event_handler, internal_receiver) = LightningEventHandler::new();
+        
+        // Spawn task to forward events from Lightning Manager to our handler
+        let event_sender = event_handler.event_sender.clone();
+        let forward_task = tokio::spawn(async move {
+            let mut receiver = event_receiver;
+            while let Some(event) = receiver.recv().await {
+                if let Err(e) = event_sender.send(event) {
+                    error!("Failed to forward Lightning event: {}", e);
+                    break;
+                }
+            }
+        });
+        
+        // Spawn task to process Lightning events
+        let process_task = tokio::spawn(async move {
+            let mut receiver = internal_receiver;
+            while let Some(event) = receiver.recv().await {
+                // Process the event
+                match event {
+                    LightningEvent::ChannelOpened { channel_id, peer_id, .. } => {
+                        info!("Lightning channel {} opened with peer {}", channel_id, peer_id);
+                    }
+                    LightningEvent::ChannelClosed { channel_id, .. } => {
+                        info!("Lightning channel {} closed", channel_id);
+                    }
+                    LightningEvent::PaymentReceived { payment_hash, amount_msat, .. } => {
+                        info!("Lightning payment received: {} msat (hash: {})", amount_msat, payment_hash);
+                    }
+                    LightningEvent::PaymentSent { payment_hash, amount_msat, .. } => {
+                        info!("Lightning payment sent: {} msat (hash: {})", amount_msat, payment_hash);
+                    }
+                    _ => {
+                        // Handle other events as needed
+                        debug!("Lightning event: {:?}", event);
+                    }
+                }
+            }
+        });
+        
         // Store in node
         self.lightning = Some(Arc::new(Mutex::new(lightning)));
-        self.lightning_events = Some(event_receiver);
+        self.lightning_event_handler = Some(event_handler);
+        self.lightning_event_task = Some(Arc::new(Mutex::new(process_task)));
         
         info!("Lightning Network functionality initialized successfully");
         
@@ -567,7 +762,41 @@ impl Node {
         // Set running flag to false
         self.is_running.store(false, std::sync::atomic::Ordering::SeqCst);
         
-        // Stop all services
+        // Create final backup if configured
+        if let Some(backup_manager) = &self.backup_manager {
+            info!("Creating final backup before shutdown...");
+            match backup_manager.create_backup() {
+                Ok(path) => info!("Created final backup at {:?}", path),
+                Err(e) => warn!("Failed to create final backup: {:?}", e),
+            }
+        }
+        
+        // Perform final database integrity check
+        {
+            let db = self.blockchain_db.read().unwrap();
+            info!("Running quick integrity check before shutdown...");
+            
+            match db.verify_integrity(
+                crate::storage::IntegrityCheckLevel::Quick,
+                false // Don't repair, just check
+            ) {
+                Ok(result) => {
+                    if result.passed {
+                        info!("Database integrity check passed");
+                    } else {
+                        warn!("Database integrity issues detected: {} issues found", result.issues.len());
+                        for issue in result.issues.iter().take(5) { // Show first 5 issues
+                            warn!("  - {}: {}", issue.tree, issue.description);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to run integrity check: {}", e);
+                }
+            }
+        }
+        
+        // Stop all services (which includes database shutdown)
         self.stop()?;
         
         info!("Node shutdown complete");

@@ -4,8 +4,10 @@ pub mod network_simulator;
 pub mod test_harness;
 pub mod regression_testing;
 
+// Re-export TestNetConfig for public use
+pub use self::config::TestNetConfig;
+
 // Use consistent imports
-use self::config::TestNetConfig;
 use self::network_simulator::{NetworkSimulator, SimulationConfig};
 use tracing::info;
 

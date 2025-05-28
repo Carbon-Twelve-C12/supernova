@@ -787,6 +787,17 @@ impl KeyPair {
     }
 }
 
+/// Convenience function for signature verification
+pub fn verify_signature(
+    sig_type: SignatureType,
+    public_key: &[u8],
+    message: &[u8],
+    signature: &[u8]
+) -> Result<bool, SignatureError> {
+    let verifier = SignatureVerifier::new();
+    verifier.verify(sig_type, public_key, message, signature)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

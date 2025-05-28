@@ -7,13 +7,18 @@ use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 use crate::lightning::{
-    Channel, ChannelId, ChannelState, ChannelConfig, 
-    Payment, 
-    Router, OnionRouter, Watchtower, LightningWallet, LightningConfig,
-    QuantumChannelSecurity, LightningNetworkError
+    Channel, ChannelId, ChannelState, ChannelConfig, ChannelError,
+    Invoice, InvoiceError,
+    PaymentHash, PaymentPreimage, Payment, PaymentStatus, PaymentError,
+    Router, RoutingError,
+    LightningWallet, WalletError,
+    Watchtower, WatchtowerConfig,
+    OnionRouter,
+    QuantumChannelSecurity,
+    AtomicChannel, AtomicOperationError,
 };
-use crate::lightning::payment::{PaymentHash, PaymentPreimage, PaymentStatus, RouteHop, Htlc, HtlcState};
-use crate::lightning::invoice::Invoice;
+use super::{LightningConfig, LightningNetworkError};
+use crate::lightning::payment::{RouteHop, Htlc, HtlcState};
 use crate::types::transaction::Transaction;
 use crate::crypto::quantum::QuantumScheme;
 
@@ -22,11 +27,11 @@ pub struct LightningManager {
     /// Lightning Network configuration
     config: LightningConfig,
     
-    /// Active payment channels
-    channels: Arc<RwLock<HashMap<ChannelId, Channel>>>,
+    /// Active payment channels (using AtomicChannel for thread safety)
+    channels: Arc<RwLock<HashMap<ChannelId, Arc<AtomicChannel>>>>,
     
     /// Pending channels (opening/closing)
-    pending_channels: Arc<RwLock<HashMap<ChannelId, Channel>>>,
+    pending_channels: Arc<RwLock<HashMap<ChannelId, Arc<AtomicChannel>>>>,
     
     /// Lightning wallet for key management
     wallet: Arc<Mutex<LightningWallet>>,
@@ -513,19 +518,37 @@ impl LightningManager {
         let peers = self.peers.read().unwrap();
         
         let active_channels: Vec<_> = channels.values()
-            .filter(|c| c.state == ChannelState::Active)
+            .filter(|c| {
+                // Use get_channel_info() to access the state
+                match c.get_channel_info() {
+                    Ok(info) => info.state == ChannelState::Active,
+                    Err(_) => false, // If we can't get info, consider it inactive
+                }
+            })
             .collect();
         
         let total_balance_msat = active_channels.iter()
-            .map(|c| c.local_balance_novas * 1000) // Convert to millinovas
+            .filter_map(|c| {
+                c.get_channel_info()
+                    .map(|info| info.local_balance_novas * 1000) // Convert to millinovas
+                    .ok()
+            })
             .sum();
         
         let total_outbound_capacity_msat = active_channels.iter()
-            .map(|c| c.local_balance_novas * 1000)
+            .filter_map(|c| {
+                c.get_channel_info()
+                    .map(|info| info.local_balance_novas * 1000)
+                    .ok()
+            })
             .sum();
         
         let total_inbound_capacity_msat = active_channels.iter()
-            .map(|c| c.remote_balance_novas * 1000)
+            .filter_map(|c| {
+                c.get_channel_info()
+                    .map(|info| info.remote_balance_novas * 1000)
+                    .ok()
+            })
             .sum();
         
         // Check chain sync status by comparing our height with network
@@ -540,7 +563,12 @@ impl LightningManager {
             num_channels: active_channels.len(),
             num_pending_channels: pending_channels.len(),
             num_inactive_channels: channels.values()
-                .filter(|c| c.state != ChannelState::Active)
+                .filter(|c| {
+                    match c.get_channel_info() {
+                        Ok(info) => info.state != ChannelState::Active,
+                        Err(_) => true, // If we can't get info, consider it inactive
+                    }
+                })
                 .count(),
             total_balance_msat,
             total_outbound_capacity_msat,
@@ -559,8 +587,10 @@ impl LightningManager {
         // Add active/inactive channels
         let channels = self.channels.read().unwrap();
         for channel in channels.values() {
-            if include_inactive || channel.state == ChannelState::Active {
-                result.push(self.channel_to_lightning_channel(channel));
+            if let Ok(info) = channel.get_channel_info() {
+                if include_inactive || info.state == ChannelState::Active {
+                    result.push(self.channel_to_lightning_channel(channel));
+                }
             }
         }
         
@@ -646,10 +676,13 @@ impl LightningManager {
             self.config.quantum_scheme.clone(),
         ).map_err(|e| ManagerError::ChannelError(e.to_string()))?;
         
+        // Wrap in AtomicChannel for thread safety
+        let atomic_channel = Arc::new(AtomicChannel::new(channel));
+        
         // Add to pending channels
         {
             let mut pending_channels = self.pending_channels.write().unwrap();
-            pending_channels.insert(channel_id.clone(), channel);
+            pending_channels.insert(channel_id.clone(), atomic_channel);
         }
         
         // Send event
@@ -670,19 +703,36 @@ impl LightningManager {
         info!("Closing channel {} (force: {})", channel_id.to_hex(), force);
         
         // Find channel
-        let channel = {
+        let atomic_channel = {
             let mut channels = self.channels.write().unwrap();
             channels.remove(&channel_id)
         };
         
-        if let Some(mut channel) = channel {
-            // Create closing transaction
-            let closing_tx = if force {
-                channel.force_close()
-                    .map_err(|e| ManagerError::ChannelError(e.to_string()))?
-            } else {
-                channel.cooperative_close()
-                    .map_err(|e| ManagerError::ChannelError(e.to_string()))?
+        if let Some(atomic_channel) = atomic_channel {
+            // Get channel info for closing
+            let channel_info = atomic_channel.get_channel_info()
+                .map_err(|e| ManagerError::ChannelError(format!("Failed to get channel info: {}", e)))?;
+            
+            // Check if channel can be closed
+            if channel_info.state != ChannelState::Active && channel_info.state != ChannelState::ClosingNegotiation {
+                return Err(ManagerError::ChannelError(
+                    format!("Channel in invalid state for closing: {:?}", channel_info.state)
+                ));
+            }
+            
+            // Create closing transaction using the underlying channel
+            // This is a simplified approach - in production, we'd handle this through atomic operations
+            let closing_tx = {
+                let mut channel = atomic_channel.channel.lock()
+                    .map_err(|e| ManagerError::ChannelError(format!("Failed to lock channel: {}", e)))?;
+                
+                if force {
+                    channel.force_close()
+                        .map_err(|e| ManagerError::ChannelError(e.to_string()))?
+                } else {
+                    channel.cooperative_close()
+                        .map_err(|e| ManagerError::ChannelError(e.to_string()))?
+                }
             };
             
             // Broadcast closing transaction
@@ -856,18 +906,24 @@ impl LightningManager {
             let channels = self.channels.read().unwrap();
             let mut invoice_htlcs = vec![];
             
-            for channel in channels.values() {
-                for htlc in &channel.pending_htlcs {
-                    if htlc.payment_hash == *invoice.payment_hash().as_bytes() {
-                        invoice_htlcs.push(crate::lightning::payment::Htlc {
-                            id: htlc.id,
-                            payment_hash: htlc.payment_hash,
-                            amount_sat: htlc.amount_novas,
-                            cltv_expiry: htlc.expiry_height,
-                            offered: htlc.is_outgoing,
-                            state: crate::lightning::payment::HtlcState::Pending,
-                            quantum_signature: None,
-                        });
+            for atomic_channel in channels.values() {
+                // Get channel info safely
+                if let Ok(channel_info) = atomic_channel.get_channel_info() {
+                    // Access the underlying channel for HTLCs
+                    if let Ok(channel) = atomic_channel.channel.lock() {
+                        for htlc in &channel.pending_htlcs {
+                            if htlc.payment_hash == *invoice.payment_hash().as_bytes() {
+                                invoice_htlcs.push(crate::lightning::payment::Htlc {
+                                    id: htlc.id,
+                                    payment_hash: htlc.payment_hash,
+                                    amount_sat: htlc.amount_novas,
+                                    cltv_expiry: htlc.expiry_height,
+                                    offered: htlc.is_outgoing,
+                                    state: crate::lightning::payment::HtlcState::Pending,
+                                    quantum_signature: None,
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -891,7 +947,15 @@ impl LightningManager {
         "02abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab".to_string()
     }
     
-    fn channel_to_lightning_channel(&self, channel: &Channel) -> LightningChannel {
+    fn channel_to_lightning_channel(&self, atomic_channel: &Arc<AtomicChannel>) -> LightningChannel {
+        // Get channel info atomically
+        let channel_info = atomic_channel.get_channel_info()
+            .unwrap_or_else(|_| panic!("Failed to get channel info"));
+        
+        // Get the underlying channel for detailed info
+        let channel = atomic_channel.channel.lock()
+            .unwrap_or_else(|_| panic!("Failed to lock channel"));
+        
         // Calculate actual statistics from channel data
         let total_novas_sent = channel.pending_htlcs.iter()
             .filter(|htlc| htlc.is_outgoing)
@@ -903,18 +967,18 @@ impl LightningManager {
             .map(|htlc| htlc.amount_novas)
             .sum::<u64>();
             
-        let num_updates = channel.commitment_number;
+        let num_updates = channel_info.commitment_number;
         
         // Calculate uptime
         let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let uptime = current_time - channel.last_update;
+        let uptime = current_time - channel_info.last_operation_time;
         
         LightningChannel {
-            channel_id: hex::encode(channel.channel_id),
+            channel_id: hex::encode(channel_info.channel_id),
             remote_pubkey: hex::encode(channel.remote_node_id.serialize()),
-            capacity: channel.capacity_novas,
-            local_balance: channel.local_balance_novas,
-            remote_balance: channel.remote_balance_novas,
+            capacity: channel_info.capacity_novas,
+            local_balance: channel_info.local_balance_novas,
+            remote_balance: channel_info.remote_balance_novas,
             commit_fee: 1000, // Standard commitment fee
             commit_weight: 724, // Standard commitment weight
             fee_per_kw: 2500, // Standard fee per kiloweight

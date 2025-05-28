@@ -8,6 +8,7 @@ pub mod dashboard;
 pub mod emissions;
 pub mod governance;
 pub mod miner_reporting;
+pub mod oracle;
 pub mod transparency;
 pub mod treasury;
 pub mod types;
@@ -23,6 +24,7 @@ pub use transparency::{TransparencyDashboard, TransparencyReport, TransparencyLe
 pub use governance::{EnvironmentalGovernance, EnvironmentalProposal, ProposalStatus};
 // pub use alerting::{AlertingSystem, Alert, AlertRule};  // Temporarily disabled for compilation
 pub use verification::{RenewableCertificate, CarbonOffset, VerificationService};
+pub use oracle::{EnvironmentalOracle, OracleError, OracleInfo, OracleSubmission};
 
 // Type aliases for common use
 pub type HardwareType = types::HardwareType;
@@ -41,4 +43,4 @@ pub use self::treasury::{
     TreasuryConfig,
     TreasuryDistribution,
     TreasuryAllocation,
-};
+}; 
