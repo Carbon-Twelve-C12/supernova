@@ -25,8 +25,6 @@ impl MetricsRegistry {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let builder = PrometheusBuilder::new();
         let handle = builder
-            .with_namespace("supernova")
-            .add_global_label("version", env!("CARGO_PKG_VERSION"))
             .install_recorder()?;
         
         info!("Metrics system initialized with Prometheus exporter");
@@ -54,30 +52,12 @@ impl MetricsRegistry {
     pub fn with_config(config: MetricsConfig) -> Result<Self, Box<dyn std::error::Error>> {
         let mut builder = PrometheusBuilder::new();
         
-        // Apply configuration
-        if let Some(namespace) = &config.namespace {
-            builder = builder.with_namespace(namespace);
-        }
-        
-        // Add global labels
-        for (key, value) in &config.global_labels {
-            builder = builder.add_global_label(key, value);
-        }
-        
         // Set endpoint if configured
-        let handle = if let Some(endpoint) = &config.endpoint {
-            builder = builder.with_http_listener(endpoint.parse()?);
-            builder.install_recorder()?
-        } else {
-            builder.install_recorder()?
-        };
-        
-        // Configure push gateway if available
-        if let Some(gateway) = &config.push_gateway {
-            if let Some(interval) = config.push_interval {
-                builder = builder.with_push_gateway(gateway, interval);
-            }
+        if let Some(endpoint) = &config.endpoint {
+            builder = builder.listen_address(endpoint.parse()?);
         }
+        
+        let handle = builder.install_recorder()?;
         
         info!("Metrics system initialized with custom configuration");
         
@@ -177,11 +157,11 @@ impl SystemMetrics {
     /// Create new system metrics
     pub fn new() -> Self {
         Self {
-            cpu_usage: metrics::gauge!("system_cpu_usage_percent", "CPU usage percentage"),
-            memory_usage: metrics::gauge!("system_memory_usage_bytes", "Memory usage in bytes"),
-            disk_usage: metrics::gauge!("system_disk_usage_bytes", "Disk usage in bytes"),
-            open_files: metrics::gauge!("system_open_files", "Number of open file descriptors"),
-            uptime: metrics::gauge!("system_uptime_seconds", "System uptime in seconds"),
+            cpu_usage: metrics::gauge!("system_cpu_usage_percent"),
+            memory_usage: metrics::gauge!("system_memory_usage_bytes"),
+            disk_usage: metrics::gauge!("system_disk_usage_bytes"),
+            open_files: metrics::gauge!("system_open_files"),
+            uptime: metrics::gauge!("system_uptime_seconds"),
         }
     }
     
@@ -235,14 +215,14 @@ impl BlockchainMetrics {
     /// Create new blockchain metrics
     pub fn new() -> Self {
         Self {
-            height: metrics::gauge!("blockchain_height", "Current blockchain height"),
-            total_transactions: metrics::counter!("blockchain_total_transactions", "Total number of transactions processed"),
-            block_processing_time: metrics::histogram!("blockchain_block_processing_time_seconds", "Block processing time in seconds"),
-            block_size: metrics::histogram!("blockchain_block_size_bytes", "Block size in bytes"),
-            transactions_per_block: metrics::histogram!("blockchain_transactions_per_block", "Number of transactions per block"),
-            difficulty: metrics::gauge!("blockchain_difficulty", "Current blockchain difficulty"),
-            hash_rate: metrics::gauge!("blockchain_estimated_hash_rate", "Estimated network hash rate"),
-            time_since_last_block: metrics::gauge!("blockchain_time_since_last_block_seconds", "Time since last block in seconds"),
+            height: metrics::gauge!("blockchain_height"),
+            total_transactions: metrics::counter!("blockchain_total_transactions"),
+            block_processing_time: metrics::histogram!("blockchain_block_processing_time_seconds"),
+            block_size: metrics::histogram!("blockchain_block_size_bytes"),
+            transactions_per_block: metrics::histogram!("blockchain_transactions_per_block"),
+            difficulty: metrics::gauge!("blockchain_difficulty"),
+            hash_rate: metrics::gauge!("blockchain_estimated_hash_rate"),
+            time_since_last_block: metrics::gauge!("blockchain_time_since_last_block_seconds"),
         }
     }
     
@@ -317,17 +297,17 @@ impl NetworkMetrics {
     /// Create new network metrics
     pub fn new() -> Self {
         Self {
-            connected_peers: metrics::gauge!("network_connected_peers", "Number of connected peers"),
-            inbound_connections: metrics::gauge!("network_inbound_connections", "Number of inbound connections"),
-            outbound_connections: metrics::gauge!("network_outbound_connections", "Number of outbound connections"),
-            bytes_received: metrics::counter!("network_bytes_received", "Total bytes received"),
-            bytes_sent: metrics::counter!("network_bytes_sent", "Total bytes sent"),
-            messages_received: metrics::counter!("network_messages_received", "Total messages received"),
-            messages_sent: metrics::counter!("network_messages_sent", "Total messages sent"),
-            connection_attempts: metrics::counter!("network_connection_attempts", "Total connection attempts"),
-            failed_connection_attempts: metrics::counter!("network_failed_connection_attempts", "Total failed connection attempts"),
-            peer_connection_duration: metrics::histogram!("network_peer_connection_duration_seconds", "Peer connection duration in seconds"),
-            message_processing_time: metrics::histogram!("network_message_processing_time_seconds", "Message processing time in seconds"),
+            connected_peers: metrics::gauge!("network_connected_peers"),
+            inbound_connections: metrics::gauge!("network_inbound_connections"),
+            outbound_connections: metrics::gauge!("network_outbound_connections"),
+            bytes_received: metrics::counter!("network_bytes_received"),
+            bytes_sent: metrics::counter!("network_bytes_sent"),
+            messages_received: metrics::counter!("network_messages_received"),
+            messages_sent: metrics::counter!("network_messages_sent"),
+            connection_attempts: metrics::counter!("network_connection_attempts"),
+            failed_connection_attempts: metrics::counter!("network_failed_connection_attempts"),
+            peer_connection_duration: metrics::histogram!("network_peer_connection_duration_seconds"),
+            message_processing_time: metrics::histogram!("network_message_processing_time_seconds"),
         }
     }
     
@@ -405,12 +385,12 @@ impl ConsensusMetrics {
     /// Create new consensus metrics
     pub fn new() -> Self {
         Self {
-            fork_count: metrics::counter!("consensus_fork_count", "Number of forks detected"),
-            reorg_count: metrics::counter!("consensus_reorg_count", "Number of chain reorganizations"),
-            reorg_depth: metrics::histogram!("consensus_reorg_depth_blocks", "Depth of chain reorganizations in blocks"),
-            reorg_duration: metrics::histogram!("consensus_reorg_duration_seconds", "Duration of chain reorganizations in seconds"),
-            orphan_blocks: metrics::counter!("consensus_orphan_blocks", "Number of orphaned blocks"),
-            invalid_blocks: metrics::counter!("consensus_invalid_blocks", "Number of invalid blocks received"),
+            fork_count: metrics::counter!("consensus_fork_count"),
+            reorg_count: metrics::counter!("consensus_reorg_count"),
+            reorg_depth: metrics::histogram!("consensus_reorg_depth_blocks"),
+            reorg_duration: metrics::histogram!("consensus_reorg_duration_seconds"),
+            orphan_blocks: metrics::counter!("consensus_orphan_blocks"),
+            invalid_blocks: metrics::counter!("consensus_invalid_blocks"),
         }
     }
     
@@ -465,16 +445,16 @@ impl MempoolMetrics {
     /// Create new mempool metrics
     pub fn new() -> Self {
         Self {
-            size: metrics::gauge!("mempool_size", "Current size of mempool"),
-            transactions: metrics::gauge!("mempool_transactions", "Number of transactions in mempool"),
-            bytes: metrics::gauge!("mempool_bytes", "Total bytes used by mempool"),
-            max_fee_rate: metrics::gauge!("mempool_max_fee_rate", "Maximum fee rate in mempool"),
-            min_fee_rate: metrics::gauge!("mempool_min_fee_rate", "Minimum fee rate in mempool"),
-            median_fee_rate: metrics::gauge!("mempool_median_fee_rate", "Median fee rate in mempool"),
-            transactions_added: metrics::counter!("mempool_transactions_added", "Transactions added to mempool"),
-            transactions_rejected: metrics::counter!("mempool_transactions_rejected", "Transactions rejected from mempool"),
-            transactions_removed: metrics::counter!("mempool_transactions_removed", "Transactions removed from mempool"),
-            transactions_expired: metrics::counter!("mempool_transactions_expired", "Transactions expired from mempool"),
+            size: metrics::gauge!("mempool_size"),
+            transactions: metrics::gauge!("mempool_transactions"),
+            bytes: metrics::gauge!("mempool_bytes"),
+            max_fee_rate: metrics::gauge!("mempool_max_fee_rate"),
+            min_fee_rate: metrics::gauge!("mempool_min_fee_rate"),
+            median_fee_rate: metrics::gauge!("mempool_median_fee_rate"),
+            transactions_added: metrics::counter!("mempool_transactions_added"),
+            transactions_rejected: metrics::counter!("mempool_transactions_rejected"),
+            transactions_removed: metrics::counter!("mempool_transactions_removed"),
+            transactions_expired: metrics::counter!("mempool_transactions_expired"),
         }
     }
     
@@ -559,25 +539,25 @@ impl LightningMetrics {
     /// Create new Lightning Network metrics
     pub fn new() -> Self {
         Self {
-            active_channels: metrics::gauge!("lightning_active_channels", "Number of active payment channels"),
-            pending_channels: metrics::gauge!("lightning_pending_channels", "Number of pending channels"),
-            channel_opens: metrics::counter!("lightning_channel_opens_total", "Total channel opens"),
-            channel_closes: metrics::counter!("lightning_channel_closes_total", "Total channel closes"),
-            payments_success: metrics::counter!("lightning_payments_success_total", "Total successful payments"),
-            payments_failed: metrics::counter!("lightning_payments_failed_total", "Total failed payments"),
-            htlcs_in_flight: metrics::gauge!("lightning_htlcs_in_flight", "Number of HTLCs in flight"),
-            total_capacity: metrics::gauge!("lightning_total_capacity_sats", "Total channel capacity in satoshis"),
-            local_balance: metrics::gauge!("lightning_local_balance_sats", "Local balance in satoshis"),
-            remote_balance: metrics::gauge!("lightning_remote_balance_sats", "Remote balance in satoshis"),
-            routing_fee_income: metrics::counter!("lightning_routing_fee_income_msats", "Routing fee income in millisatoshis"),
-            payment_path_length: metrics::histogram!("lightning_payment_path_length", "Payment path length"),
-            payment_processing_time: metrics::histogram!("lightning_payment_processing_time_seconds", "Payment processing time in seconds"),
-            payment_amounts: metrics::histogram!("lightning_payment_amounts_msats", "Payment amounts in millisatoshis"),
-            routing_failures: metrics::counter!("lightning_routing_failures_total", "Total routing failures"),
-            channel_errors: metrics::counter!("lightning_channel_errors_total", "Total channel errors"),
-            forwarded_payments: metrics::counter!("lightning_forwarded_payments_total", "Total forwarded payments"),
-            declined_htlcs: metrics::counter!("lightning_declined_htlcs_total", "Total declined HTLCs"),
-            force_closes: metrics::counter!("lightning_force_closes_total", "Total force closes"),
+            active_channels: metrics::gauge!("lightning_active_channels"),
+            pending_channels: metrics::gauge!("lightning_pending_channels"),
+            channel_opens: metrics::counter!("lightning_channel_opens"),
+            channel_closes: metrics::counter!("lightning_channel_closes"),
+            payments_success: metrics::counter!("lightning_payments_success"),
+            payments_failed: metrics::counter!("lightning_payments_failed"),
+            htlcs_in_flight: metrics::gauge!("lightning_htlcs_in_flight"),
+            total_capacity: metrics::gauge!("lightning_total_capacity"),
+            local_balance: metrics::gauge!("lightning_local_balance"),
+            remote_balance: metrics::gauge!("lightning_remote_balance"),
+            routing_fee_income: metrics::counter!("lightning_routing_fee_income"),
+            payment_path_length: metrics::histogram!("lightning_payment_path_length"),
+            payment_processing_time: metrics::histogram!("lightning_payment_processing_time"),
+            payment_amounts: metrics::histogram!("lightning_payment_amounts"),
+            routing_failures: metrics::counter!("lightning_routing_failures"),
+            channel_errors: metrics::counter!("lightning_channel_errors"),
+            forwarded_payments: metrics::counter!("lightning_forwarded_payments"),
+            declined_htlcs: metrics::counter!("lightning_declined_htlcs"),
+            force_closes: metrics::counter!("lightning_force_closes"),
         }
     }
     
@@ -651,8 +631,8 @@ impl LightningMetrics {
     }
 }
 
-/// Operation wrapper to record timing metrics
-pub struct TimedOperation<'a, F>
+/// Helper for timing operations
+pub struct TimedOperation<F>
 where 
     F: FnOnce(f64),
 {
@@ -660,7 +640,7 @@ where
     callback: Option<F>,
 }
 
-impl<'a, F> TimedOperation<'a, F>
+impl<F> TimedOperation<F>
 where
     F: FnOnce(f64),
 {
@@ -672,23 +652,23 @@ where
         }
     }
     
-    /// Complete the operation and record the time
+    /// Complete the operation and call the callback with the elapsed time
     pub fn complete(mut self) {
-        let duration = self.start_time.elapsed().as_secs_f64();
         if let Some(callback) = self.callback.take() {
-            callback(duration);
+            let elapsed = self.start_time.elapsed().as_secs_f64();
+            callback(elapsed);
         }
     }
 }
 
-impl<'a, F> Drop for TimedOperation<'a, F>
+impl<F> Drop for TimedOperation<F>
 where
     F: FnOnce(f64),
 {
     fn drop(&mut self) {
         if let Some(callback) = self.callback.take() {
-            let duration = self.start_time.elapsed().as_secs_f64();
-            callback(duration);
+            let elapsed = self.start_time.elapsed().as_secs_f64();
+            callback(elapsed);
         }
     }
 }

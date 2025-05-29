@@ -22,7 +22,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     );
 }
 
-/// Get overall environmental impact data
+/// Get environmental impact data
 ///
 /// Returns comprehensive data about the node's environmental impact.
 #[derive(Debug, Deserialize, IntoParams)]
@@ -53,8 +53,9 @@ pub async fn get_environmental_impact(
     environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnvironmentalImpact> {
     let period = params.period.unwrap_or(3600);
+    let detail = params.detail.as_deref().unwrap_or("standard");
     
-    match environmental.get_environmental_impact(period) {
+    match environmental.get_environmental_impact(period, detail) {
         Ok(impact) => Ok(impact),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get environmental impact: {}", e))),
     }
@@ -91,8 +92,9 @@ pub async fn get_energy_usage(
     environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<EnergyUsage> {
     let period = params.period.unwrap_or(3600);
+    let include_history = params.include_history.unwrap_or(false);
     
-    match environmental.get_energy_usage(period) {
+    match environmental.get_energy_usage(period, include_history) {
         Ok(energy_data) => Ok(energy_data),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get energy usage: {}", e))),
     }
@@ -129,39 +131,43 @@ pub async fn get_carbon_footprint(
     environmental: web::Data<Arc<EnvironmentalMonitor>>,
 ) -> ApiResult<CarbonFootprint> {
     let period = params.period.unwrap_or(3600);
+    let include_offsets = params.include_offsets.unwrap_or(false);
     
-    match environmental.get_carbon_footprint(period) {
+    match environmental.get_carbon_footprint(period, include_offsets) {
         Ok(carbon_data) => Ok(carbon_data),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get carbon footprint: {}", e))),
     }
 }
 
-/// Get resource utilization data
+/// Get current resource utilization
 ///
-/// Returns information about the node's hardware resource utilization.
+/// Returns CPU, memory, and storage utilization data.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetResourceUtilizationParams {
-    /// Time period in seconds for which to retrieve data (default: 300 - 5 minutes)
-    #[param(default = "300")]
+struct ResourceUtilizationParams {
+    /// Time period in seconds for which to retrieve data (default: 3600 - 1 hour)
+    #[param(default = "3600")]
     period: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/api/v1/environmental/resources",
+    path = "/environmental/resources",
     params(
-        GetResourceUtilizationParams
+        ResourceUtilizationParams
     ),
     responses(
-        (status = 200, description = "Resource utilization data retrieved successfully", body = ResourceUtilization),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 200, description = "Resource utilization data", body = ResourceUtilization),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Environmental"
 )]
 pub async fn get_resource_utilization(
     environmental: web::Data<Arc<EnvironmentalMonitor>>,
+    params: web::Query<ResourceUtilizationParams>,
 ) -> ApiResult<ResourceUtilization> {
-    match environmental.get_resource_utilization() {
+    let period = params.period.unwrap_or(3600);
+    
+    match environmental.get_resource_utilization(period) {
         Ok(resource_data) => Ok(resource_data),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get resource utilization: {}", e))),
     }
