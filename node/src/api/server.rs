@@ -193,6 +193,7 @@ impl ApiServer {
                 .service(
                     SwaggerUi::new("/swagger-ui/{_:.*}")
                         .url("/api-docs/openapi.json", openapi.clone())
+                        .config(utoipa_swagger_ui::Config::default())
                 )
         })
         .client_request_timeout(std::time::Duration::from_secs(config.request_timeout))

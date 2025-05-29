@@ -2,6 +2,14 @@ use libp2p::{
     gossipsub::{self, MessageId, IdentTopic},
     identity::Keypair,
     PeerId,
+    core::ProtocolName,
+    request_response::{
+        ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseConfig,
+        RequestResponseEvent, RequestResponseMessage, RequestId,
+    },
+    swarm::NetworkBehaviourEventProcess,
+    NetworkBehaviour,
+    Multiaddr,
 };
 use serde::{Serialize, Deserialize};
 use std::error::Error;
@@ -12,8 +20,12 @@ use std::fmt;
 use std::error::Error as StdError;
 use tracing::debug;
 use std::collections::HashMap;
-use rand;
+use rand::{thread_rng, Rng, RngCore};
 use thiserror::Error;
+use async_trait::async_trait;
+use futures::prelude::*;
+use std::io;
+use tokio::sync::mpsc;
 
 // Topic constants
 const BLOCKS_TOPIC: &str = "blocks";
@@ -22,76 +34,140 @@ const HEADERS_TOPIC: &str = "headers";
 const STATUS_TOPIC: &str = "status";
 const MEMPOOL_TOPIC: &str = "mempool";
 
-/// Message types for node-to-node communication
+/// Version handshake message
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Message {
-    /// New block announcement
-    Block {
-        block: Vec<u8>, // Serialized block data
-    },
-    
-    /// New block announcement with metadata
-    NewBlock {
-        block_data: Vec<u8>, // Serialized block data
-        height: u64,
-        total_difficulty: u64,
-    },
-    
-    /// New transaction announcement
-    Transaction {
-        transaction: Vec<u8>, // Serialized transaction data
-    },
-    
-    /// Broadcast a transaction directly
-    BroadcastTransaction(Vec<u8>), // Serialized transaction directly
-    
-    /// Transaction announcement with hash only
-    TransactionAnnouncement {
-        tx_hash: [u8; 32],
-        fee_rate: u64,
-    },
-    
-    /// Request for blocks in a range
-    GetBlocks {
-        start_height: u64,
-        end_height: u64,
-    },
-    
-    /// Request for blocks by hash
-    GetBlocksByHash {
-        block_hashes: Vec<[u8; 32]>,
-    },
-    
-    /// Request blocks by height range 
-    GetBlocksByHeight {
-        start_height: u64,
-        end_height: u64,
-    },
-    
-    /// Response with block batch
-    Blocks {
-        blocks: Vec<Vec<u8>>, // List of serialized blocks
-    },
-    
-    /// Response with block batch with metadata
-    BlockResponse {
-        blocks: Vec<Vec<u8>>, // List of serialized blocks
-        total_difficulty: u64,
-    },
-    
-    /// Request for block headers
+pub struct VersionMessage {
+    pub version: u32,
+    pub services: u64,
+    pub timestamp: u64,
+    pub addr_recv: String,
+    pub addr_from: String,
+    pub nonce: u64,
+    pub user_agent: String,
+    pub start_height: u64,
+}
+
+/// Get headers message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetHeadersMessage {
+    pub version: u32,
+    pub locator_hashes: Vec<[u8; 32]>,
+    pub stop_hash: [u8; 32],
+}
+
+/// Get blocks message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetBlocksMessage {
+    pub version: u32,
+    pub locator_hashes: Vec<[u8; 32]>,
+    pub stop_hash: [u8; 32],
+}
+
+/// Block header
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockHeader {
+    pub version: u32,
+    pub prev_hash: [u8; 32],
+    pub merkle_root: [u8; 32],
+    pub timestamp: u64,
+    pub bits: u32,
+    pub nonce: u32,
+}
+
+/// Environmental data message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvironmentalData {
+    pub timestamp: u64,
+    pub energy_consumption: f64,
+    pub carbon_emissions: f64,
+    pub renewable_percentage: f64,
+}
+
+/// Lightning Network message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LightningMessage {
+    pub message_type: String,
+    pub payload: Vec<u8>,
+}
+
+// Import types from btclib
+use btclib::types::{block::Block, transaction::Transaction};
+
+/// Protocol message wrapper for network communication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProtocolMessage {
+    /// Ping message
+    Ping(u64),
+    /// Pong response
+    Pong(u64),
+    /// Get headers request
     GetHeaders {
         start_height: u64,
         end_height: u64,
     },
-    
-    /// Response with block headers
-    Headers {
-        headers: Vec<Vec<u8>>, // List of serialized headers
+    /// Headers response
+    Headers(Vec<BlockHeader>),
+    /// Get blocks request
+    GetBlocks(Vec<[u8; 32]>),
+    /// Block data
+    Block(Block),
+    /// Get data request
+    GetData(Vec<[u8; 32]>),
+    /// Status message
+    Status {
+        height: u64,
+        best_hash: [u8; 32],
         total_difficulty: u64,
     },
+    /// Get status request
+    GetStatus,
+    /// Custom message
+    Custom(String, Vec<u8>),
+}
+
+/// Message types in the SuperNova protocol
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Message {
+    /// Version handshake message
+    Version(VersionMessage),
+    /// Version acknowledgment
+    Verack,
+    /// Request for blocks (old style)
+    GetBlocks(GetBlocksMessage),
+    /// Block data
+    Block(Block),
+    /// Ping message for keepalive
+    Ping(u64),
+    /// Pong response to ping
+    Pong(u64),
+    /// Address announcement
+    Addr(Vec<(PeerId, Multiaddr)>),
+    /// Get addresses request
+    GetAddr,
+    /// Environmental data
+    Environmental(EnvironmentalData),
+    /// Lightning Network message
+    Lightning(LightningMessage),
+    /// Custom extension message
+    Extension(String, Vec<u8>),
     
-    /// Node status information
+    // Additional message types needed by the codebase
+    /// New block announcement
+    NewBlock {
+        block_data: Vec<u8>,
+        height: u64,
+        total_difficulty: u64,
+    },
+    /// Get blocks by height range
+    GetBlocksByHeight {
+        start_height: u64,
+        end_height: u64,
+    },
+    /// Get blocks by hash
+    GetBlocksByHash {
+        block_hashes: Vec<[u8; 32]>,
+    },
+    /// Status message
     Status {
         version: u32,
         height: u64,
@@ -99,76 +175,44 @@ pub enum Message {
         total_difficulty: u64,
         head_timestamp: u64,
     },
-    
-    /// Request status from a peer 
+    /// Get status request
     GetStatus,
-    
-    /// Request for mempool transactions
-    GetMempool {
-        max_tx_count: u32,
+    /// Transaction with raw bytes
+    Transaction {
+        transaction: Vec<u8>,
     },
-    
-    /// Response with mempool transactions
-    Mempool {
-        transactions: Vec<Vec<u8>>, // List of serialized transactions
+    /// Broadcast transaction
+    BroadcastTransaction(Vec<u8>),
+    /// Transaction announcement
+    TransactionAnnouncement {
+        tx_hash: [u8; 32],
+        fee_rate: u64,
     },
-    
-    /// Request for peer information
-    GetPeers,
-    
-    /// Response with connected peers
-    Peers {
-        peers: Vec<String>, // List of multiaddresses
+    /// Headers response with difficulty
+    Headers {
+        headers: Vec<Vec<u8>>,
+        total_difficulty: u64,
     },
-    
-    /// Request specific data by hash
-    GetData {
-        block_hashes: Vec<[u8; 32]>,
-        tx_hashes: Vec<[u8; 32]>,
+    /// Blocks response
+    Blocks {
+        blocks: Vec<Vec<u8>>,
     },
-    
-    /// Request for checkpoint information
-    GetCheckpoints {
+    /// Block response
+    BlockResponse {
+        block: Option<Vec<u8>>,
+    },
+    /// Get headers range
+    GetHeaders {
         start_height: u64,
         end_height: u64,
     },
-    
-    /// Checkpoint information response
-    Checkpoints {
-        checkpoints: Vec<Checkpoint>,
+    /// Get mempool with filter
+    GetMempool {
+        filter: Option<String>,
     },
-    
-    /// Ping with timestamp for latency measurement
-    Ping(u64),
-    
-    /// Pong response with original timestamp
-    Pong(u64),
-    
-    /// Identity verification challenge
-    IdentityChallenge {
-        nonce: Vec<u8>,
-        difficulty: u8,
-    },
-    
-    /// Response to identity verification challenge
-    IdentityChallengeResponse {
-        solution: Vec<u8>,
-    },
-    
-    /// Quantum-resistant signature announcement
-    QuantumSignatureAnnouncement {
-        /// Signature type (Dilithium, Falcon, SPHINCS+, Hybrid)
-        signature_type: String,
-        /// Security level
-        security_level: u8,
-        /// Public key data
-        public_key: Vec<u8>,
-    },
-    
-    /// Quantum-resistant signature query
-    QuantumSignatureQuery {
-        /// Peer ID to query
-        peer_id: String,
+    /// Mempool response with tx hashes
+    Mempool {
+        tx_hashes: Vec<[u8; 32]>,
     },
 }
 
@@ -405,14 +449,14 @@ impl Protocol {
     
     /// Generate an identity challenge for a peer
     pub fn generate_identity_challenge(&mut self, peer_id: &PeerId) -> Vec<u8> {
-        // Generate 32 bytes of random data
-        let mut challenge_bytes = [0u8; 32];
-        rand::thread_rng().fill(&mut challenge_bytes);
+        // Generate random nonce
+        let mut nonce = [0u8; 8];
+        thread_rng().fill_bytes(&mut nonce);
         
         // Store the challenge
-        self.identity_challenges.insert(peer_id.clone(), challenge_bytes.to_vec());
+        self.identity_challenges.insert(peer_id.clone(), nonce.to_vec());
         
-        challenge_bytes.to_vec()
+        nonce.to_vec()
     }
     
     /// Verify an identity challenge response

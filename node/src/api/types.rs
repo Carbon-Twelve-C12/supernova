@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
+use actix_web::{HttpResponse, Responder};
 
 // Import and re-export environmental types
 pub mod environmental;
@@ -172,7 +173,7 @@ pub struct MempoolInfo {
 }
 
 /// Mempool transaction information
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct MempoolTransaction {
     /// Transaction ID
     pub txid: String,
@@ -1036,6 +1037,17 @@ pub struct InvoiceResponse {
     pub add_index: u64,
 }
 
+/// Load average information
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LoadAverage {
+    /// 1 minute load average
+    pub one: f64,
+    /// 5 minute load average
+    pub five: f64,
+    /// 15 minute load average
+    pub fifteen: f64,
+}
+
 /// System information
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SystemInfo {
@@ -1056,7 +1068,7 @@ pub struct SystemInfo {
     /// System uptime in seconds
     pub uptime: u64,
     /// Load average
-    pub load_average: sysinfo::LoadAvg,
+    pub load_average: LoadAverage,
 }
 
 /// Log entry
@@ -1271,6 +1283,63 @@ pub struct FaucetInfo {
     pub requests_today: u32,
     /// Daily request limit
     pub daily_limit: u32,
+}
+
+/// Faucet status response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FaucetStatusResponse {
+    /// Whether the faucet is active
+    pub is_active: bool,
+    /// Current balance
+    pub balance: u64,
+    /// Number of transactions today
+    pub transactions_today: u32,
+    /// Last distribution timestamp
+    pub last_distribution: Option<i64>,
+    /// Cooldown period in seconds
+    pub cooldown_secs: u64,
+    /// Distribution amount
+    pub distribution_amount: u64,
+}
+
+/// Faucet coin request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct FaucetRequest {
+    /// Recipient address
+    pub address: String,
+}
+
+/// Faucet coin response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FaucetResponse {
+    /// Transaction ID
+    pub txid: String,
+    /// Amount distributed
+    pub amount: u64,
+    /// Recipient address
+    pub recipient: String,
+    /// Timestamp
+    pub timestamp: i64,
+}
+
+/// Recent faucet transactions response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RecentTransactionsResponse {
+    /// List of recent transactions
+    pub transactions: Vec<FaucetTransaction>,
+}
+
+/// Faucet transaction record
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct FaucetTransaction {
+    /// Transaction ID
+    pub txid: String,
+    /// Recipient address
+    pub recipient: String,
+    /// Amount
+    pub amount: u64,
+    /// Timestamp
+    pub timestamp: i64,
 }
 
 //
@@ -1611,6 +1680,459 @@ pub struct MempoolTransactionSubmissionResponse {
     pub txid: String,
     /// Whether the transaction was accepted
     pub accepted: bool,
+}
+
+/// Mining work request for getwork-style mining
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MiningWorkRequest {
+    /// Miner address for rewards
+    pub miner_address: String,
+}
+
+/// Mining work response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct MiningWorkResponse {
+    /// Block header to work on (hex)
+    pub header: String,
+    /// Target difficulty (hex)
+    pub target: String,
+    /// Job ID
+    pub job_id: String,
+    /// Height of the block being mined
+    pub height: u64,
+}
+
+/// Mining submit request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MiningSubmitRequest {
+    /// Job ID from work request
+    pub job_id: String,
+    /// Nonce found by miner
+    pub nonce: u32,
+    /// Miner address
+    pub miner_address: String,
+}
+
+/// Mining submit response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct MiningSubmitResponse {
+    /// Whether the submission was accepted
+    pub accepted: bool,
+    /// Block hash if accepted
+    pub block_hash: Option<String>,
+    /// Rejection reason if not accepted
+    pub reject_reason: Option<String>,
+}
+
+/// Channel information for Lightning Network
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ChannelInfo {
+    /// Channel ID
+    pub channel_id: String,
+    /// Remote peer ID
+    pub remote_peer: String,
+    /// Channel capacity
+    pub capacity: u64,
+    /// Local balance
+    pub local_balance: u64,
+    /// Remote balance
+    pub remote_balance: u64,
+    /// Channel state
+    pub state: String,
+}
+
+// Add Responder implementations for all API types
+
+impl Responder for BlockchainInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for BlockInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for TransactionInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for TransactionSubmissionResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for BlockchainStats {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MempoolInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MempoolTransaction {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MempoolStatistics {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for BalanceInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for AddressInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for TransactionList {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for SignResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for VerifyResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for SendResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for LabelResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for AddressResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for BackupResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for UTXOList {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for EnergyUsage {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for CarbonFootprint {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for ResourceUtilization {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for EnvironmentalSettings {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for EmissionsInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for EnvironmentalTreasuryStatus {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for EnergyUsageHistory {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for LoadAverage {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for NodeInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for SystemInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for NodeStatus {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for VersionInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for NodeMetrics {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for FaucetInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for BackupInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for DebugInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MempoolTransactionSubmissionResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for TransactionValidationResult {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for TransactionFees {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for NetworkInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for ConnectionCount {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for PeerInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for PeerAddResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for BandwidthUsage {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MiningInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MiningTemplate {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for SubmitBlockResponse {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MiningStats {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MiningStatus {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for MiningConfiguration {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
+}
+
+impl Responder for WalletInfo {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
 }
 
 #[cfg(test)]

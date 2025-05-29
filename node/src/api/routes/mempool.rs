@@ -166,8 +166,8 @@ pub async fn submit_transaction(
         },
         Err(e) => {
             match e {
-                crate::mempool::MempoolError::TransactionExists => {
-                    Err(ApiError::conflict("Transaction already exists in mempool"))
+                crate::mempool::MempoolError::TransactionExists(_) => {
+                    Err(ApiError::bad_request("Transaction already exists in mempool"))
                 },
                 crate::mempool::MempoolError::InvalidTransaction(msg) => {
                     Err(ApiError::bad_request(format!("Invalid transaction: {}", msg)))

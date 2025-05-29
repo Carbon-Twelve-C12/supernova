@@ -3,27 +3,28 @@ use btclib::types::transaction::Transaction;
 use std::cmp::Ordering;
 use std::time::SystemTime;
 use crate::config;
+use serde::{Serialize, Deserialize};
 
 /// Configuration for transaction prioritization
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrioritizationConfig {
-    /// Maximum number of ancestors for a transaction
-    max_ancestor_count: usize,
-    /// Maximum size of ancestor package (in bytes)
-    max_ancestor_size: usize,
-    /// Minimum fee rate for ancestor package (satoshis per byte)
-    min_ancestor_fee_rate: u64,
-    /// Time-based fee rate decay factor (percentage per hour)
-    fee_rate_decay: f64,
+    /// Whether to enable transaction prioritization
+    pub enabled: bool,
+    /// Minimum fee rate for ancestor package (novas per byte)
+    pub min_ancestor_fee_rate: u64,
+    /// Maximum ancestor package size in bytes
+    pub max_ancestor_size: usize,
+    /// Whether to consider descendant packages
+    pub consider_descendants: bool,
 }
 
 impl From<config::MempoolConfig> for PrioritizationConfig {
     fn from(config: config::MempoolConfig) -> Self {
         Self {
-            max_ancestor_count: 25,
             max_ancestor_size: 101_000,  // ~100KB
             min_ancestor_fee_rate: config.min_fee_rate as u64,
-            fee_rate_decay: 0.1,         // 0.1% per hour
+            enabled: true,
+            consider_descendants: true,
         }
     }
 }
@@ -31,10 +32,10 @@ impl From<config::MempoolConfig> for PrioritizationConfig {
 impl Default for PrioritizationConfig {
     fn default() -> Self {
         Self {
-            max_ancestor_count: 25,
             max_ancestor_size: 101_000,  // ~100KB
-            min_ancestor_fee_rate: 1,    // 1 sat/byte
-            fee_rate_decay: 0.1,         // 0.1% per hour
+            min_ancestor_fee_rate: 1,    // 1 nova/byte
+            enabled: true,
+            consider_descendants: true,
         }
     }
 }

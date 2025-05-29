@@ -22,6 +22,7 @@ const HEADERS_TREE: &str = "headers";
 const PENDING_BLOCKS_TREE: &str = "pending_blocks";
 const PENDING_BLOCKS_META_TREE: &str = "pending_blocks_meta";
 const PENDING_BLOCKS_INDEX_TREE: &str = "pending_blocks_index";
+const HEIGHT_KEY: &[u8] = b"height";
 
 /// Metadata about a pending block
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2313,19 +2314,68 @@ impl BlockchainDB {
 
     /// Get current blockchain height
     pub fn get_height(&self) -> Result<u64, StorageError> {
-        if let Some(height_data) = self.get_metadata(b"height")? {
-            let height_bytes: [u8; 8] = height_data.as_ref().try_into()
-                .map_err(|_| StorageError::InvalidBlock)?;
-            Ok(u64::from_be_bytes(height_bytes))
+        if let Some(height_bytes) = self.get_metadata(HEIGHT_KEY)? {
+            let height = u64::from_be_bytes(height_bytes[..8].try_into()
+                .map_err(|_| StorageError::DatabaseError("Invalid height data".to_string()))?);
+            Ok(height)
         } else {
-            Ok(0) // Genesis height
+            Ok(0)
         }
     }
 
     /// Set current blockchain height
     pub fn set_height(&self, height: u64) -> Result<(), StorageError> {
-        self.store_metadata(b"height", &height.to_be_bytes())
+        self.store_metadata(HEIGHT_KEY, &height.to_be_bytes())
     }
+    
+    // ===== ARCHITECTURAL BRIDGE ADAPTER METHODS =====
+    // These methods provide compatibility for the node layer
+    
+    /// Get the best block hash (adapter method)
+    pub fn get_best_block_hash(&self) -> Result<[u8; 32], StorageError> {
+        // Get the current height
+        let height = self.get_height()?;
+        
+        // Get the block hash at that height
+        if let Some(hash) = self.get_block_hash_by_height(height)? {
+            Ok(hash)
+        } else {
+            // No blocks yet, return genesis hash
+            Ok([0u8; 32])
+        }
+    }
+    
+    /// Get the best block (adapter method)
+    pub fn get_best_block(&self) -> Result<Option<Block>, StorageError> {
+        let hash = self.get_best_block_hash()?;
+        if hash == [0u8; 32] {
+            Ok(None)
+        } else {
+            self.get_block(&hash)
+        }
+    }
+    
+    /// Check if a block exists (adapter method)
+    pub fn has_block(&self, block_hash: &[u8; 32]) -> Result<bool, StorageError> {
+        // Check bloom filter first for fast negative lookups
+        if self.config.use_bloom_filters {
+            let block_filter = self.block_filter.read().unwrap();
+            if !block_filter.contains(block_hash) {
+                return Ok(false);
+            }
+        }
+        
+        // Check if key exists in database
+        Ok(self.blocks.contains_key(block_hash)?)
+    }
+    
+    /// Get total block count (adapter method)
+    pub fn get_block_count(&self) -> Result<u64, StorageError> {
+        // Return height + 1 (since height is 0-indexed)
+        Ok(self.get_height()? + 1)
+    }
+    
+    // ===== END ADAPTER METHODS =====
 }
 
 fn create_utxo_key(tx_hash: &[u8; 32], index: u32) -> Vec<u8> {
@@ -2361,6 +2411,21 @@ pub enum StorageError {
     PendingBlockExpired,
     #[error("Pending block invalid")]
     PendingBlockInvalid,
+}
+
+// Add these implementations after the enum definition
+impl From<serde_json::Error> for StorageError {
+    fn from(err: serde_json::Error) -> Self {
+        StorageError::Serialization(
+            bincode::Error::custom(format!("JSON serialization error: {}", err))
+        )
+    }
+}
+
+impl From<crate::storage::journal::WalError> for StorageError {
+    fn from(err: crate::storage::journal::WalError) -> Self {
+        StorageError::DatabaseError(format!("WAL error: {}", err))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

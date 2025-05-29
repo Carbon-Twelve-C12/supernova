@@ -1295,9 +1295,9 @@ impl P2PNetwork {
         let stats = self.get_stats().await;
         
         Ok(ConnectionCount {
-            total: stats.inbound_connections + stats.outbound_connections,
-            inbound: stats.inbound_connections,
-            outbound: stats.outbound_connections,
+            total: (stats.inbound_connections + stats.outbound_connections) as u32,
+            inbound: stats.inbound_connections as u32,
+            outbound: stats.outbound_connections as u32,
         })
     }
     

@@ -500,7 +500,6 @@ impl MessageSizeHint for ProtocolMessage {
             ProtocolMessage::GetBlocks(_) => 256,
             ProtocolMessage::Block(_) => 1024 * 1024, // 1MB estimate
             ProtocolMessage::Transaction(_) => 512, // 512 bytes estimate
-            ProtocolMessage::Inventory(_) => 256,
             ProtocolMessage::GetData(_) => 256,
             _ => 64, // Default estimate
         }

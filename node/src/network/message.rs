@@ -62,6 +62,19 @@ pub enum MessageEvent {
     PublishError(PublishError),
 }
 
+/// Error types for message broadcasting
+#[derive(Debug)]  // Remove Clone from here
+pub enum BroadcastError {
+    /// The message is too large
+    MessageTooLarge(usize),
+    /// No connected peers
+    NoPeers,
+    /// Protocol error
+    ProtocolError(PublishError),
+    /// Serialization error
+    SerializationError(String),
+}
+
 /// Handler for network messages
 pub struct MessageHandler {
     /// Message queue for incoming messages

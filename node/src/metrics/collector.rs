@@ -1,13 +1,14 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+use std::collections::HashMap;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{info, warn, error, debug};
 
 use crate::metrics::registry::MetricsRegistry;
-use sysinfo::{System, SystemExt, ProcessExt, DiskExt, NetworkExt, CpuExt};
-use crate::metrics::system::SystemMetrics;
+use sysinfo::System;
+use crate::metrics::types::SystemMetrics;
 
 /// Configuration options for the metrics collector
 #[derive(Debug, Clone)]

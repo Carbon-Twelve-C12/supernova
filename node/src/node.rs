@@ -5,23 +5,28 @@ use crate::storage::{
     DatabaseShutdownHandler, DatabaseStartupHandler, ShutdownConfig,
     WriteAheadLog, WalError
 };
+use crate::adapters::{
+    ChainStateNodeMethods, BlockNodeMethods, TransactionPoolNodeMethods,
+    ResultNodeMethods, CloneableReadGuard, SafeNumericConversion, 
+    IVecConversion, WalletConversion
+};
 use crate::api::{ApiServer, ApiConfig};
 use crate::network::P2PNetwork;
 use crate::mempool::TransactionPool;
 use crate::config::NodeConfig;
 use crate::environmental::EnvironmentalMonitor;
-use crate::api::types::{NodeInfo, SystemInfo, LogEntry, NodeStatus, VersionInfo, NodeMetrics, FaucetInfo};
+use crate::api::types::{NodeInfo, SystemInfo, LogEntry, NodeStatus, VersionInfo, NodeMetrics, FaucetInfo, LoadAverage};
 use btclib::crypto::quantum::QuantumScheme;
 use btclib::lightning::{LightningConfig, LightningNetworkError};
 use btclib::lightning::manager::{LightningManager, ManagerError, LightningEvent};
 use btclib::lightning::wallet::LightningWallet;
 use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use tracing::{info, error, warn, debug};
 use crate::metrics::performance::{PerformanceMonitor, MetricType};
 use thiserror::Error;
 use libp2p::PeerId;
-use sysinfo::{System, SystemExt, CpuExt};
+use sysinfo::System;
 use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -117,16 +122,29 @@ pub struct Node {
 impl Node {
     pub async fn new(config: NodeConfig) -> Result<Self, NodeError> {
         // Initialize core components
-        let chain_state = Arc::new(RwLock::new(ChainState::new()));
-        let blockchain_db = Arc::new(RwLock::new(BlockchainDB::new(&config.data_dir)?));
-        let utxo_set = Arc::new(RwLock::new(UtxoSet::new()));
+        let blockchain_db = Arc::new(RwLock::new(BlockchainDB::new(&config.storage.db_path)?));
+        
+        // Create ChainState with the proper path
+        let chain_state_path = config.storage.db_path.join("chain_state");
+        let chain_state = Arc::new(RwLock::new(ChainState::new(chain_state_path)?));
+        
+        let utxo_set = Arc::new(RwLock::new(UtxoSet::new(config.storage.db_path.join("utxo_set"))?));
         let network_manager = Arc::new(P2PNetwork::new());
         let block_validator = Arc::new(());
         let tx_validator = Arc::new(());
         let backup_manager = None; // TODO: Initialize if needed
         let recovery_manager = None; // TODO: Initialize if needed
         let rpc_server = None; // TODO: Initialize if needed
-        let mem_pool = Arc::new(RwLock::new(TransactionPool::new()));
+        
+        // Create mempool configuration
+        let mempool_config = crate::mempool::pool::MempoolConfig {
+            max_size: 1000,
+            max_age: 86400, // 24 hours
+            min_fee_rate: 1,
+            enable_rbf: true,
+            min_rbf_fee_increase: 10.0,
+        };
+        let mem_pool = Arc::new(RwLock::new(TransactionPool::new(mempool_config.clone())));
 
         // Check if database was cleanly shut down last time
         {
@@ -188,19 +206,22 @@ impl Node {
         }
 
         // Initialize checkpoint manager if enabled
-        let checkpoint_manager = if config.checkpoints_enabled {
+        let checkpoint_manager = if config.checkpoint.checkpoints_enabled {
             let checkpoint_config = CheckpointConfig {
-                checkpoint_interval: config.checkpoint_interval,
-                checkpoint_type: CheckpointType::from_str(&config.checkpoint_type)
-                    .unwrap_or(CheckpointType::Full),
-                data_directory: config.data_dir.clone(),
+                checkpoint_dir: config.storage.db_path.join("checkpoints"),
+                checkpoint_interval_blocks: config.checkpoint.checkpoint_interval.as_secs() / 600, // Convert time to approximate blocks (10 min blocks)
+                checkpoint_interval_time: config.checkpoint.checkpoint_interval,
+                max_checkpoints: 10, // Keep last 10 checkpoints
+                integrity_check_interval: Duration::from_secs(86400), // Daily integrity check
+                verify_after_creation: true,
+                auto_recovery_on_startup: true,
             };
             
             Some(Arc::new(CheckpointManager::new(
-                checkpoint_config,
                 blockchain_db.clone(),
                 chain_state.clone(),
-            )?))
+                checkpoint_config,
+            )))
         } else {
             None
         };
@@ -210,7 +231,7 @@ impl Node {
 
         Ok(Self {
             config,
-            chain_state,
+            chain_state: chain_state.clone(),
             blockchain_db,
             utxo_set,
             network_manager,
@@ -230,8 +251,8 @@ impl Node {
             peer_id: PeerId::random(),
             start_time: Instant::now(),
             network: Arc::new(P2PNetwork::new()),
-            mempool: Arc::new(TransactionPool::new()),
-            blockchain: Arc::new(ChainState::new()),
+            mempool: Arc::new(TransactionPool::new(mempool_config)),
+            blockchain: chain_state,
             wallet: Arc::new(()),
             db_shutdown_handler: None,
             wal: None,
@@ -508,8 +529,14 @@ impl Node {
             Err(_) => return Err("Invalid channel ID format".to_string()),
         };
         
-        match lightning.close_channel(&channel_id_u64, force_close).await {
-            Ok(tx) => Ok(format!("{}", hex::encode(tx.hash()))),
+        match lightning.close_channel(&channel_id_u64.to_string(), force_close).await {
+            Ok(success) => {
+                if success {
+                    Ok(format!("Channel {} closed successfully", channel_id))
+                } else {
+                    Err(format!("Failed to close channel {}", channel_id))
+                }
+            },
             Err(e) => Err(format!("Failed to close payment channel: {}", e)),
         }
     }
@@ -614,14 +641,17 @@ impl Node {
             MetricType::Custom("database_optimization".to_string()),
             None,
             || {
+                // Access the inner database
+                let db = self.blockchain_db.read().unwrap();
+                
                 // Optimize the database
-                if let Err(e) = self.blockchain_db.optimize_for_performance() {
+                if let Err(e) = db.optimize_for_performance() {
                     error!("Database optimization failed: {}", e);
                     return Err(NodeError::StorageError(e));
                 }
                 
                 // Preload critical data
-                if let Err(e) = self.blockchain_db.preload_critical_data() {
+                if let Err(e) = db.preload_critical_data() {
                     error!("Failed to preload critical data: {}", e);
                     return Err(NodeError::StorageError(e));
                 }
@@ -630,7 +660,7 @@ impl Node {
                 let available_memory = self.get_available_memory();
                 let cache_budget_mb = (available_memory * 0.7) as usize; // Use up to 70% of available memory
                 
-                if let Err(e) = self.blockchain_db.optimize_caching(cache_budget_mb) {
+                if let Err(e) = db.optimize_caching(cache_budget_mb) {
                     error!("Failed to optimize caching: {}", e);
                     return Err(NodeError::StorageError(e));
                 }
@@ -687,10 +717,12 @@ impl Node {
 
     /// Get system information
     pub fn get_system_info(&self) -> Result<SystemInfo, String> {
-        use sysinfo::{System, SystemExt, CpuExt};
+        use sysinfo::System;
         
         let mut sys = System::new_all();
         sys.refresh_all();
+        
+        let load_avg = sys.load_average();
         
         Ok(SystemInfo {
             os: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
@@ -701,7 +733,11 @@ impl Node {
             total_swap: sys.total_swap(),
             used_swap: sys.used_swap(),
             uptime: sys.uptime(),
-            load_average: sys.load_average(),
+            load_average: LoadAverage {
+                one: load_avg.one,
+                five: load_avg.five,
+                fifteen: load_avg.fifteen,
+            },
         })
     }
 
@@ -734,7 +770,7 @@ impl Node {
             protocol_version: 1,
             git_commit: option_env!("GIT_COMMIT").unwrap_or("unknown").to_string(),
             build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
-            rust_version: env!("RUSTC_VERSION").to_string(),
+            rust_version: option_env!("RUSTC_VERSION").unwrap_or("unknown").to_string(),
         })
     }
 
@@ -925,17 +961,16 @@ impl Node {
     }
 
     /// Get faucet (for testnet)
-    pub fn get_faucet(&self) -> Result<Option<FaucetInfo>, String> {
-        // Return faucet info if this is a testnet node
+    pub fn get_faucet(&self) -> Result<Option<Arc<crate::api::faucet_wrapper::FaucetWrapper>>, String> {
+        // Return faucet wrapper if this is a testnet node
         if self.config.network == "testnet" {
-            Ok(Some(FaucetInfo {
-                enabled: true,
-                balance: 1000000000, // 10 NOVA
-                max_request: 100000000, // 1 NOVA
-                cooldown_seconds: 3600, // 1 hour
-                requests_today: 0,
-                daily_limit: 100,
-            }))
+            // Create a faucet wrapper with default settings
+            let faucet = Arc::new(crate::api::faucet_wrapper::FaucetWrapper::new(
+                100000000,  // 1 NOVA distribution amount
+                3600,       // 1 hour cooldown
+                1000000000, // 10 NOVA initial balance
+            ));
+            Ok(Some(faucet))
         } else {
             Ok(None)
         }

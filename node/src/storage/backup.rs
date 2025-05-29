@@ -371,8 +371,10 @@ impl RecoveryManager {
     }
 
     async fn create_checkpoint(&mut self) -> Result<(), StorageError> {
-        let height = self.chain_state.get_height();
-        if self.last_checkpoint.as_ref().map_or(true, |cp| height - cp.height >= CHECKPOINT_INTERVAL) {
+        let height = self.chain_state.get_best_height();
+        let last_checkpoint_height = self.last_checkpoint.as_ref().map(|cp| cp.height).unwrap_or(0);
+        
+        if height >= last_checkpoint_height + CHECKPOINT_INTERVAL {
             let block_hash = self.chain_state.get_best_block_hash();
             let utxo_hash = self.calculate_utxo_hash().await?;
             
@@ -395,7 +397,7 @@ impl RecoveryManager {
         let mut utxos = Vec::new();
         
         let mut current_hash = self.chain_state.get_best_block_hash();
-        let mut height = self.chain_state.get_height();
+        let mut height = self.chain_state.get_best_height();
 
         // Process each block and collect UTXO data
         while height > 0 {
@@ -458,7 +460,11 @@ impl RecoveryManager {
     }
 
     async fn verify_blockchain_parallel(&self) -> Result<bool, StorageError> {
-        let height = self.chain_state.get_height();
+        let height = self.chain_state.get_best_height();
+        if height == 0 {
+            return Ok(true); // Empty chain is valid
+        }
+        
         let chunk_size = height / PARALLEL_VERIFICATION_CHUNKS as u64;
         let mut tasks = Vec::new();
 
@@ -491,7 +497,7 @@ impl RecoveryManager {
         
         let mut verification_utxos = std::collections::HashMap::new();
         let mut current_hash = self.chain_state.get_best_block_hash();
-        let mut height = self.chain_state.get_height();
+        let mut height = self.chain_state.get_best_height();
 
         while height > 0 {
             let block = self.db.get_block(&current_hash)?.unwrap();
@@ -584,7 +590,7 @@ impl RecoveryManager {
         self.db.clear_utxos()?;
 
         let mut current_hash = self.chain_state.get_best_block_hash();
-        let mut height = self.chain_state.get_height();
+        let mut height = self.chain_state.get_best_height();
 
         while height > 0 {
             let block = self.db.get_block(&current_hash)?.unwrap();
@@ -643,7 +649,7 @@ impl RecoveryManager {
         info!("Recovering from checkpoint at height {}", checkpoint.height);
         
         // Calculate blocks to remove (if any) from current tip to fork point
-        let current_height = self.chain_state.get_height();
+        let current_height = self.chain_state.get_best_height();
         
         if current_height > checkpoint.height {
             info!("Current height {} is greater than checkpoint height {}, rolling back", 
@@ -685,8 +691,10 @@ impl RecoveryManager {
         // 2. Rebuild UTXO set
         // 3. Validate chain from genesis to checkpoint
         
-        // For now, we just update the current height and best block hash
-        self.chain_state = ChainState::new(Arc::clone(&self.db))?;
+        // For now, we just recreate the chain state with default config
+        let config = btclib::storage::chain_state::ChainStateConfig::default();
+        let utxo_set = Arc::new(btclib::storage::utxo_set::UtxoSet::new_in_memory(10000));
+        self.chain_state = ChainState::new(config, utxo_set);
         
         info!("State rebuilt successfully from checkpoint");
         Ok(())
@@ -701,7 +709,9 @@ impl RecoveryManager {
         self.db.clear()?;
         
         // Initialize a fresh chain state
-        self.chain_state = ChainState::new(Arc::clone(&self.db))?;
+        let config = btclib::storage::chain_state::ChainStateConfig::default();
+        let utxo_set = Arc::new(btclib::storage::utxo_set::UtxoSet::new_in_memory(10000));
+        self.chain_state = ChainState::new(config, utxo_set);
         
         info!("Database rebuilt from genesis");
         Ok(())

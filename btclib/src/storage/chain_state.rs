@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock, Mutex};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
+use log::{error, warn};
 
 use crate::types::block::{Block, BlockHeader};
 use crate::types::transaction::{Transaction, OutPoint};
@@ -622,6 +623,85 @@ impl ChainState {
         log::debug!("Updated UTXO set with block {}", hex::encode(block.hash()));
         
         Ok(())
+    }
+    
+    // These methods provide compatibility between btclib and node layers
+    
+    /// Get the best block hash (adapter for node compatibility)
+    /// This bridges the API gap between btclib's get_tip() and node's expectation
+    pub fn get_best_block_hash(&self) -> [u8; 32] {
+        // Use get_tip() but handle the Result properly
+        self.get_tip().unwrap_or_else(|_| {
+            // If we can't get the tip, return genesis hash as fallback
+            log::error!("Failed to get chain tip, returning genesis hash");
+            [0u8; 32]
+        })
+    }
+    
+    /// Get the current blockchain height as u64 (adapter for node compatibility)
+    /// This bridges the API gap between btclib's Result<u32> and node's expectation of u64
+    pub fn get_best_height(&self) -> u64 {
+        // Use get_height() but convert Result<u32> to u64
+        self.get_height().unwrap_or_else(|e| {
+            log::error!("Failed to get chain height: {}, returning 0", e);
+            0
+        }) as u64
+    }
+    
+    /// Get block header by height with u64 input (adapter for node compatibility)
+    pub fn get_header_by_height_u64(&self, height: u64) -> Option<BlockHeader> {
+        // Convert u64 to u32 safely, handling overflow
+        let height_u32 = if height > u32::MAX as u64 {
+            log::warn!("Height {} exceeds u32::MAX, clamping to u32::MAX", height);
+            u32::MAX
+        } else {
+            height as u32
+        };
+        
+        // Use the existing method with proper error handling
+        match self.get_header_by_height(height_u32) {
+            Ok(header) => header,
+            Err(e) => {
+                log::error!("Failed to get header at height {}: {}", height, e);
+                None
+            }
+        }
+    }
+    
+    /// Check if block exists by hash (adapter for node compatibility)
+    pub fn contains_block(&self, hash: &[u8; 32]) -> bool {
+        self.get_header(hash).unwrap_or(None).is_some()
+    }
+    
+    /// Get the genesis block hash (adapter for node compatibility)
+    pub fn get_genesis_hash(&self) -> [u8; 32] {
+        // Get the block at height 0
+        match self.get_header_by_height(0) {
+            Ok(Some(header)) => header.hash(),
+            _ => {
+                log::error!("Genesis block not found!");
+                [0u8; 32]
+            }
+        }
+    }
+    
+}
+
+// Implement Clone for ChainState to support sharing across async tasks
+impl Clone for ChainState {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            headers: Arc::clone(&self.headers),
+            height_map: Arc::clone(&self.height_map),
+            current_height: Arc::clone(&self.current_height),
+            current_tip: Arc::clone(&self.current_tip),
+            forks: Arc::clone(&self.forks),
+            processed_blocks: Arc::clone(&self.processed_blocks),
+            checkpoints: Arc::clone(&self.checkpoints),
+            utxo_set: Arc::clone(&self.utxo_set),
+            fork_resolver: Arc::clone(&self.fork_resolver),
+        }
     }
 }
 

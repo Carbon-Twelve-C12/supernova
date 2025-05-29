@@ -100,8 +100,13 @@ pub async fn get_peers(
     let connection_state = params.connection_state.as_ref().map(|s| s.clone());
     let verbose = params.verbose.unwrap_or(false);
     
-    let peers = match network.get_peers(connection_state, verbose).await {
-        Ok(peers) => peers,
+    let peers = match network.get_peers().await {
+        Ok(mut peers) => {
+            if let Some(state) = connection_state {
+                peers.retain(|p| p.direction == state);
+            }
+            peers
+        },
         Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve peers: {}", e))),
     };
 
@@ -129,7 +134,8 @@ pub async fn get_peer(
 ) -> ApiResult<PeerInfo> {
     let peer_id = path.into_inner();
     
-    match network.get_peer(&peer_id).await? {
+    match network.get_peer(&peer_id).await
+        .map_err(|e| ApiError::internal_error(format!("Failed to get peer: {}", e)))? {
         Some(peer) => Ok(peer),
         None => Err(ApiError::not_found("Peer not found")),
     }
@@ -155,7 +161,8 @@ pub async fn add_peer(
     let address = &request.address;
     let permanent = request.permanent.unwrap_or(false);
     
-    let result = network.add_peer(&address, permanent).await?;
+    let result = network.add_peer(&address, permanent).await
+        .map_err(|e| ApiError::internal_error(format!("Failed to add peer: {}", e)))?;
 
     Ok(result)
 }
@@ -224,7 +231,8 @@ pub async fn get_bandwidth_usage(
 ) -> ApiResult<BandwidthUsage> {
     let period = params.period.unwrap_or(3600);
     
-    let usage = network.get_bandwidth_usage(period).await?;
+    let usage = network.get_bandwidth_usage(period).await
+        .map_err(|e| ApiError::internal_error(format!("Failed to get bandwidth usage: {}", e)))?;
     
     Ok(usage)
 } 

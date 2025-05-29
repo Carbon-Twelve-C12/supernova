@@ -662,7 +662,7 @@ impl<'a> CryptoVerifier<'a> {
                 let computed_merkle_root = Self::calculate_merkle_root(block.transactions());
                 let merkle_root = block.merkle_root();
                 
-                if computed_merkle_root != merkle_root {
+                if computed_merkle_root != *merkle_root {
                     issues.push(IntegrityIssue::new(
                         IssueType::CryptoVerification,
                         IssueSeverity::Critical,
