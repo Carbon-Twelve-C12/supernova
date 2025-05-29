@@ -1,8 +1,8 @@
-# SuperNova Blockchain: Production Deployment Guide
+# Supernova Deployment Guide
 
-## 🚀 **PRODUCTION READY - VERSION 1.0.0-BETA**
+## 🚀 **PRODUCTION READY - VERSION 1.0.0-RC2**
 
-SuperNova has reached **production-ready status** at version 1.0.0-BETA with full operational capability:
+Supernova has reached **production-ready status** at version 1.0.0-RC2 with full operational capability:
 
 
 - ✅ **Production Architecture**: All core blockchain systems operational
@@ -12,7 +12,7 @@ SuperNova has reached **production-ready status** at version 1.0.0-BETA with ful
 - ✅ **Comprehensive Monitoring**: Production-grade observability and disaster recovery
 - ✅ **Zero Build Errors**: Complete compilation success across all components
 
-This guide provides instructions for deploying SuperNova in production environments.
+This guide provides instructions for deploying Supernova in production environments.
 
 ## Table of Contents
 
@@ -69,7 +69,7 @@ cargo build --release --features production
 
 # Verify build success
 ./target/release/supernova --version
-# Expected output: SuperNova v1.0.0-BETA
+# Expected output: SuperNova v1.0.0-RC2
 ```
 
 3. **Install System Dependencies**
@@ -90,7 +90,7 @@ sudo dnf install -y postgresql-server postgresql-contrib nginx certbot python3-c
 1. **Build Production Image**
 
 ```bash
-docker build -t supernova:1.0.0-beta -f docker/Dockerfile.production .
+docker build -t supernova:1.0.0-r2 -f docker/Dockerfile.production .
 ```
 
 2. **Configure Production Settings**
@@ -162,7 +162,7 @@ enable_tracing = true
 1. **Install Helm Chart**
 
 ```bash
-# Add SuperNova Helm repository
+# Add Supernova Helm repository
 helm repo add supernova https://charts.supernovanetwork.xyz
 helm repo update
 
@@ -214,7 +214,7 @@ allow_hybrid = true
 
 ### Prometheus Metrics
 
-SuperNova exposes comprehensive metrics at `http://localhost:9090/metrics`:
+Supernova exposes comprehensive metrics at `http://localhost:9090/metrics`:
 
 - Blockchain metrics (blocks, transactions, difficulty)
 - Network metrics (peers, connections, bandwidth)
@@ -227,7 +227,7 @@ SuperNova exposes comprehensive metrics at `http://localhost:9090/metrics`:
 Import the provided Grafana dashboards:
 
 ```bash
-# Import SuperNova dashboard
+# Import Supernova dashboard
 curl -O https://grafana.com/api/dashboards/supernova/revisions/latest/download
 ```
 

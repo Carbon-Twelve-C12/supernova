@@ -49,7 +49,8 @@ Get detailed node status information.
   "data": {
     "status": "running",
     "uptime": 1209600,
-    "version": "1.0.0",
+    "version": "1.0.0-RC2",
+    "protocol_version": 1,
     "network": "mainnet",
     "peers_connected": 42,
     "blocks_processed": 123456,

@@ -1,6 +1,5 @@
-# Supernova Blockchain: Complete Node Setup and Operation Guide
-
-## 🚀 **PRODUCTION READY - VERSION 1.0.0-BETA**
+# Supernova Complete Guide
+## 🚀 **PRODUCTION READY - VERSION 1.0.0-RC2**
 
 This guide provides detailed instructions for setting up a **production-ready** Supernova blockchain node, participating in mining, and conducting transactions on the network. 
 

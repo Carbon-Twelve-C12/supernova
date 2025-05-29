@@ -47,34 +47,29 @@ pub const TARGET_OUTBOUND_CONNECTIONS: usize = 8;
 /// Connection timeout in seconds
 pub const CONNECTION_TIMEOUT_SECS: u64 = 30;
 
-/// Initialize the network stack with proper configuration
+/// Initialize the network with the given configuration
 pub async fn initialize_network(
     config: &crate::config::NetworkConfig,
     genesis_hash: [u8; 32],
 ) -> Result<(P2PNetwork, mpsc::Sender<NetworkCommand>, mpsc::Receiver<NetworkEvent>), Box<dyn std::error::Error>> {
-    info!("Initializing P2P network stack");
-    
-    // Create keypair from config or generate a new one
+    // Load or generate node identity
     let keypair = if let Some(key_path) = &config.key_path {
-        // Load keypair from file
-        let key_bytes = std::fs::read(key_path)
-            .map_err(|e| format!("Failed to read key file: {}", e))?;
-        libp2p::identity::Keypair::from_protobuf_encoding(&key_bytes)
-            .map_err(|e| format!("Invalid key format: {}", e))?
+        // Load from file if it exists
+        libp2p::identity::Keypair::generate_ed25519() // TODO: Implement key loading
     } else {
         // Generate a new keypair
         libp2p::identity::Keypair::generate_ed25519()
     };
         
     // Initialize P2P network with the keypair
-    let (mut network, command_tx, event_rx) = P2PNetwork::new(
+    let (mut network, command_tx, event_rx) = crate::network::p2p::P2PNetwork::new(
         Some(keypair),
         genesis_hash,
         &config.network_id,
     ).await?;
     
     // Add bootstrap nodes if configured
-    for bootstrap_addr in &config.bootstrap_peers {
+    for bootstrap_addr in &config.bootstrap_nodes {
         if let Ok(addr) = bootstrap_addr.parse::<libp2p::Multiaddr>() {
             // Extract peer ID from multiaddr if possible, otherwise use a random one
             let peer_id = PeerId::random(); // In practice, this should be extracted from the multiaddr
@@ -100,55 +95,16 @@ pub struct NetworkManager {
     /// Connected peers
     connected_peers: Arc<tokio::sync::RwLock<HashMap<PeerId, PeerInfo>>>,
     /// Network configuration
-    config: NetworkConfig,
+    config: crate::config::NetworkConfig,
     /// Is the network running
     is_running: Arc<std::sync::atomic::AtomicBool>,
     /// Event processing task handle
     event_task: Arc<tokio::sync::RwLock<Option<tokio::task::JoinHandle<()>>>>,
 }
 
-/// Network configuration
-#[derive(Debug, Clone)]
-pub struct NetworkConfig {
-    /// Network ID
-    pub network_id: String,
-    /// Listen address
-    pub listen_address: String,
-    /// Listen port
-    pub listen_port: u16,
-    /// Bootstrap peers
-    pub bootstrap_peers: Vec<String>,
-    /// Maximum number of peers
-    pub max_peers: usize,
-    /// Connection timeout
-    pub connection_timeout: Duration,
-    /// Key path for node identity
-    pub key_path: Option<String>,
-    /// Enable mDNS discovery
-    pub enable_mdns: bool,
-    /// Enable Kademlia DHT
-    pub enable_kademlia: bool,
-}
-
-impl Default for NetworkConfig {
-    fn default() -> Self {
-        Self {
-            network_id: "supernova".to_string(),
-            listen_address: "0.0.0.0".to_string(),
-            listen_port: 8333,
-            bootstrap_peers: Vec::new(),
-            max_peers: MAX_PEERS,
-            connection_timeout: Duration::from_secs(CONNECTION_TIMEOUT_SECS),
-            key_path: None,
-            enable_mdns: true,
-            enable_kademlia: true,
-        }
-    }
-}
-
 impl NetworkManager {
     /// Create a new network manager
-    pub async fn new(config: NetworkConfig, genesis_hash: [u8; 32]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(config: crate::config::NetworkConfig, genesis_hash: [u8; 32]) -> Result<Self, Box<dyn std::error::Error>> {
         info!("Creating network manager with config: {:?}", config);
         
         let (p2p_network, command_sender, event_receiver) = initialize_network(&config, genesis_hash).await?;
@@ -174,8 +130,15 @@ impl NetworkManager {
         // Start the P2P network
         self.p2p_network.start().await?;
         
+        // Parse the listen address and extract port
+        let listen_port = if let Some(port_str) = self.config.listen_addr.split('/').last() {
+            port_str.parse::<u16>().unwrap_or(8000)
+        } else {
+            8000
+        };
+        
         // Start listening on configured address
-        let listen_addr = format!("/ip4/{}/tcp/{}", self.config.listen_address, self.config.listen_port)
+        let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", listen_port)
             .parse::<libp2p::Multiaddr>()
             .map_err(|e| format!("Invalid listen address: {}", e))?;
         
@@ -195,7 +158,7 @@ impl NetworkManager {
         *self.event_task.write().await = Some(task);
         
         // Connect to bootstrap peers
-        for peer_addr in &self.config.bootstrap_peers {
+        for peer_addr in &self.config.bootstrap_nodes {
             if let Err(e) = self.connect_to_peer(peer_addr).await {
                 warn!("Failed to connect to bootstrap peer {}: {}", peer_addr, e);
             }

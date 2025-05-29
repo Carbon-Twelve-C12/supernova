@@ -1,6 +1,6 @@
-# SuperNova Integration Guide for Exchanges and Service Providers
+# Supernova Integration Guide for Exchanges and Service Providers
 
-This guide provides detailed information for exchanges, wallets, and other service providers looking to integrate with the SuperNova blockchain. It covers the essential aspects needed for a successful integration.
+This guide provides detailed information for exchanges, wallets, and other service providers looking to integrate with the Supernova blockchain. It covers the essential aspects needed for a successful integration.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ This guide provides detailed information for exchanges, wallets, and other servi
 
 ## Introduction
 
-SuperNova is a modern blockchain implementation with advanced features including quantum-resistant cryptography, environmental impact tracking, and Lightning Network support. This guide aims to help third-party services integrate with SuperNova effectively.
+Supernova is a modern blockchain implementation with advanced features including quantum-resistant cryptography, environmental impact tracking, and Lightning Network support. This guide aims to help third-party services integrate with Supernova effectively.
 
 ### Key Features
 
@@ -29,7 +29,7 @@ SuperNova is a modern blockchain implementation with advanced features including
 
 ## API Overview
 
-SuperNova provides two types of APIs:
+Supernova provides two types of APIs:
 
 1. **RESTful API** - A modern, resource-oriented API using standard HTTP methods
 2. **JSON-RPC API** - A Bitcoin-compatible API following the JSON-RPC 2.0 specification
@@ -110,7 +110,7 @@ backup_interval_hours = 24
 
 ### Address Generation
 
-SuperNova uses standard Bitcoin-compatible addresses with optional quantum-resistant extensions.
+Supernova uses standard Bitcoin-compatible addresses with optional quantum-resistant extensions.
 
 #### Classical Addresses
 
@@ -288,7 +288,7 @@ Response:
 
 ### Quantum-resistant Signatures
 
-SuperNova supports two post-quantum signature schemes:
+Supernova supports two post-quantum signature schemes:
 
 1. **Dilithium** - For standard transactions
 2. **Falcon** - For applications requiring smaller signatures
@@ -307,7 +307,7 @@ To specify the quantum signature scheme when creating a transaction:
 
 ### Environmental Impact
 
-SuperNova includes comprehensive environmental impact tracking:
+Supernova includes comprehensive environmental impact tracking:
 
 ```bash
 curl -X GET "https://node.supernova.io/api/v1/stats/environmental" \
@@ -339,7 +339,7 @@ async function getTransactionFootprint(txid) {
 
 ### Lightning Network
 
-SuperNova includes full Lightning Network support for fast, off-chain transactions:
+Supernova includes full Lightning Network support for fast, off-chain transactions:
 
 ```bash
 # Create a lightning invoice
@@ -413,7 +413,7 @@ Response:
 
 ## Testing
 
-SuperNova provides a testnet environment for integration testing:
+Supernova provides a testnet environment for integration testing:
 
 ```toml
 [node]
