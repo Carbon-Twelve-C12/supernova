@@ -528,23 +528,22 @@ impl P2PNetwork {
         let mut swarm = Swarm::new(transport, gossipsub, local_peer_id);
         
         // Subscribe to topics
-        if let Some(behaviour) = swarm.behaviour_mut().as_mut() {
-            // Subscribe to topics
-            let topics = [
-                "blocks",
-                "transactions",
-                "headers",
-                "status",
-                "mempool",
-            ];
-            
-            for topic in &topics {
-                let topic = gossipsub::IdentTopic::new(topic);
-                if let Err(e) = behaviour.subscribe(&topic) {
-                    warn!("Failed to subscribe to topic {}: {}", topic, e);
-                } else {
-                    debug!("Subscribed to topic: {}", topic);
-                }
+        let behaviour = swarm.behaviour_mut();
+        // Subscribe to topics
+        let topics = [
+            "blocks",
+            "transactions",
+            "headers",
+            "status",
+            "mempool",
+        ];
+        
+        for topic in &topics {
+            let topic = gossipsub::IdentTopic::new(*topic);
+            if let Err(e) = behaviour.subscribe(&topic) {
+                warn!("Failed to subscribe to topic {}: {}", topic, e);
+            } else {
+                debug!("Subscribed to topic: {}", topic);
             }
         }
         
@@ -793,19 +792,18 @@ impl P2PNetwork {
                     let topic = gossipsub::IdentTopic::new(topic_name);
                     
                     // Publish the message
-                    if let Some(behaviour) = swarm.behaviour_mut().as_mut() {
-                match behaviour.publish(topic, encoded.clone()) {
-                            Ok(msg_id) => {
-                                debug!("Published message with ID: {:?}", msg_id);
-                        let mut stats_guard = stats.write().await;
-                        stats_guard.messages_sent += 1;
-                        
-                        let mut bandwidth_guard = bandwidth_tracker.write().await;
-                        bandwidth_guard.record_sent(encoded.len() as u64);
-                            }
-                            Err(e) => {
-                                warn!("Failed to publish message: {}", e);
-                            }
+                    let behaviour = swarm.behaviour_mut();
+                    match behaviour.publish(topic, encoded.clone()) {
+                        Ok(msg_id) => {
+                            debug!("Published message with ID: {:?}", msg_id);
+                            let mut stats_guard = stats.write().await;
+                            stats_guard.messages_sent += 1;
+                            
+                            let mut bandwidth_guard = bandwidth_tracker.write().await;
+                            bandwidth_guard.record_sent(encoded.len() as u64);
+                        }
+                        Err(e) => {
+                            warn!("Failed to publish message: {}", e);
                         }
                     }
                 }
@@ -893,13 +891,19 @@ impl P2PNetwork {
                     addresses: vec![], // Will be populated later
                     state: PeerState::Connected,
                     is_inbound,
-                    protocol_version: 1,
-                    user_agent: "supernova/1.0.0".to_string(),
-                    height: 0,
+                    protocol_version: Some(1),
+                    user_agent: Some("supernova/1.0.0".to_string()),
+                    height: Some(0),
                     best_hash: None,
                     ping_ms: None,
                     last_seen: Instant::now(),
                     reputation: 100,
+                    first_seen: Instant::now(),
+                    failed_attempts: 0,
+                    total_difficulty: None,
+                    network_info: None,
+                    verified: false,
+                    metadata: PeerMetadata::default(),
                 };
                 
                 // Store peer info
@@ -1226,27 +1230,39 @@ impl P2PNetwork {
             }
         };
         
+        let connected_peers_count = stats.peers_connected;
+        let inbound_count = stats.inbound_connections;
+        let outbound_count = stats.outbound_connections;
+        let listening = !listening_addresses.is_empty();
+        
+        let rates = {
+            let bandwidth = self.bandwidth_tracker.read().await;
+            bandwidth.get_rates(1)
+        };
+        
+        let (bytes_sent, bytes_received) = {
+            let bandwidth = self.bandwidth_tracker.read().await;
+            (bandwidth.bytes_sent, bandwidth.bytes_received)
+        };
+        
         Ok(NetworkInfo {
-            network_id: self.network_id.clone(),
-            local_peer_id: self.local_peer_id.to_string(),
-            listening_addresses,
-            connected_peers: stats.peers_connected,
-            inbound_connections: stats.inbound_connections,
-            outbound_connections: stats.outbound_connections,
-            total_bytes_sent: {
-                let bandwidth = self.bandwidth_tracker.read().await;
-                bandwidth.bytes_sent
-            },
-            total_bytes_received: {
-                let bandwidth = self.bandwidth_tracker.read().await;
-                bandwidth.bytes_received
-            },
-            uptime_seconds: {
-                let bandwidth = self.bandwidth_tracker.read().await;
-                bandwidth.start_time.map(|t| t.elapsed().as_secs()).unwrap_or(0)
-            },
             version: "1.0.0".to_string(),
             protocol_version: 1,
+            connections: connected_peers_count as u32,
+            inbound_connections: inbound_count as u32,
+            outbound_connections: outbound_count as u32,
+            network: self.network_id.clone(),
+            is_listening: listening,
+            accepts_incoming: listening,
+            local_addresses: vec![], // TODO: Populate from swarm
+            external_ip: None, // TODO: Detect external IP
+            network_stats: crate::api::types::NetworkStats {
+                total_bytes_sent: bytes_sent,
+                total_bytes_received: bytes_received,
+                upload_rate: rates.0,
+                download_rate: rates.1,
+                ping_time: 0.0, // TODO: Calculate average ping
+            },
         })
     }
     
@@ -1474,7 +1490,7 @@ impl P2PNetwork {
     pub async fn update_peer_info(&self, peer_id: &PeerId, height: u64, best_hash: [u8; 32]) {
         let mut connected_peers = self.connected_peers.write().await;
         if let Some(peer_info) = connected_peers.get_mut(peer_id) {
-            peer_info.height = height;
+            peer_info.height = Some(height);
             peer_info.best_hash = Some(best_hash);
             peer_info.last_seen = Instant::now();
         }

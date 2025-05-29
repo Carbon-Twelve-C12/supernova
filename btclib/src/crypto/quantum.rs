@@ -19,36 +19,6 @@ use crate::validation::SecurityLevel;
 use secp256k1::{Secp256k1, Message as Secp256k1Message};
 use ed25519_dalek::{SigningKey as Ed25519Keypair, Signer, Verifier, VerifyingKey};
 
-/// Mock implementation of dilithium functions to avoid conflicts with pqcrypto_dilithium
-mod dilithium_mock {
-    pub mod dilithium2 {
-        pub const SIGNATUREBYTES: usize = 2420;
-        
-        pub fn verify_detached_signature(_signature: &[u8], _message: &[u8], _public_key: &[u8]) -> Result<(), ()> {
-            // Implementation of verify_detached_signature
-            Ok(())
-        }
-    }
-    
-    pub mod dilithium3 {
-        pub const SIGNATUREBYTES: usize = 3293;
-        
-        pub fn verify_detached_signature(_signature: &[u8], _message: &[u8], _public_key: &[u8]) -> Result<(), ()> {
-            // Implementation of verify_detached_signature
-            Ok(())
-        }
-    }
-    
-    pub mod dilithium5 {
-        pub const SIGNATUREBYTES: usize = 4595;
-        
-        pub fn verify_detached_signature(_signature: &[u8], _message: &[u8], _public_key: &[u8]) -> Result<(), ()> {
-            // Implementation of verify_detached_signature
-            Ok(())
-        }
-    }
-}
-
 /// Classical cryptographic schemes for hybrid quantum signatures
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum ClassicalScheme {
@@ -217,9 +187,9 @@ impl QuantumParameters {
         match self.scheme {
             QuantumScheme::Dilithium => {
                 match SecurityLevel::from(self.security_level) {
-                    SecurityLevel::Low => Ok(dilithium_mock::dilithium2::SIGNATUREBYTES),
-                    SecurityLevel::Medium => Ok(dilithium_mock::dilithium3::SIGNATUREBYTES),
-                    SecurityLevel::High => Ok(dilithium_mock::dilithium5::SIGNATUREBYTES),
+                    SecurityLevel::Low => Ok(dilithium2::signature_bytes()),
+                    SecurityLevel::Medium => Ok(dilithium3::signature_bytes()),
+                    SecurityLevel::High => Ok(dilithium5::signature_bytes()),
                     _ => Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
                 }
             },
@@ -244,9 +214,9 @@ impl QuantumParameters {
                 
                 // Get quantum length and add
                 let quantum_len = match SecurityLevel::from(self.security_level) {
-                    SecurityLevel::Low => dilithium_mock::dilithium2::SIGNATUREBYTES,
-                    SecurityLevel::Medium => dilithium_mock::dilithium3::SIGNATUREBYTES,
-                    SecurityLevel::High => dilithium_mock::dilithium5::SIGNATUREBYTES,
+                    SecurityLevel::Low => dilithium2::signature_bytes(),
+                    SecurityLevel::Medium => dilithium3::signature_bytes(),
+                    SecurityLevel::High => dilithium5::signature_bytes(),
                     _ => return Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
                 };
                 
@@ -986,5 +956,115 @@ mod tests {
             let modified_result = keypair.verify(modified_message, &signature).expect("Hybrid verification operation failed");
             assert!(!modified_result, "Hybrid signature verification should fail for modified message");
         }
+    }
+    
+    #[test]
+    fn test_quantum_signature_security() {
+        // CRITICAL SECURITY TEST: Verify that quantum signatures cannot be forged
+        let mut rng = OsRng;
+        
+        // Test all quantum schemes
+        let schemes = [
+            (QuantumScheme::Dilithium, vec![2u8, 3u8, 5u8]),
+            (QuantumScheme::Sphincs, vec![1u8, 3u8, 5u8]),
+        ];
+        
+        for (scheme, security_levels) in schemes.iter() {
+            for security_level in security_levels {
+                let params = QuantumParameters::with_security_level(*scheme, *security_level);
+                
+                // Generate a legitimate key pair
+                let legitimate_keypair = QuantumKeyPair::generate(&mut rng, params)
+                    .expect("Key generation should succeed");
+                
+                // Generate an attacker's key pair
+                let attacker_keypair = QuantumKeyPair::generate(&mut rng, params)
+                    .expect("Attacker key generation should succeed");
+                
+                let message = b"Critical transaction: Send 1000 NOVA to attacker";
+                
+                // Sign with legitimate key
+                let legitimate_signature = legitimate_keypair.sign(message)
+                    .expect("Legitimate signing should succeed");
+                
+                // Verify legitimate signature works
+                assert!(
+                    legitimate_keypair.verify(message, &legitimate_signature).unwrap(),
+                    "Legitimate signature should verify"
+                );
+                
+                // CRITICAL TEST 1: Attacker cannot use their signature on legitimate public key
+                let attacker_signature = attacker_keypair.sign(message)
+                    .expect("Attacker signing should succeed");
+                
+                assert!(
+                    !legitimate_keypair.verify(message, &attacker_signature).unwrap(),
+                    "Attacker signature should NOT verify with legitimate public key"
+                );
+                
+                // CRITICAL TEST 2: Random bytes should not verify as valid signature
+                let random_signature = vec![0u8; legitimate_signature.len()];
+                assert!(
+                    !legitimate_keypair.verify(message, &random_signature).unwrap(),
+                    "Random bytes should NOT verify as valid signature"
+                );
+                
+                // CRITICAL TEST 3: Modified signature should not verify
+                let mut modified_signature = legitimate_signature.clone();
+                if !modified_signature.is_empty() {
+                    modified_signature[0] ^= 0xFF; // Flip bits in first byte
+                }
+                assert!(
+                    !legitimate_keypair.verify(message, &modified_signature).unwrap(),
+                    "Modified signature should NOT verify"
+                );
+                
+                // CRITICAL TEST 4: Signature from one message should not work for another
+                let other_message = b"Different transaction: Send 1 NOVA to charity";
+                assert!(
+                    !legitimate_keypair.verify(other_message, &legitimate_signature).unwrap(),
+                    "Signature for one message should NOT verify for different message"
+                );
+            }
+        }
+    }
+    
+    #[test]
+    fn test_hybrid_quantum_signature_security() {
+        // Test that hybrid signatures require BOTH classical and quantum parts to be valid
+        let mut rng = OsRng;
+        
+        let params = QuantumParameters::with_security_level(
+            QuantumScheme::Hybrid(ClassicalScheme::Ed25519),
+            3
+        );
+        
+        let keypair1 = QuantumKeyPair::generate(&mut rng, params).unwrap();
+        let keypair2 = QuantumKeyPair::generate(&mut rng, params).unwrap();
+        
+        let message = b"Hybrid security test message";
+        let signature1 = keypair1.sign(message).unwrap();
+        
+        // Valid signature should verify
+        assert!(keypair1.verify(message, &signature1).unwrap());
+        
+        // Different keypair's signature should not verify
+        let signature2 = keypair2.sign(message).unwrap();
+        assert!(!keypair1.verify(message, &signature2).unwrap());
+        
+        // Corrupting classical part should fail verification
+        let mut corrupt_classical = signature1.clone();
+        if corrupt_classical.len() > 10 {
+            corrupt_classical[5] ^= 0xFF;
+        }
+        assert!(!keypair1.verify(message, &corrupt_classical).unwrap());
+        
+        // Corrupting quantum part should fail verification
+        let mut corrupt_quantum = signature1.clone();
+        if corrupt_quantum.len() > 100 {
+            let idx = corrupt_quantum.len() - 10;
+            corrupt_quantum[idx] ^= 0xFF;
+        }
+        assert!(!keypair1.verify(message, &corrupt_quantum).unwrap());
     }
 } 

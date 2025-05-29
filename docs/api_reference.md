@@ -342,9 +342,9 @@ Returns information about the node's connection to the network.
 **Result**:
 ```json
 {
-  "version": 1000000,
-  "subversion": "/SuperNova:1.0.0/",
-  "protocolversion": 70015,
+  "version": 90000,
+  "subversion": "/Supernova:1.0.0-RC2/",
+  "protocolversion": 90003,
   "localservices": "000000000000000d",
   "localrelay": true,
   "timeoffset": 0,

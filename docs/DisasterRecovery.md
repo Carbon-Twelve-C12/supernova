@@ -1,14 +1,14 @@
-# SuperNova Disaster Recovery Guide
+# Supernova Disaster Recovery Guide
 
-This document outlines the disaster recovery capabilities and procedures for SuperNova nodes. It is intended for system operators and administrators who need to manage recovery from data corruption or system failures.
+This document outlines the disaster recovery capabilities and procedures for Supernova nodes. It is intended for system operators and administrators who need to manage recovery from data corruption or system failures.
 
 ## Overview
 
-SuperNova incorporates comprehensive disaster recovery mechanisms designed to detect, diagnose, and repair various types of data corruption. The system prioritizes data integrity and availability, with multiple strategies for recovery depending on the nature and severity of the issue.
+Supernova incorporates comprehensive disaster recovery mechanisms designed to detect, diagnose, and repair various types of data corruption. The system prioritizes data integrity and availability, with multiple strategies for recovery depending on the nature and severity of the issue.
 
 ## Corruption Types
 
-SuperNova can detect and handle the following types of corruption:
+Supernova can detect and handle the following types of corruption:
 
 | Corruption Type | Description | Severity | 
 |----------------|-------------|----------|
@@ -91,7 +91,7 @@ The most intensive recovery method, used when other strategies fail.
 
 ## Automated Recovery Process
 
-SuperNova implements a `CorruptionHandler` that manages the detection and recovery process:
+Supernova implements a `CorruptionHandler` that manages the detection and recovery process:
 
 1. **Detection Phase**: Regular integrity checks identify potential corruption
 2. **Diagnosis Phase**: The system determines the type and extent of corruption
@@ -136,7 +136,7 @@ supernova-cli db restore --backup-path /path/to/backup
 
 ## Logging and Monitoring
 
-SuperNova writes detailed logs during the recovery process:
+Supernova writes detailed logs during the recovery process:
 
 ```
 /var/log/supernova/recovery.log     # Main recovery log
@@ -162,7 +162,7 @@ Configure monitoring to alert on:
 
 ## Future Improvements
 
-The SuperNova team is working on enhancing disaster recovery capabilities:
+The Supernova team is working on enhancing disaster recovery capabilities:
 - Implementation of a dedicated ResilienceManager with advanced self-healing
 - Distributed recovery across a cluster of nodes
 - Machine learning-based early corruption detection

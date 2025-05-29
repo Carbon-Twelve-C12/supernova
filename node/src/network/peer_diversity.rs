@@ -62,7 +62,7 @@ impl IpSubnet {
 }
 
 /// Connection strategy for peer diversity management
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ConnectionStrategy {
     /// Maximize diversity across all dimensions
     MaximizeDiversity,

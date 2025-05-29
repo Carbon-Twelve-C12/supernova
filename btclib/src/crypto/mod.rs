@@ -8,6 +8,10 @@ pub mod quantum;
 pub mod zkp;
 pub mod falcon;
 
+// Test modules
+#[cfg(test)]
+mod quantum_security_test;
+
 // Re-export public types
 pub use hash::Hash;
 pub use quantum::{QuantumScheme, QuantumKeyPair, QuantumParameters, QuantumError};

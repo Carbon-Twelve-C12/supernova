@@ -1,16 +1,16 @@
-# SuperNova Foundation
+# Supernova Foundation
 
 ## Executive Summary
 
-The SuperNova Foundation is established as a Swiss non-profit foundation to govern the decentralized SuperNova blockchain, manage the environmental initiatives, and oversee token distribution. This document outlines the foundation's structure, governance model, token allocation, and operational guidelines to ensure transparency and accountability.
+The Supernova Foundation will be established as a Swiss non-profit foundation to govern the decentralized Supernova blockchain, manage the environmental initiatives, and oversee token distribution. This document outlines the foundation's structure, governance model, token allocation, and operational guidelines to ensure transparency and accountability.
 
-The foundation's primary mission is to promote the development and adoption of the SuperNova blockchain while ensuring its environmental goals are met. As a Swiss-based entity, the foundation benefits from Switzerland's clear regulatory framework for blockchain organizations, legal stability, and favorable treatment of non-profit entities engaged in technological innovation.
+The foundation's primary mission will be to promote the development and adoption of the Supernova blockchain while ensuring its environmental goals are met. As a Swiss-based entity, the foundation benefits from Switzerland's clear regulatory framework for blockchain organizations, legal stability, and favorable treatment of non-profit entities engaged in technological innovation.
 
 ## 1. Foundation Structure and Governance
 
 ### 1.1 Legal Structure
 
-The SuperNova Foundation is established as a Swiss foundation ("Stiftung") under Articles 80-89a of the Swiss Civil Code, registered in Zug, Switzerland. The foundation is established with an initial endowment and is governed by:
+The Supernova Foundation will be established as a Swiss foundation ("Stiftung") under Articles 80-89a of the Swiss Civil Code, registered in Zug, Switzerland. The foundation will be established with an initial endowment and is governed by:
 
 - **Foundation Council**: 5 members with diverse expertise
 - **Executive Team**: Responsible for day-to-day operations
@@ -72,7 +72,7 @@ The Foundation operates through a transparent governance process:
 
 ### 2.1 Initial Token Allocation
 
-SuperNova features a total supply of 42,000,000 NOVA tokens allocated as follows:
+Supernova features a total supply of 42,000,000 NOVA tokens allocated as follows:
 
 | Allocation Category | Percentage | Amount (NOVA) | Vesting/Release |
 |---------------------|------------|---------------|-----------------|
@@ -108,7 +108,7 @@ The 13.5% allocated to the Foundation Reserve is managed by the Treasury Committ
 
 The 15% allocated to Ecosystem Development is used for:
 
-- Grants for developers building on SuperNova
+- Grants for developers building on Supernova
 - Hackathons and educational initiatives
 - Integration partnerships with other protocols
 - Marketing and awareness campaigns
@@ -206,11 +206,11 @@ The Foundation will implement a fair and transparent token launch through a Liqu
 
 ### 3.5 Strategic Investment Framework
 
-Prior to public launch, the Foundation will secure strategic investors who align with SuperNova's vision:
+Prior to public launch, the Foundation will secure strategic investors who align with Supernova's vision:
 
 - **Strategic Round Allocation**: 525,000 NOVA (1.25% of total supply) from Foundation Reserve
 - **Investor Criteria**:
-  - Alignment with SuperNova's environmental mission
+  - Alignment with Supernova's environmental mission
   - Technical expertise in relevant fields
   - Long-term investment horizon with appropriate lockups
   - Ability to provide technical, operational, or market-making support
@@ -238,7 +238,7 @@ The Foundation will implement a comprehensive liquidity strategy to ensure marke
 
 ### 4.1 Carbon Negativity Goal
 
-The Foundation is committed to ensuring SuperNova remains carbon negative, with specific targets:
+The Foundation is committed to ensuring Supernova remains carbon negative, with specific targets:
 
 - Minimum 150% carbon offset (baseline)
 - Scaling to 200% carbon offset by year 3
@@ -317,7 +317,7 @@ The Foundation is structured to ensure independence from any single entity:
 
 All core protocol code is open source under MIT license. The Foundation:
 
-- Holds trademarks for "SuperNova" and related branding
+- Holds trademarks for "Supernova" and related branding
 - Maintains defensive patents only to prevent third-party restrictions
 - Promotes open development while protecting core infrastructure
 
@@ -349,15 +349,15 @@ All core protocol code is open source under MIT license. The Foundation:
 
 ## 7. Conclusion
 
-The SuperNova Foundation provides the governance structure and stewardship necessary to ensure the long-term success of the SuperNova blockchain, with a particular focus on maintaining its environmental commitments. By establishing the foundation in Switzerland, SuperNova benefits from a stable regulatory environment while implementing governance best practices that balance centralized efficiency with decentralized participation.
+The Supernova Foundation provides the governance structure and stewardship necessary to ensure the long-term success of the Supernova blockchain, with a particular focus on maintaining its environmental commitments. By establishing the foundation in Switzerland, Supernova benefits from a stable regulatory environment while implementing governance best practices that balance centralized efficiency with decentralized participation.
 
-Through careful management of token allocations, transparent operational processes, and commitment to its environmental mission, the Foundation will support SuperNova's growth while maintaining alignment with its core values of sustainability, security, and innovation.
+Through careful management of token allocations, transparent operational processes, and commitment to its environmental mission, the Foundation will support Supernova's growth while maintaining alignment with its core values of sustainability, security, and innovation.
 
 ---
 
 ## Appendix A: Foundation Contact Information
 
-**SuperNova Foundation**  
+**Supernova Foundation**  
 TBD  
 6300 Zug, Switzerland  
 
@@ -368,7 +368,7 @@ Swiss Registry Number: CHE-XXX.XXX.XXX
 
 ## Appendix B: Initial Foundation Council Members
 
-The initial Foundation Council will be announced following the completion of the legal registration process. Council members will be selected based on expertise, industry reputation, and commitment to SuperNova's mission.
+The initial Foundation Council will be announced following the completion of the legal registration process. Council members will be selected based on expertise, industry reputation, and commitment to Supernova's mission.
 
 ## Appendix C: Audit and Compliance Partners
 
