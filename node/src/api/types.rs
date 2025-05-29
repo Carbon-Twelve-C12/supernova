@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
+// Import and re-export environmental types
+pub mod environmental;
+pub use environmental::*;
+
 /// Standard API response wrapper
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApiResponse<T> {
@@ -417,17 +421,6 @@ pub struct MiningInfo {
     pub fee_rates: FeeTiers,
     /// Environmental impact
     pub environmental_impact: Option<EnvironmentalImpact>,
-}
-
-/// Environmental impact data
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct EnvironmentalImpact {
-    /// Carbon emissions in grams CO2e
-    pub carbon_emissions: f64,
-    /// Energy consumption in kilowatt-hours
-    pub energy_consumption: f64,
-    /// Renewable energy percentage
-    pub renewable_percentage: f64,
 }
 
 /// Fee tiers

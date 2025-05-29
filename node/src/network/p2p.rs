@@ -1,15 +1,36 @@
 // This file intentionally left blank to be rewritten from scratch
 
 use libp2p::{
-    core::muxing::StreamMuxerBox,
-    core::transport::Boxed,
-    gossipsub::{self, MessageId, TopicHash},
-    identity, 
-    noise,
-    swarm::{Swarm, SwarmEvent, NetworkBehaviour},
-    tcp, yamux, PeerId, Transport, Multiaddr,
-    core::{ConnectedPoint, upgrade},
+    core::{
+        identity,
+        PeerId,
+        ConnectedPoint,
+        connection::ConnectionId,
+        either::EitherOutput,
+        multiaddr::Protocol as MultiaddrProtocol,
+        upgrade::{SelectUpgrade, Version},
+        transport::{Boxed, ListenerEvent, Transport, TransportError},
+        StreamMuxer, muxing::StreamMuxerBox,
+    },
+    dns::TokioDnsConfig,
+    gossipsub,
+    identify,
+    identity::Keypair,
+    kad::{
+        Kademlia, KademliaConfig, KademliaEvent,
+        store::MemoryStore,
+    },
+    mdns::{Mdns, MdnsEvent},
+    mplex::{MplexConfig, MaxBufferBehaviour},
+    noise::{Keypair as NoiseKeypair, NoiseConfig, X25519Spec},
+    swarm::{Swarm, SwarmBuilder, SwarmEvent, NetworkBehaviour},
+    tcp::TokioTcpConfig,
+    websocket::WsConfig,
+    yamux::YamuxConfig,
+    Multiaddr,
+    Transport as LTransport,
 };
+use void;
 use crate::network::{
     protocol::{Message, Protocol, PublishError, message_id_from_content},
     connection::{ConnectionManager, ConnectionEvent, ConnectionState},
@@ -263,6 +284,8 @@ pub struct P2PNetwork {
     local_peer_id: PeerId,
     /// Protocol handler
     protocol: Protocol,
+    /// Command sender
+    command_sender: Arc<RwLock<Option<mpsc::Sender<NetworkCommand>>>>,
     /// Command receiver
     command_receiver: Arc<RwLock<Option<mpsc::Receiver<NetworkCommand>>>>,
     /// Event sender channel
@@ -444,6 +467,7 @@ impl P2PNetwork {
                 swarm: Arc::new(RwLock::new(None)),
                 local_peer_id,
                 protocol,
+                command_sender: Arc::new(RwLock::new(Some(command_sender.clone()))),
                 command_receiver: Arc::new(RwLock::new(Some(command_receiver))),
                 event_sender,
                 peer_manager,
@@ -1278,49 +1302,32 @@ impl P2PNetwork {
     }
     
     /// Get peers for API
-    pub async fn get_peers(&self, connection_state: Option<String>, verbose: bool) -> Result<Vec<ApiPeerInfo>, Box<dyn Error>> {
-        let connected_peers = self.connected_peers.read().await;
-        let mut api_peers = Vec::new();
+    pub async fn get_peers(&self) -> Result<Vec<crate::api::types::PeerInfo>, Box<dyn Error>> {
+        let peers = self.peer_manager.get_connected_peers();
         
-        for (peer_id, peer_info) in connected_peers.iter() {
-            // Filter by connection state if specified
-            if let Some(ref state_filter) = connection_state {
-                let peer_state = match peer_info.state {
-                    PeerState::Connected => "connected",
-                    PeerState::Ready => "ready",
-                    PeerState::Disconnected => "disconnected",
-                    PeerState::Banned => "banned",
-                    PeerState::Dialing => "dialing",
-                };
-                
-                if peer_state != state_filter {
-                    continue;
-                }
-            }
-            
-            let api_peer = ApiPeerInfo {
-                peer_id: peer_info.peer_id.to_string(),
-                addresses: peer_info.addresses.iter().map(|a| a.to_string()).collect(),
-                connection_status: match peer_info.state {
-                    PeerState::Connected => crate::api::types::PeerConnectionStatus::Connected,
-                    PeerState::Ready => crate::api::types::PeerConnectionStatus::Connected,
-                    PeerState::Disconnected => crate::api::types::PeerConnectionStatus::Disconnected,
-                    PeerState::Banned => crate::api::types::PeerConnectionStatus::Banned,
-                    PeerState::Dialing => crate::api::types::PeerConnectionStatus::Connecting,
+        let mut api_peers = Vec::new();
+        for peer_info in peers {
+            let api_peer = crate::api::types::PeerInfo {
+                id: 0, // TODO: Generate proper peer ID
+                address: if let Some(addr) = peer_info.addresses.first() {
+                    addr.to_string()
+                } else {
+                    peer_info.peer_id.to_string()
                 },
                 direction: if peer_info.is_inbound { "inbound".to_string() } else { "outbound".to_string() },
-                protocol_version: peer_info.protocol_version,
-                user_agent: peer_info.user_agent.clone(),
-                height: peer_info.height,
-                best_hash: peer_info.best_hash.map(|h| hex::encode(h)),
-                ping_ms: peer_info.ping_ms,
-                bytes_sent: 0, // TODO: Track actual bytes per peer
-                bytes_received: 0, // TODO: Track actual bytes per peer
-                last_seen: peer_info.last_seen.elapsed().as_secs(),
-                reputation: peer_info.reputation,
-                ban_score: 0, // TODO: Implement ban scoring
+                connected_time: peer_info.first_seen.elapsed().as_secs(),
+                last_send: 0, // TODO: Track last send time
+                last_recv: peer_info.last_seen.elapsed().as_secs(),
+                bytes_sent: 0, // TODO: Track per-peer bandwidth
+                bytes_received: 0, // TODO: Track per-peer bandwidth
+                ping_time: peer_info.ping_ms.map(|ms| ms as f64),
+                version: peer_info.protocol_version.unwrap_or(0).to_string(),
+                user_agent: peer_info.user_agent.clone().unwrap_or_else(|| "unknown".to_string()),
+                height: peer_info.height.unwrap_or(0),
+                services: "".to_string(), // TODO: Implement service flags
+                banned: matches!(peer_info.state, PeerState::Banned),
+                reputation_score: peer_info.reputation as f64,
             };
-            
             api_peers.push(api_peer);
         }
         
@@ -1328,34 +1335,33 @@ impl P2PNetwork {
     }
     
     /// Get specific peer for API
-    pub async fn get_peer(&self, peer_id: &str) -> Result<Option<ApiPeerInfo>, Box<dyn Error>> {
+    pub async fn get_peer(&self, peer_id: &str) -> Result<Option<crate::api::types::PeerInfo>, Box<dyn Error>> {
         // Parse peer ID
         let peer_id = peer_id.parse::<PeerId>()
             .map_err(|e| format!("Invalid peer ID: {}", e))?;
         
         let connected_peers = self.connected_peers.read().await;
         if let Some(peer_info) = connected_peers.get(&peer_id) {
-            let api_peer = ApiPeerInfo {
-                peer_id: peer_info.peer_id.to_string(),
-                addresses: peer_info.addresses.iter().map(|a| a.to_string()).collect(),
-                connection_status: match peer_info.state {
-                    PeerState::Connected => crate::api::types::PeerConnectionStatus::Connected,
-                    PeerState::Ready => crate::api::types::PeerConnectionStatus::Connected,
-                    PeerState::Disconnected => crate::api::types::PeerConnectionStatus::Disconnected,
-                    PeerState::Banned => crate::api::types::PeerConnectionStatus::Banned,
-                    PeerState::Dialing => crate::api::types::PeerConnectionStatus::Connecting,
+            let api_peer = crate::api::types::PeerInfo {
+                id: 0, // TODO: Generate proper peer ID
+                address: if let Some(addr) = peer_info.addresses.first() {
+                    addr.to_string()
+                } else {
+                    peer_info.peer_id.to_string()
                 },
                 direction: if peer_info.is_inbound { "inbound".to_string() } else { "outbound".to_string() },
-                protocol_version: peer_info.protocol_version,
-                user_agent: peer_info.user_agent.clone(),
-                height: peer_info.height,
-                best_hash: peer_info.best_hash.map(|h| hex::encode(h)),
-                ping_ms: peer_info.ping_ms,
-                bytes_sent: 0, // TODO: Track actual bytes per peer
-                bytes_received: 0, // TODO: Track actual bytes per peer
-                last_seen: peer_info.last_seen.elapsed().as_secs(),
-                reputation: peer_info.reputation,
-                ban_score: 0, // TODO: Implement ban scoring
+                connected_time: peer_info.first_seen.elapsed().as_secs(),
+                last_send: 0, // TODO: Track last send time
+                last_recv: peer_info.last_seen.elapsed().as_secs(),
+                bytes_sent: 0, // TODO: Track per-peer bandwidth
+                bytes_received: 0, // TODO: Track per-peer bandwidth
+                ping_time: peer_info.ping_ms.map(|ms| ms as f64),
+                version: peer_info.protocol_version.unwrap_or(0).to_string(),
+                user_agent: peer_info.user_agent.clone().unwrap_or_else(|| "unknown".to_string()),
+                height: peer_info.height.unwrap_or(0),
+                services: "".to_string(), // TODO: Implement service flags
+                banned: matches!(peer_info.state, PeerState::Banned),
+                reputation_score: peer_info.reputation as f64,
             };
             
             Ok(Some(api_peer))
@@ -1383,7 +1389,7 @@ impl P2PNetwork {
                     
                     Ok(PeerAddResponse {
                         success: true,
-                        message: format!("Connection initiated to {}", address),
+                        error: None,
                         peer_id: None, // Will be filled when connection is established
                     })
                 }
@@ -1391,7 +1397,7 @@ impl P2PNetwork {
                     warn!("Failed to dial {}: {}", address, e);
                     Ok(PeerAddResponse {
                         success: false,
-                        message: format!("Failed to initiate connection: {}", e),
+                        error: Some(format!("Failed to initiate connection: {}", e)),
                         peer_id: None,
                     })
                 }
@@ -1399,7 +1405,7 @@ impl P2PNetwork {
         } else {
             Ok(PeerAddResponse {
                 success: false,
-                message: "Network not initialized".to_string(),
+                error: Some("Network not initialized".to_string()),
                 peer_id: None,
             })
         }
@@ -1438,12 +1444,12 @@ impl P2PNetwork {
         let (upload_rate, download_rate) = bandwidth.get_rates(period);
         
         Ok(BandwidthUsage {
-            period_seconds: period,
-            bytes_sent: bandwidth.bytes_sent,
-            bytes_received: bandwidth.bytes_received,
-            total_bytes: bandwidth.bytes_sent + bandwidth.bytes_received,
+            total_sent: bandwidth.bytes_sent,
+            total_received: bandwidth.bytes_received,
             upload_rate,
             download_rate,
+            peak_upload_rate: upload_rate, // For now, use current rate as peak
+            peak_download_rate: download_rate, // For now, use current rate as peak
         })
     }
     
@@ -1544,7 +1550,7 @@ impl P2PNetwork {
     
     /// Request blocks from peers
     pub async fn request_blocks(&self, block_hashes: Vec<[u8; 32]>, preferred_peer: Option<PeerId>) {
-        let message = Message::GetBlocks(block_hashes);
+        let message = Message::GetBlocksByHash { block_hashes };
         
         if let Some(peer_id) = preferred_peer {
             // Send to specific peer
@@ -1680,9 +1686,11 @@ impl P2PNetwork {
         info!("Rotating {} peers", rotation_candidates.len());
         
         // Disconnect selected peers
-        for peer_id in rotation_candidates {
-            info!("Disconnecting peer {} for rotation", peer_id);
-            self.command_receiver.write().await.send(NetworkCommand::DisconnectPeer(peer_id))?;
+        if let Some(sender) = self.command_sender.read().await.as_ref() {
+            for peer_id in rotation_candidates {
+                info!("Disconnecting peer {} for rotation", peer_id);
+                sender.send(NetworkCommand::DisconnectPeer(peer_id)).await?;
+            }
         }
         
         // Connect to new diverse peers
@@ -1757,6 +1765,8 @@ pub struct NetworkHealth {
 fn build_transport(
     id_keys: identity::Keypair,
 ) -> Result<Boxed<(PeerId, StreamMuxerBox)>, Box<dyn Error>> {
+    use libp2p::{tcp, noise, yamux, core::upgrade};
+    
     let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
         .into_authentic(&id_keys)
         .expect("Signing libp2p-noise static DH keypair failed.");
@@ -1786,12 +1796,10 @@ fn count_leading_zero_bits(hash: &[u8]) -> u8 {
 
 /// Extract IP address from multiaddr
 fn extract_ip_from_multiaddr(addr: &Multiaddr) -> Option<IpAddr> {
-    use libp2p::multiaddr::Protocol;
-    
     for proto in addr.iter() {
         match proto {
-            Protocol::Ip4(ip) => return Some(IpAddr::V4(ip)),
-            Protocol::Ip6(ip) => return Some(IpAddr::V6(ip)),
+            MultiaddrProtocol::Ip4(ip) => return Some(IpAddr::V4(ip)),
+            MultiaddrProtocol::Ip6(ip) => return Some(IpAddr::V6(ip)),
             _ => {}
         }
     }
@@ -1800,16 +1808,14 @@ fn extract_ip_from_multiaddr(addr: &Multiaddr) -> Option<IpAddr> {
 
 /// Extract socket address from multiaddr
 fn extract_socket_addr_from_multiaddr(addr: &Multiaddr) -> Option<std::net::SocketAddr> {
-    use libp2p::multiaddr::Protocol;
-    
     let mut ip_addr = None;
     let mut port = None;
     
     for proto in addr.iter() {
         match proto {
-            Protocol::Ip4(ip) => ip_addr = Some(IpAddr::V4(ip)),
-            Protocol::Ip6(ip) => ip_addr = Some(IpAddr::V6(ip)),
-            Protocol::Tcp(p) => port = Some(p),
+            MultiaddrProtocol::Ip4(ip) => ip_addr = Some(IpAddr::V4(ip)),
+            MultiaddrProtocol::Ip6(ip) => ip_addr = Some(IpAddr::V6(ip)),
+            MultiaddrProtocol::Tcp(p) => port = Some(p),
             _ => {}
         }
     }
@@ -1859,6 +1865,7 @@ impl P2PNetwork {
             swarm: Arc::new(RwLock::new(None)),
             local_peer_id: PeerId::random(),
             protocol: Protocol::new(identity::Keypair::generate_ed25519()).unwrap(),
+            command_sender: Arc::new(RwLock::new(None)),
             command_receiver: Arc::new(RwLock::new(None)),
             event_sender,
             peer_manager: Arc::new(PeerManager::new()),
