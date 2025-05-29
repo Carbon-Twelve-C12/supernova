@@ -1,4 +1,9 @@
-// SuperNova currency units and conversion utilities
+//! NOVA currency units and conversions
+//!
+//! This module defines the standard units for NOVA currency and provides
+//! conversion utilities. The base unit is the "nova" (lowercase), with
+//! 1 NOVA = 100,000,000 novas (similar to Bitcoin's satoshi structure).
+
 use std::fmt;
 use std::convert::TryFrom;
 use std::str::FromStr;
@@ -20,171 +25,117 @@ pub enum UnitError {
     ConversionUnderflow,
 }
 
-/// SuperNova currency units
-/// 
-/// The base unit is the Nova (NOVA), with various subdivisions and multiples:
-/// 
-/// * 1 MegaNova = 1,000,000 NOVA
-/// * 1 KiloNova = 1,000 NOVA
-/// * 1 NOVA = the base unit
-/// * 1 MilliNova = 0.001 NOVA
-/// * 1 MicroNova = 0.000001 NOVA
-/// * 1 NanoNova = 0.000000001 NOVA
-/// * 1 PicoNova = 0.000000000001 NOVA
-/// * 1 FemtoNova = 0.000000000000001 NOVA
-/// * 1 AttoNova = 0.000000000000000001 NOVA (smallest unit)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NovaUnit {
-    /// 1,000,000 NOVA
-    MegaNova,
-    /// 1,000 NOVA
-    KiloNova,
-    /// Base unit (1 NOVA)
-    Nova,
-    /// 0.001 NOVA
-    MilliNova,
-    /// 0.000001 NOVA
-    MicroNova,
-    /// 0.000000001 NOVA
-    NanoNova,
-    /// 0.000000000001 NOVA
-    PicoNova,
-    /// 0.000000000000001 NOVA
-    FemtoNova,
-    /// 0.000000000000000001 NOVA (smallest practical unit)
-    AttoNova,
+/// The number of novas in one NOVA
+pub const NOVAS_PER_NOVA: u64 = 100_000_000;
+
+/// The smallest unit of NOVA currency (1/100,000,000 NOVA)
+pub type Novas = u64;
+
+/// Represents an amount in NOVA currency
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Amount {
+    /// Amount in novas (smallest unit)
+    novas: u64,
 }
 
-impl NovaUnit {
-    /// Get the canonical name of this unit
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::MegaNova => "MegaNova",
-            Self::KiloNova => "KiloNova",
-            Self::Nova => "NOVA",
-            Self::MilliNova => "MilliNova",
-            Self::MicroNova => "MicroNova",
-            Self::NanoNova => "NanoNova",
-            Self::PicoNova => "PicoNova",
-            Self::FemtoNova => "FemtoNova",
-            Self::AttoNova => "AttoNova",
+impl Amount {
+    /// Create a new Amount from novas
+    pub const fn from_novas(novas: u64) -> Self {
+        Self { novas }
+    }
+    
+    /// Create a new Amount from NOVA
+    pub fn from_nova(nova: f64) -> Self {
+        Self {
+            novas: (nova * NOVAS_PER_NOVA as f64) as u64,
         }
     }
     
-    /// Get the common abbreviation for this unit
-    pub fn abbreviation(&self) -> &'static str {
-        match self {
-            Self::MegaNova => "MNOVA",
-            Self::KiloNova => "kNOVA",
-            Self::Nova => "NOVA",
-            Self::MilliNova => "mNOVA",
-            Self::MicroNova => "μNOVA",
-            Self::NanoNova => "nNOVA",
-            Self::PicoNova => "pNOVA",
-            Self::FemtoNova => "fNOVA",
-            Self::AttoNova => "aNOVA",
-        }
+    /// Get the amount in novas
+    pub const fn as_novas(&self) -> u64 {
+        self.novas
     }
     
-    /// Get the conversion factor to convert from this unit to AttoNova (smallest unit)
-    pub fn to_attonova_factor(&self) -> u128 {
-        match self {
-            Self::MegaNova => 1_000_000_000_000_000_000_000_000,
-            Self::KiloNova => 1_000_000_000_000_000_000_000,
-            Self::Nova => 1_000_000_000_000_000_000,
-            Self::MilliNova => 1_000_000_000_000_000,
-            Self::MicroNova => 1_000_000_000_000,
-            Self::NanoNova => 1_000_000_000,
-            Self::PicoNova => 1_000_000,
-            Self::FemtoNova => 1_000,
-            Self::AttoNova => 1,
-        }
+    /// Get the amount in NOVA
+    pub fn as_nova(&self) -> f64 {
+        self.novas as f64 / NOVAS_PER_NOVA as f64
     }
     
-    /// Convert a value in this unit to AttoNova (smallest unit)
-    pub fn to_attonova(&self, value: u64) -> Result<u128, UnitError> {
-        let factor = self.to_attonova_factor();
-        value.checked_mul(factor as u64)
-            .map(|v| v as u128)
-            .ok_or(UnitError::ConversionOverflow)
+    /// Check if the amount is zero
+    pub const fn is_zero(&self) -> bool {
+        self.novas == 0
     }
     
-    /// Convert a value in AttoNova to this unit
-    pub fn from_attonova(&self, attonovas: u128) -> Result<u64, UnitError> {
-        let factor = self.to_attonova_factor();
-        if attonovas % factor != 0 {
-            return Err(UnitError::ConversionUnderflow);
-        }
-        
-        let result = attonovas / factor;
-        if result > u64::MAX as u128 {
-            return Err(UnitError::ConversionOverflow);
-        }
-        
-        Ok(result as u64)
+    /// The zero amount
+    pub const fn zero() -> Self {
+        Self { novas: 0 }
     }
     
-    /// Convert a value from this unit to another unit
-    pub fn convert(&self, value: u64, target_unit: &Self) -> Result<u64, UnitError> {
-        // Convert to attonovas first, then to the target unit
-        let attonovas = self.to_attonova(value)?;
-        target_unit.from_attonova(attonovas)
+    /// Add two amounts
+    pub fn checked_add(&self, other: Self) -> Option<Self> {
+        self.novas.checked_add(other.novas).map(Self::from_novas)
     }
     
-    /// Format a value in this unit with the appropriate symbol
-    pub fn format(&self, value: u64) -> String {
-        format!("{} {}", value, self.abbreviation())
+    /// Subtract two amounts
+    pub fn checked_sub(&self, other: Self) -> Option<Self> {
+        self.novas.checked_sub(other.novas).map(Self::from_novas)
     }
     
-    /// Format a value in this unit with up to 8 decimal places
-    pub fn format_decimal(&self, value: f64) -> String {
-        format!("{:.8} {}", value, self.abbreviation())
+    /// Multiply by a scalar
+    pub fn checked_mul(&self, scalar: u64) -> Option<Self> {
+        self.novas.checked_mul(scalar).map(Self::from_novas)
     }
-}
-
-impl FromStr for NovaUnit {
-    type Err = UnitError;
     
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "meganove" | "mnova" => Ok(Self::MegaNova),
-            "kilonova" | "knova" => Ok(Self::KiloNova),
-            "nova" => Ok(Self::Nova),
-            "millinova" | "millnova" => Ok(Self::MilliNova),
-            "micronova" | "μnova" => Ok(Self::MicroNova),
-            "nanonova" | "nnova" => Ok(Self::NanoNova),
-            "piconova" | "pnova" => Ok(Self::PicoNova),
-            "femtonova" | "fnova" => Ok(Self::FemtoNova),
-            "attonova" | "anova" => Ok(Self::AttoNova),
-            _ => Err(UnitError::InvalidFormat(s.to_string())),
+    /// Divide by a scalar
+    pub fn checked_div(&self, scalar: u64) -> Option<Self> {
+        if scalar == 0 {
+            None
+        } else {
+            Some(Self::from_novas(self.novas / scalar))
         }
     }
 }
 
-impl fmt::Display for NovaUnit {
+impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
+        if self.novas == 0 {
+            write!(f, "0 NOVA")
+        } else if self.novas % NOVAS_PER_NOVA == 0 {
+            write!(f, "{} NOVA", self.novas / NOVAS_PER_NOVA)
+        } else {
+            write!(f, "{:.8} NOVA", self.as_nova())
+        }
     }
 }
 
-/// The total supply of NOVA
-pub const TOTAL_NOVA_SUPPLY: u64 = 42_000_000;
-
-/// Convert a value from a specific unit to millinovas (our primary internal unit)
-pub fn to_millinovas(value: u64, unit: NovaUnit) -> Result<u64, UnitError> {
-    unit.convert(value, &NovaUnit::MilliNova)
+/// Fee rate in novas per byte
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FeeRate {
+    /// Fee in novas per byte
+    novas_per_byte: u64,
 }
 
-/// Convert millinovas to another unit with proper formatting
-pub fn from_millinovas(millinovas: u64, target_unit: NovaUnit) -> Result<String, UnitError> {
-    let converted = NovaUnit::MilliNova.convert(millinovas, &target_unit)?;
-    Ok(target_unit.format(converted))
+impl FeeRate {
+    /// Create a new fee rate
+    pub const fn from_novas_per_byte(novas_per_byte: u64) -> Self {
+        Self { novas_per_byte }
+    }
+    
+    /// Get the fee rate in novas per byte
+    pub const fn as_novas_per_byte(&self) -> u64 {
+        self.novas_per_byte
+    }
+    
+    /// Calculate the fee for a given size
+    pub fn calculate_fee(&self, size_bytes: usize) -> Amount {
+        Amount::from_novas(self.novas_per_byte * size_bytes as u64)
+    }
 }
 
-/// Format a value in millinovas as NOVA with decimal precision
-pub fn format_as_nova(millinovas: u64) -> String {
-    let novas = millinovas as f64 / 1000.0;
-    format!("{:.3} NOVA", novas)
+impl fmt::Display for FeeRate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} novas/byte", self.novas_per_byte)
+    }
 }
 
 #[cfg(test)]
@@ -192,42 +143,39 @@ mod tests {
     use super::*;
     
     #[test]
-    fn test_unit_conversion() {
-        // 1 NOVA = 1000 MilliNova
-        let result = NovaUnit::Nova.convert(1, &NovaUnit::MilliNova).unwrap();
-        assert_eq!(result, 1000);
+    fn test_amount_conversions() {
+        let amount = Amount::from_nova(1.0);
+        assert_eq!(amount.as_novas(), NOVAS_PER_NOVA);
+        assert_eq!(amount.as_nova(), 1.0);
         
-        // 5000 MilliNova = 5 NOVA
-        let result = NovaUnit::MilliNova.convert(5000, &NovaUnit::Nova).unwrap();
-        assert_eq!(result, 5);
-        
-        // 1 MegaNova = 1,000,000 NOVA
-        let result = NovaUnit::MegaNova.convert(1, &NovaUnit::Nova).unwrap();
-        assert_eq!(result, 1_000_000);
-        
-        // Test precision loss
-        let result = NovaUnit::MilliNova.convert(5, &NovaUnit::Nova);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), UnitError::ConversionUnderflow));
+        let amount = Amount::from_novas(50_000_000);
+        assert_eq!(amount.as_nova(), 0.5);
     }
     
     #[test]
-    fn test_formatting() {
-        assert_eq!(NovaUnit::Nova.format(42), "42 NOVA");
-        assert_eq!(NovaUnit::MilliNova.format(500), "500 mNOVA");
-        assert_eq!(NovaUnit::KiloNova.format(10), "10 kNOVA");
+    fn test_amount_arithmetic() {
+        let a = Amount::from_nova(1.5);
+        let b = Amount::from_nova(0.5);
         
-        assert_eq!(format_as_nova(1500), "1.500 NOVA");
-        assert_eq!(format_as_nova(1_000_000), "1000.000 NOVA");
+        assert_eq!(a.checked_add(b), Some(Amount::from_nova(2.0)));
+        assert_eq!(a.checked_sub(b), Some(Amount::from_nova(1.0)));
+        assert_eq!(b.checked_mul(3), Some(Amount::from_nova(1.5)));
+        assert_eq!(a.checked_div(3), Some(Amount::from_nova(0.5)));
     }
     
     #[test]
-    fn test_from_str() {
-        assert_eq!(NovaUnit::from_str("nova").unwrap(), NovaUnit::Nova);
-        assert_eq!(NovaUnit::from_str("millinova").unwrap(), NovaUnit::MilliNova);
-        assert_eq!(NovaUnit::from_str("NOVA").unwrap(), NovaUnit::Nova);
+    fn test_fee_rate() {
+        let fee_rate = FeeRate::from_novas_per_byte(100);
+        let fee = fee_rate.calculate_fee(250); // 250 byte transaction
+        assert_eq!(fee.as_novas(), 25_000);
+    }
+    
+    #[test]
+    fn test_display() {
+        assert_eq!(Amount::from_nova(1.0).to_string(), "1 NOVA");
+        assert_eq!(Amount::from_nova(1.5).to_string(), "1.50000000 NOVA");
+        assert_eq!(Amount::zero().to_string(), "0 NOVA");
         
-        let result = NovaUnit::from_str("invalid");
-        assert!(result.is_err());
+        assert_eq!(FeeRate::from_novas_per_byte(100).to_string(), "100 novas/byte");
     }
 } 

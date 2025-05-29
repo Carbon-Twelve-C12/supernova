@@ -4,24 +4,24 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-btclib = { path = "../btclib", features = ["lightning"] }
+btclib = { path = "../btclib" }
 wallet = { path = "../wallet" }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.25", features = ["full"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 config = "0.13"
-toml = "0.7"
-metrics = "0.20"
-metrics-exporter-prometheus = "0.11"
+toml = "0.8"
+metrics = "0.17"
+metrics-exporter-prometheus = "0.6"
 once_cell = "1.8"
 notify = { version = "5.0", features = ["serde"] }
 
 # P2P networking dependencies
-libp2p = { version = "0.41", features = ["tcp-tokio", "mdns", "gossipsub", "noise", "mplex", "yamux", "identify", "kad"] }
+libp2p = { version = "0.53", features = ["tcp", "noise", "dns", "mdns", "kad", "gossipsub", "yamux", "request-response", "tokio", "identify", "ping"] }
 libp2p-swarm-derive = "0.25"
 futures = "0.3"
-async-trait = "0.1"
-serde = { version = "1.0", features = ["derive"] }
+async-trait = "0.1.60"
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 void = "1.0.2"
 uuid = { version = "1.0", features = ["v4", "serde"] }
@@ -29,7 +29,7 @@ rand = "0.8"
 byteorder = "1.4"
 
 # Web API dependencies
-actix-web = "4.0"
+actix-web = "4.4"
 actix-rt = "2.0"
 actix-cors = "0.6"
 utoipa = { version = "4.0", features = ["actix_extras"] }
@@ -38,14 +38,14 @@ utoipa-swagger-ui = { version = "4.0", features = ["actix-web"] }
 # Storage and utils
 sled = "0.34"
 thiserror = "1.0"
-dashmap = "5.4"
+dashmap = "5.0"
 hex = "0.4"
 bincode = "1.3"
-tempfile = "3.3"
+tempfile = "3.2"
 sha2 = "0.10"
 bytes = "1.0"
 lru = "0.12.1"
-sysinfo = "0.29"
+sysinfo = "0.30"
 blake3 = "1.5"
 maxminddb = "0.24"
 warp = "0.3"
@@ -58,6 +58,15 @@ tower-http = { version = "0.4", features = ["cors", "trace"] }
 flate2 = "1.0"
 parking_lot = "0.12"
 actix-service = "2.0"
+
+anyhow = "1.0"
+base64 = "0.21"
+clap = { version = "4.0", features = ["derive"] }
+crc32fast = "1.3"
+dotenv = "0.15"
+num-traits = "0.2"
+reqwest = { version = "0.11", features = ["json"] }
+rusqlite = { version = "0.29", features = ["bundled"] }
 
 [lib]
 name = "node"

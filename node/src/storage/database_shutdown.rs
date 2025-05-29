@@ -239,17 +239,20 @@ impl DatabaseShutdownHandler {
             tokio::task::spawn_blocking({
                 let db = db.db().clone();
                 move || -> Result<(), StorageError> {
-                    db.compact()?;
+                    // Note: sled doesn't have a built-in compact method
+                    // Compaction happens automatically in the background
+                    // We can force a flush to ensure all data is written
+                    db.flush()?;
                     Ok(())
                 }
             })
         ).await;
         
         match compact_result {
-            Ok(Ok(Ok(()))) => info!("Database compaction completed"),
-            Ok(Ok(Err(e))) => warn!("Database compaction failed: {}", e),
-            Ok(Err(e)) => warn!("Database compaction task failed: {}", e),
-            Err(_) => warn!("Database compaction timed out"),
+            Ok(Ok(Ok(()))) => info!("Database flush completed"),
+            Ok(Ok(Err(e))) => warn!("Database flush failed: {}", e),
+            Ok(Err(e)) => warn!("Database flush task failed: {}", e),
+            Err(_) => warn!("Database flush timed out"),
         }
         
         Ok(())

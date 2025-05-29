@@ -98,6 +98,7 @@ async fn get_faucet_status(
 ) -> Result<web::Json<FaucetStatusResponse>, actix_web::Error> {
     // Get faucet from node
     let faucet = node.get_faucet()
+        .map_err(|e| actix_web::error::ErrorInternalServerError(format!("Failed to get faucet: {}", e)))?
         .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("Faucet is not enabled on this node"))?;
     
     // Get faucet status
@@ -127,6 +128,7 @@ async fn request_tokens(
     
     // Get faucet from node
     let faucet = node.get_faucet()
+        .map_err(|e| actix_web::error::ErrorInternalServerError(format!("Failed to get faucet: {}", e)))?
         .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("Faucet is not enabled on this node"))?;
     
     // Request tokens
@@ -172,6 +174,7 @@ async fn get_recent_transactions(
 ) -> Result<web::Json<RecentTransactionsResponse>, actix_web::Error> {
     // Get faucet from node
     let faucet = node.get_faucet()
+        .map_err(|e| actix_web::error::ErrorInternalServerError(format!("Failed to get faucet: {}", e)))?
         .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("Faucet is not enabled on this node"))?;
     
     // Get recent transactions
@@ -204,6 +207,7 @@ async fn get_faucet_status_axum(
     
     // Get faucet from node
     let faucet = node.get_faucet()
+        .map_err(|e| ApiError::internal_error(&format!("Failed to get faucet: {}", e)))?
         .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Get faucet status
@@ -235,6 +239,7 @@ async fn request_tokens_axum(
     
     // Get faucet from node
     let faucet = node.get_faucet()
+        .map_err(|e| ApiError::internal_error(&format!("Failed to get faucet: {}", e)))?
         .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Request tokens
@@ -272,6 +277,7 @@ async fn get_recent_transactions_axum(
     
     // Get faucet from node
     let faucet = node.get_faucet()
+        .map_err(|e| ApiError::internal_error(&format!("Failed to get faucet: {}", e)))?
         .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Get recent transactions

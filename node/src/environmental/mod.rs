@@ -1,4 +1,4 @@
-use sysinfo::{System, SystemExt, DiskExt, CpuExt};
+use sysinfo::System;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 
-use crate::api::types::{
-    EnvironmentalImpact, EnergyUsage, CarbonFootprint, EnvironmentalSettings,
-    ResourceUtilization, EmissionsSource, EnergySource, CarbonOffset, EnergyUsageHistory
+use crate::api::types::environmental::{
+    EnergyUsage, CarbonFootprint, ResourceUtilization, EnvironmentalSettings,
+    EnvironmentalImpact, EnergySource, EmissionsSource
 };
 
 /// Internal settings for environmental monitoring with extended fields
@@ -164,13 +164,21 @@ impl EnvironmentalMonitor {
         let renewable_percentage = self.calculate_renewable_percentage();
         
         // Since the API EnvironmentalImpact type only has basic fields, we'll create a simple one
-        let impact = EnvironmentalImpact {
-            carbon_emissions: carbon_data.total_emissions_g,
-            energy_consumption: energy_data.total_consumption,
-            renewable_percentage,
-        };
-        
-        Ok(impact)
+        Ok(EnvironmentalImpact {
+            carbon_emissions_g_per_hour: carbon_data.total_emissions_g,
+            renewable_percentage: self.calculate_renewable_percentage(),
+            carbon_intensity: energy_data.carbon_intensity,
+            carbon_offsets_tons: 0.0, // TODO: Implement carbon offset tracking
+            net_emissions_g_per_hour: carbon_data.total_emissions_g,
+            is_carbon_negative: false,
+            environmental_score: self.calculate_environmental_score(&energy_data, &carbon_data),
+            green_mining_bonus: self.calculate_green_mining_bonus(&energy_data),
+            data_sources: self.get_emissions_sources(),
+            calculated_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        })
     }
     
     /// Get energy usage data
@@ -451,6 +459,36 @@ impl EnvironmentalMonitor {
             20.0
         }
     }
+    
+    /// Calculate environmental score
+    fn calculate_environmental_score(&self, energy_data: &EnergyUsage, carbon_data: &CarbonFootprint) -> f64 {
+        // Simple scoring algorithm: higher renewable percentage = better score
+        // Lower emissions = better score
+        let renewable_score = energy_data.renewable_percentage;
+        let emission_score = 100.0 - (carbon_data.total_emissions_g / 1000.0).min(100.0);
+        (renewable_score + emission_score) / 2.0
+    }
+    
+    /// Calculate green mining bonus
+    fn calculate_green_mining_bonus(&self, energy_data: &EnergyUsage) -> f64 {
+        // Bonus percentage based on renewable energy usage
+        if energy_data.renewable_percentage >= 75.0 {
+            10.0 // 10% bonus for >75% renewable
+        } else if energy_data.renewable_percentage >= 50.0 {
+            5.0 // 5% bonus for >50% renewable
+        } else {
+            0.0
+        }
+    }
+    
+    /// Get emissions sources
+    fn get_emissions_sources(&self) -> Vec<String> {
+        vec![
+            "grid_electricity".to_string(),
+            "cooling_systems".to_string(),
+            "hardware_lifecycle".to_string(),
+        ]
+    }
 }
 
 impl Default for EnvironmentalMonitor {
@@ -528,8 +566,7 @@ mod tests {
         let impact = monitor.get_environmental_impact(86400, "standard").unwrap();
         
         // Ensure basic metrics are present
-        assert!(impact.carbon_emissions > 0.0);
-        assert!(impact.energy_consumption > 0.0);
+        assert!(impact.carbon_emissions_g_per_hour > 0.0);
         assert!(impact.renewable_percentage >= 0.0);
         assert!(impact.renewable_percentage <= 100.0);
     }

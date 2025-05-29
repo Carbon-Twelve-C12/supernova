@@ -50,6 +50,23 @@ pub enum ConnectionEvent {
     InboundSlotAvailable,
 }
 
+/// Connection-related errors
+#[derive(Debug)]  // Remove Clone from here
+pub enum ConnectionError {
+    /// Peer not found
+    PeerNotFound(PeerId),
+    /// Connection failed
+    ConnectionFailed(String),
+    /// Already connected to peer
+    AlreadyConnected(PeerId),
+    /// Connection limit reached
+    ConnectionLimitReached(usize),
+    /// Invalid address
+    InvalidAddress(String),
+    /// Dial error
+    DialError(DialError),
+}
+
 /// Manager for handling peer connections
 pub struct ConnectionManager {
     /// Active connections by peer ID

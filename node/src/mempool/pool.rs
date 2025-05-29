@@ -12,7 +12,7 @@ pub struct MempoolConfig {
     pub max_size: usize,
     /// Maximum age of a transaction before expiry (in seconds)
     pub max_age: u64,
-    /// Minimum fee rate (satoshis per byte) for acceptance
+    /// Minimum fee rate (novas per byte) for acceptance
     pub min_fee_rate: u64,
     /// Whether Replace-By-Fee is enabled
     pub enable_rbf: bool,
@@ -37,7 +37,7 @@ impl Default for MempoolConfig {
         Self {
             max_size: 5000,         // Default to 5000 transactions
             max_age: 72 * 3600,     // 72 hours in seconds
-            min_fee_rate: 1,        // 1 satoshi per byte
+            min_fee_rate: 1,        // 1 nova per byte
             enable_rbf: true,       // Enable RBF by default
             min_rbf_fee_increase: 10.0, // 10% minimum fee increase
         }
@@ -49,7 +49,7 @@ impl Default for MempoolConfig {
 struct MempoolEntry {
     transaction: Transaction,
     timestamp: SystemTime,
-    fee_rate: u64,    // Satoshis per byte
+    fee_rate: u64,    // Novas per byte
     size: usize,      // Size in bytes
 }
 
@@ -472,14 +472,20 @@ impl TransactionPool {
     pub fn size_in_bytes(&self) -> usize {
         self.transactions.iter().map(|entry| entry.size).sum()
     }
+
+    /// Get mempool transactions
+    pub fn get_transactions(&self) -> Vec<Transaction> {
+        self.transactions
+            .iter()
+            .map(|entry| entry.value().transaction.clone())
+            .collect()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum MempoolError {
     #[error("Transaction already exists in mempool")]
     DuplicateTransaction,
-    #[error("Transaction already exists in mempool")]
-    TransactionExists,
     #[error("Mempool is full")]
     PoolFull,
     #[error("Transaction fee rate is too low")]

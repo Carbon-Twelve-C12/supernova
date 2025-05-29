@@ -109,8 +109,8 @@ pub async fn get_logs(
 ) -> ApiResult<HttpResponse> {
     let level = params.level.clone().unwrap_or_else(|| "info".to_string());
     let component = params.component.clone();
-    let limit = params.limit.unwrap_or(100);
-    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.unwrap_or(100) as usize;
+    let offset = params.offset.unwrap_or(0) as usize;
     
     // TODO: Implement real logs retrieval
     let logs = node.get_logs(&level, component.as_deref(), limit, offset)?;

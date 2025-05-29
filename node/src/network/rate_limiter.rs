@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use tracing::{debug, warn, error};
+use serde_json;
 
 /// Rate limiting errors
 #[derive(Debug, Error)]
@@ -238,6 +239,9 @@ pub struct RateLimitMetrics {
     pub rejected_requests: u64,
     pub banned_ips: usize,
     pub circuit_breaker_trips: u64,
+    pub active_connections: usize,
+    pub rate_limited_peers: usize,
+    pub peak_connections: usize,
 }
 
 impl NetworkRateLimiter {
@@ -284,7 +288,8 @@ impl NetworkRateLimiter {
         
         // Acquire global rate limit permit
         let global_permit = self.global_semaphore
-            .try_acquire()
+            .clone()
+            .try_acquire_owned()
             .map_err(|_| {
                 self.record_rejection();
                 RateLimitError::GlobalRateLimitExceeded
@@ -292,7 +297,8 @@ impl NetworkRateLimiter {
         
         // Acquire connection limit permit
         let connection_permit = self.connection_semaphore
-            .try_acquire()
+            .clone()
+            .try_acquire_owned()
             .map_err(|_| {
                 self.record_rejection();
                 RateLimitError::GlobalRateLimitExceeded
@@ -457,6 +463,23 @@ impl ConnectionPermit {
     pub fn record_failure(self) {
         self.rate_limiter.record_failure();
     }
+}
+
+/// Get current rate limit metrics
+pub fn get_metrics(&self) -> serde_json::Value {
+    let metrics = self.metrics.read().unwrap();
+    serde_json::json!({
+        "total_requests": metrics.total_requests,
+        "rejected_requests": metrics.rejected_requests,
+        "active_connections": metrics.active_connections,
+        "rate_limited_peers": metrics.rate_limited_peers,
+        "peak_connections": metrics.peak_connections,
+        "rejection_rate": if metrics.total_requests > 0 {
+            metrics.rejected_requests as f64 / metrics.total_requests as f64
+        } else {
+            0.0
+        }
+    })
 }
 
 #[cfg(test)]

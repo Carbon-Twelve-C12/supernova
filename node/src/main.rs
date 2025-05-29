@@ -642,7 +642,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     debug!("Peer {} status: height={}, td={}", peer_id, height, total_difficulty);
                     
                     // Check if we need to sync
-                    let current_height = chain_state.get_height();
+                    let current_height = chain_state.get_best_height();
                     if height > current_height + 1 {
                         info!("Detected we're behind peer {} by {} blocks", peer_id, height - current_height);
                         
@@ -678,8 +678,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Announce initial status
     command_tx_for_network.send(NetworkCommand::AnnounceStatus {
         version: 1,
-        height: node_handle.chain_state.get_height(),
-        best_hash: node_handle.chain_state.get_best_block_hash(),
+        height: node_handle.chain_state.get_best_height(),
+        best_hash: hex::encode(node_handle.chain_state.get_best_block_hash()),
         total_difficulty: node_handle.chain_state.get_total_difficulty(),
     }).await?;
 

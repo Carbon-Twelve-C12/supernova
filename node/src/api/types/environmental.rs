@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use actix_web::{HttpResponse, Responder};
 
 /// Energy source types
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
@@ -63,41 +64,37 @@ pub struct EnergyUsageHistory {
     pub power: f64,
 }
 
-/// Comprehensive environmental impact information
+/// Environmental impact of mining operations
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EnvironmentalImpact {
-    /// Timestamp when this data was generated
-    pub timestamp: u64,
-    /// Time period in seconds that this data covers
-    pub period: u64,
-    /// Total energy consumption in kilowatt-hours
-    pub total_energy_kwh: f64,
-    /// Total carbon emissions in grams of CO2e
-    pub total_carbon_g: f64,
-    /// Percentage of energy from renewable sources
+    /// Current carbon emissions in grams CO2e per hour
+    pub carbon_emissions_g_per_hour: f64,
+    /// Renewable energy percentage
     pub renewable_percentage: f64,
-    /// Number of transactions processed during this period
-    pub transaction_count: u64,
-    /// Energy per transaction in kWh (if available)
-    pub energy_per_transaction_kwh: Option<f64>,
-    /// Carbon per transaction in grams (if available)
-    pub carbon_per_transaction_g: Option<f64>,
-    /// List of energy sources used
-    pub energy_sources: Vec<EnergySource>,
-    /// List of emissions sources
-    pub emissions_sources: Vec<EmissionsSource>,
-    /// List of carbon offsets applied (if any)
-    pub offsets: Option<Vec<CarbonOffset>>,
-    /// System resource utilization data
-    pub resource_utilization: Option<ResourceUtilization>,
-    /// Efficiency improvement percentage compared to previous period (if available)
-    pub efficiency_improvement: Option<f64>,
-    /// Energy efficiency metric (kWh per resource utilization unit)
-    pub energy_efficiency: f64,
-    /// Carbon intensity (g CO2e per kWh)
+    /// Carbon intensity (gCO2e/kWh)
     pub carbon_intensity: f64,
-    /// Level of detail for this report
-    pub detail_level: String,
+    /// Carbon offsets purchased in tons CO2e
+    pub carbon_offsets_tons: f64,
+    /// Net carbon emissions after offsets (gCO2e/hour)
+    pub net_emissions_g_per_hour: f64,
+    /// Whether the node is carbon negative
+    pub is_carbon_negative: bool,
+    /// Environmental score (0-100)
+    pub environmental_score: f64,
+    /// Green mining bonus percentage
+    pub green_mining_bonus: f64,
+    /// Data sources used for calculations
+    pub data_sources: Vec<String>,
+    /// Timestamp of calculation
+    pub calculated_at: u64,
+}
+
+impl Responder for EnvironmentalImpact {
+    type Body = actix_web::body::BoxBody;
+    
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(self)
+    }
 }
 
 /// Energy usage information

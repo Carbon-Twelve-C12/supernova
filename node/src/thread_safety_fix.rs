@@ -3,7 +3,9 @@
 //! This module implements the thread safety fixes required for Phase 9
 //! to allow the Node struct to be safely shared across threads in the API server.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, Mutex};
+use std::time::Instant;
+use libp2p::PeerId;
 use tokio::sync::RwLock as TokioRwLock;
 use crate::node::Node;
 use crate::api::ApiConfig;
@@ -101,10 +103,10 @@ impl NodeApiFacade {
     
     /// Get system information
     pub fn get_system_info(&self) -> Result<crate::api::types::SystemInfo, String> {
-        use sysinfo::{System, SystemExt, CpuExt};
-        
         let mut sys = System::new_all();
         sys.refresh_all();
+        
+        let load_avg = sys.load_average();
         
         Ok(crate::api::types::SystemInfo {
             os: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
@@ -115,7 +117,11 @@ impl NodeApiFacade {
             total_swap: sys.total_swap(),
             used_swap: sys.used_swap(),
             uptime: sys.uptime(),
-            load_average: sys.load_average(),
+            load_average: crate::api::types::LoadAverage {
+                one: load_avg.one,
+                five: load_avg.five,
+                fifteen: load_avg.fifteen,
+            },
         })
     }
     
@@ -241,7 +247,7 @@ impl NodeApiFacade {
         expiry_seconds: u32,
     ) -> Result<String, String> {
         let lightning = self.lightning_manager.as_ref()
-            .ok_or_else(|| "Lightning Network not initialized".to_string())?;
+            .ok_or("Lightning Network not initialized")?;
         
         let lightning = lightning.lock().unwrap();
         
@@ -254,7 +260,7 @@ impl NodeApiFacade {
     /// List channels
     pub fn list_channels(&self) -> Result<Vec<String>, String> {
         let lightning = self.lightning_manager.as_ref()
-            .ok_or_else(|| "Lightning Network not initialized".to_string())?;
+            .ok_or("Lightning Network not initialized")?;
         
         let lightning = lightning.lock().unwrap();
         
@@ -277,7 +283,7 @@ impl NodeApiFacade {
         push_amount: u64,
     ) -> Result<String, String> {
         let lightning = self.lightning_manager.as_ref()
-            .ok_or_else(|| "Lightning Network not initialized".to_string())?;
+            .ok_or("Lightning Network not initialized")?;
         
         let lightning = lightning.lock().unwrap();
         
@@ -294,7 +300,7 @@ impl NodeApiFacade {
         force_close: bool,
     ) -> Result<String, String> {
         let lightning = self.lightning_manager.as_ref()
-            .ok_or_else(|| "Lightning Network not initialized".to_string())?;
+            .ok_or("Lightning Network not initialized")?;
         
         let lightning = lightning.lock().unwrap();
         
@@ -302,8 +308,14 @@ impl NodeApiFacade {
         let channel_id_u64: u64 = channel_id.parse()
             .map_err(|_| "Invalid channel ID format".to_string())?;
         
-        match lightning.close_channel(&channel_id_u64, force_close).await {
-            Ok(tx) => Ok(format!("{}", hex::encode(tx.hash()))),
+        match lightning.close_channel(&channel_id_u64.to_string(), force_close).await {
+            Ok(success) => {
+                if success {
+                    Ok(format!("Channel {} closed successfully", channel_id))
+                } else {
+                    Err(format!("Failed to close channel {}", channel_id))
+                }
+            },
             Err(e) => Err(format!("Failed to close payment channel: {}", e)),
         }
     }
@@ -311,7 +323,7 @@ impl NodeApiFacade {
     /// Pay invoice (async)
     pub async fn pay_invoice(&self, invoice_str: &str) -> Result<String, String> {
         let lightning = self.lightning_manager.as_ref()
-            .ok_or_else(|| "Lightning Network not initialized".to_string())?;
+            .ok_or("Lightning Network not initialized")?;
         
         let lightning = lightning.lock().unwrap();
         

@@ -208,7 +208,7 @@ impl ChainState {
                 Some(work) => *work,
                 None => {
                     // If we don't have work for current tip, calculate it
-                    if let Ok(block) = self.db.get_block(&self.best_block_hash)? {
+                    if let Some(block) = self.db.get_block(&self.best_block_hash)? {
                         let work = self.calculate_chain_work(&block)?;
                         self.chain_work.insert(self.best_block_hash, work);
                         work
@@ -277,11 +277,11 @@ impl ChainState {
                     }
                     
                     // Add to our fork set, but don't switch
-                    self.fork_points.insert(prev_hash);
+                    self.fork_points.insert(*prev_hash);
                 },
                 Ordering::Less => {
                     // Current chain has more work, just track this as a fork
-                    self.fork_points.insert(prev_hash);
+                    self.fork_points.insert(*prev_hash);
                 }
             }
         } else {
@@ -318,7 +318,7 @@ impl ChainState {
         }
 
         if block.height() != self.current_height + 1 
-            && block.prev_block_hash() != self.best_block_hash {
+            && *block.prev_block_hash() != self.best_block_hash {
             let fork_distance = self.calculate_fork_distance(block)?;
             if fork_distance > MAX_FORK_DISTANCE {
                 return Ok(false);

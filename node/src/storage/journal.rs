@@ -1,19 +1,22 @@
-//! Write-Ahead Log (WAL) for Supernova Database
+//! Journal and write-ahead log implementation for SuperNova blockchain
 //! 
-//! This module implements a write-ahead log for crash recovery. All database
-//! modifications are first written to the WAL before being applied to the
+//! This module provides journaling functionality for recording all write operations before they hit the
 //! main database, ensuring durability and recoverability.
 
+use std::io::{Write, Read, Seek, SeekFrom};
+use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
-use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt};
 use serde::{Serialize, Deserialize};
-use tracing::{info, warn, error};
+use bincode;
+use crc32fast::Hasher;
 use thiserror::Error;
-use std::collections::VecDeque;
-use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{info, warn, error, debug};
+use super::database::StorageError;
 
 /// Maximum size of the WAL file before rotation (100MB)
 const MAX_WAL_SIZE: u64 = 100 * 1024 * 1024;
@@ -188,8 +191,7 @@ impl WriteAheadLog {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&current_wal_path)
-            .await?;
+            .open(&current_wal_path)?;
         
         *self.current_file.write().await = Some(file);
         
@@ -229,9 +231,9 @@ impl WriteAheadLog {
         let mut file_guard = self.current_file.write().await;
         if let Some(file) = file_guard.as_mut() {
             // Write size prefix and data
-            file.write_all(&size).await?;
-            file.write_all(&data).await?;
-            file.flush().await?;
+            file.write_all(&size)?;
+            file.write_all(&data)?;
+            file.flush()?;
         }
         
         // Add to pending entries if in recovery mode
@@ -301,7 +303,7 @@ impl WriteAheadLog {
     pub async fn flush(&self) -> Result<(), WalError> {
         let mut file_guard = self.current_file.write().await;
         if let Some(file) = file_guard.as_mut() {
-            file.sync_all().await?;
+            file.sync_all()?;
         }
         Ok(())
     }
@@ -326,7 +328,7 @@ impl WriteAheadLog {
         // Close current file
         let mut file_guard = self.current_file.write().await;
         if let Some(mut file) = file_guard.take() {
-            file.sync_all().await?;
+            file.sync_all()?;
         }
         
         // Rename current WAL to archive
@@ -344,8 +346,7 @@ impl WriteAheadLog {
         let new_file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&current_path)
-            .await?;
+            .open(&current_path)?;
         
         *file_guard = Some(new_file);
         
@@ -356,14 +357,14 @@ impl WriteAheadLog {
     
     /// Load a WAL file and return the last sequence number
     async fn load_wal_file(&self, path: &Path) -> Result<u64, WalError> {
-        let mut file = File::open(path).await?;
+        let mut file = File::open(path)?;
         let mut last_sequence = 0u64;
         let mut buffer = Vec::new();
         
         loop {
             // Read size prefix
             let mut size_bytes = [0u8; 4];
-            match file.read_exact(&mut size_bytes).await {
+            match file.read_exact(&mut size_bytes) {
                 Ok(_) => {},
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
                 Err(e) => return Err(e.into()),
@@ -373,7 +374,7 @@ impl WriteAheadLog {
             
             // Read entry data
             buffer.resize(size, 0);
-            file.read_exact(&mut buffer).await?;
+            file.read_exact(&mut buffer)?;
             
             // Deserialize and verify entry
             let entry: WalEntry = bincode::deserialize(&buffer)?;
@@ -457,7 +458,7 @@ impl WriteAheadLog {
             if let Some(name) = path.file_name() {
                 if let Some(name_str) = name.to_str() {
                     if name_str.starts_with("wal.") && name_str.ends_with(".archive") {
-                        tokio::fs::remove_file(path).await?;
+                        tokio::fs::remove_file(path)?;
                     }
                 }
             }
@@ -484,7 +485,7 @@ impl WriteAheadLog {
         
         if marker_path.exists() {
             // Remove the marker
-            tokio::fs::remove_file(&marker_path).await?;
+            tokio::fs::remove_file(&marker_path)?;
             Ok(true)
         } else {
             Ok(false)

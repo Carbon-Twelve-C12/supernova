@@ -201,13 +201,13 @@ impl Modify for SecurityAddon {
         (name = "faucet", description = "Testnet faucet API endpoints"),
     ),
     info(
-        title = "SuperNova Node API",
-        version = env!("CARGO_PKG_VERSION"),
-        description = "API for interacting with the SuperNova blockchain node",
+        title = "Supernova Node API",
+        version = "0.1.0",
+        description = "API for interacting with the Supernova blockchain node",
         contact(
-            name = "SuperNova Team",
+            name = "Supernova Team",
             email = "support@supernova.network",
-            url = "https://supernova.network"
+            url = "https://supernovanetwork.xyz"
         ),
         license(
             name = "MIT",

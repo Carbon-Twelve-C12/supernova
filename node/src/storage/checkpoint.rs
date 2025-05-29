@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 use btclib::types::block::Block;
 use thiserror::Error;
+use std::str::FromStr;
 
 /// Checkpoint-related errors
 #[derive(Debug, Error)]
@@ -59,6 +60,28 @@ pub enum CheckpointType {
     PreUpgrade,
     /// Special checkpoint to mark a clean shutdown
     Shutdown,
+}
+
+impl FromStr for CheckpointType {
+    type Err = String;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "regular" => Ok(CheckpointType::Regular),
+            "preoperation" | "pre-operation" => Ok(CheckpointType::PreOperation),
+            "manual" => Ok(CheckpointType::Manual),
+            "debug" => Ok(CheckpointType::Debug),
+            "preupgrade" | "pre-upgrade" => Ok(CheckpointType::PreUpgrade),
+            "shutdown" => Ok(CheckpointType::Shutdown),
+            _ => Err(format!("Unknown checkpoint type: {}", s)),
+        }
+    }
+}
+
+impl Default for CheckpointType {
+    fn default() -> Self {
+        CheckpointType::Regular
+    }
 }
 
 /// Configuration for the checkpoint system
@@ -221,7 +244,7 @@ impl CheckpointManager {
                     Some(cmd) = rx.recv() => {
                         match cmd {
                             CheckpointCommand::Create(checkpoint_type) => {
-                                if let Err(e) = Self::create_checkpoint(
+                                if let Err(e) = Self::create_checkpoint_internal(
                                     &config, 
                                     &db, 
                                     &chain_state, 
@@ -291,7 +314,7 @@ impl CheckpointManager {
                 .map_err(|e| StorageError::DatabaseError(format!("Failed to send checkpoint command: {}", e)))?;
         } else {
             // If background task isn't running, create checkpoint directly
-            return Self::create_checkpoint(
+            return Self::create_checkpoint_internal(
                 &self.config,
                 &self.db,
                 &self.chain_state,
@@ -465,7 +488,7 @@ impl CheckpointManager {
     }
 
     /// Internal implementation of checkpoint creation
-    async fn create_checkpoint(
+    async fn create_checkpoint_internal(
         config: &CheckpointConfig,
         db: &Arc<BlockchainDB>,
         chain_state: &Arc<Mutex<ChainState>>,

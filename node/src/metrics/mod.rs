@@ -1,4 +1,4 @@
-use metrics::{Counter, Gauge, Histogram};
+use metrics::{counter, gauge, histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -27,14 +27,14 @@ macro_rules! register_histogram {
 // Backup-related metrics
 #[derive(Clone)]
 pub struct BackupMetrics {
-    backup_duration: Histogram,
-    backup_size: Histogram,
-    total_backups: Counter,
-    failed_backups: Counter,
-    last_backup_time: Gauge,
-    verification_duration: Histogram,
-    failed_verifications: Counter,
-    last_verification_success: Gauge,
+    backup_duration: histogram,
+    backup_size: histogram,
+    total_backups: counter,
+    failed_backups: counter,
+    last_backup_time: gauge,
+    verification_duration: histogram,
+    failed_verifications: counter,
+    last_verification_success: gauge,
 }
 
 impl BackupMetrics {
@@ -77,6 +77,15 @@ impl BackupMetrics {
     pub fn record_verification_success(&self) {
         self.last_verification_success.set(1.0);
     }
+
+    /// Record verification
+    pub fn record_verification(duration_secs: f64, success: bool) {
+        histogram!("backup_verification_duration_seconds").record(duration_secs);
+        
+        if !success {
+            counter!("backup_verification_failures_total").increment(1);
+        }
+    }
 }
 
 pub struct BackupOperation<'a> {
@@ -111,80 +120,55 @@ impl<'a> VerificationOperation<'a> {
     }
 }
 
-pub mod registry;
-
-pub use registry::{
-    MetricsRegistry, 
-    MetricsConfig,
-    SystemMetrics,
-    BlockchainMetrics,
-    NetworkMetrics,
-    ConsensusMetrics,
-    MempoolMetrics,
-    TimedOperation,
-};
-
-use tracing::info;
-
-// Singleton metrics instance for the application
-static mut GLOBAL_METRICS: Option<Arc<MetricsRegistry>> = None;
-
-/// Initialize the global metrics registry
-pub fn init_metrics(config: Option<MetricsConfig>) -> Result<Arc<MetricsRegistry>, Box<dyn std::error::Error>> {
-    let metrics = match config {
-        Some(cfg) => MetricsRegistry::with_config(cfg)?,
-        None => MetricsRegistry::new()?,
-    };
-    
-    let metrics_arc = Arc::new(metrics);
-    
-    // Store in global variable (unsafe because of static mut)
-    unsafe {
-        GLOBAL_METRICS = Some(Arc::clone(&metrics_arc));
-    }
-    
-    info!("Global metrics registry initialized");
-    
-    Ok(metrics_arc)
-}
-
-/// Get the global metrics registry
-/// Returns None if it has not been initialized
-pub fn global_metrics() -> Option<Arc<MetricsRegistry>> {
-    unsafe {
-        GLOBAL_METRICS.as_ref().map(Arc::clone)
-    }
-}
-
-/// Create a timed operation using the global metrics
-pub fn timed_operation<F>(callback: F) -> Option<TimedOperation<'static, F>> 
-where 
-    F: FnOnce(f64),
-{
-    Some(TimedOperation::new(callback))
-}
-
-// pub mod prometheus;  // Temporarily disabled - missing file
+pub mod collector;
 pub mod performance;
+pub mod registry;
+pub mod types;
 
-// pub use prometheus::*;  // Temporarily disabled - missing file
-pub use performance::*;
+pub use collector::MetricsCollector;
+pub use performance::{PerformanceMonitor, MetricType};
+pub use types::{MetricValue, SystemMetrics};
+pub use registry::MetricsRegistry;
+
+/// Initialize metrics system
+pub fn init_metrics() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize Prometheus exporter
+    PrometheusBuilder::new()
+        .install()?;
+    
+    Ok(())
+}
+
+/// Helper to increment a counter
+pub fn increment_counter(name: &str, value: u64) {
+    counter!(name).increment(value);
+}
+
+/// Helper to set a gauge
+pub fn set_gauge(name: &str, value: f64) {
+    gauge!(name).set(value);
+}
+
+/// Helper to record a histogram value
+pub fn record_histogram(name: &str, value: f64) {
+    histogram!(name).record(value);
+}
 
 /// API metrics for tracking API performance
 #[derive(Debug, Clone)]
 pub struct ApiMetrics {
     /// Total API requests
-    pub total_requests: Counter,
+    pub total_requests: counter,
     /// Successful requests
-    pub successful_requests: Counter,
+    pub successful_requests: counter,
     /// Failed requests
-    pub failed_requests: Counter,
+    pub failed_requests: counter,
     /// Response time histogram
-    pub response_time: Histogram,
+    pub response_time: histogram,
     /// Active connections
-    pub active_connections: Gauge,
+    pub active_connections: gauge,
     /// Requests per second
-    pub requests_per_second: Gauge,
+    pub requests_per_second: gauge,
 }
 
 impl ApiMetrics {
