@@ -1,0 +1,10 @@
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/cli/target/release/deps/libautocfg-b893af90c314e9d6.rmeta: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/error.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/rustc.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/version.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/cli/target/release/deps/libautocfg-b893af90c314e9d6.rlib: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/error.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/rustc.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/version.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/cli/target/release/deps/autocfg-b893af90c314e9d6.d: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/error.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/rustc.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/version.rs
+
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/lib.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/error.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/rustc.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/autocfg-1.4.0/src/version.rs:

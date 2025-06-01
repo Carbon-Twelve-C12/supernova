@@ -5,4 +5,57 @@ edition = "2021"
 description = "SuperNova Blockchain CLI Client"
 
 [dependencies]
-clap = "3.2" 
+# CLI framework
+clap = { version = "4.4", features = ["derive", "env"] }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# HTTP client for RPC
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+env_logger = "0.10"
+log = "0.4"
+
+# Terminal UI
+colored = "2.0"
+indicatif = "0.17"
+dialoguer = "0.11"
+
+# Configuration
+toml = "0.8"
+dirs = "5.0"
+
+# Cryptography
+hex = "0.4"
+base64 = "0.21"
+getrandom = "0.2"
+sha2 = "0.10"
+ripemd = "0.1"
+bs58 = "0.5"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Table formatting
+prettytable-rs = "0.10"
+
+# Wallet functionality - Supernova specific
+bip39 = "2.0"
+bip32 = { version = "0.5", features = ["secp256k1"] }
+secp256k1 = "0.28"
+
+# Path handling
+home = "0.5"
+
+# CPU detection
+num_cpus = "1.16" 

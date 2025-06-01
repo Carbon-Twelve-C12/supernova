@@ -1,0 +1,9 @@
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/cli/target/debug/deps/libhyper_rustls-dd144316c5b93fe3.rmeta: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/config.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/connector.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/connector/builder.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/stream.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/cli/target/debug/deps/hyper_rustls-dd144316c5b93fe3.d: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/config.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/connector.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/connector/builder.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/stream.rs
+
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/lib.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/config.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/connector.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/connector/builder.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/hyper-rustls-0.24.2/src/stream.rs:
