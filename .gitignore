@@ -42,3 +42,6 @@ makefile
 Makefile
 makefile
 *.mk
+
+# Exclude all target directories
+**/target/

@@ -1,9 +1,0 @@
-/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/deps/libsocket2-2e6509b09519fa5a.rmeta: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sockaddr.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/socket.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sockref.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sys/unix.rs
-
-/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/deps/socket2-2e6509b09519fa5a.d: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sockaddr.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/socket.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sockref.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sys/unix.rs
-
-/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/lib.rs:
-/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sockaddr.rs:
-/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/socket.rs:
-/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sockref.rs:
-/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/socket2-0.5.10/src/sys/unix.rs:
