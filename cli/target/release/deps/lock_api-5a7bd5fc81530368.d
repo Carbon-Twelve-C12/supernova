@@ -1,0 +1,10 @@
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/cli/target/release/deps/liblock_api-5a7bd5fc81530368.rmeta: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/mutex.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/remutex.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/rwlock.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/cli/target/release/deps/liblock_api-5a7bd5fc81530368.rlib: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/mutex.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/remutex.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/rwlock.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/cli/target/release/deps/lock_api-5a7bd5fc81530368.d: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/mutex.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/remutex.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/rwlock.rs
+
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/lib.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/mutex.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/remutex.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/lock_api-0.4.13/src/rwlock.rs:

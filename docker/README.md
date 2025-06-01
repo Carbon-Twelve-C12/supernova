@@ -105,6 +105,28 @@ docker run -d --name supernova-explorer \
 
 For more complex setups, we recommend using Docker Compose. See our [example docker-compose.yml](https://github.com/mjohnson518/supernova/blob/main/docker/docker-compose.yml) file that sets up a complete testnet environment with multiple nodes, miners, and monitoring tools.
 
+### Setting up Environment Variables
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Generate a secure Grafana password:
+   ```bash
+   openssl rand -base64 32
+   ```
+
+3. Edit the `.env` file and set your secure password:
+   ```
+  
+   ```
+
+4. Run Docker Compose:
+   ```bash
+   docker-compose up -d
+   ```
+
 ## Health Checks
 
 The image includes a health check that verifies the node is functioning correctly:
