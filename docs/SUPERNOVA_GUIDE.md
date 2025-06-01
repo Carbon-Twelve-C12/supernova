@@ -3,7 +3,7 @@
 
 This guide provides detailed instructions for setting up a **production-ready** Supernova blockchain node, participating in mining, and conducting transactions on the network. 
 
-**SuperNova v1.0.0-BETA** combines quantum-resistant cryptography with environmental consciousness for a secure, sustainable blockchain that is now **ready for production deployment**.
+**Supernova v1.0.0-RC3** combines quantum-resistant cryptography with environmental consciousness for a secure, sustainable blockchain that is now **ready for production deployment**.
 
 ### **Key Features - All Operational:**
 - ✅ **Quantum-Resistant Security**: Post-quantum cryptographic protection

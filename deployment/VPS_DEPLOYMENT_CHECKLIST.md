@@ -59,7 +59,7 @@ timedatectl set-timezone UTC
 ### Step 2: Run Deployment Script
 ```bash
 # 1. Download deployment script
-wget https://raw.githubusercontent.com/supernova-network/supernova/main/deployment/scripts/deploy-testnet.sh
+wget https://raw.githubusercontent.com/mjohnson518/supernova/main/deployment/scripts/deploy-testnet.sh
 
 # 2. Make executable
 chmod +x deploy-testnet.sh
@@ -82,7 +82,7 @@ nano deploy-testnet.sh
 
 For experienced users:
 ```bash
-curl -sSL https://raw.githubusercontent.com/supernova-network/supernova/main/deployment/scripts/deploy-testnet.sh | \
+curl -sSL https://raw.githubusercontent.com/mjohnson518/supernova/main/deployment/scripts/deploy-testnet.sh | \
   DOMAIN=testnet.supernovanetwork.xyz \
   EMAIL=admin@supernovanetwork.xyz \
   bash
@@ -193,7 +193,7 @@ ufw enable
 
 - **Documentation**: https://docs.supernovanetwork.xyz
 - **Discord**: https://discord.gg/supernova
-- **GitHub Issues**: https://github.com/supernova-network/supernova/issues
+- **GitHub Issues**: https://github.com/mjohnson518/supernova/issues
 - **Email Support**: support@supernovanetwork.xyz
 
 ---

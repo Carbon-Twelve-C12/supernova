@@ -8,6 +8,26 @@ services:
       dockerfile: deployment/docker/Dockerfile.node
     container_name: supernova-bootstrap-1
     hostname: bootstrap-1
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+          pids: 1000
+        reservations:
+          cpus: '1.0'
+          memory: 2G
     environment:
       - SUPERNOVA_NODE_TYPE=bootstrap
       - SUPERNOVA_NODE_ID=boot-node-1
@@ -21,10 +41,15 @@ services:
       - "8332:8332"
     volumes:
       - bootstrap1-data:/data/supernova
-      - ./config/bootstrap1:/config
+      - ./config/bootstrap1:/config:ro
     networks:
       - supernova-testnet
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8332/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Bootstrap Node 2
   bootstrap-node-2:
@@ -33,6 +58,26 @@ services:
       dockerfile: deployment/docker/Dockerfile.node
     container_name: supernova-bootstrap-2
     hostname: bootstrap-2
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+          pids: 1000
+        reservations:
+          cpus: '1.0'
+          memory: 2G
     environment:
       - SUPERNOVA_NODE_TYPE=bootstrap
       - SUPERNOVA_NODE_ID=boot-node-2
@@ -46,10 +91,15 @@ services:
       - "8342:8332"
     volumes:
       - bootstrap2-data:/data/supernova
-      - ./config/bootstrap2:/config
+      - ./config/bootstrap2:/config:ro
     networks:
       - supernova-testnet
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8332/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Environmental Oracle 1 - Carbon Tracking
   oracle-carbon:
@@ -58,6 +108,25 @@ services:
       dockerfile: deployment/docker/Dockerfile.oracle
     container_name: supernova-oracle-carbon
     hostname: oracle-carbon
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+          pids: 500
+        reservations:
+          cpus: '0.5'
+          memory: 1G
     environment:
       - ORACLE_TYPE=carbon_tracking
       - ORACLE_ID=oracle-carbon-1
@@ -79,6 +148,25 @@ services:
       dockerfile: deployment/docker/Dockerfile.oracle
     container_name: supernova-oracle-renewable
     hostname: oracle-renewable
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+          pids: 500
+        reservations:
+          cpus: '0.5'
+          memory: 1G
     environment:
       - ORACLE_TYPE=renewable_verification
       - ORACLE_ID=oracle-renewable-1
@@ -100,6 +188,26 @@ services:
       dockerfile: deployment/docker/Dockerfile.lightning
     container_name: supernova-lightning
     hostname: lightning-1
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+          pids: 1000
+        reservations:
+          cpus: '1.0'
+          memory: 2G
     environment:
       - LIGHTNING_NODE_ID=ln-node-1
       - LIGHTNING_QUANTUM_ENABLED=true
@@ -122,6 +230,23 @@ services:
       dockerfile: deployment/docker/Dockerfile.dashboard
     container_name: supernova-dashboard
     hostname: dashboard
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+          pids: 200
+        reservations:
+          cpus: '0.5'
+          memory: 1G
     environment:
       - DASHBOARD_PORT=3000
       - API_ENDPOINT=http://api:8080
@@ -142,11 +267,32 @@ services:
       dockerfile: deployment/docker/Dockerfile.api
     container_name: supernova-api
     hostname: api
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+          pids: 500
+        reservations:
+          cpus: '1.0'
+          memory: 2G
     environment:
       - API_PORT=8080
       - NODE_RPC_URL=http://bootstrap-node-1:8332
       - ENABLE_METRICS=true
       - CORS_ENABLED=true
+      - API_AUTH_REQUIRED=true
+      - API_KEY_FILE=/run/secrets/api_key
+    secrets:
+      - api_key
     ports:
       - "8080:8080"
     networks:
@@ -162,6 +308,23 @@ services:
       dockerfile: deployment/docker/Dockerfile.faucet
     container_name: supernova-faucet
     hostname: faucet
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+          pids: 200
+        reservations:
+          cpus: '0.5'
+          memory: 1G
     environment:
       - FAUCET_PORT=4000
       - FAUCET_AMOUNT=1000
@@ -182,6 +345,29 @@ services:
   nginx:
     image: nginx:alpine
     container_name: supernova-nginx
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+          pids: 100
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     ports:
       - "80:80"
       - "443:443"
@@ -201,6 +387,20 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: supernova-prometheus
+    user: "nobody"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+          pids: 200
+        reservations:
+          cpus: '0.5'
+          memory: 1G
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -214,9 +414,27 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: supernova-grafana
+    user: "472:472"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+          pids: 200
+        reservations:
+          cpus: '0.5'
+          memory: 1G
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=supernova-testnet
+      - GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/grafana_password
       - GF_SERVER_ROOT_URL=https://testnet.supernovanetwork.xyz/grafana
+      - GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION=false
+      - GF_INSTALL_PLUGINS=
+    secrets:
+      - grafana_password
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
@@ -244,4 +462,10 @@ volumes:
   lightning-data:
   faucet-data:
   prometheus-data:
-  grafana-data: 
+  grafana-data:
+
+secrets:
+  grafana_password:
+    file: ./secrets/grafana_password.txt
+  api_key:
+    file: ./secrets/api_key.txt 

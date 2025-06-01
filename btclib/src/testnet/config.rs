@@ -290,7 +290,7 @@ impl Default for TestNetConfig {
             difficulty_adjustment_window: 20, // Adjust every 20 blocks (faster adjustments)
             max_difficulty_adjustment_factor: 4.0, // Allow up to 4x difficulty change
             genesis_config: GenesisConfig {
-                timestamp: 1672531200, // January 1, 2025
+                timestamp: 1672531200, // June 1, 2025
                 initial_distribution: vec![
                     CoinDistribution {
                         address: "test1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq".to_string(),

@@ -22,7 +22,7 @@ docker run -d \
   -p 8333:8333 \
   -p 8332:8332 \
   -v supernova-data:/data/supernova \
-  supernovanetwork/node:testnet \
+  mjohnson518/supernova-node:testnet \
   --connect=testnet.supernovanetwork.xyz:8333 \
   --network=testnet
 ```
@@ -93,7 +93,7 @@ curl -sSL https://testnet.supernovanetwork.xyz/install.sh | bash
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/supernova-network/supernova.git
+git clone https://github.com/mjohnson518/supernova.git
 cd supernova
 
 # 2. Build from source
@@ -195,15 +195,13 @@ supernova-cli getsyncstatus
 
 ## Community
 
-- **Discord**: https://discord.gg/supernova
-- **Telegram**: https://t.me/supernovanetwork
-- **Twitter**: https://twitter.com/supernovanet
-- **GitHub**: https://github.com/supernova-network
+- **GitHub**: https://github.com/mjohnson518/supernova
+
 
 ## Bug Reporting
 
 Found an issue? Please report it:
-1. **GitHub Issues**: https://github.com/supernova-network/supernova/issues
+1. **GitHub Issues**: https://github.com/mjohnson518/supernova/issues
 2. **Bug Bounty Program**: security@supernovanetwork.xyz
 
 ### Rewards for Finding:
