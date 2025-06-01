@@ -1,0 +1,32 @@
+# Linguist overrides
+*.h linguist-language=C
+*.c linguist-language=C
+*.rs linguist-language=Rust
+*.toml linguist-language=TOML
+*.md linguist-documentation
+
+# Mark vendor/build directories
+target/ linguist-vendored
+**/target/ linguist-vendored
+vendor/ linguist-vendored
+third-party/ linguist-vendored
+
+# Ensure text files have consistent line endings
+* text=auto
+*.rs text
+*.toml text
+*.md text
+*.txt text
+*.json text
+*.yml text
+*.yaml text
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary 
