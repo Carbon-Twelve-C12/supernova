@@ -34,3 +34,11 @@ Thumbs.db
 
 deployment/OPERATIONAL_PROCEDURES.md
 deployment/PRODUCTION_DEPLOYMENT_SUMMARY.md
+Makefile
+makefile
+*.mk
+
+# Exclude Makefiles
+Makefile
+makefile
+*.mk
