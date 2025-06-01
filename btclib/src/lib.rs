@@ -5,27 +5,38 @@
 pub mod api;
 pub mod block;
 pub mod blockchain;
+pub mod cli;
 pub mod config;
 pub mod consensus;
 pub mod consensus_verification;
 pub mod crypto;
+pub mod deployment;
 pub mod environmental;
 pub mod error;
 pub mod errors;
+pub mod freeze;
 pub mod hash;
+pub mod journal;
+pub mod lightning;
 pub mod mempool;
+pub mod mining;
 pub mod monitoring;
 pub mod network;
-pub mod mining;
+pub mod p2p;
+pub mod rpc;
 pub mod script;
+pub mod security;
 pub mod security_mitigation;
+pub mod state;
 pub mod storage;
 pub mod testnet;
+pub mod transaction;
 pub mod transaction_processor;
 pub mod types;
 pub mod util;
 pub mod validation;
 pub mod verification;
+pub mod wallet;
 
 // Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -70,9 +81,6 @@ pub use crate::errors::{SuperNovaError, SuperNovaResult};
 
 // Re-export Lightning types when feature is enabled
 #[cfg(feature = "lightning")]
-pub mod lightning;
-
-#[cfg(feature = "lightning")]
 pub use lightning::{
     LightningNetwork,
     LightningConfig,
@@ -88,10 +96,24 @@ pub use lightning::{
     LightningWallet,
 };
 
+// Re-export security audit types
+pub use crate::security::{
+    QuantumSecurityAuditReport,
+    EnvironmentalSystemAuditReport,
+    prepare_quantum_security_audit,
+    prepare_environmental_system_audit,
+};
+
+// Re-export deployment types
+pub use crate::deployment::{
+    TestnetConfiguration,
+    deploy_supernova_testnet,
+    TestnetDeploymentStatus,
+};
+
 // Add the freeze module to the library
 // Freeze feature allows parts of the code to be disabled during compilation
 // This is useful for working around circular dependencies or other issues
-pub mod freeze;
 pub use freeze::*;
 
 // Add this export near other testnet-related exports

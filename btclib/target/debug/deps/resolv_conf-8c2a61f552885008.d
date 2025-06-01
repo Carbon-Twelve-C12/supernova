@@ -1,0 +1,10 @@
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/deps/libresolv_conf-8c2a61f552885008.rmeta: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/config.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/grammar.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/ip.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/deps/libresolv_conf-8c2a61f552885008.rlib: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/config.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/grammar.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/ip.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/deps/resolv_conf-8c2a61f552885008.d: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/config.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/grammar.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/ip.rs
+
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/lib.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/config.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/grammar.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/resolv-conf-0.7.4/src/ip.rs:

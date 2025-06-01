@@ -1,0 +1,247 @@
+version: '3.8'
+
+services:
+  # Bootstrap Node 1
+  bootstrap-node-1:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.node
+    container_name: supernova-bootstrap-1
+    hostname: bootstrap-1
+    environment:
+      - SUPERNOVA_NODE_TYPE=bootstrap
+      - SUPERNOVA_NODE_ID=boot-node-1
+      - SUPERNOVA_P2P_PORT=8333
+      - SUPERNOVA_RPC_PORT=8332
+      - SUPERNOVA_ENABLE_MINING=true
+      - SUPERNOVA_QUANTUM_ENABLED=true
+      - SUPERNOVA_ENVIRONMENTAL_TRACKING=true
+    ports:
+      - "8333:8333"
+      - "8332:8332"
+    volumes:
+      - bootstrap1-data:/data/supernova
+      - ./config/bootstrap1:/config
+    networks:
+      - supernova-testnet
+    restart: unless-stopped
+
+  # Bootstrap Node 2
+  bootstrap-node-2:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.node
+    container_name: supernova-bootstrap-2
+    hostname: bootstrap-2
+    environment:
+      - SUPERNOVA_NODE_TYPE=bootstrap
+      - SUPERNOVA_NODE_ID=boot-node-2
+      - SUPERNOVA_P2P_PORT=8343
+      - SUPERNOVA_RPC_PORT=8342
+      - SUPERNOVA_ENABLE_MINING=true
+      - SUPERNOVA_QUANTUM_ENABLED=true
+      - SUPERNOVA_ENVIRONMENTAL_TRACKING=true
+    ports:
+      - "8343:8333"
+      - "8342:8332"
+    volumes:
+      - bootstrap2-data:/data/supernova
+      - ./config/bootstrap2:/config
+    networks:
+      - supernova-testnet
+    restart: unless-stopped
+
+  # Environmental Oracle 1 - Carbon Tracking
+  oracle-carbon:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.oracle
+    container_name: supernova-oracle-carbon
+    hostname: oracle-carbon
+    environment:
+      - ORACLE_TYPE=carbon_tracking
+      - ORACLE_ID=oracle-carbon-1
+      - ORACLE_REGION=north_america
+      - ORACLE_PORT=9001
+      - ORACLE_TEST_MODE=true
+    ports:
+      - "9001:9001"
+    volumes:
+      - oracle-carbon-data:/data/oracle
+    networks:
+      - supernova-testnet
+    restart: unless-stopped
+
+  # Environmental Oracle 2 - Renewable Verification
+  oracle-renewable:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.oracle
+    container_name: supernova-oracle-renewable
+    hostname: oracle-renewable
+    environment:
+      - ORACLE_TYPE=renewable_verification
+      - ORACLE_ID=oracle-renewable-1
+      - ORACLE_REGION=europe
+      - ORACLE_PORT=9002
+      - ORACLE_TEST_MODE=true
+    ports:
+      - "9002:9002"
+    volumes:
+      - oracle-renewable-data:/data/oracle
+    networks:
+      - supernova-testnet
+    restart: unless-stopped
+
+  # Lightning Node
+  lightning-node:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.lightning
+    container_name: supernova-lightning
+    hostname: lightning-1
+    environment:
+      - LIGHTNING_NODE_ID=ln-node-1
+      - LIGHTNING_QUANTUM_ENABLED=true
+      - LIGHTNING_GREEN_ROUTING=true
+      - LIGHTNING_PORT=9735
+    ports:
+      - "9735:9735"
+    volumes:
+      - lightning-data:/data/lightning
+    networks:
+      - supernova-testnet
+    depends_on:
+      - bootstrap-node-1
+    restart: unless-stopped
+
+  # Monitoring Dashboard
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.dashboard
+    container_name: supernova-dashboard
+    hostname: dashboard
+    environment:
+      - DASHBOARD_PORT=3000
+      - API_ENDPOINT=http://api:8080
+      - WEBSOCKET_ENABLED=true
+      - PUBLIC_ACCESS=true
+    ports:
+      - "3000:3000"
+    networks:
+      - supernova-testnet
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # API Service
+  api:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.api
+    container_name: supernova-api
+    hostname: api
+    environment:
+      - API_PORT=8080
+      - NODE_RPC_URL=http://bootstrap-node-1:8332
+      - ENABLE_METRICS=true
+      - CORS_ENABLED=true
+    ports:
+      - "8080:8080"
+    networks:
+      - supernova-testnet
+    depends_on:
+      - bootstrap-node-1
+    restart: unless-stopped
+
+  # Faucet Service
+  faucet:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.faucet
+    container_name: supernova-faucet
+    hostname: faucet
+    environment:
+      - FAUCET_PORT=4000
+      - FAUCET_AMOUNT=1000
+      - COOLDOWN_PERIOD=3600
+      - CAPTCHA_ENABLED=true
+      - NODE_RPC_URL=http://bootstrap-node-1:8332
+    ports:
+      - "4000:4000"
+    volumes:
+      - faucet-data:/data/faucet
+    networks:
+      - supernova-testnet
+    depends_on:
+      - bootstrap-node-1
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: supernova-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/sites-enabled:/etc/nginx/sites-enabled:ro
+    networks:
+      - supernova-testnet
+    depends_on:
+      - dashboard
+      - api
+      - faucet
+    restart: unless-stopped
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: supernova-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - supernova-testnet
+    restart: unless-stopped
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: supernova-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=supernova-testnet
+      - GF_SERVER_ROOT_URL=https://testnet.supernovanetwork.xyz/grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - supernova-testnet
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+networks:
+  supernova-testnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  bootstrap1-data:
+  bootstrap2-data:
+  oracle-carbon-data:
+  oracle-renewable-data:
+  lightning-data:
+  faucet-data:
+  prometheus-data:
+  grafana-data: 
