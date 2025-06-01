@@ -13,6 +13,8 @@ pub mod onion;
 pub mod quantum_security;
 pub mod manager;
 pub mod atomic_operations;
+pub mod quantum_lightning;
+pub mod green_routing;
 
 #[cfg(test)]
 pub mod race_condition_tests;
@@ -27,6 +29,23 @@ pub use onion::{OnionRouter, OnionPacket, PerHopPayload, SharedSecret};
 pub use quantum_security::{QuantumChannelSecurity, QuantumSecurityError, QuantumChannelConfig};
 pub use manager::{LightningManager, ManagerError, LightningInfo, LightningChannel, LightningPayment, LightningInvoice};
 pub use atomic_operations::{AtomicChannel, AtomicChannelState, AtomicOperationError};
+pub use quantum_lightning::{
+    QuantumLightningChannel, QuantumLightningManager, QuantumHTLC,
+    GreenLightningRoute, GreenRouteHop, ChannelEnvironmentalData,
+    EnvironmentalLightningMetrics, LightningError,
+    create_quantum_lightning_channel, validate_quantum_channel_security,
+    test_quantum_htlc_operations, calculate_lightning_carbon_footprint,
+    track_environmental_lightning_metrics,
+};
+
+pub use green_routing::{
+    GreenLightningRouter, EnvironmentalNetworkGraph, EnvironmentalNode,
+    EnvironmentalChannel, GreenIncentiveProgram, PaymentEnvironmentalImpact,
+    EnvironmentalSavingsReport, GreenPaymentCertificate, EnvironmentalLightningStats,
+    EnvironmentalRoutingPreferences, RoutingPriority, TimePeriod,
+    calculate_route_carbon_footprint, optimize_for_renewable_energy_nodes,
+    apply_environmental_routing_preferences, incentivize_green_lightning_nodes,
+};
 
 // Re-export main types from this module
 

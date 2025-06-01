@@ -1,0 +1,38 @@
+TARGET = Some("aarch64-apple-darwin")
+OPT_LEVEL = Some("0")
+TARGET = Some("aarch64-apple-darwin")
+TARGET = Some("aarch64-apple-darwin")
+HOST = Some("aarch64-apple-darwin")
+CFLAGS_aarch64-apple-darwin = None
+CFLAGS_aarch64_apple_darwin = None
+HOST_CFLAGS = None
+CFLAGS = None
+DEBUG = Some("true")
+running: "cc" "-O0" "-ffunction-sections" "-fdata-sections" "-fPIC" "-g" "-Wall" "-Wextra" "-o" "/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/build/rust-crypto-3b20c47086005832/out/src/util_helpers.o" "-c" "src/util_helpers.c"
+exit status: 0
+TARGET = Some("aarch64-apple-darwin")
+OPT_LEVEL = Some("0")
+TARGET = Some("aarch64-apple-darwin")
+TARGET = Some("aarch64-apple-darwin")
+HOST = Some("aarch64-apple-darwin")
+CFLAGS_aarch64-apple-darwin = None
+CFLAGS_aarch64_apple_darwin = None
+HOST_CFLAGS = None
+CFLAGS = None
+DEBUG = Some("true")
+running: "cc" "-O0" "-ffunction-sections" "-fdata-sections" "-fPIC" "-g" "-Wall" "-Wextra" "-o" "/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/build/rust-crypto-3b20c47086005832/out/src/aesni_helpers.o" "-c" "src/aesni_helpers.c"
+exit status: 0
+TARGET = Some("aarch64-apple-darwin")
+TARGET = Some("aarch64-apple-darwin")
+HOST = Some("aarch64-apple-darwin")
+AR_aarch64-apple-darwin = None
+AR_aarch64_apple_darwin = None
+HOST_AR = None
+AR = None
+TARGET = Some("aarch64-apple-darwin")
+TARGET = Some("aarch64-apple-darwin")
+running: "ar" "crs" "/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/build/rust-crypto-3b20c47086005832/out/lib_rust_crypto_helpers.a" "/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/build/rust-crypto-3b20c47086005832/out/src/util_helpers.o" "/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/build/rust-crypto-3b20c47086005832/out/src/aesni_helpers.o"
+exit status: 0
+TARGET = Some("aarch64-apple-darwin")
+cargo:rustc-link-lib=static=_rust_crypto_helpers
+cargo:rustc-link-search=native=/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/build/rust-crypto-3b20c47086005832/out

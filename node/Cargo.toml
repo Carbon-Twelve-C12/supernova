@@ -1,32 +1,67 @@
 [package]
-name = "node"
-version = "0.1.0"
+name = "supernova-node"
+version = "1.0.0"
 edition = "2021"
+authors = ["Supernova Network Team"]
+description = "Supernova blockchain node - carbon-negative, quantum-secure"
+
+[[bin]]
+name = "supernova-node"
+path = "src/main.rs"
 
 [dependencies]
-btclib = { path = "../btclib" }
-wallet = { path = "../wallet" }
-tokio = { version = "1.25", features = ["full"] }
+btclib = { path = "../btclib", features = ["lightning"] }
+tokio = { version = "1.28", features = ["full"] }
+clap = { version = "4.3", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = "0.4"
 config = "0.13"
-toml = "0.8"
-metrics = "0.17"
-metrics-exporter-prometheus = "0.6"
-once_cell = "1.8"
-notify = { version = "5.0", features = ["serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+dirs = "5.0"
+uuid = { version = "1.3", features = ["v4"] }
+sysinfo = "0.29"
+async-trait = "0.1"
+flate2 = "1.0"
+tar = "0.4"
 
 # P2P networking dependencies
-libp2p = { version = "0.53", features = ["tcp", "noise", "dns", "mdns", "kad", "gossipsub", "yamux", "request-response", "tokio", "identify", "ping"] }
-libp2p-swarm-derive = "0.25"
+libp2p = { version = "0.52", features = ["tcp", "noise", "yamux", "dns", "gossipsub", "kad", "identify", "ping"] }
+multiaddr = "0.18"
+libp2p-swarm = "0.44"
 futures = "0.3"
-async-trait = "0.1.60"
-serde = { version = "1.0", features = ["derive", "rc"] }
-serde_json = "1.0"
-void = "1.0.2"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-rand = "0.8"
-byteorder = "1.4"
+futures-util = "0.3"
+base64 = "0.21"
+quinn = "0.8"
+rcgen = "0.9"
+ring = "0.16"
+trust-dns-resolver = "0.22"
+netlink-packet-route = "0.12"
+pnet = "0.31"
+socket2 = "0.4"
+nix = { version = "0.26", features = ["net"] }
+if-addrs = "0.7"
+get_if_addrs = "0.5"
+network-interface = "1.0"
+hostname = "0.3"
+local-ip-address = "0.5"
+public-ip = "0.2"
+stun_codec = "0.3"
+actix-web = "4.0"
+actix-rt = "2.5"
+actix = "0.13"
+actix-service = "2.0"
+crc32fast = "1.3"
+dotenv = "0.15"
+lazy_static = "1.4"
+parking_lot = "0.12"
+smallvec = "1.10"
+tui = "0.19"
+ratatui = "0.24.0"
+once_cell = "1.17"
 
 # Web API dependencies
 actix-web = "4.4"
@@ -55,13 +90,8 @@ axum = "0.7"
 geo = "0.27"
 tower = "0.4"
 tower-http = { version = "0.4", features = ["cors", "trace"] }
-flate2 = "1.0"
-parking_lot = "0.12"
-actix-service = "2.0"
 
-anyhow = "1.0"
 base64 = "0.21"
-clap = { version = "4.0", features = ["derive"] }
 crc32fast = "1.3"
 dotenv = "0.15"
 num-traits = "0.2"
@@ -71,7 +101,7 @@ rusqlite = { version = "0.29", features = ["bundled"] }
 [lib]
 name = "node"
 path = "src/lib.rs"
-
 [[bin]]
 name = "node"
 path = "src/main.rs"
+

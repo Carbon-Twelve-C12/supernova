@@ -1,0 +1,10 @@
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/deps/libunicase-4e31481d2e773e8e.rmeta: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/ascii.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/unicode/mod.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/unicode/map.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/deps/libunicase-4e31481d2e773e8e.rlib: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/ascii.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/unicode/mod.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/unicode/map.rs
+
+/Users/marcjohnson/Desktop/MJ 2/Stuff/MJ_Info/Projects/lgr/supernova/btclib/target/debug/deps/unicase-4e31481d2e773e8e.d: /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/lib.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/ascii.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/unicode/mod.rs /Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/unicode/map.rs
+
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/lib.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/ascii.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/unicode/mod.rs:
+/Users/marcjohnson/.cargo/registry/src/index.crates.io-6f17d22bba15001f/unicase-2.8.1/src/unicode/map.rs:

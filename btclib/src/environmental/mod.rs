@@ -4,11 +4,14 @@
 // Re-export all modules
 pub mod api;
 // pub mod alerting;  // Temporarily disabled for compilation
+pub mod carbon_tracking;
 pub mod dashboard;
 pub mod emissions;
 pub mod governance;
+pub mod manual_verification;
 pub mod miner_reporting;
 pub mod oracle;
+pub mod renewable_validation;
 pub mod transparency;
 pub mod treasury;
 pub mod types;
@@ -25,6 +28,20 @@ pub use governance::{EnvironmentalGovernance, EnvironmentalProposal, ProposalSta
 // pub use alerting::{AlertingSystem, Alert, AlertRule};  // Temporarily disabled for compilation
 pub use verification::{RenewableCertificate, CarbonOffset, VerificationService};
 pub use oracle::{EnvironmentalOracle, OracleError, OracleInfo, OracleSubmission};
+
+// New Phase 3 modules
+pub use carbon_tracking::{
+    CarbonTracker, CarbonTrackingResult, OracleConsensusResult, 
+    OracleDataPoint, EnvironmentalMetrics as CarbonMetrics, VerificationProof,
+};
+pub use renewable_validation::{
+    RenewableEnergyValidator, RenewableValidationResult, ValidatedREC,
+    GreenMiningIncentive, EnvironmentalImpact, EnvironmentalDashboard as RenewableDashboard,
+};
+pub use manual_verification::{
+    ManualVerificationSystem, ManualVerificationRequest, ManualVerificationResult,
+    VerificationType, ManualVerificationStatus, QuarterlyReport,
+};
 
 // Type aliases for common use
 pub type HardwareType = types::HardwareType;
