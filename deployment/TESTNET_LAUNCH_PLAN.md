@@ -41,7 +41,7 @@ This document outlines the complete plan for launching the Supernova Carbon-Nega
 3. **Prepare Local Environment**
    ```bash
    # Clone repository
-   git clone https://github.com/supernova-network/supernova.git
+   git clone https://github.com/mjohnson518/supernova.git
    cd supernova
    
    # Ensure deployment script is executable
@@ -59,7 +59,7 @@ This document outlines the complete plan for launching the Supernova Carbon-Nega
 
 2. **Run One-Line Deployment**
    ```bash
-   curl -sSL https://raw.githubusercontent.com/supernova-network/supernova/main/deployment/scripts/deploy-testnet.sh | \
+   curl -sSL https://raw.githubusercontent.com/mjohnson518/supernova/main/deployment/scripts/deploy-testnet.sh | \
      DOMAIN=testnet.supernovanetwork.xyz \
      EMAIL=your-email@example.com \
      bash
@@ -76,7 +76,7 @@ This document outlines the complete plan for launching the Supernova Carbon-Nega
 
 1. **Download Script**
    ```bash
-   wget https://raw.githubusercontent.com/supernova-network/supernova/main/deployment/scripts/deploy-testnet.sh
+   wget https://raw.githubusercontent.com/mjohnson518/supernova/main/deployment/scripts/deploy-testnet.sh
    chmod +x deploy-testnet.sh
    ```
 
@@ -228,7 +228,7 @@ The world's first carbon-negative, quantum-secure blockchain is now available fo
 - Quantum Lightning Network
 
 🔗 Get Started:
-- Guide: https://github.com/supernova-network/supernova/deployment/TESTNET_GUIDE.md
+- Guide: https://github.com/mjohnson518/supernova/deployment/TESTNET_GUIDE.md
 - Faucet: https://faucet.testnet.supernovanetwork.xyz
 - Explorer: https://testnet.supernovanetwork.xyz
 

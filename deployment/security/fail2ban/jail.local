@@ -1,0 +1,73 @@
+# Supernova Fail2ban Configuration
+# Protects against brute force and DoS attacks
+
+[DEFAULT]
+# Ban duration: 1 hour
+bantime = 3600
+# Find time: 10 minutes
+findtime = 600
+# Max retry before ban
+maxretry = 10
+# Action to take
+action = %(action_mwl)s
+
+# Supernova P2P Protection
+[supernova-p2p]
+enabled = true
+port = 8333,8343,8353,8363,8373,8383,8393
+filter = supernova-p2p
+logpath = /var/log/supernova/p2p.log
+maxretry = 20
+bantime = 7200
+
+# Supernova RPC Protection
+[supernova-rpc]
+enabled = true
+port = 8332,8342,8352,8362,8372,8382,8392
+filter = supernova-rpc
+logpath = /var/log/supernova/rpc.log
+maxretry = 5
+bantime = 3600
+
+# API Endpoint Protection
+[supernova-api]
+enabled = true
+port = 8080
+filter = supernova-api
+logpath = /var/log/supernova/api.log
+maxretry = 10
+bantime = 1800
+
+# Lightning Network Protection
+[supernova-lightning]
+enabled = true
+port = 9735
+filter = supernova-lightning
+logpath = /var/log/supernova/lightning.log
+maxretry = 15
+bantime = 3600
+
+# SSH Protection (Enhanced)
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 86400
+
+# Nginx Rate Limit
+[nginx-limit-req]
+enabled = true
+filter = nginx-limit-req
+logpath = /var/log/nginx/error.log
+maxretry = 10
+bantime = 600
+
+# Docker Container Abuse
+[docker-abuse]
+enabled = true
+filter = docker-abuse
+logpath = /var/log/docker/*.log
+maxretry = 5
+bantime = 7200 

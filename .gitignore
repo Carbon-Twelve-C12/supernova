@@ -4,3 +4,31 @@ Cargo.lock
 .env
 .cursor
 
+# Security - NEVER commit these
+deployment/docker/secrets/
+deployment/docker/.env
+secrets/
+*.key
+*.pem
+*.cert
+*.crt
+*_password.txt
+*_token.txt
+api_key.txt
+jwt_secret.txt
+db_password.txt
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Log files
+*.log
+logs/
+/var/log/
+
+# System files
+.DS_Store
+Thumbs.db
+

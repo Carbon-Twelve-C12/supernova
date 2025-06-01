@@ -1,46 +1,49 @@
 # Supernova Blockchain Node Docker Image
 # Production-ready node for testnet deployment
 
-FROM rust:1.75-slim AS builder
+# Build stage
+FROM rust:1.75-alpine AS builder
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    build-essential \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache musl-dev openssl-dev pkgconfig git
 
-# Set working directory
-WORKDIR /app
+# Create app directory
+WORKDIR /usr/src/app
 
 # Copy source code
 COPY . .
 
-# Build the node binary with optimizations
+# Build the application
 RUN cargo build --release --bin supernova-node
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM alpine:3.19
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
+    openssl \
+    libgcc \
+    curl \
     ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/cache/apk/*
 
-# Create non-root user
-RUN useradd -m -u 1000 -s /bin/bash supernova
+# Create non-root user and group
+RUN addgroup --system --gid 1001 supernova \
+    && adduser --system --uid 1001 --gid 1001 --home /home/supernova supernova
+
+# Create necessary directories
+RUN mkdir -p /data/supernova /config \
+    && chown -R supernova:supernova /data/supernova /config
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/supernova-node /usr/local/bin/
-
-# Create data directories
-RUN mkdir -p /data/supernova /config && \
-    chown -R supernova:supernova /data /config
+COPY --from=builder /usr/src/app/target/release/supernova-node /usr/local/bin/supernova-node
+RUN chmod +x /usr/local/bin/supernova-node
 
 # Switch to non-root user
-USER supernova
+USER supernova:supernova
+
+# Set working directory
+WORKDIR /home/supernova
 
 # Expose ports
 # P2P port
@@ -52,19 +55,15 @@ EXPOSE 9735
 # Metrics port
 EXPOSE 9100
 
-# Data volume
+# Set data directory as volume
 VOLUME ["/data/supernova"]
 
-# Default configuration
-ENV SUPERNOVA_NETWORK="testnet" \
-    SUPERNOVA_DATA_DIR="/data/supernova" \
-    SUPERNOVA_CONFIG_DIR="/config" \
-    SUPERNOVA_LOG_LEVEL="info"
-
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD supernova-node health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8332/health || exit 1
 
 # Entry point
 ENTRYPOINT ["supernova-node"]
-CMD ["--network", "testnet", "--data-dir", "/data/supernova"] 
+
+# Default arguments
+CMD ["--data-dir", "/data/supernova", "--config", "/config/node.toml"] 

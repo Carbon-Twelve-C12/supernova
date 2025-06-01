@@ -211,7 +211,7 @@ Deploy your own Supernova testnet in minutes:
 
 ```bash
 # One-line deployment on Ubuntu VPS
-curl -sSL https://raw.githubusercontent.com/supernova-network/supernova/main/deployment/scripts/deploy-testnet.sh | \
+curl -sSL https://raw.githubusercontent.com/mjohnson518/supernova/main/deployment/scripts/deploy-testnet.sh | \
   DOMAIN=testnet.yourdomain.com \
   EMAIL=your-email@example.com \
   bash
