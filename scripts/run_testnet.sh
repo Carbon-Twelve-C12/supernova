@@ -42,8 +42,8 @@ function start_testnet() {
     
     echo ""
     echo "Testnet started successfully!"
-    echo "Run './run_testnet.sh status' to check the status"
-    echo "Run './run_testnet.sh logs' to view logs"
+    echo "Run './scripts/run_testnet.sh status' to check the status"
+    echo "Run './scripts/run_testnet.sh logs' to view logs"
     echo ""
 }
 
@@ -78,7 +78,7 @@ function show_logs() {
 }
 
 function show_help() {
-    echo "Usage: ./run_testnet.sh [COMMAND]"
+    echo "Usage: ./scripts/run_testnet.sh [COMMAND]"
     echo ""
     echo "Commands:"
     echo "  start     Start the testnet"
