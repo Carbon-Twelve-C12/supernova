@@ -427,4 +427,7 @@ impl DefaultEmissionsFactors {
             factors
         }
     }
-} 
+}
+
+// Type alias for backwards compatibility
+pub type EnergySourceType = EnergySource; 

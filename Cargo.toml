@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Quantum cryptography libraries
-pqcrypto-dilithium = "0.4"
+pqcrypto-mldsa = "0.1"
 pqcrypto-sphincsplus = "0.6"
 pqcrypto-traits = "0.3"
 
