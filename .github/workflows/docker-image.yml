@@ -16,7 +16,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: mjohnson518/supernova
+  IMAGE_NAME: carbon-twelve-c12/supernova
 
 jobs:
   build:
@@ -75,6 +75,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          repository: mjohnson518/supernova
+          repository: carbon-twelve-c12/supernova
           short-description: "Supernova Blockchain Node - A production-grade PoW blockchain implementation in Rust"
           readme-filepath: ./docker/README.md 

@@ -77,7 +77,7 @@ For those familiar with blockchain node operation who want to get started quickl
 
 ```bash
 # Clone repository
-git clone https://github.com/mjohnson518/supernova.git
+git clone https://github.com/Carbon-Twelve-C12/supernova.git
 cd supernova
 
 # Build production-ready version
@@ -124,7 +124,7 @@ source $HOME/.cargo/env
 3. **Clone and Build Supernova**
 
 ```bash
-git clone https://github.com/username/supernova.git
+git clone https://github.com/Carbon-Twelve-C12/supernova.git
 cd supernova
 cargo build --release
 ```
@@ -370,7 +370,7 @@ For better mining performance, use a dedicated mining application:
 1. **Download Miner**
 
 ```bash
-git clone https://github.com/username/supernova-miner.git
+git clone https://github.com/Carbon-Twelve-C12/supernova-miner.git
 cd supernova-miner
 cargo build --release
 ```

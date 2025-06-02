@@ -94,7 +94,7 @@ If you prefer to set up manually:
 
 1. Clone the SuperNova repository:
    ```bash
-   git clone https://github.com/mjohnson518/supernova.git
+   git clone https://github.com/Carbon-Twelve-C12/supernova.git
    cd supernova
    ```
 
@@ -244,4 +244,4 @@ Contributions to the SuperNova testnet configuration are welcome. Please follow 
 
 ## License
 
-SuperNova is released under the [MIT License](https://github.com/mjohnson518/supernova/blob/main/LICENSE). 
+SuperNova is released under the [MIT License](https://github.com/Carbon-Twelve-C12/supernova/blob/main/LICENSE). 

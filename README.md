@@ -8,17 +8,17 @@
   
   <p align="center">
     <a href="https://supernovanetwork.xyz/"><img src="https://img.shields.io/badge/website-supernovanetwork.xyz-blue" alt="Official Website" /></a>
-    <a href="https://github.com/mjohnson518/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/mjohnson518/supernova" alt="Contributors" /></a>
-    <a href="https://github.com/mjohnson518/supernova/stargazers"><img src="https://img.shields.io/github/stars/mjohnson518/supernova" alt="Stars" /></a>
-    <a href="https://github.com/mjohnson518/supernova/releases"><img src="https://img.shields.io/badge/version-1.0.0--RC3-green" alt="Version" /></a>
-     <a href="https://deepwiki.com/mjohnson518/supernova"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/Carbon-Twelve-C12/supernova" alt="Contributors" /></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/stargazers"><img src="https://img.shields.io/github/stars/Carbon-Twelve-C12/supernova" alt="Stars" /></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/releases"><img src="https://img.shields.io/badge/version-1.0.0--RC3-green" alt="Version" /></a>
+     <a href="https://deepwiki.com/Carbon-Twelve-C12/supernova"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
 
   <p align="center">
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/rust.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/rust.yml/badge.svg" alt="Rust" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/security-audit.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/security-audit.yml/badge.svg" alt="Security Audit" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-clippy.yml/badge.svg" alt="Clippy" /></a>
-    <a href="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml"><img src="https://github.com/mjohnson518/supernova/actions/workflows/cargo-bench.yml/badge.svg" alt="Benchmarks" /></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/rust.yml"><img src="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/rust.yml/badge.svg" alt="Rust" /></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/security-audit.yml"><img src="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/security-audit.yml/badge.svg" alt="Security Audit" /></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/cargo-clippy.yml"><img src="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/cargo-clippy.yml/badge.svg" alt="Clippy" /></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/cargo-bench.yml"><img src="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/cargo-bench.yml/badge.svg" alt="Benchmarks" /></a>
   </p>
 </div>
 
@@ -236,7 +236,7 @@ Deploy your own Supernova testnet in minutes:
 
 ```bash
 # One-line deployment on Ubuntu VPS
-curl -sSL https://raw.githubusercontent.com/mjohnson518/supernova/main/deployment/scripts/deploy-testnet.sh | \
+curl -sSL https://raw.githubusercontent.com/Carbon-Twelve-C12/supernova/main/deployment/scripts/deploy-testnet.sh | \
   DOMAIN=testnet.yourdomain.com \
   EMAIL=your-email@example.com \
   bash
@@ -246,7 +246,7 @@ curl -sSL https://raw.githubusercontent.com/mjohnson518/supernova/main/deploymen
 
 ```bash
 # Clone repository
-git clone https://github.com/mjohnson518/supernova.git
+git clone https://github.com/Carbon-Twelve-C12/supernova.git
 cd supernova
 
 # Build all components
@@ -401,7 +401,7 @@ Supernova is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 - **Website**: https://supernovanetwork.xyz
 - **Documentation**: https://docs.supernovanetwork.xyz
-- **GitHub**: https://github.com/mjohnson518/supernova
+- **GitHub**: https://github.com/Carbon-Twelve-C12/supernova
 
 ---
 
