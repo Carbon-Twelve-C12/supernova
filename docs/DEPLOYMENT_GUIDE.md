@@ -9,7 +9,7 @@ Deploy a complete Supernova testnet in under 30 minutes:
 
 ```bash
 # Deploy on Ubuntu 22.04 VPS
-curl -sSL https://raw.githubusercontent.com/mjohnson518/supernova/main/deployment/scripts/deploy-testnet.sh | \
+curl -sSL https://raw.githubusercontent.com/Carbon-Twelve-C12/supernova/main/deployment/scripts/deploy-testnet.sh | \
 [environmental]
 tracking_enabled = true
 oracle_endpoints = [

@@ -57,7 +57,7 @@ For complete API documentation, refer to:
 
 ```bash
 # Clone the repository
-git clone https://github.com/username/supernova.git
+git clone https://github.com/Carbon-Twelve-C12/supernova.git
 cd supernova
 
 # Build from source
@@ -449,19 +449,19 @@ For integration support, contact:
 
 - **Documentation**: [https://docs.supernovanetwork.xyz](https://docs.supernova.io)
 - **Discord**: [SuperNova Developers](https://discord.gg/supernova-dev)
-- **GitHub**: [SuperNova Issues](https://github.com/username/supernova/issues)
+- **GitHub**: [SuperNova Issues](https://github.com/Carbon-Twelve-C12/supernova/issues)
 - **Email**: integration-support@supernova.io
 
 ## Appendix
 
 ### Sample Code
 
-For sample integration code in various languages, refer to the [examples](https://github.com/username/supernova-examples) repository.
+For sample integration code in various languages, refer to the [examples](https://github.com/Carbon-Twelve-C12/supernova-examples) repository.
 
 ### API Libraries
 
-- **JavaScript**: [`supernova-js`](https://github.com/username/supernova-js)
-- **Python**: [`supernova-py`](https://github.com/username/supernova-py)
-- **Go**: [`supernova-go`](https://github.com/username/supernova-go)
-- **Java**: [`supernova-java`](https://github.com/username/supernova-java)
-- **PHP**: [`supernova-php`](https://github.com/username/supernova-php) 
+- **JavaScript**: [`supernova-js`](https://github.com/Carbon-Twelve-C12/supernova-js)
+- **Python**: [`supernova-py`](https://github.com/Carbon-Twelve-C12/supernova-py)
+- **Go**: [`supernova-go`](https://github.com/Carbon-Twelve-C12/supernova-go)
+- **Java**: [`supernova-java`](https://github.com/Carbon-Twelve-C12/supernova-java)
+- **PHP**: [`supernova-php`](https://github.com/Carbon-Twelve-C12/supernova-php) 

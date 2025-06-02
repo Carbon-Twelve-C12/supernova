@@ -27,7 +27,7 @@ cargo install --path .
 ```
 
 ### Pre-built Binary
-Download the latest release from the [releases page](https://github.com/mjohnson518/supernova).
+Download the latest release from the [releases page](https://github.com/Carbon-Twelve-C12/supernova).
 
 ## Quick Start
 
@@ -207,7 +207,7 @@ done
 
 ```bash
 # Clone repository
-git clone https://github.com/mjohnson518/supernova
+git clone https://github.com/Carbon-Twelve-C12/supernova
 cd supernova/cli
 
 # Build release version
