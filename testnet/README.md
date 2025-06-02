@@ -32,7 +32,7 @@ cargo run --package supernova-testnet -- --nodes=5
 The testnet can also be run using Docker:
 
 ```bash
-./run_testnet.sh start
+./scripts/run_testnet.sh start
 ```
 
 ### CLI Interaction

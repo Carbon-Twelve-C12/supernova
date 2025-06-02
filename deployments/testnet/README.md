@@ -8,8 +8,8 @@ We now have a simplified Docker-based setup process that bypasses compilation er
 
 ```bash
 # From the root directory of the project
-chmod +x docker_setup.sh
-./docker_setup.sh
+chmod +x scripts/docker_setup.sh
+./scripts/docker_setup.sh
 ```
 
 This will:
