@@ -23,7 +23,7 @@ The project is currently at **version 1.0.0-RC3** with the following component s
 **Overall Progress: 100% Complete - TESTNET DEPLOYMENT READY** 
 
 - ✅ **Lightning Network**: World's first quantum-resistant Lightning Network fully operational
-- ✅ **Quantum-Resistant Security**: Complete implementation with CRYSTALS-Dilithium, Falcon, and SPHINCS+
+- ✅ **Quantum-Resistant Security**: Complete implementation with ML-DSA (Module Lattice Digital Signature Algorithm), Falcon, and SPHINCS+
 - ✅ **Network Security**: Multi-layer DoS protection and rate limiting implemented
 - ✅ **Quantum Security Auditing**: Comprehensive validation suite for all cryptographic operations
 - ✅ **Environmental System Auditing**: Full verification of carbon tracking with >99% accuracy
@@ -259,7 +259,7 @@ SuperNova is **ready for testnet deployment** with:
 
 ### 2. Quantum-Secure Lightning Network
 - World's first Lightning Network with post-quantum security
-- All HTLCs protected by Dilithium-3 signatures
+- All HTLCs protected by ML-DSA-65 signatures
 - Quantum-resistant onion routing
 - Optional hybrid classical+quantum security
 

@@ -1,10 +1,9 @@
-use pqcrypto_dilithium::{dilithium2, dilithium3, dilithium5};
-use pqcrypto_sphincsplus::{sphincssha256128fsimple, sphincssha256256fsimple};
-use sha2::{Sha256, Digest};
-use rand::{rngs::OsRng, RngCore};
-use std::time::Instant;
 use colored::*;
+use pqcrypto_mldsa::mldsa65;
+use pqcrypto_sphincsplus::sphincssha256128fsimple;
+use pqcrypto_traits::sign::{DetachedSignature, PublicKey, SecretKey};
 use serde::Serialize;
+use std::time::Instant;
 
 #[derive(Debug, Serialize)]
 struct TestResults {
@@ -21,23 +20,45 @@ struct TestResults {
 }
 
 fn main() {
-    println!("\n{}", "╔═══════════════════════════════════════════════════════════════╗".bright_cyan());
-    println!("{}", "║     SUPERNOVA QUANTUM CRYPTOGRAPHY VALIDATION SUITE          ║".bright_cyan());
-    println!("{}", "║                                                               ║".bright_cyan());
-    println!("{}", "║            Validating Post-Quantum Signature Schemes          ║".bright_cyan());
-    println!("{}", "╚═══════════════════════════════════════════════════════════════╝".bright_cyan());
+    println!(
+        "\n{}",
+        "╔═══════════════════════════════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║     SUPERNOVA QUANTUM CRYPTOGRAPHY VALIDATION SUITE          ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║                                                               ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║            Validating Post-Quantum Signature Schemes          ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════════════════════════════╝".bright_cyan()
+    );
     println!();
 
     let mut all_results = Vec::new();
 
     // Test CRYSTALS-Dilithium
-    println!("{}", "\n=== PHASE 2.1: CRYSTALS-Dilithium Validation ===".bright_green());
+    println!(
+        "{}",
+        "\n=== PHASE 2.1: ML-DSA (Module Lattice Digital Signature Algorithm) Validation ==="
+            .bright_green()
+    );
     let result = test_dilithium();
     print_test_result(&result);
     all_results.push(result);
 
     // Test SPHINCS+
-    println!("{}", "\n=== PHASE 2.2: SPHINCS+ Validation ===".bright_green());
+    println!(
+        "{}",
+        "\n=== PHASE 2.2: SPHINCS+ Validation ===".bright_green()
+    );
     let result = test_sphincs();
     print_test_result(&result);
     all_results.push(result);
@@ -50,23 +71,23 @@ fn test_dilithium() -> TestResults {
     let mut tests_passed = 0;
     let mut tests_failed = 0;
 
-    println!("Testing Dilithium3 (NIST Level 3)...");
+    println!("Testing ML-DSA-65 (NIST Level 3)...");
 
     // Key generation
     let start = Instant::now();
-    let (pk, sk) = dilithium3::keypair();
+    let (pk, sk) = mldsa65::keypair();
     let key_gen_time = start.elapsed();
 
     let message = b"Supernova: The quantum-resistant blockchain";
 
     // Signing
     let start = Instant::now();
-    let signature = dilithium3::detached_sign(message, &sk);
+    let signature = mldsa65::detached_sign(message, &sk);
     let signing_time = start.elapsed();
 
     // Verification
     let start = Instant::now();
-    let verified = dilithium3::verify_detached_signature(&signature, message, &pk).is_ok();
+    let verified = mldsa65::verify_detached_signature(&signature, message, &pk).is_ok();
     let verification_time = start.elapsed();
 
     if verified {
@@ -78,7 +99,7 @@ fn test_dilithium() -> TestResults {
     }
 
     // Test invalid message
-    if dilithium3::verify_detached_signature(&signature, b"wrong", &pk).is_err() {
+    if mldsa65::verify_detached_signature(&signature, b"wrong", &pk).is_err() {
         tests_passed += 1;
         println!("  {} Invalid message detection", "✓".green());
     } else {
@@ -87,7 +108,7 @@ fn test_dilithium() -> TestResults {
     }
 
     TestResults {
-        scheme: "CRYSTALS-Dilithium3".to_string(),
+        scheme: "ML-DSA-65".to_string(),
         security_level: "NIST Level 3".to_string(),
         key_generation_time_ms: key_gen_time.as_secs_f64() * 1000.0,
         signing_time_ms: signing_time.as_secs_f64() * 1000.0,
@@ -120,7 +141,8 @@ fn test_sphincs() -> TestResults {
 
     // Verification
     let start = Instant::now();
-    let verified = sphincssha256128fsimple::verify_detached_signature(&signature, message, &pk).is_ok();
+    let verified =
+        sphincssha256128fsimple::verify_detached_signature(&signature, message, &pk).is_ok();
     let verification_time = start.elapsed();
 
     if verified {
@@ -150,21 +172,41 @@ fn print_test_result(result: &TestResults) {
     println!("  Signing Time: {:.2}ms", result.signing_time_ms);
     println!("  Verification Time: {:.2}ms", result.verification_time_ms);
     println!("  Signature Size: {} bytes", result.signature_size_bytes);
-    println!("  Tests: {} passed, {} failed", result.tests_passed, result.tests_failed);
+    println!(
+        "  Tests: {} passed, {} failed",
+        result.tests_passed, result.tests_failed
+    );
 }
 
 fn print_validation_summary(results: &[TestResults]) {
-    println!("\n{}", "═══════════════════════════════════════════════════════════════".bright_cyan());
-    println!("{}", "                    VALIDATION SUMMARY                         ".bright_cyan());
-    println!("{}", "═══════════════════════════════════════════════════════════════".bright_cyan());
-    
+    println!(
+        "\n{}",
+        "═══════════════════════════════════════════════════════════════".bright_cyan()
+    );
+    println!(
+        "{}",
+        "                    VALIDATION SUMMARY                         ".bright_cyan()
+    );
+    println!(
+        "{}",
+        "═══════════════════════════════════════════════════════════════".bright_cyan()
+    );
+
     let total_passed: usize = results.iter().map(|r| r.tests_passed).sum();
-    let total_tests: usize = results.iter().map(|r| r.tests_passed + r.tests_failed).sum();
-    
+    let total_tests: usize = results
+        .iter()
+        .map(|r| r.tests_passed + r.tests_failed)
+        .sum();
+
     println!("\nTotal Tests: {}", total_tests);
-    println!("Tests Passed: {} ({}%)", 
-             total_passed.to_string().green(), 
-             ((total_passed as f64 / total_tests as f64) * 100.0).round());
-    
-    println!("\n{}", "SUPERNOVA IS QUANTUM-RESISTANT".bright_green().bold());
+    println!(
+        "Tests Passed: {} ({}%)",
+        total_passed.to_string().green(),
+        ((total_passed as f64 / total_tests as f64) * 100.0).round()
+    );
+
+    println!(
+        "\n{}",
+        "SUPERNOVA IS QUANTUM-RESISTANT".bright_green().bold()
+    );
 }

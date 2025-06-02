@@ -11,7 +11,7 @@ Supernova implements state-of-the-art post-quantum cryptography to ensure long-t
 
 ### Supported Algorithms
 
-1. **CRYSTALS-Dilithium** (Primary)
+1. **ML-DSA (Module Lattice Digital Signature Algorithm)** (Primary)
    - NIST standardized lattice-based signature scheme
    - Security levels: 2, 3, and 5 (all validated)
    - Signature size: ~2.4KB (Level 3)
@@ -25,7 +25,7 @@ Supernova implements state-of-the-art post-quantum cryptography to ensure long-t
 
 3. **Falcon** (Compact)
    - NIST finalist with smallest signatures
-   - ~40% smaller than Dilithium
+   - ~40% smaller than ML-DSA
    - Signature size: ~1.3KB
    - Performance: <1ms operations
 
@@ -34,7 +34,7 @@ Supernova implements state-of-the-art post-quantum cryptography to ensure long-t
 ```rust
 pub struct HybridSignature {
     classical: ClassicalSig,      // secp256k1 or Ed25519
-    quantum: QuantumSig,          // Dilithium, SPHINCS+, or Falcon
+    quantum: QuantumSig,          // ML-DSA, SPHINCS+, or Falcon
     security_level: SecurityLevel, // Configurable protection
 }
 ```
@@ -70,7 +70,7 @@ pub struct QuantumSecurityAudit {
 
 ### Performance Benchmarks
 
-| Operation | Dilithium-3 | SPHINCS+-256 | Falcon-512 | secp256k1 |
+| Operation | ML-DSA-65 | SPHINCS+-256 | Falcon-512 | secp256k1 |
 |-----------|-------------|--------------|------------|-----------|
 | Key Gen   | 0.2ms       | 5ms          | 0.4ms      | 0.1ms     |
 | Sign      | 0.8ms       | 15ms         | 0.6ms      | 0.2ms     |
@@ -127,7 +127,7 @@ pub struct QuantumWallet {
 
 1. **Level 1**: Classical only (not recommended)
 2. **Level 2**: Hybrid classical + quantum
-3. **Level 3**: Quantum-only with Dilithium-3
+3. **Level 3**: Quantum-only with ML-DSA-65
 4. **Level 4**: Quantum-only with SPHINCS+
 5. **Level 5**: Maximum security with key rotation
 

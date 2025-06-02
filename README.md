@@ -31,7 +31,7 @@ Refer to the [Supernova Overview](SuperNova%20Overview.md) for more information.
 ### Key Features
 
 - **🌍 Carbon-Negative Blockchain**: Real-time carbon tracking with oracle consensus, green mining incentives, and the ability to achieve net-negative emissions
-- **🔒 Quantum-Resistant Everything**: CRYSTALS-Dilithium, SPHINCS+, and Falcon signatures protecting all transactions and Lightning channels
+- **🔒 Quantum-Resistant Everything**: ML-DSA (Module Lattice Digital Signature Algorithm), SPHINCS+, and Falcon signatures protecting all transactions and Lightning channels
 - **⚡ Quantum Lightning Network**: World's first quantum-secure Lightning implementation with instant payments and green routing
 - **🌱 Environmental Excellence**: Comprehensive ESG features including automated renewable energy verification and carbon credit integration
 - **🚀 Production-Ready**: Complete deployment infrastructure with Docker, monitoring, and automated backups
@@ -148,7 +148,7 @@ The project has reached **version 1.0.0-RC3** with significant progress toward p
 
 ### Key Achievements
 
-- ✅ **World-First Quantum-Resistant Lightning Network**: 100% complete with CRYSTALS-Dilithium, Falcon, and hybrid schemes
+- ✅ **World-First Quantum-Resistant Lightning Network**: 100% complete with ML-DSA, Falcon, and hybrid schemes
 - ✅ **Environmental Leadership**: Complete emissions tracking, green mining incentives, and environmental treasury
 - ✅ **Advanced Security**: Comprehensive attack mitigation and peer reputation systems
 - ✅ **Core Blockchain**: All essential blockchain operations implemented and functional
@@ -183,7 +183,7 @@ The project has reached **version 1.0.0-RC3** with significant progress toward p
    - Interactive configuration
 
 2. **Quantum Security Auditing**
-   - Comprehensive validation for Dilithium, SPHINCS+, and Falcon
+   - Comprehensive validation for ML-DSA, SPHINCS+, and Falcon
    - Attack resistance testing (Grover's, Shor's algorithms)
    - Performance benchmarking for all quantum operations
    - Formal verification integration
@@ -308,7 +308,7 @@ Supernova can achieve **net-negative carbon emissions** through:
 
 The world's first Lightning Network protected against quantum attacks:
 - All HTLCs use post-quantum signatures
-- Channel states secured with Dilithium-3
+- Channel states secured with ML-DSA-65 (NIST Level 3)
 - Quantum-resistant onion routing
 - Optional hybrid classical+quantum security
 
