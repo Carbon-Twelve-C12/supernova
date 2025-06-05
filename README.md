@@ -13,13 +13,6 @@
     <a href="https://github.com/Carbon-Twelve-C12/supernova/releases"><img src="https://img.shields.io/badge/version-1.0.0--RC3-green" alt="Version" /></a>
      <a href="https://deepwiki.com/Carbon-Twelve-C12/supernova"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   </p>
-
-  <p align="center">
-    <a href="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/rust.yml"><img src="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/rust.yml/badge.svg" alt="Rust" /></a>
-    <a href="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/security-audit.yml"><img src="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/security-audit.yml/badge.svg" alt="Security Audit" /></a>
-    <a href="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/cargo-clippy.yml"><img src="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/cargo-clippy.yml/badge.svg" alt="Clippy" /></a>
-    <a href="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/cargo-bench.yml"><img src="https://github.com/Carbon-Twelve-C12/supernova/actions/workflows/cargo-bench.yml/badge.svg" alt="Benchmarks" /></a>
-  </p>
 </div>
 
 ## Overview
@@ -76,7 +69,7 @@ Refer to the [Supernova Overview](SuperNova%20Overview.md) for more information.
    - Lightning payment channel management
    - Environmental impact reporting
 
-5. **Command-Line Interface (CLI)** ✨ **NEW: 100% Complete**
+5. **Command-Line Interface (CLI)**
    - Full blockchain interaction capabilities
    - HD wallet management with BIP39/BIP32 support
    - Real-time mining control and benchmarking
@@ -169,12 +162,12 @@ The project has reached **version 1.0.0-RC3** with significant progress toward p
 - **Security Features**: 100% complete ✅
 - **Deployment Infrastructure**: 100% complete ✅
 - **Monitoring & Metrics**: 100% complete ✅
-- **Command-Line Interface**: 100% complete ✅ **NEW!**
+- **Command-Line Interface**: 100% complete ✅ 
 - **Documentation**: 95% complete ✅
 
 ### Recent Additions
 
-1. **Full-Featured CLI** ✨ **NEW!**
+1. **Full-Featured CLI**
    - Complete wallet management with HD support
    - Real-time blockchain interaction
    - Mining control and benchmarking
@@ -215,7 +208,7 @@ supernova/
 │
 ├── node/                     # Node implementation
 ├── wallet/                   # Wallet with Lightning support
-├── cli/                      # Command-line interface ✨ NEW!
+├── cli/                      # Command-line interface
 │   ├── src/                 # CLI source code
 │   ├── commands/            # Command implementations
 │   └── README.md            # CLI documentation
