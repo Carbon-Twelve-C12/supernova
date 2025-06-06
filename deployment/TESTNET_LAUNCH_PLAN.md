@@ -245,8 +245,8 @@ Join us in building the future of sustainable blockchain! 🌍
 
 ### Technical
 - Uptime: >99%
-- Block time: ~10 seconds
-- Transaction throughput: >100 TPS
+- Block time: 2.5 minutes
+- Transaction throughput: 100-150 TPS (base layer)
 - Lightning payment success: >95%
 
 ### Environmental
