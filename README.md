@@ -105,7 +105,7 @@ Refer to the [Supernova Overview](SuperNova%20Overview.md) for more information.
 Supernova features the **world's first quantum-resistant Lightning Network**, enabling:
 
 ### **Instant $NOVA Payments**
-- **Sub-second transactions** (<100ms settlement)
+- **Fast transactions** (~500ms regional, ~1s global settlement)
 - **Micropayments** (down to 1/1000th NOVA)
 - **Ultra-low fees** (~0.001% transaction cost)
 - **24/7 availability** (no block confirmation delays)
