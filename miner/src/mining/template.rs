@@ -3,9 +3,9 @@ use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutpu
 use async_trait::async_trait;
 use std::time::{Instant, Duration};
 use std::sync::atomic::{AtomicBool, Ordering};
+use super::reward::{calculate_mining_reward, EnvironmentalProfile};
 
 pub const BLOCK_MAX_SIZE: usize = 1_000_000; // 1MB
-pub const BLOCK_REWARD: u64 = 50 * 100_000_000; // 50 NOVA
 pub const TEMPLATE_REFRESH_INTERVAL: Duration = Duration::from_secs(10); // Refresh template every 10 seconds
 
 #[async_trait]
@@ -32,6 +32,7 @@ pub struct BlockTemplate {
     transactions: Vec<Transaction>,
     creation_time: Instant,
     needs_refresh: AtomicBool,
+    block_height: u64,  // Add block height for reward calculation
 }
 
 impl BlockTemplate {
@@ -41,9 +42,15 @@ impl BlockTemplate {
         target: u32,
         reward_address: Vec<u8>,
         mempool: &dyn MempoolInterface,
+        block_height: u64,  // Add block height parameter
+        environmental_profile: Option<&EnvironmentalProfile>,  // Add environmental profile
     ) -> Self {
-        // Create coinbase transaction
-        let coinbase = Self::create_coinbase_transaction(BLOCK_REWARD, reward_address.clone());
+        // Calculate reward based on block height and environmental profile
+        let env_profile = environmental_profile.cloned().unwrap_or_default();
+        let mining_reward = calculate_mining_reward(block_height, &env_profile);
+        
+        // Create coinbase transaction with calculated reward
+        let coinbase = Self::create_coinbase_transaction(mining_reward.total_reward, reward_address.clone());
         
         // Get prioritized transactions from mempool
         let coinbase_size = bincode::serialize(&coinbase).unwrap().len();
@@ -58,6 +65,7 @@ impl BlockTemplate {
             transactions,
             creation_time: Instant::now(),
             needs_refresh: AtomicBool::new(false),
+            block_height,
         }
     }
     
@@ -242,13 +250,18 @@ mod tests {
             u32::MAX,
             vec![1,2,3,4],
             &mempool,
+            1,
+            None,
         ).await;
 
         let block = template.create_block();
         // The MockMempool implementation returns 3 transactions,
         // plus the coinbase transaction makes 4 total
         assert_eq!(block.transactions().len(), 4, "Block should have 4 transactions (coinbase + 3 from mempool)");
-        assert_eq!(block.transactions()[0].outputs()[0].amount(), BLOCK_REWARD);
+        
+        // Check that coinbase has the correct reward (50 NOVA at height 1)
+        let expected_reward = super::reward::calculate_base_reward(1);
+        assert_eq!(block.transactions()[0].outputs()[0].amount(), expected_reward);
     }
     
     #[tokio::test]
@@ -276,6 +289,8 @@ mod tests {
             u32::MAX,
             vec![1,2,3,4],
             &mempool,
+            1,
+            None,
         ).await;
         
         assert!(!template.needs_refresh());

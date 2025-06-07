@@ -1,133 +1,263 @@
 version: '3.8'
 
 services:
-  # Seed nodes
-  seed-node-1:
-    image: supernova:latest
-    container_name: supernova-seed-1
-    restart: unless-stopped
-    ports:
-      - "9333:9333"
-      - "9332:9332"
-    volumes:
-      - seed-node-1-data:/data
-      - ./config/seed-node-1.toml:/config/node.toml
+  # Bootstrap node
+  bootstrap-node:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    container_name: supernova-bootstrap
+    hostname: bootstrap
     environment:
-      - NODE_ROLE=seed
-      - NODE_NAME=seed-node-1
-      - RUST_LOG=info
-      - RUST_BACKTRACE=1
+      - NODE_TYPE=bootstrap
+      - NETWORK=testnet
+      - BLOCK_TIME=150
+      - MINING_ENABLED=true
+      - ENVIRONMENTAL_MONITORING=true
+      - QUANTUM_SIGNATURES=true
+      - API_PORT=8332
+      - P2P_PORT=8333
+      - PROMETHEUS_PORT=9100
+    volumes:
+      - bootstrap-data:/data
+      - ./config:/config:ro
+    ports:
+      - "8332:8332"   # API
+      - "8333:8333"   # P2P
+      - "9100:9100"   # Metrics
     networks:
-      - supernova-testnet
+      supernova-testnet:
+        ipv4_address: 172.20.0.10
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8332/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  seed-node-2:
-    image: supernova:latest
-    container_name: supernova-seed-2
-    restart: unless-stopped
-    ports:
-      - "9334:9333"
-      - "9335:9332"
-    volumes:
-      - seed-node-2-data:/data
-      - ./config/seed-node-2.toml:/config/node.toml
+  # Mining node 1 (Green miner - 100% renewable)
+  miner-green-1:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    container_name: supernova-miner-green-1
+    hostname: miner-green-1
     environment:
-      - NODE_ROLE=seed
-      - NODE_NAME=seed-node-2
-      - RUST_LOG=info
-      - RUST_BACKTRACE=1
-    networks:
-      - supernova-testnet
-
-  # Mining node
-  miner-node:
-    image: supernova:latest
-    container_name: supernova-miner
-    restart: unless-stopped
-    ports:
-      - "9336:9333"
-      - "9337:9332"
+      - NODE_TYPE=miner
+      - NETWORK=testnet
+      - MINING_ENABLED=true
+      - MINING_THREADS=4
+      - ENVIRONMENTAL_PROFILE=green_100
+      - RENEWABLE_PERCENTAGE=1.0
+      - EFFICIENCY_SCORE=0.8
+      - REC_ISSUER=Green-e
+      - BOOTSTRAP_NODES=172.20.0.10:8333
     volumes:
-      - miner-node-data:/data
-      - ./config/miner-node.toml:/config/node.toml
-    environment:
-      - NODE_ROLE=miner
-      - NODE_NAME=miner-node
-      - MINE=true
-      - RUST_LOG=info
-      - RUST_BACKTRACE=1
+      - miner1-data:/data
+      - ./config:/config:ro
+    ports:
+      - "8342:8332"
+      - "8343:8333"
+      - "9101:9100"
     networks:
-      - supernova-testnet
+      supernova-testnet:
+        ipv4_address: 172.20.0.11
     depends_on:
-      - seed-node-1
-      - seed-node-2
+      - bootstrap-node
 
-  # Faucet service
-  faucet:
-    image: supernova:latest
-    container_name: supernova-faucet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"  # Web UI
-      - "9338:9333"  # P2P
-      - "9339:9332"  # RPC
-    volumes:
-      - faucet-data:/data
-      - ./config/faucet-node.toml:/config/node.toml
-      - ./web/faucet:/web/faucet
+  # Mining node 2 (Partial green - 50% renewable)
+  miner-green-2:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    container_name: supernova-miner-green-2
+    hostname: miner-green-2
     environment:
-      - NODE_ROLE=faucet
-      - NODE_NAME=faucet-node
-      - ENABLE_FAUCET=true
-      - FAUCET_WEB_PORT=8080
-      - FAUCET_AMOUNT=10000000000  # 100 NOVA
-      - FAUCET_COOLDOWN_SECS=3600  # 1 hour
-      - RUST_LOG=info
-      - RUST_BACKTRACE=1
+      - NODE_TYPE=miner
+      - NETWORK=testnet
+      - MINING_ENABLED=true
+      - MINING_THREADS=2
+      - ENVIRONMENTAL_PROFILE=green_50
+      - RENEWABLE_PERCENTAGE=0.5
+      - EFFICIENCY_SCORE=0.5
+      - BOOTSTRAP_NODES=172.20.0.10:8333
+    volumes:
+      - miner2-data:/data
+      - ./config:/config:ro
+    ports:
+      - "8352:8332"
+      - "8353:8333"
+      - "9102:9100"
     networks:
-      - supernova-testnet
+      supernova-testnet:
+        ipv4_address: 172.20.0.12
     depends_on:
-      - seed-node-1
-      - seed-node-2
+      - bootstrap-node
 
-  # Prometheus for monitoring
+  # Regular node (No mining)
+  full-node-1:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile
+    container_name: supernova-full-node-1
+    hostname: full-node-1
+    environment:
+      - NODE_TYPE=full
+      - NETWORK=testnet
+      - MINING_ENABLED=false
+      - BOOTSTRAP_NODES=172.20.0.10:8333
+      - API_ENABLED=true
+    volumes:
+      - fullnode1-data:/data
+      - ./config:/config:ro
+    ports:
+      - "8362:8332"
+      - "8363:8333"
+      - "9103:9100"
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.20.0.13
+    depends_on:
+      - bootstrap-node
+
+  # Lightning node
+  lightning-node:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.lightning
+    container_name: supernova-lightning
+    hostname: lightning
+    environment:
+      - NODE_TYPE=lightning
+      - NETWORK=testnet
+      - BITCOIN_NODE=172.20.0.10:8332
+      - LIGHTNING_PORT=9735
+    volumes:
+      - lightning-data:/data
+      - ./config:/config:ro
+    ports:
+      - "9735:9735"   # Lightning P2P
+      - "8380:8380"   # Lightning API
+      - "9104:9100"   # Metrics
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.20.0.14
+    depends_on:
+      - bootstrap-node
+
+  # Environmental Oracle
+  environmental-oracle:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.oracle
+    container_name: supernova-env-oracle
+    hostname: env-oracle
+    environment:
+      - SERVICE_TYPE=environmental_oracle
+      - NETWORK=testnet
+      - API_PORT=8390
+      - UPDATE_INTERVAL=300
+    volumes:
+      - oracle-data:/data
+      - ./config:/config:ro
+    ports:
+      - "8390:8390"
+      - "9105:9100"
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.20.0.15
+
+  # Prometheus monitoring
   prometheus:
     image: prom/prometheus:latest
     container_name: supernova-prometheus
-    restart: unless-stopped
+    hostname: prometheus
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
     ports:
       - "9090:9090"
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
     networks:
-      - supernova-testnet
+      supernova-testnet:
+        ipv4_address: 172.20.0.20
 
-  # Grafana for visualization
+  # Grafana dashboard
   grafana:
     image: grafana/grafana:latest
     container_name: supernova-grafana
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    hostname: grafana
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=supernova
       - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
     networks:
-      - supernova-testnet
+      supernova-testnet:
+        ipv4_address: 172.20.0.21
     depends_on:
       - prometheus
 
-volumes:
-  seed-node-1-data:
-  seed-node-2-data:
-  miner-node-data:
-  faucet-data:
-  prometheus-data:
-  grafana-data:
+  # Block explorer
+  explorer:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.explorer
+    container_name: supernova-explorer
+    hostname: explorer
+    environment:
+      - API_URL=http://172.20.0.10:8332
+      - PORT=3001
+    ports:
+      - "3001:3001"
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.20.0.22
+    depends_on:
+      - bootstrap-node
+
+  # Testnet faucet
+  faucet:
+    build:
+      context: ./web/faucet
+      dockerfile: Dockerfile
+    container_name: supernova-faucet
+    hostname: faucet
+    environment:
+      - NODE_URL=http://172.20.0.10:8332
+      - FAUCET_AMOUNT=10
+      - RATE_LIMIT_MINUTES=60
+      - PORT=3002
+    volumes:
+      - faucet-data:/data
+    ports:
+      - "3002:3002"
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.20.0.23
+    depends_on:
+      - bootstrap-node
 
 networks:
   supernova-testnet:
-    driver: bridge 
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  bootstrap-data:
+  miner1-data:
+  miner2-data:
+  fullnode1-data:
+  lightning-data:
+  oracle-data:
+  prometheus-data:
+  grafana-data:
+  faucet-data: 

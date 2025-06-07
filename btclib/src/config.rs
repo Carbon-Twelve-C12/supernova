@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
-use crate::crypto::quantum::{QuantumScheme, ClassicalScheme};
-use crate::crypto::zkp::ZkpType;
-use crate::environmental::emissions::EmissionsConfig;
+use crate::crypto::{QuantumScheme, ClassicalScheme, ZkpType};
+use crate::environmental::EmissionsConfig;
 use std::path::PathBuf;
 use crate::api::ApiConfig;
+use crate::consensus::ConsensusConfig;
+use crate::utils::U256;
 
 /// Configuration for advanced cryptographic features
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -342,7 +343,7 @@ impl Default for MiningConfig {
         Self {
             enabled: false,
             threads: num_cpus::get() as u32,
-            target_block_time: 600, // 10 minutes
+            target_block_time: 150, // 2.5 minutes
             difficulty_adjustment_interval: 2016, // ~2 weeks
         }
     }
@@ -419,6 +420,8 @@ pub enum ConfigError {
     #[error("Validation error: {0}")]
     ValidationError(String),
 }
+
+
 
 #[cfg(test)]
 mod tests {
