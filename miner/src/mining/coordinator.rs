@@ -1,6 +1,7 @@
 use btclib::types::block::Block;
 use super::worker::MiningWorker;
 use super::template::{BlockTemplate, MempoolInterface};
+use super::reward::EnvironmentalProfile;
 use crate::difficulty::DifficultyAdjuster;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering};
@@ -71,6 +72,7 @@ pub struct Miner {
     metrics: Arc<MiningMetrics>,
     shared_template: Option<Arc<tokio::sync::Mutex<BlockTemplate>>>,
     template_refresh_signal: Arc<AtomicBool>,
+    environmental_profile: Option<EnvironmentalProfile>,
 }
 
 impl Miner {
@@ -107,6 +109,7 @@ impl Miner {
             metrics,
             shared_template: None,
             template_refresh_signal,
+            environmental_profile: None,
         }, rx)
     }
 
@@ -116,7 +119,7 @@ impl Miner {
         _prev_block_hash: [u8; 32],
         _current_height: u64,
     ) -> Result<(), String> {
-        info!("Starting mining with {} workers", self.num_threads);
+        info!("Starting mining with {} workers at height {}", self.num_threads, _current_height);
         self.metrics.active_workers.store(self.num_threads as u64, Ordering::Relaxed);
 
         let template = BlockTemplate::new(
@@ -125,6 +128,8 @@ impl Miner {
             self.difficulty_adjuster.get_current_target(),
             self.reward_address.clone(),
             self.mempool.as_ref(),
+            _current_height,
+            self.environmental_profile.as_ref(),
         ).await;
         let shared_template = Arc::new(tokio::sync::Mutex::new(template));
         
@@ -132,6 +137,7 @@ impl Miner {
             Arc::clone(&shared_template),
             _version,
             _prev_block_hash,
+            _current_height,
         );
 
         let mut handles = Vec::new();
@@ -178,6 +184,7 @@ impl Miner {
         shared_template: Arc<tokio::sync::Mutex<BlockTemplate>>,
         _version: u32,
         _prev_block_hash: [u8; 32],
+        _current_height: u64,
     ) -> tokio::task::JoinHandle<()> {
         let mempool = Arc::clone(&self.mempool);
         let _reward_address = self.reward_address.clone();
@@ -237,6 +244,11 @@ impl Miner {
     // Helper method to get metrics
     pub fn get_metrics(&self) -> Arc<MiningMetrics> {
         Arc::clone(&self.metrics)
+    }
+
+    /// Set the environmental profile for mining rewards
+    pub fn set_environmental_profile(&mut self, profile: EnvironmentalProfile) {
+        self.environmental_profile = Some(profile);
     }
 }
 
