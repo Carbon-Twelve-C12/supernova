@@ -1,7 +1,7 @@
 ###############################################################################
 # Builder stage - compiles the Supernova blockchain node
 ###############################################################################
-FROM rustlang/rust:nightly-bullseye-slim as builder
+FROM rust:nightly-slim as builder
 
 # Install build dependencies
 RUN apt-get update && \
