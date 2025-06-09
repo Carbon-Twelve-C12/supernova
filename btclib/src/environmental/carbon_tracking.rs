@@ -591,6 +591,10 @@ impl CarbonTracker {
             EnergySourceType::Wind => 0.01,
             EnergySourceType::Hydro => 0.02,
             EnergySourceType::Geothermal => 0.03,
+            EnergySourceType::Oil => 0.65,
+            EnergySourceType::Biomass => 0.23,
+            EnergySourceType::Grid => 0.475, // Global average
+            EnergySourceType::Unknown => 0.50, // Conservative estimate
             EnergySourceType::Other => 0.50, // Conservative estimate
         };
         
