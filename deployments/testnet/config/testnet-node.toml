@@ -1,0 +1,103 @@
+# Supernova Testnet Configuration
+
+[network]
+# Network identifier
+network = "testnet"
+# P2P port
+p2p_port = 8333
+# Maximum number of connections
+max_connections = 125
+# Enable peer discovery
+enable_discovery = true
+
+[rpc]
+# RPC server settings
+enabled = true
+host = "0.0.0.0"
+port = 8332
+# Maximum concurrent RPC connections
+max_connections = 100
+# RPC authentication (should be changed in production)
+username = "supernova"
+password = "testnet123"
+
+[blockchain]
+# Target block time in seconds
+target_block_time = 150
+# Initial mining difficulty
+initial_difficulty = "0x1d00ffff"
+# Block reward (in satoshis)
+initial_block_reward = 5000000000
+# Halving interval (blocks)
+halving_interval = 840000
+# Maximum block size
+max_block_size = 4194304
+
+[mining]
+# Enable mining on this node
+enabled = false
+# Number of mining threads (0 = auto)
+threads = 0
+# Mining address (where rewards are sent)
+mining_address = ""
+
+[environmental]
+# Enable environmental monitoring
+enabled = true
+# Carbon offset target (percentage)
+carbon_offset_target = 150
+# Green mining bonus percentage
+green_mining_bonus = 35
+# Verification interval (days)
+verification_interval = 30
+
+[quantum]
+# Enable quantum-resistant signatures
+enabled = true
+# Signature algorithm
+algorithm = "dilithium3"
+# Enable hybrid mode (both classical and quantum signatures)
+hybrid_mode = true
+
+[storage]
+# Database backend
+backend = "sled"
+# Cache size in MB
+cache_size = 1024
+# Enable compression
+compression = true
+
+[mempool]
+# Maximum mempool size in MB
+max_size = 300
+# Minimum fee rate (satoshis per byte)
+min_fee_rate = 1
+# Maximum transaction age (hours)
+max_tx_age = 72
+
+[logging]
+# Log level (trace, debug, info, warn, error)
+level = "info"
+# Log to file
+file = "/home/supernova/logs/node.log"
+# Log rotation
+rotation = "daily"
+# Keep logs for days
+retention_days = 30
+
+[metrics]
+# Enable Prometheus metrics
+enabled = true
+# Metrics port
+port = 9100
+# Metrics endpoint
+endpoint = "/metrics"
+
+[api]
+# Enable REST API
+enabled = true
+# API documentation
+swagger_enabled = true
+# CORS settings
+cors_enabled = true
+cors_origins = ["*"] 

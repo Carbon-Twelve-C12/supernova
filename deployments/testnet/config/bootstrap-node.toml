@@ -1,0 +1,72 @@
+# Bootstrap Node Configuration
+# This node serves as the initial connection point for the testnet
+
+[network]
+network = "testnet"
+p2p_port = 8333
+max_connections = 250
+enable_discovery = true
+# Bootstrap nodes should accept more connections
+listen_address = "0.0.0.0:8333"
+
+[rpc]
+enabled = true
+host = "0.0.0.0"
+port = 8332
+max_connections = 200
+username = "supernova"
+password = "testnet123"
+
+[blockchain]
+target_block_time = 150
+initial_difficulty = "0x1d00ffff"
+initial_block_reward = 5000000000
+halving_interval = 840000
+max_block_size = 4194304
+
+[mining]
+# Bootstrap node also mines to ensure block production
+enabled = true
+threads = 2
+mining_address = "testnet1qbootstrap000000000000000000000000000000"
+
+[environmental]
+enabled = true
+carbon_offset_target = 150
+green_mining_bonus = 35
+verification_interval = 30
+# Bootstrap node uses 100% renewable energy (for testing)
+renewable_percentage = 1.0
+efficiency_score = 0.9
+
+[quantum]
+enabled = true
+algorithm = "dilithium3"
+hybrid_mode = true
+
+[storage]
+backend = "sled"
+cache_size = 2048
+compression = true
+
+[mempool]
+max_size = 500
+min_fee_rate = 1
+max_tx_age = 72
+
+[logging]
+level = "info"
+file = "/home/supernova/logs/bootstrap.log"
+rotation = "daily"
+retention_days = 30
+
+[metrics]
+enabled = true
+port = 9100
+endpoint = "/metrics"
+
+[api]
+enabled = true
+swagger_enabled = true
+cors_enabled = true
+cors_origins = ["*"] 

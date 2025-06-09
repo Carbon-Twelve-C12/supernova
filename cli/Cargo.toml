@@ -1,18 +1,23 @@
 [package]
 name = "supernova-cli"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-description = "SuperNova Blockchain CLI Client"
+authors = ["Supernova Development Team"]
+description = "Command-line interface for Supernova blockchain"
+
+[[bin]]
+name = "supernova-cli"
+path = "src/main.rs"
 
 [dependencies]
 # CLI framework
-clap = { version = "4.4", features = ["derive", "env"] }
+clap = { version = "4.3", features = ["derive", "env"] }
 
 # Async runtime
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.28", features = ["full"] }
 
 # HTTP client for RPC
-reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.11", features = ["json"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -32,7 +37,7 @@ indicatif = "0.17"
 dialoguer = "0.11"
 
 # Configuration
-toml = "0.8"
+toml = "0.7"
 dirs = "5.0"
 
 # Cryptography
@@ -44,7 +49,7 @@ ripemd = "0.1"
 bs58 = "0.5"
 
 # Time handling
-chrono = { version = "0.4", features = ["serde"] }
+chrono = "0.4"
 
 # Table formatting
 prettytable-rs = "0.10"
@@ -58,4 +63,8 @@ secp256k1 = "0.28"
 home = "0.5"
 
 # CPU detection
-num_cpus = "1.16" 
+num_cpus = "1.16"
+
+# Added from the code block
+rpassword = "7.2"
+comfy-table = "7.0" 

@@ -8,21 +8,13 @@ services:
       dockerfile: deployment/docker/Dockerfile
     container_name: supernova-bootstrap
     hostname: bootstrap
-    environment:
-      - NODE_TYPE=bootstrap
-      - NETWORK=testnet
-      - BLOCK_TIME=150
-      - MINING_ENABLED=true
-      - ENVIRONMENTAL_MONITORING=true
-      - QUANTUM_SIGNATURES=true
-      - API_PORT=8332
-      - P2P_PORT=8333
-      - PROMETHEUS_PORT=9100
+    command: ["supernova", "--config=/home/supernova/config/bootstrap-node.toml"]
     volumes:
-      - bootstrap-data:/data
-      - ./config:/config:ro
+      - bootstrap-data:/home/supernova/data
+      - ./config:/home/supernova/config:ro
+      - bootstrap-logs:/home/supernova/logs
     ports:
-      - "8332:8332"   # API
+      - "8332:8332"   # RPC
       - "8333:8333"   # P2P
       - "9100:9100"   # Metrics
     networks:
@@ -244,6 +236,18 @@ services:
     depends_on:
       - bootstrap-node
 
+  # Landing page
+  landing-page:
+    image: nginx:alpine
+    container_name: supernova-landing
+    volumes:
+      - ./web/landing:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.20.0.24
+
 networks:
   supernova-testnet:
     driver: bridge
@@ -253,8 +257,11 @@ networks:
 
 volumes:
   bootstrap-data:
+  bootstrap-logs:
   miner1-data:
+  miner1-logs:
   miner2-data:
+  miner2-logs:
   fullnode1-data:
   lightning-data:
   oracle-data:
