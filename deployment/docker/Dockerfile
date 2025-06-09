@@ -1,7 +1,7 @@
 ###############################################################################
 # Builder stage - compiles the Supernova blockchain node
 ###############################################################################
-FROM rust:nightly-slim as builder
+FROM rustlang/rust:nightly-slim as builder
 
 # Install build dependencies
 RUN apt-get update && \

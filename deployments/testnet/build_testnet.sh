@@ -50,7 +50,7 @@ else
     # Try with a more permissive build
     echo ""
     echo "Attempting build with cargo check first..."
-    docker run --rm -v $(pwd):/build -w /build rust:1.76-slim-bullseye cargo check
+    docker run --rm -v $(pwd):/build -w /build rustlang/rust:nightly-slim cargo check
     
     exit 1
 fi
