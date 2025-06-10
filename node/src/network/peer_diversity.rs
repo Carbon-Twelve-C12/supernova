@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use libp2p::core::PeerId;
+use libp2p::PeerId;
 use libp2p::multiaddr::Protocol;
 use rand::{Rng, thread_rng};
 use tracing::{debug, info, warn};

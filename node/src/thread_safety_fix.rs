@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock, Mutex};
 use std::time::Instant;
 use libp2p::PeerId;
 use tokio::sync::RwLock as TokioRwLock;
+use sysinfo::System;
 use crate::node::Node;
 use crate::api::ApiConfig;
 
@@ -62,9 +63,6 @@ pub struct NodeApiFacade {
     peer_id: libp2p::PeerId,
     start_time: std::time::Instant,
     is_running: Arc<std::sync::atomic::AtomicBool>,
-    
-    // Lightning network components (wrapped for thread safety)
-    lightning_manager: Option<Arc<std::sync::Mutex<btclib::lightning::manager::LightningManager>>>,
 }
 
 impl NodeApiFacade {
@@ -80,7 +78,6 @@ impl NodeApiFacade {
             peer_id: node.peer_id.clone(),
             start_time: node.start_time,
             is_running: node.is_running.clone(),
-            lightning_manager: node.lightning().clone(),
         }
     }
     
@@ -200,36 +197,6 @@ impl NodeApiFacade {
     
     /// Get Lightning Network statistics
     pub fn get_lightning_stats(&self) -> serde_json::Value {
-        if let Some(lightning) = &self.lightning_manager {
-            if let Ok(lightning) = lightning.lock() {
-                // Use the LightningManager API to get comprehensive stats
-                match lightning.get_info() {
-                    Ok(info) => {
-                        return serde_json::json!({
-                            "enabled": true,
-                            "node_id": info.node_id,
-                            "channel_count": info.num_channels,
-                            "pending_channels": info.num_pending_channels,
-                            "inactive_channels": info.num_inactive_channels,
-                            "total_balance_msat": info.total_balance_msat,
-                            "total_outbound_capacity_msat": info.total_outbound_capacity_msat,
-                            "total_inbound_capacity_msat": info.total_inbound_capacity_msat,
-                            "num_peers": info.num_peers,
-                            "synced_to_chain": info.synced_to_chain,
-                            "synced_to_graph": info.synced_to_graph,
-                            "block_height": info.block_height,
-                        });
-                    },
-                    Err(_) => {
-                        return serde_json::json!({
-                            "enabled": true,
-                            "error": "Failed to get Lightning Network info",
-                        });
-                    }
-                }
-            }
-        }
-        
         serde_json::json!({
             "enabled": false,
             "channel_count": 0,
@@ -246,31 +213,12 @@ impl NodeApiFacade {
         description: &str,
         expiry_seconds: u32,
     ) -> Result<String, String> {
-        let lightning = self.lightning_manager.as_ref()
-            .ok_or("Lightning Network not initialized")?;
-        
-        let lightning = lightning.lock().unwrap();
-        
-        match lightning.create_invoice(amount_msat, description, expiry_seconds, false) {
-            Ok(response) => Ok(response.payment_request),
-            Err(e) => Err(format!("Failed to create invoice: {}", e)),
-        }
+        Err("Lightning Network not initialized".to_string())
     }
     
     /// List channels
     pub fn list_channels(&self) -> Result<Vec<String>, String> {
-        let lightning = self.lightning_manager.as_ref()
-            .ok_or("Lightning Network not initialized")?;
-        
-        let lightning = lightning.lock().unwrap();
-        
-        match lightning.get_channels(false, true) {
-            Ok(channels) => {
-                let channel_ids = channels.iter().map(|ch| ch.channel_id.clone()).collect();
-                Ok(channel_ids)
-            },
-            Err(e) => Err(format!("Failed to list channels: {}", e)),
-        }
+        Err("Lightning Network not initialized".to_string())
     }
     
     // Add async methods that need to interact with async components
@@ -282,15 +230,7 @@ impl NodeApiFacade {
         capacity: u64,
         push_amount: u64,
     ) -> Result<String, String> {
-        let lightning = self.lightning_manager.as_ref()
-            .ok_or("Lightning Network not initialized")?;
-        
-        let lightning = lightning.lock().unwrap();
-        
-        match lightning.open_channel(peer_id, capacity, push_amount, false, None).await {
-            Ok(response) => Ok(response.channel_id),
-            Err(e) => Err(format!("Failed to open payment channel: {}", e)),
-        }
+        Err("Lightning Network not initialized".to_string())
     }
     
     /// Close payment channel (async)
@@ -299,44 +239,12 @@ impl NodeApiFacade {
         channel_id: &str,
         force_close: bool,
     ) -> Result<String, String> {
-        let lightning = self.lightning_manager.as_ref()
-            .ok_or("Lightning Network not initialized")?;
-        
-        let lightning = lightning.lock().unwrap();
-        
-        // Parse channel ID from string to u64
-        let channel_id_u64: u64 = channel_id.parse()
-            .map_err(|_| "Invalid channel ID format".to_string())?;
-        
-        match lightning.close_channel(&channel_id_u64.to_string(), force_close).await {
-            Ok(success) => {
-                if success {
-                    Ok(format!("Channel {} closed successfully", channel_id))
-                } else {
-                    Err(format!("Failed to close channel {}", channel_id))
-                }
-            },
-            Err(e) => Err(format!("Failed to close payment channel: {}", e)),
-        }
+        Err("Lightning Network not initialized".to_string())
     }
     
     /// Pay invoice (async)
     pub async fn pay_invoice(&self, invoice_str: &str) -> Result<String, String> {
-        let lightning = self.lightning_manager.as_ref()
-            .ok_or("Lightning Network not initialized")?;
-        
-        let lightning = lightning.lock().unwrap();
-        
-        match lightning.send_payment(invoice_str, None, 60, None).await {
-            Ok(response) => {
-                if let Some(preimage) = response.payment_preimage {
-                    Ok(preimage)
-                } else {
-                    Err(format!("Payment failed: {}", response.payment_error.unwrap_or_else(|| "Unknown error".to_string())))
-                }
-            },
-            Err(e) => Err(format!("Failed to pay invoice: {}", e)),
-        }
+        Err("Lightning Network not initialized".to_string())
     }
 }
 

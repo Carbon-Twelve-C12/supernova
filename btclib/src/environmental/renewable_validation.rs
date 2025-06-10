@@ -7,12 +7,12 @@ use std::sync::{Arc, RwLock};
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc, Duration};
 use sha2::{Sha256, Digest};
+use std::str::FromStr;
 
 use crate::environmental::{
-    verification::{RenewableCertificate, CarbonOffset, VerificationService},
-    types::{EnergySourceType, Region},
+    types::{Region, EnergySourceType},
+    verification::{VerificationService, RenewableCertificate, CarbonOffset, VerificationProvider},
     oracle::{EnvironmentalOracle, OracleError},
-    emissions::EnergySource,
 };
 
 /// Renewable energy validation result
@@ -317,7 +317,7 @@ impl RenewableEnergyValidator {
         // Validate and sum carbon offsets
         let mut total_offset_tonnes = 0.0;
         for offset in carbon_offsets {
-            if self.verification_service.verify_carbon_offset(&offset).is_ok() {
+            if self.verification_service.verify_offset(&offset).await.is_ok() {
                 total_offset_tonnes += offset.amount_tonnes;
             }
         }
@@ -368,12 +368,15 @@ impl RenewableEnergyValidator {
         &self,
         cert: &RenewableCertificate,
     ) -> Result<ValidatedREC, OracleError> {
-        // Check expiry
-        if cert.expiry_date < Utc::now() {
+        // Check if certificate is expired
+        let now = Utc::now();
+        let is_expired = cert.generation_end < now;
+        
+        if is_expired {
             return Ok(ValidatedREC {
                 certificate_id: cert.certificate_id.clone(),
-                energy_amount_mwh: cert.energy_amount_mwh,
-                energy_type: cert.energy_type.clone(),
+                energy_amount_mwh: cert.amount_kwh / 1000.0, // Convert kWh to MWh
+                energy_type: EnergySourceType::from_str(&cert.certificate_type).unwrap_or(EnergySourceType::Other),
                 generation_period: (cert.generation_start, cert.generation_end),
                 issuer: cert.issuer.clone(),
                 validation_status: ValidationStatus::Expired,
@@ -381,27 +384,28 @@ impl RenewableEnergyValidator {
             });
         }
         
-        // Verify with oracle
-        match self.oracle.verify_rec_certificate(cert) {
+        // Verify with verification service
+        match self.verification_service.verify_certificate(cert).await {
             Ok(status) => {
                 let validation_status = match status {
                     crate::environmental::emissions::VerificationStatus::Verified => ValidationStatus::Valid,
                     crate::environmental::emissions::VerificationStatus::Failed => ValidationStatus::Invalid,
                     crate::environmental::emissions::VerificationStatus::Pending => ValidationStatus::Pending,
                     crate::environmental::emissions::VerificationStatus::Expired => ValidationStatus::Expired,
+                    crate::environmental::emissions::VerificationStatus::None => ValidationStatus::Invalid,
                 };
                 
                 Ok(ValidatedREC {
                     certificate_id: cert.certificate_id.clone(),
-                    energy_amount_mwh: cert.energy_amount_mwh,
-                    energy_type: cert.energy_type.clone(),
+                    energy_amount_mwh: cert.amount_kwh / 1000.0, // Convert kWh to MWh
+                    energy_type: EnergySourceType::from_str(&cert.certificate_type).unwrap_or(EnergySourceType::Other),
                     generation_period: (cert.generation_start, cert.generation_end),
                     issuer: cert.issuer.clone(),
                     validation_status,
                     blockchain_hash: self.calculate_certificate_hash(cert),
                 })
             }
-            Err(e) => Err(e),
+            Err(e) => Err(OracleError::VerificationFailed(e.to_string())),
         }
     }
     
@@ -485,7 +489,7 @@ impl RenewableEnergyValidator {
     fn calculate_certificate_hash(&self, cert: &RenewableCertificate) -> String {
         let mut hasher = Sha256::new();
         hasher.update(cert.certificate_id.as_bytes());
-        hasher.update(cert.energy_amount_mwh.to_string().as_bytes());
+        hasher.update(cert.amount_kwh.to_string().as_bytes());
         format!("{:x}", hasher.finalize())
     }
     
@@ -505,8 +509,8 @@ impl RenewableEnergyValidator {
         // Regions with high renewable potential get higher multipliers
         multipliers.insert(Region::NorthAmerica, 1.1);
         multipliers.insert(Region::Europe, 1.2); // Strong renewable policies
-        multipliers.insert(Region::Asia, 1.0);
-        multipliers.insert(Region::Oceania, 1.15); // High solar potential
+        multipliers.insert(Region::AsiaPacific, 1.0);
+        // Note: Oceania (Australia, NZ) is included in AsiaPacific region
         multipliers.insert(Region::Africa, 1.25); // Encourage renewable development
         multipliers.insert(Region::SouthAmerica, 1.1);
         

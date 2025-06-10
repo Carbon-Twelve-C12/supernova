@@ -185,8 +185,8 @@ impl ApiServer {
                 }
             }
             
-            app
-                .wrap(rate_limiting::RateLimiter::new(config.rate_limit.unwrap_or(100)))
+            // Add remaining middleware and routes
+            app.wrap(rate_limiting::RateLimiter::new(config.rate_limit.unwrap_or(100)))
                 // Configure API routes
                 .configure(routes::configure)
                 // Add OpenAPI documentation if enabled

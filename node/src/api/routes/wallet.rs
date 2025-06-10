@@ -7,7 +7,6 @@ use crate::api::types::{
     BackupResponse, UTXOList
 };
 use crate::node::Node;
-use wallet::Wallet;
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

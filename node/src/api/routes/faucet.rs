@@ -18,7 +18,7 @@ use crate::api::error::ApiError;
 use btclib::testnet::faucet::FaucetError;
 
 /// Faucet status response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct FaucetStatusResponse {
     /// Whether the faucet is online
     pub is_online: bool,
@@ -102,7 +102,7 @@ async fn get_faucet_status(
         .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("Faucet is not enabled on this node"))?;
     
     // Get faucet status
-    let status = faucet.status().await
+    let status = faucet.get_faucet_status().await
         .map_err(|e| actix_web::error::ErrorInternalServerError(format!("Failed to get faucet status: {}", e)))?;
     
     // Return response
@@ -132,7 +132,7 @@ async fn request_tokens(
         .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("Faucet is not enabled on this node"))?;
     
     // Request tokens
-    let result = faucet.distribute_coins(&request.address).await
+    let result = faucet.request_faucet_coins(&request.address).await
         .map_err(|e| match e {
             FaucetError::CooldownPeriod { remaining_time } => {
                 actix_web::error::ErrorTooManyRequests(
@@ -178,7 +178,7 @@ async fn get_recent_transactions(
         .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("Faucet is not enabled on this node"))?;
     
     // Get recent transactions
-    let transactions = faucet.get_recent_transactions().await
+    let transactions = faucet.get_recent_faucet_transactions().await
         .map_err(|e| actix_web::error::ErrorInternalServerError(format!("Failed to get recent transactions: {}", e)))?;
     
     // Convert to response format
@@ -200,7 +200,16 @@ async fn get_recent_transactions(
 // Axum Handlers (for compatibility with newer API style)
 
 /// Get faucet status (axum handler)
-async fn get_faucet_status_axum(
+#[utoipa::path(
+    get,
+    path = "/api/v1/faucet/status",
+    responses(
+        (status = 200, description = "Faucet status retrieved successfully", body = FaucetStatusResponse),
+        (status = 503, description = "Faucet not enabled", body = ApiError)
+    ),
+    tag = "faucet"
+)]
+pub async fn get_faucet_status_axum(
     Extension(node): Extension<Arc<Node>>,
 ) -> Result<Json<FaucetStatusResponse>, ApiError> {
     debug!("Getting faucet status via axum handler");
@@ -211,7 +220,7 @@ async fn get_faucet_status_axum(
         .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Get faucet status
-    let status = faucet.status().await
+    let status = faucet.get_faucet_status().await
         .map_err(|e| ApiError::internal_error(&format!("Failed to get faucet status: {}", e)))?;
     
     // Return response
@@ -243,7 +252,7 @@ async fn request_tokens_axum(
         .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Request tokens
-    let result = faucet.distribute_coins(&request.address).await
+    let result = faucet.request_faucet_coins(&request.address).await
         .map_err(|e| match e {
             FaucetError::CooldownPeriod { remaining_time } => {
                 ApiError::rate_limited(&format!("Please wait {} seconds before requesting again", remaining_time))
@@ -281,7 +290,7 @@ async fn get_recent_transactions_axum(
         .ok_or_else(|| ApiError::service_unavailable("Faucet is not enabled on this node"))?;
     
     // Get recent transactions
-    let transactions = faucet.get_recent_transactions().await
+    let transactions = faucet.get_recent_faucet_transactions().await
         .map_err(|e| ApiError::internal_error(&format!("Failed to get recent transactions: {}", e)))?;
     
     // Convert to response format

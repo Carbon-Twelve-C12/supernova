@@ -3,10 +3,11 @@ use libp2p::{
         muxing::StreamMuxerBox,
         transport::Boxed,
         upgrade::{self, InboundUpgrade, OutboundUpgrade, UpgradeInfo, Negotiated},
-        ConnectedPoint, PeerId, Multiaddr,
+        ConnectedPoint, Multiaddr,
     },
-    swarm::{DialError, NetworkBehaviour, ProtocolsHandler, KeepAlive, SubstreamProtocol},
+    swarm::DialError,
     identity::Keypair,
+    PeerId,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -536,86 +537,6 @@ impl ConnectionManager {
     /// Get the connection queue length
     pub fn connection_queue_length(&self) -> usize {
         self.connection_queue.len()
-    }
-}
-
-// Simple dummy handler for libp2p 0.41 compatibility
-#[derive(Debug)]
-pub struct DummyHandler;
-
-impl ProtocolsHandler for DummyHandler {
-    type InEvent = Void;
-    type OutEvent = Void;
-    type Error = Void;
-    type InboundProtocol = libp2p::core::upgrade::DeniedUpgrade;
-    type OutboundProtocol = libp2p::core::upgrade::DeniedUpgrade;
-    type OutboundOpenInfo = Void;
-    type InboundOpenInfo = ();
-
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        SubstreamProtocol::new(libp2p::core::upgrade::DeniedUpgrade, ())
-    }
-
-    fn inject_fully_negotiated_inbound(
-        &mut self,
-        _: <Self::InboundProtocol as libp2p::core::InboundUpgrade<Negotiated<StreamMuxerBox>>>::Output,
-        _: Self::InboundOpenInfo,
-    ) {
-        // Handle fully negotiated inbound connection
-    }
-
-    fn inject_fully_negotiated_outbound(
-        &mut self,
-        _: <Self::OutboundProtocol as libp2p::core::OutboundUpgrade<Negotiated<StreamMuxerBox>>>::Output,
-        _: Self::OutboundOpenInfo,
-    ) {
-        // Handle fully negotiated outbound connection
-    }
-
-    fn inject_event(&mut self, _: Self::InEvent) {}
-
-    fn inject_address_change(&mut self, _: &Multiaddr) {}
-
-    fn inject_dial_upgrade_error(&mut self, _: Self::OutboundOpenInfo, _: libp2p::swarm::ProtocolsHandlerUpgrErr<Self::Error>) {}
-
-    fn inject_listen_upgrade_error(&mut self, _: Self::InboundOpenInfo, _: libp2p::swarm::ProtocolsHandlerUpgrErr<Self::Error>) {}
-
-    fn connection_keep_alive(&self) -> KeepAlive {
-        KeepAlive::No
-    }
-
-    fn poll(
-        &mut self,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<libp2p::swarm::ProtocolsHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>> {
-        std::task::Poll::Pending
-    }
-}
-
-// Implementation for libp2p NetworkBehaviour trait
-impl NetworkBehaviour for ConnectionManager {
-    type ProtocolsHandler = DummyHandler;
-    type OutEvent = ConnectionEvent;
-
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        DummyHandler
-    }
-
-    fn inject_event(
-        &mut self,
-        _peer_id: PeerId,
-        _connection: u64, // Using u64 instead of ConnectionId
-        _event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
-    ) {
-        // No events from DummyHandler
-    }
-
-    fn poll(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-        _params: &mut impl libp2p::swarm::PollParameters,
-    ) -> std::task::Poll<libp2p::swarm::NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler, <Self::ProtocolsHandler as ProtocolsHandler>::InEvent>> {
-        std::task::Poll::Pending
     }
 }
 

@@ -258,29 +258,6 @@ pub enum LogLevel {
     Trace,
 }
 
-/// Currency units for SuperNova
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NovaUnit {
-    /// The base unit (1 NOVA)
-    Nova,
-    /// milli-nova (0.001 NOVA)
-    MilliNova,
-    /// micro-nova (0.000001 NOVA)
-    MicroNova,
-    /// nano-nova (0.000000001 NOVA)
-    NanoNova,
-    /// pico-nova (0.000000000001 NOVA)
-    PicoNova,
-    /// femto-nova (0.000000000000001 NOVA)
-    FemtoNova,
-    /// atto-nova (0.000000000000000001 NOVA) - smallest unit
-    AttoNova,
-    /// kilo-nova (1,000 NOVA)
-    KiloNova,
-    /// mega-nova (1,000,000 NOVA)
-    MegaNova,
-}
-
 impl Default for TestNetConfig {
     fn default() -> Self {
         Self {

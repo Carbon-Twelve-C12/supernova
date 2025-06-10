@@ -419,7 +419,7 @@ impl CheckpointManager {
         }
 
         // Update last checkpoint information
-        if let Some(checkpoint) = self.get_latest_checkpoint() {
+        if let Some(checkpoint) = self.get_latest_checkpoint().cloned() {
             self.last_checkpoint_height = checkpoint.height;
             self.last_checkpoint_time = Instant::now() - Duration::from_secs(
                 SystemTime::now()

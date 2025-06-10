@@ -58,10 +58,17 @@ pub async fn get_mining_info(
                     minimum: btclib_info.fee_rates.minimum,
                 },
                 environmental_impact: btclib_info.environmental_impact.map(|ei| {
-                    crate::api::types::EnvironmentalImpact {
-                        carbon_emissions: ei.carbon_emissions_per_hour,
-                        energy_consumption: ei.power_consumption_watts / 1000.0, // Convert watts to kilowatt-hours
+                    crate::api::types::environmental::EnvironmentalImpact {
+                        carbon_emissions_g_per_hour: ei.carbon_emissions_per_hour,
                         renewable_percentage: ei.renewable_percentage,
+                        carbon_intensity: ei.carbon_emissions_per_hour / (ei.power_consumption_watts / 1000.0), // Calculate from emissions and power
+                        carbon_offsets_tons: 0.0, // TODO: Get actual offsets
+                        net_emissions_g_per_hour: ei.carbon_emissions_per_hour, // TODO: Calculate net emissions
+                        is_carbon_negative: false, // TODO: Calculate based on offsets
+                        environmental_score: 50.0, // TODO: Calculate actual score
+                        green_mining_bonus: 0.0, // TODO: Get actual bonus
+                        data_sources: vec!["btclib".to_string()],
+                        calculated_at: chrono::Utc::now().timestamp() as u64,
                     }
                 }),
             };
@@ -104,7 +111,39 @@ pub async fn get_mining_template(
     let max_transactions = params.max_transactions;
     
     match mining.get_mining_template(capabilities, max_transactions) {
-        Ok(template) => Ok(template),
+        Ok(btclib_template) => {
+            // Convert btclib template to API template
+            let api_template = MiningTemplate {
+                version: btclib_template.version,
+                prev_hash: btclib_template.prev_hash,
+                timestamp: btclib_template.timestamp,
+                height: btclib_template.height,
+                target: btclib_template.target,
+                merkle_root: btclib_template.merkle_root,
+                transactions: btclib_template.transactions.into_iter().map(|tx| {
+                    crate::api::types::TemplateTransaction {
+                        txid: tx.txid,
+                        data: tx.data,
+                        fee: tx.fee,
+                        weight: tx.weight,
+                        ancestor_fee: tx.ancestor_fee,
+                        ancestor_weight: tx.ancestor_weight,
+                    }
+                }).collect(),
+                total_fees: btclib_template.total_fees,
+                size: btclib_template.size,
+                weight: btclib_template.weight,
+                estimated_time_to_mine: btclib_template.estimated_time_to_mine,
+                environmental_data: btclib_template.environmental_data.map(|ed| {
+                    crate::api::types::TemplateEnvironmentalData {
+                        estimated_energy_kwh: ed.estimated_energy_kwh,
+                        estimated_carbon_grams: ed.estimated_carbon_grams,
+                        green_mining_bonus: ed.green_mining_bonus,
+                    }
+                }),
+            };
+            Ok(api_template)
+        },
         Err(e) => Err(ApiError::internal_error(format!("Failed to get mining template: {}", e))),
     }
 }

@@ -112,7 +112,7 @@ impl IntegrityVerifier {
                 let repairer = IntegrityRepairer::new(
                     Arc::clone(&self.db),
                     Arc::clone(handler),
-                    &self.config,
+                    self.config.clone(),
                 );
 
                 // Attempt repairs

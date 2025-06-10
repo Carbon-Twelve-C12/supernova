@@ -1,5 +1,5 @@
 use libp2p::{
-    core::PeerId,
+    PeerId,
     multiaddr::Multiaddr,
 };
 use std::{

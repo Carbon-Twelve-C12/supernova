@@ -16,6 +16,7 @@ pub struct NodeConfig {
     pub node: GeneralConfig,
     pub checkpoint: CheckpointConfig,
     pub api: ApiConfig,
+    pub testnet: TestnetConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -89,6 +90,9 @@ pub struct GeneralConfig {
     pub metrics_enabled: bool,
     pub metrics_port: u16,
     pub log_level: String,
+    pub network_name: String,
+    pub enable_lightning: bool,
+    pub enable_quantum_security: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -106,6 +110,21 @@ pub struct CheckpointConfig {
     pub checkpoint_type: String,
     pub data_dir: PathBuf,
     pub max_checkpoints: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TestnetConfig {
+    pub enabled: bool,
+    pub network_id: String,
+    pub enable_faucet: bool,
+    pub faucet_amount: u64,
+    pub faucet_cooldown: u64,
+    pub faucet_max_balance: u64,
+    pub enable_test_mining: bool,
+    pub test_mining_difficulty: u64,
+    pub enable_network_simulation: bool,
+    pub simulated_latency_ms: u64,
+    pub simulated_packet_loss: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -166,6 +185,7 @@ impl Default for NodeConfig {
             node: GeneralConfig::default(),
             checkpoint: CheckpointConfig::default(),
             api: ApiConfig::default(),
+            testnet: TestnetConfig::default(),
         }
     }
 }
@@ -247,6 +267,9 @@ impl Default for GeneralConfig {
             metrics_enabled: true,
             metrics_port: 9000,
             log_level: "info".to_string(),
+            network_name: "Supernova".to_string(),
+            enable_lightning: true,
+            enable_quantum_security: true,
         }
     }
 }
@@ -259,6 +282,24 @@ impl Default for CheckpointConfig {
             checkpoint_type: "Full".to_string(),
             data_dir: PathBuf::from("./checkpoints"),
             max_checkpoints: 7, // Keep a week of checkpoints
+        }
+    }
+}
+
+impl Default for TestnetConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            network_id: "testnet".to_string(),
+            enable_faucet: false,
+            faucet_amount: 1000000000000000000, // 1 trillion satoshis
+            faucet_cooldown: 60, // 1 minute
+            faucet_max_balance: 1000000000000000000, // 1 trillion satoshis
+            enable_test_mining: false,
+            test_mining_difficulty: 1,
+            enable_network_simulation: false,
+            simulated_latency_ms: 0,
+            simulated_packet_loss: 0.0,
         }
     }
 }

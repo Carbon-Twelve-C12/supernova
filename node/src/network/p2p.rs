@@ -1,36 +1,21 @@
 // This file intentionally left blank to be rewritten from scratch
 
 use libp2p::{
-    core::{
-        identity,
-        PeerId,
-        ConnectedPoint,
-        connection::ConnectionId,
-        either::EitherOutput,
-        multiaddr::Protocol as MultiaddrProtocol,
-        upgrade::{SelectUpgrade, Version},
-        transport::{Boxed, ListenerEvent, Transport, TransportError},
-        StreamMuxer, muxing::StreamMuxerBox,
-    },
-    dns::TokioDnsConfig,
-    gossipsub,
-    identify,
-    identity::Keypair,
-    kad::{
-        Kademlia, KademliaConfig, KademliaEvent,
-        store::MemoryStore,
-    },
-    mdns::{Mdns, MdnsEvent},
-    mplex::{MplexConfig, MaxBufferBehaviour},
-    noise::{Keypair as NoiseKeypair, NoiseConfig, X25519Spec},
-    swarm::{Swarm, SwarmBuilder, SwarmEvent, NetworkBehaviour},
-    tcp::TokioTcpConfig,
-    websocket::WsConfig,
-    yamux::YamuxConfig,
+    identity,
+    PeerId,
     Multiaddr,
-    Transport as LTransport,
+    gossipsub::{self, Behaviour as Gossipsub, Event as GossipsubEvent, MessageAuthenticity, ValidationMode, ConfigBuilder},
+    identify::{self, Behaviour as Identify, Event as IdentifyEvent},
+    kad::{self, Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, store::MemoryStore},
+    mdns::{self, tokio::Behaviour as Mdns, Event as MdnsEvent},
+    noise,
+    swarm::{Swarm, SwarmBuilder, SwarmEvent, NetworkBehaviour, ConnectionError},
+    tcp,
+    yamux,
+    Transport,
+    core::ConnectedPoint,
 };
-use void;
+use void::Void;
 use crate::network::{
     protocol::{Message, Protocol, PublishError, message_id_from_content},
     connection::{ConnectionManager, ConnectionEvent, ConnectionState},
@@ -40,6 +25,7 @@ use crate::network::{
     discovery::{PeerDiscovery, DiscoveryEvent},
     eclipse_prevention::{EclipsePreventionSystem, EclipsePreventionConfig, EclipseRiskLevel},
     rate_limiter::{NetworkRateLimiter, RateLimitConfig, RateLimitError, RateLimitMetrics},
+    behaviour::{SupernovaBehaviour, SupernovaBehaviourEvent},
     MAX_PEERS, MAX_INBOUND_CONNECTIONS, MAX_OUTBOUND_CONNECTIONS,
 };
 use btclib::{Block, BlockHeader, Transaction};
@@ -55,7 +41,7 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, info, warn, error, trace};
 use dashmap::DashMap;
-use futures::stream::StreamExt;
+use futures::StreamExt;
 use rand::{Rng, RngCore, rngs::OsRng};
 use sha2::{Sha256, Digest};
 use byteorder::{ByteOrder, BigEndian};
@@ -279,7 +265,7 @@ pub enum NetworkEvent {
 /// Enhanced P2P network implementation with peer management
 pub struct P2PNetwork {
     /// LibP2P swarm
-    swarm: Arc<RwLock<Option<Swarm<gossipsub::Gossipsub>>>>,
+    swarm: Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
     /// Local peer ID
     local_peer_id: PeerId,
     /// Protocol handler
@@ -536,38 +522,56 @@ impl P2PNetwork {
         let transport = build_transport(keypair.clone())?;
         
         // Configure gossipsub
-        let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
+        let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
             .validation_mode(gossipsub::ValidationMode::Strict)
             .message_id_fn(message_id_from_content)
             .build()
             .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
             
-        let gossipsub = gossipsub::Gossipsub::new(
+        let gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Signed(keypair.clone()),
             gossipsub_config,
-        )?;
+        ).map_err(|e| format!("Failed to create gossipsub: {}", e))?;
+        
+        // Create Kademlia
+        let store = kad::store::MemoryStore::new(local_peer_id);
+        let kademlia = kad::Kademlia::new(local_peer_id, store);
+        
+        // Create mDNS
+        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
+        
+        // Create Identify
+        let identify_config = identify::Config::new("/supernova/1.0.0".to_string(), keypair.public());
+        let identify = identify::Behaviour::new(identify_config);
+        
+        // Create the combined behaviour
+        let behaviour = SupernovaBehaviour::new(
+            local_peer_id,
+            gossipsub,
+            kademlia,
+            mdns,
+            identify,
+        );
         
         // Create the swarm
-        let mut swarm = Swarm::new(transport, gossipsub, local_peer_id);
+        let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
         
-        // Subscribe to topics
-        let behaviour = swarm.behaviour_mut();
         // Subscribe to topics
         let topics = [
             "blocks",
-            "transactions",
+            "transactions", 
             "headers",
             "status",
             "mempool",
         ];
         
-        for topic in &topics {
-            let topic = gossipsub::IdentTopic::new(*topic);
-            if let Err(e) = behaviour.subscribe(&topic) {
-                warn!("Failed to subscribe to topic {}: {}", topic, e);
+        for topic_name in &topics {
+            let topic = gossipsub::IdentTopic::new(topic_name);
+            if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&topic) {
+                warn!("Failed to subscribe to topic {}: {}", topic_name, e);
             } else {
-                debug!("Subscribed to topic: {}", topic);
+                debug!("Subscribed to topic: {}", topic_name);
             }
         }
         
@@ -689,7 +693,7 @@ impl P2PNetwork {
     /// Handle a network command (static version for async context)
     async fn handle_command_static(
         command: NetworkCommand,
-        swarm: &Arc<RwLock<Option<Swarm<gossipsub::Gossipsub>>>>,
+        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
         event_sender: &mpsc::Sender<NetworkEvent>,
         stats: &Arc<RwLock<NetworkStats>>,
         connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
@@ -788,56 +792,55 @@ impl P2PNetwork {
     /// Broadcast a message to all connected peers (static version)
     async fn broadcast_message_static(
         message: Message,
-        swarm: &Arc<RwLock<Option<Swarm<gossipsub::Gossipsub>>>>,
+        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
         stats: &Arc<RwLock<NetworkStats>>,
         bandwidth_tracker: &Arc<RwLock<BandwidthTracker>>,
     ) {
         let mut swarm_guard = swarm.write().await;
         if let Some(swarm) = swarm_guard.as_mut() {
-                    // Serialize the message
-                    let encoded = match bincode::serialize(&message) {
-                        Ok(data) => data,
-                        Err(e) => {
-                            warn!("Failed to serialize message: {}", e);
+            // Serialize the message
+            let encoded = match bincode::serialize(&message) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!("Failed to serialize message: {}", e);
                     return;
-                        }
-                    };
+                }
+            };
+            
+            // Determine the topic
+            let topic_name = match &message {
+                Message::Block { .. } | Message::NewBlock { .. } => "blocks",
+                Message::Transaction { .. } => "transactions",
+                Message::GetHeaders { .. } | Message::Headers { .. } => "headers",
+                Message::Status { .. } | Message::GetStatus => "status",
+                Message::GetMempool { .. } | Message::Mempool { .. } => "mempool",
+                _ => "status", // Default
+            };
+            
+            let topic = gossipsub::IdentTopic::new(topic_name);
+            
+            // Publish the message
+            match swarm.behaviour_mut().gossipsub.publish(topic, encoded.clone()) {
+                Ok(msg_id) => {
+                    debug!("Published message with ID: {:?}", msg_id);
+                    let mut stats_guard = stats.write().await;
+                    stats_guard.messages_sent += 1;
                     
-                    // Determine the topic
-                    let topic_name = match &message {
-                        Message::Block { .. } | Message::NewBlock { .. } => "blocks",
-                        Message::Transaction { .. } => "transactions",
-                        Message::GetHeaders { .. } | Message::Headers { .. } => "headers",
-                        Message::Status { .. } | Message::GetStatus => "status",
-                        Message::GetMempool { .. } | Message::Mempool { .. } => "mempool",
-                        _ => "status", // Default
-                    };
-                    
-                    let topic = gossipsub::IdentTopic::new(topic_name);
-                    
-                    // Publish the message
-                    let behaviour = swarm.behaviour_mut();
-                    match behaviour.publish(topic, encoded.clone()) {
-                        Ok(msg_id) => {
-                            debug!("Published message with ID: {:?}", msg_id);
-                            let mut stats_guard = stats.write().await;
-                            stats_guard.messages_sent += 1;
-                            
-                            let mut bandwidth_guard = bandwidth_tracker.write().await;
-                            bandwidth_guard.record_sent(encoded.len() as u64);
-                        }
-                        Err(e) => {
-                            warn!("Failed to publish message: {}", e);
-                        }
-                    }
+                    let mut bandwidth_guard = bandwidth_tracker.write().await;
+                    bandwidth_guard.record_sent(encoded.len() as u64);
+                }
+                Err(e) => {
+                    warn!("Failed to publish message: {}", e);
                 }
             }
+        }
+    }
     
     /// Send a message to a specific peer (static version)
     async fn send_to_peer_static(
         peer_id: PeerId,
         message: Message,
-        swarm: &Arc<RwLock<Option<Swarm<gossipsub::Gossipsub>>>>,
+        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
         stats: &Arc<RwLock<NetworkStats>>,
         bandwidth_tracker: &Arc<RwLock<BandwidthTracker>>,
     ) {
@@ -848,19 +851,19 @@ impl P2PNetwork {
     }
     
     /// Handle a libp2p swarm event (static version)
-    async fn handle_swarm_event_static(
-        event: SwarmEvent<gossipsub::GossipsubEvent>,
+    async fn handle_swarm_event_static<THandlerErr>(
+        event: SwarmEvent<SupernovaBehaviourEvent, THandlerErr>,
         event_sender: &mpsc::Sender<NetworkEvent>,
         stats: &Arc<RwLock<NetworkStats>>,
         connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
         bandwidth_tracker: &Arc<RwLock<BandwidthTracker>>,
-    ) {
+    ) where THandlerErr: std::fmt::Display {
         match event {
-            SwarmEvent::Behaviour(gossipsub::GossipsubEvent::Message { 
+            SwarmEvent::Behaviour(SupernovaBehaviourEvent::Gossipsub(GossipsubEvent::Message { 
                 propagation_source,
                 message_id,
                 message,
-            }) => {
+            })) => {
                 // Deserialize the message
                 match bincode::deserialize::<Message>(&message.data) {
                     Ok(msg) => {
@@ -1764,20 +1767,20 @@ pub struct NetworkHealth {
 /// Build the libp2p transport stack
 fn build_transport(
     id_keys: identity::Keypair,
-) -> Result<Boxed<(PeerId, StreamMuxerBox)>, Box<dyn Error>> {
-    use libp2p::{tcp, noise, yamux, core::upgrade};
+) -> Result<impl Transport<Output = (PeerId, impl futures::stream::Stream<Item = Result<yamux::Stream, std::io::Error>> + Send)>, Box<dyn Error>> {
+    use libp2p::core::upgrade;
     
-    let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
-        .into_authentic(&id_keys)
-        .expect("Signing libp2p-noise static DH keypair failed.");
+    let noise = noise::Config::new(&id_keys)?;
+    let yamux_config = yamux::Config::default();
 
-    Ok(tcp::TokioTcpConfig::new()
-        .nodelay(true)
+    let transport = tcp::Transport::new(tcp::Config::default().nodelay(true))
         .upgrade(upgrade::Version::V1)
-        .authenticate(noise::NoiseConfig::xx(noise_keys).into_authenticated())
-        .multiplex(yamux::YamuxConfig::default())
+        .authenticate(noise)
+        .multiplex(yamux_config)
         .timeout(Duration::from_secs(20))
-        .boxed())
+        .boxed();
+        
+    Ok(transport)
 }
 
 /// Count the number of leading zero bits in a hash
@@ -1796,10 +1799,12 @@ fn count_leading_zero_bits(hash: &[u8]) -> u8 {
 
 /// Extract IP address from multiaddr
 fn extract_ip_from_multiaddr(addr: &Multiaddr) -> Option<IpAddr> {
+    use libp2p::multiaddr::Protocol;
+    
     for proto in addr.iter() {
         match proto {
-            MultiaddrProtocol::Ip4(ip) => return Some(IpAddr::V4(ip)),
-            MultiaddrProtocol::Ip6(ip) => return Some(IpAddr::V6(ip)),
+            Protocol::Ip4(ip) => return Some(IpAddr::V4(ip)),
+            Protocol::Ip6(ip) => return Some(IpAddr::V6(ip)),
             _ => {}
         }
     }
@@ -1808,14 +1813,16 @@ fn extract_ip_from_multiaddr(addr: &Multiaddr) -> Option<IpAddr> {
 
 /// Extract socket address from multiaddr
 fn extract_socket_addr_from_multiaddr(addr: &Multiaddr) -> Option<std::net::SocketAddr> {
+    use libp2p::multiaddr::Protocol;
+    
     let mut ip_addr = None;
     let mut port = None;
     
     for proto in addr.iter() {
         match proto {
-            MultiaddrProtocol::Ip4(ip) => ip_addr = Some(IpAddr::V4(ip)),
-            MultiaddrProtocol::Ip6(ip) => ip_addr = Some(IpAddr::V6(ip)),
-            MultiaddrProtocol::Tcp(p) => port = Some(p),
+            Protocol::Ip4(ip) => ip_addr = Some(IpAddr::V4(ip)),
+            Protocol::Ip6(ip) => ip_addr = Some(IpAddr::V6(ip)),
+            Protocol::Tcp(p) => port = Some(p),
             _ => {}
         }
     }

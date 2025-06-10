@@ -9,8 +9,9 @@ use chrono::{DateTime, Utc};
 use thiserror::Error;
 
 use crate::api::types::environmental::{
-    EnergyUsage, CarbonFootprint, ResourceUtilization, EnvironmentalSettings,
-    EnvironmentalImpact, EnergySource, EmissionsSource
+    EnvironmentalImpact, EnergyUsage, CarbonFootprint, ResourceUtilization,
+    EnvironmentalSettings, EnergyUsageHistory, CarbonOffset, EmissionsSource,
+    EnergySource as ApiEnergySource,
 };
 
 /// Internal settings for environmental monitoring with extended fields
@@ -167,13 +168,17 @@ impl EnvironmentalMonitor {
         Ok(EnvironmentalImpact {
             carbon_emissions_g_per_hour: carbon_data.total_emissions_g,
             renewable_percentage: self.calculate_renewable_percentage(),
-            carbon_intensity: energy_data.carbon_intensity,
+            carbon_intensity: carbon_data.intensity,
             carbon_offsets_tons: 0.0, // TODO: Implement carbon offset tracking
-            net_emissions_g_per_hour: carbon_data.total_emissions_g,
+            net_emissions_g_per_hour: carbon_data.net_emissions_g,
             is_carbon_negative: false,
             environmental_score: self.calculate_environmental_score(&energy_data, &carbon_data),
             green_mining_bonus: self.calculate_green_mining_bonus(&energy_data),
-            data_sources: self.get_emissions_sources(),
+            data_sources: vec![
+                "grid_electricity".to_string(),
+                "cooling_systems".to_string(),
+                "hardware_lifecycle".to_string(),
+            ],
             calculated_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -234,9 +239,20 @@ impl EnvironmentalMonitor {
         }
         
         let energy_data = EnergyUsage {
-            total_consumption: total_energy_kwh,
-            renewable_consumption,
-            non_renewable_consumption,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            period,
+            current_power_watts,
+            total_energy_kwh,
+            energy_sources: self.get_energy_sources(),
+            efficiency: total_energy_kwh / self.estimate_transaction_count(period) as f64,
+            history: if include_history {
+                Some(self.energy_history.read().unwrap().clone())
+            } else {
+                None
+            },
         };
         
         Ok(energy_data)
@@ -267,10 +283,11 @@ impl EnvironmentalMonitor {
         let offsets = if include_offsets && self.settings.read().unwrap().carbon_offset_enabled {
             Some(vec![
                 CarbonOffset {
-                    amount: total_emissions_g * 0.5 / 1000.0, // Convert to tons and apply 50% offset
-                    offset_type: "Renewable Energy Certificate".to_string(),
-                    verification_standard: "Gold Standard".to_string(),
-                    purchase_date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+                    id: format!("offset_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+                    quantity_g: total_emissions_g * 0.5, // Apply 50% offset
+                    provider: "Gold Standard".to_string(),
+                    verification: Some("Gold Standard".to_string()),
+                    timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
                 }
             ])
         } else {
@@ -279,7 +296,7 @@ impl EnvironmentalMonitor {
         
         // Calculate net emissions after offsets
         let net_emissions_g = if let Some(offset_list) = &offsets {
-            let total_offset = offset_list.iter().map(|o| o.amount * 1000.0).sum::<f64>(); // Convert tons back to grams
+            let total_offset = offset_list.iter().map(|o| o.quantity_g).sum::<f64>(); // Convert grams to grams
             total_emissions_g - total_offset
         } else {
             total_emissions_g
@@ -383,7 +400,7 @@ impl EnvironmentalMonitor {
     }
     
     /// Helper method to get energy sources based on configured location
-    fn get_energy_sources(&self) -> Vec<EnergySource> {
+    fn get_energy_sources(&self) -> Vec<ApiEnergySource> {
         if let Some(energy_mix) = self.energy_mix.get(&self.node_location) {
             energy_mix.iter().map(|(source_type, percentage)| {
                 let name = match source_type {
@@ -402,11 +419,17 @@ impl EnvironmentalMonitor {
                     EnergySourceType::Solar | 
                     EnergySourceType::Geothermal
                 );
-                EnergySource {
-                    name: name.to_string(),
-                    energy: *percentage,
-                    percentage: *percentage,
-                    renewable,
+                
+                // Return as enum variant based on the source type
+                match source_type {
+                    EnergySourceType::Coal => ApiEnergySource::Coal,
+                    EnergySourceType::NaturalGas => ApiEnergySource::NaturalGas,
+                    EnergySourceType::Nuclear => ApiEnergySource::Nuclear,
+                    EnergySourceType::Hydro => ApiEnergySource::Hydro,
+                    EnergySourceType::Wind => ApiEnergySource::Wind,
+                    EnergySourceType::Solar => ApiEnergySource::Solar,
+                    EnergySourceType::Geothermal => ApiEnergySource::Geothermal,
+                    EnergySourceType::Other => ApiEnergySource::Other,
                 }
             }).collect()
         } else {
@@ -417,21 +440,9 @@ impl EnvironmentalMonitor {
     /// Helper method to get emissions sources
     fn get_emissions_sources(&self) -> Vec<EmissionsSource> {
         vec![
-            EmissionsSource {
-                name: "Electricity".to_string(),
-                emissions: 80.0,
-                percentage: 80.0,
-            },
-            EmissionsSource {
-                name: "Cooling".to_string(),
-                emissions: 15.0,
-                percentage: 15.0,
-            },
-            EmissionsSource {
-                name: "Manufacturing".to_string(),
-                emissions: 5.0,
-                percentage: 5.0,
-            },
+            EmissionsSource::Electricity,
+            EmissionsSource::Cooling,
+            EmissionsSource::Manufacturing,
         ]
     }
     
@@ -464,7 +475,7 @@ impl EnvironmentalMonitor {
     fn calculate_environmental_score(&self, energy_data: &EnergyUsage, carbon_data: &CarbonFootprint) -> f64 {
         // Simple scoring algorithm: higher renewable percentage = better score
         // Lower emissions = better score
-        let renewable_score = energy_data.renewable_percentage;
+        let renewable_score = self.calculate_renewable_percentage();
         let emission_score = 100.0 - (carbon_data.total_emissions_g / 1000.0).min(100.0);
         (renewable_score + emission_score) / 2.0
     }
@@ -472,22 +483,14 @@ impl EnvironmentalMonitor {
     /// Calculate green mining bonus
     fn calculate_green_mining_bonus(&self, energy_data: &EnergyUsage) -> f64 {
         // Bonus percentage based on renewable energy usage
-        if energy_data.renewable_percentage >= 75.0 {
+        let renewable_percentage = self.calculate_renewable_percentage();
+        if renewable_percentage >= 75.0 {
             10.0 // 10% bonus for >75% renewable
-        } else if energy_data.renewable_percentage >= 50.0 {
+        } else if renewable_percentage >= 50.0 {
             5.0 // 5% bonus for >50% renewable
         } else {
             0.0
         }
-    }
-    
-    /// Get emissions sources
-    fn get_emissions_sources(&self) -> Vec<String> {
-        vec![
-            "grid_electricity".to_string(),
-            "cooling_systems".to_string(),
-            "hardware_lifecycle".to_string(),
-        ]
     }
 }
 
@@ -513,9 +516,8 @@ mod tests {
         let energy_data = monitor.get_energy_usage(3600, false).unwrap();
         
         // Energy should be positive
-        assert!(energy_data.total_consumption > 0.0);
-        assert!(energy_data.renewable_consumption > 0.0);
-        assert!(energy_data.non_renewable_consumption > 0.0);
+        assert!(energy_data.total_energy_kwh > 0.0);
+        assert!(energy_data.current_power_watts > 0.0);
     }
     
     #[test]

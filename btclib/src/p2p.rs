@@ -4,6 +4,4 @@
 pub use crate::network::{
     NetworkConfig,
     NetworkError,
-    PeerInfo,
-    Message,
 }; 

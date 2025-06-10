@@ -32,6 +32,16 @@ pub struct SubmitTxRequest {
     pub raw_tx: String,
 }
 
+/// Alias for OpenAPI compatibility
+pub type SubmitTransactionRequest = SubmitTxRequest;
+
+/// Request for validating a transaction
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ValidateTransactionRequest {
+    /// Raw transaction data in hex format
+    pub raw_tx: String,
+}
+
 /// Get mempool information
 ///
 /// Returns general information about the mempool.
@@ -172,7 +182,7 @@ pub async fn submit_transaction(
                 crate::mempool::MempoolError::InvalidTransaction(msg) => {
                     Err(ApiError::bad_request(format!("Invalid transaction: {}", msg)))
                 },
-                crate::mempool::MempoolError::InsufficientFee => {
+                crate::mempool::MempoolError::FeeTooLow { .. } => {
                     Err(ApiError::bad_request("Insufficient transaction fee"))
                 },
                 _ => {

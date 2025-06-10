@@ -49,11 +49,11 @@ pub async fn get_blockchain_info(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<BlockchainInfo> {
     let storage = node.storage();
-    let height = storage.read().unwrap().get_height()
+    let height = storage.get_height()
         .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
     
     let best_block_hash = if height > 0 {
-        storage.read().unwrap().get_block_hash_by_height(height)
+        storage.get_block_hash_by_height(height)
             .map_err(|e| ApiError::internal_error(format!("Failed to get best block hash: {}", e)))?
             .unwrap_or([0u8; 32])
     } else {
@@ -63,12 +63,15 @@ pub async fn get_blockchain_info(
     let difficulty = 1.0; // TODO: Get actual difficulty
     let total_work = "0x1".to_string(); // TODO: Calculate total work
     
+    let config = node.config();
+    let network_id = config.read().unwrap().network.network_id.clone();
+    
     let info = BlockchainInfo {
         height,
         best_block_hash: hex::encode(best_block_hash),
         difficulty,
         total_work,
-        network: node.config.network.network_id.clone(),
+        network: network_id,
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
     
@@ -97,15 +100,15 @@ pub async fn get_block_by_height(
     let height = path.into_inner();
     let storage = node.storage();
     
-    let block_hash = storage.read().unwrap().get_block_hash_by_height(height)
+    let block_hash = storage.get_block_hash_by_height(height)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block hash: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    let block = storage.read().unwrap().get_block(&block_hash)
+    let block = storage.get_block(&block_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    let confirmations = node.chain_state.read().unwrap().get_height().saturating_sub(height) + 1;
+    let confirmations = node.chain_state().get_height().saturating_sub(height) + 1;
     
     let block_info = BlockInfo {
         hash: hex::encode(block_hash),
@@ -158,15 +161,15 @@ pub async fn get_block_by_hash(
     block_hash.copy_from_slice(&hash);
     
     let storage = node.storage();
-    let block = storage.read().unwrap().get_block(&block_hash)
+    let block = storage.get_block(&block_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    let height = storage.read().unwrap().get_block_height(&block_hash)
+    let height = storage.get_block_height(&block_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
         .unwrap_or(0);
     
-    let confirmations = node.chain_state.read().unwrap().get_height().saturating_sub(height) + 1;
+    let confirmations = node.chain_state().get_height().saturating_sub(height) + 1;
     
     let block_info = BlockInfo {
         hash: hash_str,
@@ -255,22 +258,22 @@ pub async fn get_transaction(
     }
     
     // Check blockchain storage
-    let tx = storage.read().unwrap().get_transaction(&tx_hash)
+    let tx = storage.get_transaction(&tx_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get transaction: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
     
     // Get block information if transaction is in a block
-    let (block_hash, block_height, confirmations) = if let Some(block_hash) = storage.read().unwrap().get_transaction_block(&tx_hash)
+    let (block_hash, block_height, confirmations) = if let Some(block_hash) = storage.get_transaction_block(&tx_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get transaction block: {}", e)))? {
-        let block_height = storage.read().unwrap().get_block_height(&block_hash)
+        let block_height = storage.get_block_height(&block_hash)
             .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
             .unwrap_or(0);
         
-        let block = storage.read().unwrap().get_block(&block_hash)
+        let block = storage.get_block(&block_hash)
             .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Block not found"))?;
         
-        let confirmations = node.chain_state.read().unwrap().get_height().saturating_sub(block_height) + 1;
+        let confirmations = node.chain_state().get_height().saturating_sub(block_height) + 1;
         
         (Some(hex::encode(block_hash)), Some(block_height), confirmations)
     } else {
@@ -279,7 +282,7 @@ pub async fn get_transaction(
     
     // Get input and output information
     let inputs: Vec<serde_json::Value> = tx.inputs().iter().map(|input| {
-        let prev_output = storage.read().unwrap().get_transaction_output(&input.prev_tx_hash(), input.prev_output_index())
+        let prev_output = storage.get_transaction_output(&input.prev_tx_hash(), input.prev_output_index())
             .ok().flatten();
         
         serde_json::json!({
@@ -292,11 +295,11 @@ pub async fn get_transaction(
     }).collect();
     
     let outputs: Vec<serde_json::Value> = tx.outputs().iter().enumerate().map(|(i, output)| {
-        let spent_info = storage.read().unwrap().get_transaction_output(&tx_hash, i as u32)
+        let spent_info = storage.get_transaction_output(&tx_hash, i as u32)
             .ok().flatten();
         let is_spent = spent_info.is_none();
         let spent_by_tx = if is_spent {
-            storage.read().unwrap().is_output_spent(&tx_hash, i as u32)
+            storage.is_output_spent(&tx_hash, i as u32)
                 .ok().flatten().map(|hash| hex::encode(hash))
         } else {
             None
@@ -373,12 +376,12 @@ pub async fn submit_transaction(
         Err(e) => {
             match e {
                 crate::mempool::MempoolError::TransactionExists(_) => {
-                    ApiError::bad_request("Transaction already exists in mempool")
+                    Err(ApiError::bad_request("Transaction already exists in mempool"))
                 },
                 crate::mempool::MempoolError::InvalidTransaction(msg) => {
                     Err(ApiError::bad_request(format!("Invalid transaction: {}", msg)))
                 },
-                crate::mempool::MempoolError::InsufficientFee => {
+                crate::mempool::MempoolError::FeeTooLow { .. } => {
                     Err(ApiError::bad_request("Insufficient transaction fee"))
                 },
                 _ => {
@@ -404,7 +407,7 @@ pub async fn get_blockchain_stats(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<BlockchainStats> {
     let storage = node.storage();
-    let height = storage.read().unwrap().get_height()
+    let height = storage.get_height()
         .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
     
     let stats = BlockchainStats {
@@ -417,14 +420,6 @@ pub async fn get_blockchain_stats(
         mempool_bytes: node.mempool().size_in_bytes(),
         utxo_set_size: 0, // TODO: Count UTXO set size
         chain_size_bytes: 0, // TODO: Calculate chain size
-    };
-    
-    // Calculate environmental impact if available
-    let _environmental_impact: Option<f64> = if let Some(_em) = node.environmental_manager() {
-        // TODO: Implement transaction emissions calculation
-        None
-    } else {
-        None
     };
     
     Ok(stats)

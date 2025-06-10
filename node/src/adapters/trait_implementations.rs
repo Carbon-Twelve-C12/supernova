@@ -136,18 +136,18 @@ impl IVecConversion for [u8; 32] {
 }
 
 /// Borrow implementation helper
-pub trait BorrowHelper<T> {
-    fn borrow_as(&self) -> &T;
+pub trait BorrowHelper<T: ?Sized> {
+    fn borrow_helper(&self) -> &T;
 }
 
 impl BorrowHelper<[u8; 32]> for [u8; 32] {
-    fn borrow_as(&self) -> &[u8; 32] {
+    fn borrow_helper(&self) -> &[u8; 32] {
         self
     }
 }
 
 impl BorrowHelper<[u8]> for [u8; 32] {
-    fn borrow_as(&self) -> &[u8] {
+    fn borrow_helper(&self) -> &[u8] {
         &self[..]
     }
 }
@@ -187,12 +187,12 @@ impl<T> Serialize for SerializableFuture<T> {
 }
 
 /// Helper function to convert between numeric types safely
-pub fn safe_numeric_cast<From, To>(value: From) -> To
+pub fn safe_numeric_cast<F, T>(value: F) -> T
 where
-    From: SafeNumericConversion,
-    To: From<usize>,
+    F: SafeNumericConversion,
+    T: From<usize>,
 {
-    To::from(value.to_usize_safe())
+    T::from(value.to_usize_safe())
 }
 
 /// Extension trait for Result type to handle conversions

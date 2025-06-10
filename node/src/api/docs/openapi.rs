@@ -43,9 +43,9 @@ impl Modify for SecurityAddon {
         mempool::get_mempool_info,
         mempool::get_mempool_transactions,
         mempool::get_mempool_transaction,
-        mempool::submit_mempool_transaction,
+        mempool::submit_transaction,
         mempool::validate_transaction,
-        mempool::estimate_fee,
+        mempool::get_fee_estimates,
         
         // Network routes
         network::get_network_info,

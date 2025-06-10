@@ -6,11 +6,11 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use rand::rngs::OsRng;
 
 use crate::crypto::quantum::{
     QuantumKeyPair, QuantumParameters, QuantumScheme,
-    generate_quantum_keypair, sign_with_quantum_key, verify_quantum_signature,
-    DilithiumLevel, HybridScheme,
+    verify_quantum_signature,
 };
 use crate::lightning::quantum_lightning::{
     QuantumLightningManager, QuantumHTLC, QuantumLightningChannel,
@@ -184,9 +184,9 @@ impl QuantumSecurityAuditor {
         println!("🔐 Preparing CRYSTALS-Dilithium security audit...");
         
         // Test all security levels
-        let level2_validation = self.validate_dilithium_level(DilithiumLevel::Level2);
-        let level3_validation = self.validate_dilithium_level(DilithiumLevel::Level3);
-        let level5_validation = self.validate_dilithium_level(DilithiumLevel::Level5);
+        let level2_validation = self.validate_dilithium_level(2);
+        let level3_validation = self.validate_dilithium_level(3);
+        let level5_validation = self.validate_dilithium_level(5);
         
         // Performance benchmarks
         let performance_metrics = self.benchmark_dilithium_performance();
@@ -322,7 +322,7 @@ impl QuantumSecurityAuditor {
     
     // Helper methods for specific tests
     
-    fn validate_dilithium_level(&mut self, level: DilithiumLevel) -> SecurityLevelValidation {
+    fn validate_dilithium_level(&mut self, level: u8) -> SecurityLevelValidation {
         let mut passed_tests = 0;
         let total_tests = self.test_iterations;
         
@@ -332,26 +332,18 @@ impl QuantumSecurityAuditor {
         for _ in 0..total_tests {
             let params = QuantumParameters {
                 scheme: QuantumScheme::Dilithium,
-                security_level: match level {
-                    DilithiumLevel::Level2 => 2,
-                    DilithiumLevel::Level3 => 3,
-                    DilithiumLevel::Level5 => 5,
-                },
+                security_level: level,
             };
             
-            if generate_quantum_keypair(params).is_ok() {
+            if QuantumKeyPair::generate(&mut OsRng, params).is_ok() {
                 passed_tests += 1;
             }
         }
         
-        let quantum_security_bits = match level {
-            DilithiumLevel::Level2 => 128,
-            DilithiumLevel::Level3 => 192,
-            DilithiumLevel::Level5 => 256,
-        };
+        let quantum_security_bits = (level as u32) * 64;
         
         SecurityLevelValidation {
-            security_level: level as u8,
+            security_level: level,
             key_generation_tests: total_tests,
             signature_generation_tests: total_tests,
             verification_tests: total_tests,
@@ -368,13 +360,13 @@ impl QuantumSecurityAuditor {
         
         // Benchmark key generation
         let start = Instant::now();
-        let keypair = generate_quantum_keypair(params).unwrap();
+        let keypair = QuantumKeyPair::generate(&mut OsRng, params).unwrap();
         let keygen_time = start.elapsed();
         
         // Benchmark signing
         let message = b"Performance benchmark message";
         let start = Instant::now();
-        let signature = sign_with_quantum_key(&keypair, message).unwrap();
+        let signature = keypair.sign(message).unwrap();
         let sign_time = start.elapsed();
         
         // Benchmark verification
@@ -416,9 +408,9 @@ impl QuantumSecurityAuditor {
                 security_level: 3,
             };
             
-            let keypair = generate_quantum_keypair(params).unwrap();
+            let keypair = QuantumKeyPair::generate(&mut OsRng, params).unwrap();
             let message = b"Test message for signature validation";
-            let signature = sign_with_quantum_key(&keypair, message).unwrap();
+            let signature = keypair.sign(message).unwrap();
             
             if verify_quantum_signature(&keypair.public_key, message, &signature, params).unwrap() {
                 tests_passed += 1;

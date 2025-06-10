@@ -133,7 +133,7 @@ pub async fn get_node_status(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // TODO: Implement real node status retrieval
-    let status = node.get_status()?;
+    let status = node.get_status().await;
     
     Ok(HttpResponse::Ok().json(status))
 }

@@ -1,5 +1,5 @@
 use crate::network::protocol::{Message as ProtocolMessage, PublishError};
-use libp2p::{core::PeerId, gossipsub};
+use libp2p::{PeerId, gossipsub};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},

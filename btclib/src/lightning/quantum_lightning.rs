@@ -4,17 +4,14 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use serde::{Serialize, Deserialize};
-use bitcoin::{Transaction, TxOut, Script, Address};
-use lightning::ln::channelmanager::{ChannelDetails, ChannelManager};
-use lightning::ln::msgs::{ChannelMessageHandler, RoutingMessageHandler};
-use lightning::routing::router::{Route, RouteHop, Router};
-use lightning::util::events::{Event, EventHandler};
 use sha2::{Sha256, Digest};
 use chrono::{DateTime, Utc};
 
+// Use our internal types instead of external crates
+use crate::types::transaction::{Transaction, TransactionOutput};
 use crate::crypto::quantum::{
     QuantumKeyPair, QuantumParameters, QuantumScheme,
-    sign_with_quantum_key, verify_quantum_signature,
+    verify_quantum_signature,
 };
 use crate::environmental::{
     carbon_tracking::{CarbonTracker, CarbonTrackingResult},
@@ -367,10 +364,8 @@ impl QuantumLightningManager {
         
         // Sign HTLC with quantum key
         let htlc_data = self.serialize_htlc_data(amount_sats, &payment_hash, expiry_blocks);
-        let quantum_signature = sign_with_quantum_key(
-            &self.node_quantum_keys,
-            &htlc_data,
-        ).map_err(|e| LightningError::QuantumSignatureError(e.to_string()))?;
+        let quantum_signature = self.node_quantum_keys.sign(&htlc_data)
+            .map_err(|e| LightningError::QuantumSignatureError(e.to_string()))?;
         
         // Calculate carbon footprint
         let carbon_footprint = self.calculate_htlc_carbon_footprint(amount_sats);
@@ -452,7 +447,7 @@ impl QuantumLightningManager {
             
             // Benchmark quantum signature
             let test_data = b"benchmark_payment_data";
-            let _ = sign_with_quantum_key(&self.node_quantum_keys, test_data)
+            let _ = self.node_quantum_keys.sign(test_data)
                 .map_err(|e| LightningError::QuantumSignatureError(e.to_string()))?;
             
             total_time += start.elapsed();
@@ -604,15 +599,16 @@ impl QuantumLightningManager {
     
     fn generate_channel_id(&self, funding_tx: &Transaction) -> [u8; 32] {
         let mut hasher = Sha256::new();
-        hasher.update(&funding_tx.txid());
+        // Use transaction hash method
+        hasher.update(&funding_tx.hash());
         hasher.update(&Utc::now().timestamp().to_le_bytes());
         hasher.finalize().into()
     }
     
     fn generate_htlc_id(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
-        hasher.update(&Utc::now().timestamp_nanos().to_le_bytes());
         hasher.update(&self.node_quantum_keys.public_key);
+        hasher.update(&Utc::now().timestamp_nanos_opt().unwrap_or(0).to_le_bytes());
         hasher.finalize().into()
     }
     
@@ -641,10 +637,10 @@ impl QuantumLightningManager {
     }
     
     fn create_quantum_preimage_commitment(&self, preimage: &[u8]) -> Result<Vec<u8>, LightningError> {
-        // Create quantum-resistant commitment
+        // Create commitment by signing the preimage with quantum key
         let commitment_data = [preimage, &self.node_quantum_keys.public_key].concat();
         
-        sign_with_quantum_key(&self.node_quantum_keys, &commitment_data)
+        self.node_quantum_keys.sign(&commitment_data)
             .map_err(|e| LightningError::QuantumSignatureError(e.to_string()))
     }
     

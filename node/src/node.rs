@@ -32,6 +32,23 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use std::str::FromStr;
 use serde::{Serialize, Deserialize};
+use crate::testnet::NodeTestnetManager;
+use btclib::types::transaction::Transaction;
+use btclib::types::block::Block;
+use hex;
+
+/// Node status information for internal use
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NodeStatusInfo {
+    pub version: String,
+    pub network: String,
+    pub chain_id: String,
+    pub chain_height: u64,
+    pub mempool_size: usize,
+    pub peer_count: usize,
+    pub is_syncing: bool,
+    pub is_testnet: bool,
+}
 
 /// Node operation errors
 #[derive(Error, Debug)]
@@ -48,6 +65,10 @@ pub enum NodeError {
     IoError(#[from] std::io::Error),
     #[error("General error: {0}")]
     General(String),
+    #[error("Mempool error: {0}")]
+    MempoolError(#[from] crate::mempool::MempoolError),
+    #[error("Testnet error: {0}")]
+    TestnetError(String),
 }
 
 // Placeholder types for missing imports
@@ -77,648 +98,284 @@ impl LightningEventHandler {
     }
 }
 
+/// Main node structure
 pub struct Node {
-    pub config: NodeConfig,
-    pub chain_state: Arc<RwLock<ChainState>>,
-    pub blockchain_db: Arc<RwLock<BlockchainDB>>,
-    pub utxo_set: Arc<RwLock<UtxoSet>>,
-    pub network_manager: Arc<NetworkManager>,
-    pub block_validator: Arc<BlockValidator>,
-    pub tx_validator: Arc<TransactionValidator>,
-    pub backup_manager: Option<Arc<BackupManager>>,
-    pub recovery_manager: Option<Arc<RecoveryManager>>,
-    pub checkpoint_manager: Option<Arc<CheckpointManager>>,
-    pub rpc_server: Option<Arc<RpcServer>>,
-    pub is_running: Arc<AtomicBool>,
-    pub mem_pool: Arc<RwLock<MemPool>>,
-    /// API server instance
-    pub api_server: Option<ApiServer>,
-    /// Lightning Network integration
-    lightning: Option<Arc<Mutex<LightningManager>>>,
-    /// Lightning Network event handler (thread-safe)
+    /// Node configuration
+    config: Arc<RwLock<NodeConfig>>,
+    /// Blockchain database
+    db: Arc<BlockchainDB>,
+    /// Chain state
+    chain_state: Arc<ChainState>,
+    /// Transaction mempool
+    mempool: Arc<TransactionPool>,
+    /// P2P network
+    network: Arc<P2PNetwork>,
+    /// Testnet manager (if enabled)
+    testnet_manager: Option<Arc<NodeTestnetManager>>,
+    /// Lightning Network manager
+    lightning_manager: Option<Arc<RwLock<LightningManager>>>,
+    /// Lightning event handler
     lightning_event_handler: Option<LightningEventHandler>,
-    /// Lightning event processing task handle
-    lightning_event_task: Option<Arc<Mutex<JoinHandle<()>>>>,
-    /// Performance monitor
-    pub performance_monitor: Arc<PerformanceMonitor>,
-    /// Node peer ID
+    /// Lightning event processing task
+    lightning_event_task: Option<JoinHandle<()>>,
+    pub api_server: Option<ApiServer>,
+    pub api_config: ApiConfig,
     pub peer_id: PeerId,
-    /// Node start time
     pub start_time: Instant,
-    /// Network layer
-    pub network: Arc<P2PNetwork>,
-    /// Mempool
-    pub mempool: Arc<TransactionPool>,
-    /// Blockchain reference
+    pub performance_monitor: Arc<PerformanceMonitor>,
     pub blockchain: Arc<ChainState>,
-    /// Wallet reference (placeholder)
     pub wallet: Arc<()>,
-    /// Database shutdown handler
-    db_shutdown_handler: Option<Arc<DatabaseShutdownHandler>>,
-    /// Write-ahead log
-    wal: Option<Arc<RwLock<WriteAheadLog>>>,
+    pub db_shutdown_handler: Option<Arc<DatabaseShutdownHandler>>,
+    pub wal: Option<Arc<RwLock<WriteAheadLog>>>,
 }
 
 impl Node {
+    /// Create a new node instance
     pub async fn new(config: NodeConfig) -> Result<Self, NodeError> {
-        // Initialize core components
-        let blockchain_db = Arc::new(RwLock::new(BlockchainDB::new(&config.storage.db_path)?));
+        // Validate configuration
+        config.validate()
+            .map_err(|e| NodeError::ConfigError(e.to_string()))?;
         
-        // Create ChainState with the proper path
-        let chain_state_path = config.storage.db_path.join("chain_state");
-        let chain_state = Arc::new(RwLock::new(ChainState::new(chain_state_path)?));
+        // Initialize database
+        let db = Arc::new(BlockchainDB::new(&config.storage.db_path)?);
         
-        let utxo_set = Arc::new(RwLock::new(UtxoSet::new(config.storage.db_path.join("utxo_set"))?));
-        let network_manager = Arc::new(P2PNetwork::new());
-        let block_validator = Arc::new(());
-        let tx_validator = Arc::new(());
-        let backup_manager = None; // TODO: Initialize if needed
-        let recovery_manager = None; // TODO: Initialize if needed
-        let rpc_server = None; // TODO: Initialize if needed
+        // Initialize chain state
+        let chain_state = Arc::new(ChainState::new(Arc::clone(&db))?);
         
-        // Create mempool configuration
-        let mempool_config = crate::mempool::pool::MempoolConfig {
-            max_size: 1000,
-            max_age: 86400, // 24 hours
-            min_fee_rate: 1,
-            enable_rbf: true,
-            min_rbf_fee_increase: 10.0,
-        };
-        let mem_pool = Arc::new(RwLock::new(TransactionPool::new(mempool_config.clone())));
-
-        // Check if database was cleanly shut down last time
-        {
-            let db = blockchain_db.read().unwrap();
-            
-            // Check for clean shutdown marker
-            let was_clean_shutdown = match db.get_metadata(b"last_clean_shutdown") {
-                Ok(Some(data)) => {
-                    // Check if shutdown was recent (within last hour)
-                    if let Ok(timestamp_str) = std::str::from_utf8(&data) {
-                        if let Ok(timestamp) = timestamp_str.parse::<i64>() {
-                            let shutdown_time = chrono::DateTime::from_timestamp(timestamp, 0)
-                                .unwrap_or(chrono::DateTime::from_timestamp(0, 0).unwrap());
-                            info!("Last clean shutdown was at {}", shutdown_time);
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                }
-                _ => false,
+        // Initialize mempool
+        let mempool_config = crate::mempool::MempoolConfig::from(config.mempool.clone());
+        let mempool = Arc::new(TransactionPool::new(mempool_config));
+        
+        // Initialize network
+        let network = Arc::new(P2PNetwork::new());
+        
+        // Initialize testnet manager if enabled
+        let testnet_manager = if config.testnet.enabled {
+            let testnet_config = crate::testnet::TestnetNodeConfig {
+                enabled: config.testnet.enabled,
+                network_id: config.node.chain_id.clone(),
+                enable_faucet: config.testnet.enable_faucet,
+                faucet_amount: config.testnet.faucet_amount,
+                faucet_cooldown: config.testnet.faucet_cooldown,
+                faucet_max_balance: config.testnet.faucet_max_balance,
+                enable_test_mining: config.testnet.enable_test_mining,
+                test_mining_difficulty: config.testnet.test_mining_difficulty,
+                enable_network_simulation: false,
+                simulated_latency_ms: 0,
+                simulated_packet_loss: 0.0,
             };
             
-            // Check for unclean shutdown
-            if let Ok(Some(data)) = db.get_metadata(b"shutdown_in_progress") {
-                if data == b"true" {
-                    warn!("Database was not cleanly shut down - shutdown was in progress");
-                    
-                    // Run integrity check
-                    info!("Running database integrity check after unclean shutdown...");
-                    match db.verify_integrity(
-                        crate::storage::IntegrityCheckLevel::Comprehensive,
-                        true // Enable repair
-                    ) {
-                        Ok(result) => {
-                            if !result.passed {
-                                error!("Database integrity check failed with {} issues", result.issues.len());
-                                // In production, you might want to fail here or enter recovery mode
-                            } else {
-                                info!("Database integrity check passed");
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to run integrity check: {}", e);
-                            return Err(NodeError::StorageError(e));
-                        }
-                    }
-                    
-                    // Clear the flag
-                    let _ = db.store_metadata(b"shutdown_in_progress", b"false");
+            match NodeTestnetManager::new(testnet_config) {
+                Ok(manager) => Some(Arc::new(manager)),
+                Err(e) => {
+                    tracing::warn!("Failed to initialize testnet manager: {}", e);
+                    None
                 }
             }
-            
-            if !was_clean_shutdown {
-                warn!("No record of clean shutdown found - database may require recovery");
-            }
-        }
-
-        // Initialize checkpoint manager if enabled
-        let checkpoint_manager = if config.checkpoint.checkpoints_enabled {
-            let checkpoint_config = CheckpointConfig {
-                checkpoint_dir: config.storage.db_path.join("checkpoints"),
-                checkpoint_interval_blocks: config.checkpoint.checkpoint_interval.as_secs() / 600, // Convert time to approximate blocks (10 min blocks)
-                checkpoint_interval_time: config.checkpoint.checkpoint_interval,
-                max_checkpoints: 10, // Keep last 10 checkpoints
-                integrity_check_interval: Duration::from_secs(86400), // Daily integrity check
-                verify_after_creation: true,
-                auto_recovery_on_startup: true,
-            };
-            
-            Some(Arc::new(CheckpointManager::new(
-                blockchain_db.clone(),
-                chain_state.clone(),
-                checkpoint_config,
-            )))
         } else {
             None
         };
-
-        // Initialize performance monitor
-        let performance_monitor = Arc::new(PerformanceMonitor::new(1000)); // Store 1000 data points per metric
-
+        
+        // Initialize Lightning Network if enabled
+        let (lightning_manager, lightning_event_handler, lightning_event_task) = 
+            if config.node.enable_lightning {
+                // Create Lightning configuration
+                let lightning_config = LightningConfig {
+                    default_channel_capacity: 10_000_000, // 0.1 BTC
+                    min_channel_capacity: 100_000,        // 0.001 BTC
+                    max_channel_capacity: 1_000_000_000,  // 10 BTC
+                    cltv_expiry_delta: 144,               // ~1 day
+                    fee_base_msat: 1000,                  // 1 sat base fee
+                    fee_proportional_millionths: 100,     // 0.01% proportional fee
+                    use_quantum_signatures: config.node.enable_quantum_security,
+                    quantum_scheme: if config.node.enable_quantum_security {
+                        Some(QuantumScheme::Dilithium)
+                    } else {
+                        None
+                    },
+                    quantum_security_level: 3,
+                };
+                
+                // Create Lightning wallet
+                let lightning_wallet = LightningWallet::new(
+                    vec![0u8; 32], // TODO: Use proper seed from node wallet
+                    config.node.enable_quantum_security,
+                    if config.node.enable_quantum_security {
+                        Some(QuantumScheme::Dilithium)
+                    } else {
+                        None
+                    },
+                )?;
+                
+                // Create Lightning manager
+                let (lightning_manager, event_receiver) = LightningManager::new(
+                    lightning_config,
+                    lightning_wallet,
+                )?;
+                
+                // Create event handler
+                let (event_handler, event_receiver_2) = LightningEventHandler::new();
+                
+                // Spawn event processing task
+                let manager_clone = Arc::new(RwLock::new(lightning_manager));
+                let manager_for_task = Arc::clone(&manager_clone);
+                let event_task = tokio::spawn(async move {
+                    Self::process_lightning_events(manager_for_task, event_receiver).await;
+                });
+                
+                (Some(manager_clone), Some(event_handler), Some(event_task))
+            } else {
+                (None, None, None)
+            };
+        
         Ok(Self {
-            config,
-            chain_state: chain_state.clone(),
-            blockchain_db,
-            utxo_set,
-            network_manager,
-            block_validator,
-            tx_validator,
-            backup_manager,
-            recovery_manager,
-            checkpoint_manager,
-            rpc_server,
-            is_running: Arc::new(AtomicBool::new(false)),
-            mem_pool,
+            config: Arc::new(RwLock::new(config)),
+            db,
+            chain_state,
+            mempool,
+            network,
+            testnet_manager,
+            lightning_manager,
+            lightning_event_handler,
+            lightning_event_task,
             api_server: None,
-            lightning: None,
-            lightning_event_handler: None,
-            lightning_event_task: None,
-            performance_monitor,
+            api_config: ApiConfig::default(),
             peer_id: PeerId::random(),
             start_time: Instant::now(),
-            network: Arc::new(P2PNetwork::new()),
-            mempool: Arc::new(TransactionPool::new(mempool_config)),
-            blockchain: chain_state,
+            performance_monitor: Arc::new(PerformanceMonitor::new(1000)),
+            blockchain: Arc::clone(&chain_state),
             wallet: Arc::new(()),
             db_shutdown_handler: None,
             wal: None,
         })
     }
-
-    pub fn start(&self) -> Result<(), NodeError> {
-        // ... existing code ...
-
-        // Start checkpoint manager if enabled
-        if let Some(checkpoint_manager) = &self.checkpoint_manager {
-            checkpoint_manager.start()?;
+    
+    /// Start the node
+    pub async fn start(&self) -> Result<(), NodeError> {
+        tracing::info!("Starting Supernova node...");
+        
+        // Start network
+        self.network.start().await
+            .map_err(|e| NodeError::NetworkError(e.to_string()))?;
+        
+        // Start testnet manager if enabled
+        if let Some(testnet) = &self.testnet_manager {
+            testnet.start().await
+                .map_err(|e| NodeError::TestnetError(e))?;
         }
-
-        // Start performance monitoring
-        let monitor_clone = Arc::clone(&self.performance_monitor);
-        tokio::spawn(async move {
-            monitor_clone.start_periodic_collection(10000); // Collect system metrics every 10 seconds
-        });
         
-        // Optimize database for performance
-        self.optimize_database_for_performance()?;
-
-        // ... existing code ...
-        
-        Ok(())
-    }
-
-    pub fn stop(&self) -> Result<(), NodeError> {
-        info!("Stopping node services...");
-        
-        // Stop Lightning Network tasks if running
-        if let Some(task_handle) = &self.lightning_event_task {
-            if let Ok(mut handle) = task_handle.lock() {
-                handle.abort();
-            }
-        }
-
-        // Stop checkpoint manager if enabled
-        if let Some(checkpoint_manager) = &self.checkpoint_manager {
-            checkpoint_manager.stop()?;
-        }
-
-        // Perform graceful database shutdown
-        info!("Performing database shutdown procedures...");
-        {
-            let db = self.blockchain_db.read().unwrap();
-            
-            // Create final checkpoint metadata
-            let height = db.get_height().unwrap_or(0);
-            let timestamp = chrono::Utc::now().timestamp();
-            
-            let checkpoint_data = serde_json::json!({
-                "type": "shutdown_checkpoint",
-                "height": height,
-                "timestamp": timestamp,
-                "clean_shutdown": true,
-            });
-            
-            // Store shutdown checkpoint
-            if let Err(e) = db.store_metadata(
-                b"last_shutdown_checkpoint",
-                checkpoint_data.to_string().as_bytes()
-            ) {
-                error!("Failed to store shutdown checkpoint: {}", e);
-            }
-            
-            // Mark as clean shutdown
-            if let Err(e) = db.store_metadata(
-                b"last_clean_shutdown",
-                timestamp.to_string().as_bytes()
-            ) {
-                error!("Failed to store clean shutdown marker: {}", e);
-            }
-            
-            // Clear any shutdown in progress flag
-            if let Err(e) = db.store_metadata(b"shutdown_in_progress", b"false") {
-                error!("Failed to clear shutdown flag: {}", e);
-            }
-            
-            // Flush all pending writes
-            info!("Flushing database to disk...");
-            if let Err(e) = db.flush() {
-                error!("Failed to flush database: {}", e);
-                return Err(NodeError::StorageError(e));
-            }
-            
-            // Compact if time permits (with timeout)
-            info!("Performing quick database compaction...");
-            match std::time::Instant::now() {
-                start => {
-                    if let Err(e) = db.compact() {
-                        warn!("Database compaction failed: {}", e);
-                    } else {
-                        let duration = start.elapsed();
-                        info!("Database compaction completed in {:?}", duration);
-                    }
-                }
-            }
-        }
-
-        info!("Database shutdown procedures completed");
-        
-        Ok(())
-    }
-
-    /// Start the API server
-    pub async fn start_api(self: Arc<Self>, bind_address: &str, port: u16) -> std::io::Result<()> {
-        info!("Starting API server on {}:{}", bind_address, port);
-        
-        // Create API server with shared node reference
-        let api_server = ApiServer::new(
-            self.clone(),
-            bind_address,
-            port
-        );
-        
-        // Start the server
-        let server = api_server.start().await?;
-        
-        info!("API server started successfully on {}:{}", bind_address, port);
-        
-        // Run the server
-        server.await?;
-        
-        Ok(())
-    }
-
-    /// Start the API server with custom configuration
-    pub async fn start_api_with_config(self: Arc<Self>, config: ApiConfig) -> std::io::Result<()> {
-        info!("Starting API server with custom config on {}:{}", config.bind_address, config.port);
-        
-        // Create API server with custom configuration
-        let api_server = ApiServer::new(self.clone(), &config.bind_address, config.port)
-            .with_config(config.clone());
-        
-        // Start the server
-        let server = api_server.start().await?;
-        
-        // Run the server
-        server.await?;
-        
-        info!("API server started on {}:{} with custom configuration", config.bind_address, config.port);
-        Ok(())
-    }
-
-    /// Initialize Lightning Network functionality
-    pub fn init_lightning(&mut self) -> Result<(), String> {
-        info!("Initializing Lightning Network functionality");
-        
-        // Create Lightning wallet from node wallet
-        let wallet = match LightningWallet::from_node_wallet(&self.wallet) {
-            Ok(wallet) => wallet,
-            Err(e) => {
-                error!("Failed to create Lightning wallet: {}", e);
-                return Err(format!("Failed to create Lightning wallet: {}", e));
-            }
-        };
-        
-        // Create Lightning configuration from node config
-        let config = LightningConfig {
-            use_quantum_signatures: self.config.use_quantum_signatures,
-            quantum_scheme: self.config.quantum_scheme.clone(),
-            quantum_security_level: self.config.quantum_security_level,
-            ..LightningConfig::default()
-        };
-        
-        // Create Lightning Network manager
-        let (lightning, event_receiver) = match LightningManager::new(config, wallet) {
-            Ok((manager, receiver)) => (manager, receiver),
-            Err(e) => {
-                error!("Failed to create Lightning Manager: {}", e);
-                return Err(format!("Failed to create Lightning Manager: {}", e));
-            }
-        };
-        
-        // Create thread-safe event handler
-        let (event_handler, internal_receiver) = LightningEventHandler::new();
-        
-        // Spawn task to forward events from Lightning Manager to our handler
-        let event_sender = event_handler.event_sender.clone();
-        let forward_task = tokio::spawn(async move {
-            let mut receiver = event_receiver;
-            while let Some(event) = receiver.recv().await {
-                if let Err(e) = event_sender.send(event) {
-                    error!("Failed to forward Lightning event: {}", e);
-                    break;
-                }
-            }
-        });
-        
-        // Spawn task to process Lightning events
-        let process_task = tokio::spawn(async move {
-            let mut receiver = internal_receiver;
-            while let Some(event) = receiver.recv().await {
-                // Process the event
-                match event {
-                    LightningEvent::ChannelOpened { channel_id, peer_id, .. } => {
-                        info!("Lightning channel {} opened with peer {}", channel_id, peer_id);
-                    }
-                    LightningEvent::ChannelClosed { channel_id, .. } => {
-                        info!("Lightning channel {} closed", channel_id);
-                    }
-                    LightningEvent::PaymentReceived { payment_hash, amount_msat, .. } => {
-                        info!("Lightning payment received: {} msat (hash: {})", amount_msat, payment_hash);
-                    }
-                    LightningEvent::PaymentSent { payment_hash, amount_msat, .. } => {
-                        info!("Lightning payment sent: {} msat (hash: {})", amount_msat, payment_hash);
-                    }
-                    _ => {
-                        // Handle other events as needed
-                        debug!("Lightning event: {:?}", event);
-                    }
-                }
-            }
-        });
-        
-        // Store in node
-        self.lightning = Some(Arc::new(Mutex::new(lightning)));
-        self.lightning_event_handler = Some(event_handler);
-        self.lightning_event_task = Some(Arc::new(Mutex::new(process_task)));
-        
-        info!("Lightning Network functionality initialized successfully");
-        
+        tracing::info!("Node started successfully");
         Ok(())
     }
     
-    /// Get the Lightning Network manager
-    pub fn lightning(&self) -> Option<Arc<Mutex<LightningManager>>> {
-        self.lightning.clone()
-    }
-    
-    /// Register the Lightning Network manager
-    pub fn register_lightning(&mut self, lightning: LightningManager) {
-        self.lightning = Some(Arc::new(Mutex::new(lightning)));
-    }
-    
-    /// Open a payment channel
-    pub async fn open_payment_channel(
-        &self,
-        peer_id: &str,
-        capacity: u64,
-        push_amount: u64,
-    ) -> Result<String, String> {
-        let lightning = match &self.lightning {
-            Some(lightning) => lightning,
-            None => return Err("Lightning Network not initialized".to_string()),
-        };
+    /// Stop the node
+    pub async fn stop(&self) -> Result<(), NodeError> {
+        tracing::info!("Stopping Supernova node...");
         
-        let lightning = lightning.lock().unwrap();
+        // Stop network
+        self.network.stop().await
+            .map_err(|e| NodeError::NetworkError(e.to_string()))?;
         
-        match lightning.open_channel(peer_id, capacity, push_amount, false, None).await {
-            Ok(response) => Ok(response.channel_id),
-            Err(e) => Err(format!("Failed to open payment channel: {}", e)),
+        // Stop testnet manager if enabled
+        if let Some(testnet) = &self.testnet_manager {
+            testnet.stop()
+                .map_err(|e| NodeError::TestnetError(e))?;
         }
-    }
-    
-    /// Close a payment channel
-    pub async fn close_payment_channel(
-        &self,
-        channel_id: &str,
-        force_close: bool,
-    ) -> Result<String, String> {
-        let lightning = match &self.lightning {
-            Some(lightning) => lightning,
-            None => return Err("Lightning Network not initialized".to_string()),
-        };
         
-        let lightning = lightning.lock().unwrap();
-        
-        // Parse channel ID from string to u64
-        let channel_id_u64: u64 = match channel_id.parse() {
-            Ok(id) => id,
-            Err(_) => return Err("Invalid channel ID format".to_string()),
-        };
-        
-        match lightning.close_channel(&channel_id_u64.to_string(), force_close).await {
-            Ok(success) => {
-                if success {
-                    Ok(format!("Channel {} closed successfully", channel_id))
-                } else {
-                    Err(format!("Failed to close channel {}", channel_id))
-                }
-            },
-            Err(e) => Err(format!("Failed to close payment channel: {}", e)),
-        }
-    }
-    
-    /// Create a payment invoice
-    pub fn create_invoice(
-        &self,
-        amount_msat: u64,
-        description: &str,
-        expiry_seconds: u32,
-    ) -> Result<String, String> {
-        let lightning = match &self.lightning {
-            Some(lightning) => lightning,
-            None => return Err("Lightning Network not initialized".to_string()),
-        };
-        
-        let lightning = lightning.lock().unwrap();
-        
-        match lightning.create_invoice(amount_msat, description, expiry_seconds, false) {
-            Ok(response) => Ok(response.payment_request),
-            Err(e) => Err(format!("Failed to create invoice: {}", e)),
-        }
-    }
-    
-    /// Pay an invoice
-    pub async fn pay_invoice(
-        &self,
-        invoice_str: &str,
-    ) -> Result<String, String> {
-        let lightning = match &self.lightning {
-            Some(lightning) => lightning,
-            None => return Err("Lightning Network not initialized".to_string()),
-        };
-        
-        let lightning = lightning.lock().unwrap();
-        
-        match lightning.send_payment(invoice_str, None, 60, None).await {
-            Ok(response) => {
-                if let Some(preimage) = response.payment_preimage {
-                    Ok(preimage)
-                } else {
-                    Err(format!("Payment failed: {}", response.payment_error.unwrap_or_else(|| "Unknown error".to_string())))
-                }
-            },
-            Err(e) => Err(format!("Failed to pay invoice: {}", e)),
-        }
-    }
-    
-    /// List all active channels
-    pub fn list_channels(&self) -> Result<Vec<String>, String> {
-        let lightning = match &self.lightning {
-            Some(lightning) => lightning,
-            None => return Err("Lightning Network not initialized".to_string()),
-        };
-        
-        let lightning = lightning.lock().unwrap();
-        
-        match lightning.get_channels(false, true) {
-            Ok(channels) => {
-                let channel_ids = channels.iter().map(|ch| ch.channel_id.clone()).collect();
-                Ok(channel_ids)
-            },
-            Err(e) => Err(format!("Failed to list channels: {}", e)),
-        }
-    }
-    
-    /// Get information about a specific channel
-    pub fn get_channel_info(&self, channel_id: &str) -> Result<serde_json::Value, String> {
-        let lightning = match &self.lightning {
-            Some(lightning) => lightning,
-            None => return Err("Lightning Network not initialized".to_string()),
-        };
-        
-        let lightning = lightning.lock().unwrap();
-        
-        match lightning.get_channel(channel_id) {
-            Ok(Some(channel)) => {
-                // Convert LightningChannel to JSON
-                let json = serde_json::json!({
-                    "id": channel.channel_id,
-                    "remote_pubkey": channel.remote_pubkey,
-                    "capacity": channel.capacity,
-                    "local_balance": channel.local_balance,
-                    "remote_balance": channel.remote_balance,
-                    "commit_fee": channel.commit_fee,
-                    "private": channel.private,
-                    "initiator": channel.initiator,
-                    "uptime": channel.uptime,
-                    "lifetime": channel.lifetime,
-                });
-                
-                Ok(json)
-            },
-            Ok(None) => Err(format!("Channel {} not found", channel_id)),
-            Err(e) => Err(format!("Failed to get channel info: {}", e)),
-        }
-    }
-
-    pub fn optimize_database_for_performance(&self) -> Result<(), NodeError> {
-        // Wrap in performance monitor to track how long optimization takes
-        self.performance_monitor.record_execution_time(
-            MetricType::Custom("database_optimization".to_string()),
-            None,
-            || {
-                // Access the inner database
-                let db = self.blockchain_db.read().unwrap();
-                
-                // Optimize the database
-                if let Err(e) = db.optimize_for_performance() {
-                    error!("Database optimization failed: {}", e);
-                    return Err(NodeError::StorageError(e));
-                }
-                
-                // Preload critical data
-                if let Err(e) = db.preload_critical_data() {
-                    error!("Failed to preload critical data: {}", e);
-                    return Err(NodeError::StorageError(e));
-                }
-                
-                // Configure memory usage for optimal performance
-                let available_memory = self.get_available_memory();
-                let cache_budget_mb = (available_memory * 0.7) as usize; // Use up to 70% of available memory
-                
-                if let Err(e) = db.optimize_caching(cache_budget_mb) {
-                    error!("Failed to optimize caching: {}", e);
-                    return Err(NodeError::StorageError(e));
-                }
-                
-                info!("Database optimized for performance with {}MB cache budget", cache_budget_mb);
-                Ok(())
-            }
-        )?;
-        
+        tracing::info!("Node stopped successfully");
         Ok(())
     }
-
-    fn get_available_memory(&self) -> usize {
-        // This is a simplified implementation
-        // In a real implementation, use platform-specific APIs
-
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
-                for line in content.lines() {
-                    if line.starts_with("MemAvailable:") {
-                        if let Some(kb_str) = line.split_whitespace().nth(1) {
-                            if let Ok(kb) = kb_str.parse::<usize>() {
-                                return kb / 1024; // Convert KB to MB
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    
+    /// Get node configuration
+    pub fn config(&self) -> Arc<RwLock<NodeConfig>> {
+        Arc::clone(&self.config)
+    }
+    
+    /// Get blockchain database
+    pub fn db(&self) -> Arc<BlockchainDB> {
+        Arc::clone(&self.db)
+    }
+    
+    /// Get chain state
+    pub fn chain_state(&self) -> Arc<ChainState> {
+        Arc::clone(&self.chain_state)
+    }
+    
+    /// Get mempool
+    pub fn mempool(&self) -> Arc<TransactionPool> {
+        Arc::clone(&self.mempool)
+    }
+    
+    /// Get network
+    pub fn network(&self) -> Arc<P2PNetwork> {
+        Arc::clone(&self.network)
+    }
+    
+    /// Get testnet manager
+    pub fn testnet_manager(&self) -> Option<Arc<NodeTestnetManager>> {
+        self.testnet_manager.as_ref().map(Arc::clone)
+    }
+    
+    /// Get faucet (if testnet is enabled)
+    pub fn get_faucet(&self) -> Result<Option<Arc<NodeTestnetManager>>, NodeError> {
+        Ok(self.testnet_manager.as_ref().map(Arc::clone))
+    }
+    
+    /// Broadcast a transaction to the network
+    pub fn broadcast_transaction(&self, tx: &Transaction) {
+        // TODO: Implement transaction broadcasting
+        tracing::debug!("Broadcasting transaction: {:?}", tx.hash());
+    }
+    
+    /// Process a new block
+    pub async fn process_block(&self, block: Block) -> Result<(), NodeError> {
+        // TODO: Implement block processing
+        tracing::debug!("Processing block at height: {}", block.header.height);
+        Ok(())
+    }
+    
+    /// Get storage (blockchain database)
+    pub fn storage(&self) -> Arc<BlockchainDB> {
+        Arc::clone(&self.db)
+    }
+    
+    /// Get node status
+    pub async fn get_status(&self) -> NodeStatusInfo {
+        let config = self.config.read().unwrap();
+        let chain_height = self.chain_state.get_height();
         
-        // Default to 1GB if can't determine
-        1024
+        NodeStatusInfo {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            network: config.node.network_name.clone(),
+            chain_id: config.node.chain_id.clone(),
+            chain_height,
+            mempool_size: self.mempool.size(),
+            peer_count: 0, // TODO: Get from network
+            is_syncing: false, // TODO: Get sync status
+            is_testnet: config.testnet.enabled,
+        }
     }
-
-    pub fn get_performance_metrics(&self) -> serde_json::Value {
-        self.performance_monitor.get_report()
-    }
-
-    /// Get node information
-    pub fn get_info(&self) -> Result<NodeInfo, String> {
+    
+    /// Get node info
+    pub fn get_info(&self) -> Result<NodeInfo, NodeError> {
+        let config = self.config.read().unwrap();
+        let chain_height = self.chain_state.get_height();
+        
         Ok(NodeInfo {
             node_id: self.peer_id.to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             protocol_version: 1,
-            network: self.config.network.clone(),
-            height: self.blockchain.get_height(),
-            best_block_hash: hex::encode(self.blockchain.get_best_block_hash()),
-            connections: self.network.get_peer_count() as u32,
-            synced: self.is_synced(),
+            network: config.node.network_name.clone(),
+            height: chain_height,
+            best_block_hash: hex::encode([0u8; 32]), // TODO: Get actual best block hash
+            connections: 0, // TODO: Get from network
+            synced: true, // TODO: Get sync status
             uptime: self.start_time.elapsed().as_secs(),
         })
     }
-
-    /// Get system information
-    pub fn get_system_info(&self) -> Result<SystemInfo, String> {
-        use sysinfo::System;
-        
+    
+    /// Get system info
+    pub fn get_system_info(&self) -> Result<SystemInfo, NodeError> {
         let mut sys = System::new_all();
         sys.refresh_all();
         
@@ -740,296 +397,133 @@ impl Node {
             },
         })
     }
-
+    
     /// Get logs
-    pub fn get_logs(&self, level: &str, component: Option<&str>, limit: usize, offset: usize) -> Result<Vec<LogEntry>, String> {
-        // In a real implementation, this would read from a log storage system
-        // For now, return empty logs
-        Ok(Vec::new())
-    }
-
-    /// Get node status
-    pub fn get_status(&self) -> Result<NodeStatus, String> {
-        Ok(NodeStatus {
-            state: if self.is_synced() { "synced".to_string() } else { "syncing".to_string() },
-            height: self.blockchain.get_height(),
-            best_block_hash: hex::encode(self.blockchain.get_best_block_hash()),
-            peer_count: self.network.get_peer_count(),
-            mempool_size: self.mempool.size(),
-            is_mining: false, // TODO: Get from mining manager
-            hashrate: 0, // TODO: Get from mining manager
-            difficulty: 1.0, // TODO: Get from blockchain
-            network_hashrate: 0, // TODO: Calculate network hashrate
-        })
-    }
-
-    /// Get node version
-    pub fn get_version(&self) -> Result<VersionInfo, String> {
-        Ok(VersionInfo {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            protocol_version: 1,
-            git_commit: option_env!("GIT_COMMIT").unwrap_or("unknown").to_string(),
-            build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
-            rust_version: option_env!("RUSTC_VERSION").unwrap_or("unknown").to_string(),
-        })
-    }
-
-    /// Restart the node
-    pub fn restart(&self) -> Result<(), NodeError> {
-        info!("Restarting node...");
-        
-        // Stop all services
-        self.stop()?;
-        
-        // Wait a moment for cleanup
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        
-        // Start all services again
-        self.start()?;
-        
-        info!("Node restarted successfully");
-        Ok(())
-    }
-
-    /// Shutdown the node
-    pub fn shutdown(&self) -> Result<(), NodeError> {
-        info!("Shutting down node...");
-        
-        // Set running flag to false
-        self.is_running.store(false, std::sync::atomic::Ordering::SeqCst);
-        
-        // Create final backup if configured
-        if let Some(backup_manager) = &self.backup_manager {
-            info!("Creating final backup before shutdown...");
-            match backup_manager.create_backup() {
-                Ok(path) => info!("Created final backup at {:?}", path),
-                Err(e) => warn!("Failed to create final backup: {:?}", e),
-            }
-        }
-        
-        // Perform final database integrity check
-        {
-            let db = self.blockchain_db.read().unwrap();
-            info!("Running quick integrity check before shutdown...");
-            
-            match db.verify_integrity(
-                crate::storage::IntegrityCheckLevel::Quick,
-                false // Don't repair, just check
-            ) {
-                Ok(result) => {
-                    if result.passed {
-                        info!("Database integrity check passed");
-                    } else {
-                        warn!("Database integrity issues detected: {} issues found", result.issues.len());
-                        for issue in result.issues.iter().take(5) { // Show first 5 issues
-                            warn!("  - {}: {}", issue.tree, issue.description);
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to run integrity check: {}", e);
-                }
-            }
-        }
-        
-        // Stop all services (which includes database shutdown)
-        self.stop()?;
-        
-        info!("Node shutdown complete");
-        Ok(())
-    }
-
-    /// Get debug information
-    pub fn get_debug_info(&self) -> Result<crate::api::types::DebugInfo, String> {
-        Ok(crate::api::types::DebugInfo {
-            node_info: self.get_info()?,
-            system_info: self.get_system_info()?,
-            performance_metrics: self.get_performance_metrics(),
-            network_stats: self.get_network_stats(),
-            mempool_stats: self.get_mempool_stats(),
-            blockchain_stats: self.get_blockchain_stats(),
-            lightning_stats: self.get_lightning_stats(),
-        })
-    }
-
-    /// Get network statistics
-    pub fn get_network_stats(&self) -> serde_json::Value {
-        serde_json::json!({
-            "peer_count": self.network.get_peer_count(),
-            "inbound_connections": 0, // TODO: Get from network manager
-            "outbound_connections": 0, // TODO: Get from network manager
-            "bytes_sent": 0, // TODO: Get from network manager
-            "bytes_received": 0, // TODO: Get from network manager
-        })
-    }
-
-    /// Get mempool statistics
-    pub fn get_mempool_stats(&self) -> serde_json::Value {
-        serde_json::json!({
-            "size": self.mempool.size(),
-            "bytes": self.mempool.get_memory_usage(),
-            "fee_histogram": [], // TODO: Get fee histogram
-            "min_fee_rate": 1.0, // TODO: Get from mempool
-            "max_fee_rate": 100.0, // TODO: Get from mempool
-        })
-    }
-
-    /// Get blockchain statistics
-    pub fn get_blockchain_stats(&self) -> serde_json::Value {
-        serde_json::json!({
-            "height": self.blockchain.get_height(),
-            "best_block_hash": hex::encode(self.blockchain.get_best_block_hash()),
-            "difficulty": 1.0, // TODO: Get from blockchain
-            "total_work": "0", // TODO: Get from blockchain
-            "chain_work": "0", // TODO: Get from blockchain
-        })
-    }
-
-    /// Get Lightning Network statistics
-    pub fn get_lightning_stats(&self) -> serde_json::Value {
-        if let Some(lightning) = &self.lightning {
-            let lightning = lightning.lock().unwrap();
-            
-            // Use the LightningManager API to get comprehensive stats
-            match lightning.get_info() {
-                Ok(info) => {
-                    serde_json::json!({
-                        "enabled": true,
-                        "node_id": info.node_id,
-                        "channel_count": info.num_channels,
-                        "pending_channels": info.num_pending_channels,
-                        "inactive_channels": info.num_inactive_channels,
-                        "total_balance_msat": info.total_balance_msat,
-                        "total_outbound_capacity_msat": info.total_outbound_capacity_msat,
-                        "total_inbound_capacity_msat": info.total_inbound_capacity_msat,
-                        "num_peers": info.num_peers,
-                        "synced_to_chain": info.synced_to_chain,
-                        "synced_to_graph": info.synced_to_graph,
-                        "block_height": info.block_height,
-                    })
-                },
-                Err(_) => {
-                    serde_json::json!({
-                        "enabled": true,
-                        "error": "Failed to get Lightning Network info",
-                        "channel_count": 0,
-                        "total_capacity": 0,
-                        "local_balance": 0,
-                        "remote_balance": 0,
-                    })
-                }
-            }
-        } else {
-            serde_json::json!({
-                "enabled": false,
-                "channel_count": 0,
-                "total_capacity": 0,
-                "local_balance": 0,
-                "remote_balance": 0,
-            })
-        }
-    }
-
-    /// Get metrics
-    pub fn get_metrics(&self, period: u64) -> Result<NodeMetrics, String> {
-        Ok(NodeMetrics {
-            uptime: self.start_time.elapsed().as_secs(),
-            peer_count: self.network.get_peer_count(),
-            block_height: self.blockchain.get_height(),
-            mempool_size: self.mempool.size(),
-            mempool_bytes: self.mempool.size_in_bytes(),
-            sync_progress: if self.is_synced() { 1.0 } else { 0.5 }, // Simplified
-            network_bytes_sent: 0, // TODO: Get from network layer
-            network_bytes_received: 0, // TODO: Get from network layer
-            cpu_usage: 0.0, // TODO: Get from system monitor
-            memory_usage: 0, // TODO: Get from system monitor
-            disk_usage: 0, // TODO: Get from system monitor
-        })
-    }
-
-    /// Get configuration
-    pub fn get_config(&self) -> Result<serde_json::Value, String> {
-        serde_json::to_value(&self.config)
-            .map_err(|e| format!("Failed to serialize config: {}", e))
-    }
-
-    /// Update configuration
-    pub fn update_config(&self, new_config: serde_json::Value) -> Result<serde_json::Value, String> {
-        // In a real implementation, this would validate and apply the new configuration
-        // For now, just return the current config
-        self.get_config()
-    }
-
-    /// Get faucet (for testnet)
-    pub fn get_faucet(&self) -> Result<Option<Arc<crate::api::faucet_wrapper::FaucetWrapper>>, String> {
-        // Return faucet wrapper if this is a testnet node
-        if self.config.network == "testnet" {
-            // Create a faucet wrapper with default settings
-            let faucet = Arc::new(crate::api::faucet_wrapper::FaucetWrapper::new(
-                100000000,  // 1 NOVA distribution amount
-                3600,       // 1 hour cooldown
-                1000000000, // 10 NOVA initial balance
-            ));
-            Ok(Some(faucet))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Check if the node is synced
-    pub fn is_synced(&self) -> bool {
-        // Simplified sync check - in a real implementation this would be more sophisticated
-        true
-    }
-
-    /// Get the current block height
-    pub fn get_height(&self) -> u64 {
-        self.blockchain.get_height()
-    }
-
-    /// Get the best block hash
-    pub fn get_best_block_hash(&self) -> [u8; 32] {
-        self.blockchain.get_best_block_hash()
-    }
-
-    /// Get storage reference
-    pub fn storage(&self) -> &Arc<RwLock<BlockchainDB>> {
-        &self.blockchain_db
-    }
-
-    /// Get mempool reference
-    pub fn mempool(&self) -> &Arc<TransactionPool> {
-        &self.mempool
-    }
-
-    /// Get environmental manager
-    pub fn environmental_manager(&self) -> Option<&Arc<EnvironmentalMonitor>> {
-        None // TODO: Add environmental tracker to Node
-    }
-
-    /// Broadcast transaction to network
-    pub fn broadcast_transaction(&self, tx: &btclib::types::transaction::Transaction) {
-        // TODO: Implement transaction broadcasting
-        info!("Broadcasting transaction: {}", hex::encode(tx.hash()));
-    }
-
-    /// Create backup
-    pub fn create_backup(&self, destination: Option<&str>, include_wallet: bool, encrypt: bool) -> Result<crate::api::types::BackupInfo, String> {
-        // TODO: Implement actual backup creation
-        Ok(crate::api::types::BackupInfo {
-            id: format!("backup_{}", chrono::Utc::now().timestamp()),
-            timestamp: chrono::Utc::now().timestamp() as u64,
-            size: 1024 * 1024, // 1MB placeholder
-            backup_type: "full".to_string(),
-            status: "completed".to_string(),
-            file_path: destination.unwrap_or("/tmp/backup.dat").to_string(),
-            verified: true,
-        })
-    }
-
-    /// Get backup information
-    pub fn get_backup_info(&self) -> Result<Vec<crate::api::types::BackupInfo>, String> {
-        // TODO: Implement actual backup info retrieval
+    pub fn get_logs(&self, level: &str, component: Option<&str>, limit: usize, offset: usize) -> Result<Vec<LogEntry>, NodeError> {
+        // TODO: Implement real log retrieval
         Ok(vec![])
+    }
+    
+    /// Get version info
+    pub fn get_version(&self) -> Result<VersionInfo, NodeError> {
+        Ok(VersionInfo {
+            node_version: env!("CARGO_PKG_VERSION").to_string(),
+            protocol_version: 1,
+            api_version: "1.0.0".to_string(),
+            build_date: env!("VERGEN_BUILD_TIMESTAMP").to_string(),
+            git_commit: env!("VERGEN_GIT_SHA").to_string(),
+        })
+    }
+    
+    /// Get metrics
+    pub fn get_metrics(&self, period: u64) -> Result<NodeMetrics, NodeError> {
+        // TODO: Implement real metrics retrieval
+        Ok(NodeMetrics {
+            cpu_usage: 0.0,
+            memory_usage: 0.0,
+            disk_usage: 0.0,
+            network_in: 0,
+            network_out: 0,
+            block_processing_time: 0.0,
+            transaction_throughput: 0.0,
+            peer_count: 0,
+            mempool_size: self.mempool.size(),
+        })
+    }
+    
+    /// Get config
+    pub fn get_config(&self) -> Result<serde_json::Value, NodeError> {
+        let config = self.config.read().unwrap();
+        serde_json::to_value(&*config)
+            .map_err(|e| NodeError::ConfigError(e.to_string()))
+    }
+    
+    /// Update config
+    pub fn update_config(&self, new_config: serde_json::Value) -> Result<serde_json::Value, NodeError> {
+        // TODO: Implement config update with validation
+        Err(NodeError::ConfigError("Config update not implemented".to_string()))
+    }
+    
+    /// Create backup
+    pub fn create_backup(&self, destination: Option<&str>, include_wallet: bool, encrypt: bool) -> Result<crate::api::types::BackupInfo, NodeError> {
+        // TODO: Implement backup creation
+        Err(NodeError::General("Backup creation not implemented".to_string()))
+    }
+    
+    /// Get backup info
+    pub fn get_backup_info(&self) -> Result<Vec<crate::api::types::BackupInfo>, NodeError> {
+        // TODO: Implement backup info retrieval
+        Ok(vec![])
+    }
+    
+    /// Restart node
+    pub fn restart(&self) -> Result<(), NodeError> {
+        // TODO: Implement node restart
+        Err(NodeError::General("Node restart not implemented".to_string()))
+    }
+    
+    /// Shutdown node
+    pub fn shutdown(&self) -> Result<(), NodeError> {
+        // TODO: Implement node shutdown
+        Err(NodeError::General("Node shutdown not implemented".to_string()))
+    }
+    
+    /// Get debug info
+    pub fn get_debug_info(&self) -> Result<crate::api::types::DebugInfo, NodeError> {
+        // TODO: Implement debug info retrieval
+        Ok(crate::api::types::DebugInfo {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            uptime: self.start_time.elapsed().as_secs(),
+            memory_usage: 0,
+            goroutines: 0,
+            database_size: 0,
+            cache_size: 0,
+            log_level: "info".to_string(),
+            debug_mode: false,
+        })
+    }
+    
+    /// Get performance metrics
+    pub fn get_performance_metrics(&self) -> serde_json::Value {
+        self.performance_monitor.get_report()
+    }
+    
+    /// Get Lightning Network manager
+    pub fn lightning(&self) -> Option<Arc<RwLock<LightningManager>>> {
+        self.lightning_manager.as_ref().map(Arc::clone)
+    }
+    
+    /// Process Lightning Network events
+    async fn process_lightning_events(
+        manager: Arc<RwLock<LightningManager>>,
+        mut event_receiver: mpsc::UnboundedReceiver<LightningEvent>,
+    ) {
+        while let Some(event) = event_receiver.recv().await {
+            match event {
+                LightningEvent::ChannelOpened(channel_id) => {
+                    info!("Lightning channel opened: {}", channel_id.to_hex());
+                }
+                LightningEvent::ChannelClosed(channel_id) => {
+                    info!("Lightning channel closed: {}", channel_id.to_hex());
+                }
+                LightningEvent::PaymentReceived(payment_hash, amount_msat) => {
+                    info!("Lightning payment received: {} ({} msat)", 
+                          payment_hash.to_hex(), amount_msat);
+                }
+                LightningEvent::PaymentSent(payment_hash, amount_msat) => {
+                    info!("Lightning payment sent: {} ({} msat)", 
+                          payment_hash.to_hex(), amount_msat);
+                }
+                LightningEvent::InvoiceCreated(payment_hash) => {
+                    debug!("Lightning invoice created: {}", payment_hash.to_hex());
+                }
+                LightningEvent::PeerConnected(peer_id) => {
+                    info!("Lightning peer connected: {}", peer_id);
+                }
+                LightningEvent::PeerDisconnected(peer_id) => {
+                    info!("Lightning peer disconnected: {}", peer_id);
+                }
+            }
+        }
     }
 } 

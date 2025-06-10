@@ -1029,3 +1029,7 @@ pub enum ScriptType {
     /// Pay to Witness Script Hash
     P2WSH,
 }
+
+// Type aliases for compatibility
+pub type TxIn = TransactionInput;
+pub type TxOut = TransactionOutput;

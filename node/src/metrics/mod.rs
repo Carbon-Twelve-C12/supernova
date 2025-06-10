@@ -27,14 +27,14 @@ macro_rules! register_histogram {
 // Backup-related metrics
 #[derive(Clone)]
 pub struct BackupMetrics {
-    backup_duration: histogram,
-    backup_size: histogram,
-    total_backups: counter,
-    failed_backups: counter,
-    last_backup_time: gauge,
-    verification_duration: histogram,
-    failed_verifications: counter,
-    last_verification_success: gauge,
+    backup_duration: metrics::Histogram,
+    backup_size: metrics::Histogram,
+    total_backups: metrics::Counter,
+    failed_backups: metrics::Counter,
+    last_backup_time: metrics::Gauge,
+    verification_duration: metrics::Histogram,
+    failed_verifications: metrics::Counter,
+    last_verification_success: metrics::Gauge,
 }
 
 impl BackupMetrics {
@@ -158,17 +158,17 @@ pub fn record_histogram(name: &str, value: f64) {
 #[derive(Debug, Clone)]
 pub struct ApiMetrics {
     /// Total API requests
-    pub total_requests: counter,
+    pub total_requests: metrics::Counter,
     /// Successful requests
-    pub successful_requests: counter,
+    pub successful_requests: metrics::Counter,
     /// Failed requests
-    pub failed_requests: counter,
+    pub failed_requests: metrics::Counter,
     /// Response time histogram
-    pub response_time: histogram,
+    pub response_time: metrics::Histogram,
     /// Active connections
-    pub active_connections: gauge,
+    pub active_connections: metrics::Gauge,
     /// Requests per second
-    pub requests_per_second: gauge,
+    pub requests_per_second: metrics::Gauge,
 }
 
 impl ApiMetrics {

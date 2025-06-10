@@ -50,6 +50,18 @@ struct Cli {
     
     #[arg(short, long)]
     rpc_password: Option<String>,
+    
+    #[arg(short, long)]
+    debug: bool,
+    
+    #[arg(short, long)]
+    network: Option<String>,
+    
+    #[arg(short, long)]
+    format: Option<String>,
+    
+    #[arg(long)]
+    no_banner: bool,
 }
 
 #[derive(Subcommand)]
@@ -212,9 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = config::Config::load()?;
     
     // Override with CLI arguments
-    if let Some(rpc_url) = cli.rpc_url {
-        config.rpc_url = rpc_url;
-    }
+    config.rpc_url = cli.rpc_url;
     if let Some(network) = cli.network {
         config.network = network;
     }

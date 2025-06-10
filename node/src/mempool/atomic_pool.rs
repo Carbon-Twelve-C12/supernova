@@ -11,7 +11,8 @@ use std::collections::{HashMap, HashSet};
 use parking_lot::{Mutex as PMutex, RwLock as PRwLock};
 use crate::config;
 use crate::api::types::{MempoolInfo, MempoolTransaction, TransactionFees, TransactionValidationResult, MempoolTransactionSubmissionResponse};
-use crate::mempool::pool::{MempoolConfig, MempoolError};
+use crate::mempool::pool::MempoolConfig;
+use crate::mempool::MempoolError;
 use hex;
 
 /// Input reference for tracking double-spends
@@ -84,22 +85,28 @@ impl AtomicTransactionPool {
         
         // Check if transaction already exists
         if self.transactions.contains_key(&tx_hash) {
-            return Err(MempoolError::DuplicateTransaction);
+            return Err(MempoolError::TransactionExists(hex::encode(tx_hash)));
         }
 
         // Check pool size limit
         if self.transactions.len() >= self.config.max_size {
-            return Err(MempoolError::PoolFull);
+            return Err(MempoolError::MempoolFull { 
+                current: self.transactions.len(), 
+                max: self.config.max_size 
+            });
         }
 
         // Check minimum fee rate
         if fee_rate < self.config.min_fee_rate {
-            return Err(MempoolError::FeeTooLow);
+            return Err(MempoolError::FeeTooLow { 
+                required: self.config.min_fee_rate, 
+                provided: fee_rate 
+            });
         }
 
         // Calculate transaction size
         let tx_size = bincode::serialize(&transaction)
-            .map_err(|_| MempoolError::SerializationError)?
+            .map_err(|e| MempoolError::SerializationError(e.to_string()))?
             .len();
 
         // Extract input references
@@ -116,7 +123,7 @@ impl AtomicTransactionPool {
             if let Some(existing_tx) = self.spent_outputs.get(input_ref) {
                 // Double-spend detected!
                 self.metrics.write().unwrap().double_spend_attempts += 1;
-                return Err(MempoolError::DoubleSpend);
+                return Err(MempoolError::DoubleSpend(hex::encode(*existing_tx.value())));
             }
         }
 
@@ -170,7 +177,7 @@ impl AtomicTransactionPool {
     pub fn replace_transaction(&self, new_transaction: Transaction, fee_rate: u64) -> Result<Vec<Transaction>, MempoolError> {
         // Check if RBF is enabled
         if !self.config.enable_rbf {
-            return Err(MempoolError::RbfDisabled);
+            return Err(MempoolError::InvalidTransaction("Replace-By-Fee is disabled".to_string()));
         }
 
         // Acquire modification lock for atomic operation
@@ -180,7 +187,7 @@ impl AtomicTransactionPool {
         
         // Check if the new transaction already exists
         if self.transactions.contains_key(&new_tx_hash) {
-            return Err(MempoolError::DuplicateTransaction);
+            return Err(MempoolError::TransactionExists(hex::encode(new_tx_hash)));
         }
 
         // Extract new transaction inputs
@@ -203,7 +210,7 @@ impl AtomicTransactionPool {
         }
 
         if conflicting_hashes.is_empty() {
-            return Err(MempoolError::NoConflictingTransactions);
+            return Err(MempoolError::InvalidTransaction("No conflicting transactions found for RBF".to_string()));
         }
 
         // Calculate total fees of conflicting transactions
@@ -215,17 +222,17 @@ impl AtomicTransactionPool {
                 // Use checked arithmetic to prevent overflow
                 let tx_fee = match entry.fee_rate.checked_mul(entry.size as u64) {
                     Some(fee) => fee,
-                    None => return Err(MempoolError::SerializationError), // Fee overflow
+                    None => return Err(MempoolError::SerializationError("Fee calculation overflow".to_string())),
                 };
                 
                 total_conflicting_fee = match total_conflicting_fee.checked_add(tx_fee) {
                     Some(total) => total,
-                    None => return Err(MempoolError::SerializationError), // Total fee overflow
+                    None => return Err(MempoolError::SerializationError("Total fee overflow".to_string())),
                 };
                 
                 total_conflicting_size = match total_conflicting_size.checked_add(entry.size) {
                     Some(total) => total,
-                    None => return Err(MempoolError::SerializationError), // Size overflow
+                    None => return Err(MempoolError::SerializationError("Size overflow".to_string())),
                 };
                 
                 conflicting_txs.push(entry.transaction.clone());
@@ -234,13 +241,13 @@ impl AtomicTransactionPool {
 
         // Calculate new transaction size and fee
         let new_tx_size = bincode::serialize(&new_transaction)
-            .map_err(|_| MempoolError::SerializationError)?
+            .map_err(|e| MempoolError::SerializationError(e.to_string()))?
             .len();
             
         // Use checked multiplication for fee calculation
         let new_tx_fee = match fee_rate.checked_mul(new_tx_size as u64) {
             Some(fee) => fee,
-            None => return Err(MempoolError::SerializationError), // Fee overflow
+            None => return Err(MempoolError::SerializationError("Fee calculation overflow".to_string())),
         };
 
         // Check if fee increase is sufficient
@@ -248,7 +255,10 @@ impl AtomicTransactionPool {
         let min_required_fee = ((total_conflicting_fee as f64) * min_increase) as u64;
         
         if new_tx_fee < min_required_fee {
-            return Err(MempoolError::InsufficientFeeIncrease(min_required_fee));
+            return Err(MempoolError::FeeTooLow { 
+                required: min_required_fee, 
+                provided: new_tx_fee 
+            });
         }
 
         // Atomically remove all conflicting transactions
@@ -451,7 +461,7 @@ mod tests {
         // Try to add second transaction - should fail
         assert!(matches!(
             pool.add_transaction(tx2, 2),
-            Err(MempoolError::DoubleSpend)
+            Err(MempoolError::DoubleSpend(ref tx_id)) if tx_id == &hex::encode(tx1.hash())
         ));
         
         // Check metrics

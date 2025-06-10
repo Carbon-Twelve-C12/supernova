@@ -107,6 +107,27 @@ impl fmt::Display for EnergySource {
     }
 }
 
+impl std::str::FromStr for EnergySource {
+    type Err = String;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "solar" => Ok(EnergySource::Solar),
+            "wind" => Ok(EnergySource::Wind),
+            "hydro" | "hydroelectric" => Ok(EnergySource::Hydro),
+            "geothermal" => Ok(EnergySource::Geothermal),
+            "nuclear" => Ok(EnergySource::Nuclear),
+            "coal" => Ok(EnergySource::Coal),
+            "natural gas" | "naturalgas" | "gas" => Ok(EnergySource::NaturalGas),
+            "oil" | "petroleum" => Ok(EnergySource::Oil),
+            "biomass" => Ok(EnergySource::Biomass),
+            "grid" | "grid mix" => Ok(EnergySource::Grid),
+            "unknown" => Ok(EnergySource::Unknown),
+            _ => Ok(EnergySource::Other),
+        }
+    }
+}
+
 /// Geographic regions for environmental tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Region {

@@ -4,7 +4,6 @@
 pub use crate::lightning::wallet::{
     LightningWallet,
     WalletError,
-    WalletConfig,
     KeyDerivation,
 };
 

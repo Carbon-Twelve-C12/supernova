@@ -9,6 +9,7 @@ pub mod p2p;
 pub mod advanced;
 pub mod discovery;
 pub mod rate_limiter;
+pub mod behaviour;
 
 #[cfg(test)]
 pub mod eclipse_prevention_tests;
@@ -17,7 +18,7 @@ pub mod rate_limiter_tests;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use libp2p::core::PeerId;
+use libp2p::PeerId;
 use tracing::{debug, info, warn, error};
 use std::collections::HashMap;
 use std::sync::Mutex;

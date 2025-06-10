@@ -1588,7 +1588,7 @@ impl ChainSync {
         ).await;
 
         // Update peers that provided blocks on the winning fork
-        for peer_entry in self.peer_data.iter_mut() {
+        for mut peer_entry in self.peer_data.iter_mut() {
             let peer_id = peer_entry.key().clone();
             let peer_data = peer_entry.value_mut();
             

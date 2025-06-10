@@ -252,7 +252,8 @@ impl TestnetDeploymentManager {
         self.deployment_status.phase = DeploymentPhase::DeployingInfrastructure;
         
         // Deploy bootstrap nodes
-        for bootstrap in &self.config.node_config.bootstrap_nodes {
+        let bootstrap_nodes = self.config.node_config.bootstrap_nodes.clone();
+        for bootstrap in &bootstrap_nodes {
             println!("  Deploying bootstrap node: {}", bootstrap.node_id);
             self.deploy_single_node(bootstrap).await?;
             self.deployment_status.nodes_deployed += 1;
@@ -261,7 +262,7 @@ impl TestnetDeploymentManager {
         // Deploy additional testnet nodes
         let additional_nodes = 10;
         for i in 0..additional_nodes {
-            let node_config = self.create_testnet_node_config(i);
+            let node_config = self.create_testnet_node_config(i).await;
             self.deploy_configured_node(node_config).await?;
             self.deployment_status.nodes_deployed += 1;
         }
@@ -314,7 +315,7 @@ impl TestnetDeploymentManager {
             TestReviewer {
                 reviewer_id: "TEST-REV-002".to_string(),
                 name: "Test Reviewer Beta".to_string(),
-                regions: vec![Region::Asia, Region::Africa],
+                regions: vec![Region::AsiaPacific, Region::Africa],
                 test_account: true,
             },
         ];
@@ -430,7 +431,7 @@ impl TestnetDeploymentManager {
             TestMiner {
                 miner_id: "STANDARD-MINER-001".to_string(),
                 renewable_percentage: 25.0,
-                region: Region::Asia,
+                region: Region::AsiaPacific,
                 carbon_negative: false,
             },
         ];
@@ -491,13 +492,15 @@ impl TestnetDeploymentManager {
             "Multi-hop environmental payments",
         ];
         
+        let scenarios_count = payment_scenarios.len();
+        
         for scenario in payment_scenarios {
             println!("  Enabled scenario: {}", scenario);
         }
         
         Ok(LightningTestResult {
             channels_available: self.deployment_status.lightning_channels,
-            test_scenarios_active: payment_scenarios.len() as u32,
+            test_scenarios_active: scenarios_count as u32,
             quantum_htlc_enabled: true,
         })
     }

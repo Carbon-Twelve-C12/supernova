@@ -141,18 +141,18 @@ impl Default for MetricsConfig {
     }
 }
 
-/// System-level metrics
+/// System-related metrics
 pub struct SystemMetrics {
     /// CPU usage percentage
-    cpu_usage: gauge,
+    cpu_usage: metrics::Gauge,
     /// Memory usage in bytes
-    memory_usage: gauge,
+    memory_usage: metrics::Gauge,
     /// Disk usage in bytes
-    disk_usage: gauge,
+    disk_usage: metrics::Gauge,
     /// Open file descriptors
-    open_files: gauge,
+    open_files: metrics::Gauge,
     /// System uptime
-    uptime: gauge,
+    uptime: metrics::Gauge,
 }
 
 impl SystemMetrics {
@@ -193,24 +193,24 @@ impl SystemMetrics {
     }
 }
 
-/// Blockchain-specific metrics
+/// Blockchain-related metrics
 pub struct BlockchainMetrics {
     /// Current blockchain height
-    height: gauge,
+    height: metrics::Gauge,
     /// Total number of transactions processed
-    total_transactions: counter,
+    total_transactions: metrics::Counter,
     /// Block processing time
-    block_processing_time: histogram,
+    block_processing_time: metrics::Histogram,
     /// Block size in bytes
-    block_size: histogram,
+    block_size: metrics::Histogram,
     /// Transactions per block
-    transactions_per_block: histogram,
+    transactions_per_block: metrics::Histogram,
     /// Current difficulty
-    difficulty: gauge,
+    difficulty: metrics::Gauge,
     /// Estimated hash rate
-    hash_rate: gauge,
+    hash_rate: metrics::Gauge,
     /// Time since last block
-    time_since_last_block: gauge,
+    time_since_last_block: metrics::Gauge,
 }
 
 impl BlockchainMetrics {
@@ -272,27 +272,27 @@ impl BlockchainMetrics {
 /// Network-related metrics
 pub struct NetworkMetrics {
     /// Number of connected peers
-    connected_peers: gauge,
+    connected_peers: metrics::Gauge,
     /// Number of inbound connections
-    inbound_connections: gauge,
+    inbound_connections: metrics::Gauge,
     /// Number of outbound connections
-    outbound_connections: gauge,
+    outbound_connections: metrics::Gauge,
     /// Bytes received
-    bytes_received: counter,
+    bytes_received: metrics::Counter,
     /// Bytes sent
-    bytes_sent: counter,
+    bytes_sent: metrics::Counter,
     /// Messages received
-    messages_received: counter,
+    messages_received: metrics::Counter,
     /// Messages sent
-    messages_sent: counter,
+    messages_sent: metrics::Counter,
     /// Connection attempts
-    connection_attempts: counter,
+    connection_attempts: metrics::Counter,
     /// Failed connection attempts
-    failed_connection_attempts: counter,
+    failed_connection_attempts: metrics::Counter,
     /// Peer connection duration
-    peer_connection_duration: histogram,
+    peer_connection_duration: metrics::Histogram,
     /// Message processing time
-    message_processing_time: histogram,
+    message_processing_time: metrics::Histogram,
 }
 
 impl NetworkMetrics {
@@ -370,17 +370,17 @@ impl NetworkMetrics {
 /// Consensus-related metrics
 pub struct ConsensusMetrics {
     /// Fork count
-    fork_count: counter,
+    fork_count: metrics::Counter,
     /// Reorganization count
-    reorg_count: counter,
+    reorg_count: metrics::Counter,
     /// Reorganization depth
-    reorg_depth: histogram,
+    reorg_depth: metrics::Histogram,
     /// Reorganization duration
-    reorg_duration: histogram,
+    reorg_duration: metrics::Histogram,
     /// Number of orphaned blocks
-    orphan_blocks: counter,
+    orphan_blocks: metrics::Counter,
     /// Invalid blocks received
-    invalid_blocks: counter,
+    invalid_blocks: metrics::Counter,
 }
 
 impl ConsensusMetrics {
@@ -422,25 +422,25 @@ impl ConsensusMetrics {
 /// Mempool-related metrics
 pub struct MempoolMetrics {
     /// Current size of mempool
-    size: gauge,
+    size: metrics::Gauge,
     /// Number of transactions in the mempool
-    transactions: gauge,
+    transactions: metrics::Gauge,
     /// Bytes used by mempool
-    bytes: gauge,
+    bytes: metrics::Gauge,
     /// Maximum fee rate in mempool
-    max_fee_rate: gauge,
+    max_fee_rate: metrics::Gauge,
     /// Minimum fee rate in mempool
-    min_fee_rate: gauge,
+    min_fee_rate: metrics::Gauge,
     /// Median fee rate in mempool
-    median_fee_rate: gauge,
+    median_fee_rate: metrics::Gauge,
     /// Transactions added to mempool
-    transactions_added: counter,
+    transactions_added: metrics::Counter,
     /// Transactions rejected from mempool
-    transactions_rejected: counter,
+    transactions_rejected: metrics::Counter,
     /// Transactions removed from mempool (included in blocks)
-    transactions_removed: counter,
+    transactions_removed: metrics::Counter,
     /// Transactions expired from mempool
-    transactions_expired: counter,
+    transactions_expired: metrics::Counter,
 }
 
 impl MempoolMetrics {
@@ -498,43 +498,43 @@ impl MempoolMetrics {
 /// Lightning Network-related metrics
 pub struct LightningMetrics {
     /// Number of active payment channels
-    active_channels: gauge,
+    active_channels: metrics::Gauge,
     /// Number of pending channels (opening/closing)
-    pending_channels: gauge,
+    pending_channels: metrics::Gauge,
     /// Number of channel opens initiated
-    channel_opens: counter,
+    channel_opens: metrics::Counter,
     /// Number of channel closes initiated
-    channel_closes: counter,
+    channel_closes: metrics::Counter,
     /// Number of successful payments
-    payments_success: counter,
+    payments_success: metrics::Counter,
     /// Number of failed payments
-    payments_failed: counter,
+    payments_failed: metrics::Counter,
     /// Number of HTLCs currently in flight
-    htlcs_in_flight: gauge,
+    htlcs_in_flight: metrics::Gauge,
     /// Total capacity of all channels in satoshis
-    total_capacity: gauge,
+    total_capacity: metrics::Gauge,
     /// Local balance across all channels in satoshis
-    local_balance: gauge,
+    local_balance: metrics::Gauge,
     /// Remote balance across all channels in satoshis
-    remote_balance: gauge,
+    remote_balance: metrics::Gauge,
     /// Payment routing fee income in millisatoshis
-    routing_fee_income: counter,
+    routing_fee_income: metrics::Counter,
     /// Average payment path length
-    payment_path_length: histogram,
+    payment_path_length: metrics::Histogram,
     /// Payment processing time (end-to-end)
-    payment_processing_time: histogram,
+    payment_processing_time: metrics::Histogram,
     /// Payment amounts in millisatoshis
-    payment_amounts: histogram,
+    payment_amounts: metrics::Histogram,
     /// Number of routing failures
-    routing_failures: counter,
+    routing_failures: metrics::Counter,
     /// Number of channel errors
-    channel_errors: counter,
+    channel_errors: metrics::Counter,
     /// Number of forwarded payments
-    forwarded_payments: counter,
+    forwarded_payments: metrics::Counter,
     /// Number of declined HTLCs
-    declined_htlcs: counter,
+    declined_htlcs: metrics::Counter,
     /// Number of channel force-closes
-    force_closes: counter,
+    force_closes: metrics::Counter,
 }
 
 impl LightningMetrics {

@@ -45,6 +45,17 @@ impl<T> ApiResponse<T> {
     }
 }
 
+/// API error response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApiErrorResponse {
+    /// Error message
+    pub error: String,
+    /// Error code
+    pub code: u32,
+    /// Additional details
+    pub details: Option<serde_json::Value>,
+}
+
 //
 // Blockchain data types
 //
@@ -97,6 +108,32 @@ pub struct BlockInfo {
     pub transaction_count: u32,
     /// Transaction IDs
     pub transactions: Vec<String>,
+}
+
+/// Block structure
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Block {
+    /// Block header
+    pub header: BlockHeader,
+    /// Transactions in the block
+    pub transactions: Vec<Transaction>,
+}
+
+/// Block header structure
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BlockHeader {
+    /// Block version
+    pub version: u32,
+    /// Previous block hash
+    pub prev_hash: String,
+    /// Merkle root
+    pub merkle_root: String,
+    /// Block timestamp
+    pub timestamp: u64,
+    /// Difficulty target
+    pub bits: u32,
+    /// Nonce
+    pub nonce: u32,
 }
 
 /// Transaction information response
@@ -662,52 +699,9 @@ pub struct ResourceUtilization {
 }
 
 /// Emissions source data
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct EmissionsSource {
-    /// Source name
-    pub name: String,
-    /// Emissions amount in grams CO2e
-    pub emissions: f64,
-    /// Percentage of total emissions
-    pub percentage: f64,
-}
 
-/// Energy source data
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct EnergySource {
-    /// Source name
-    pub name: String,
-    /// Energy amount in kWh
-    pub energy: f64,
-    /// Percentage of total energy
-    pub percentage: f64,
-    /// Whether it's renewable
-    pub renewable: bool,
-}
 
-/// Carbon offset data
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CarbonOffset {
-    /// Offset amount in tons CO2e
-    pub amount: f64,
-    /// Offset type
-    pub offset_type: String,
-    /// Verification standard
-    pub verification_standard: String,
-    /// Purchase date
-    pub purchase_date: String,
-}
 
-/// Energy usage history
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct EnergyUsageHistory {
-    /// Timestamp
-    pub timestamp: u64,
-    /// Energy consumption in kWh
-    pub consumption: f64,
-    /// Renewable percentage
-    pub renewable_percentage: f64,
-}
 
 //
 // Lightning Network data types

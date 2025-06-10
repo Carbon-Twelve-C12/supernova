@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use serde_arrays::*;
 
 use crate::lightning::quantum_lightning::{
     GreenLightningRoute, GreenRouteHop, QuantumLightningChannel,
@@ -51,6 +52,7 @@ pub struct EnvironmentalNetworkGraph {
 /// Node with environmental attributes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvironmentalNode {
+    #[serde(with = "serde_arrays")]
     pub node_id: NodeId,
     pub public_key: Vec<u8>,
     pub alias: String,
@@ -77,8 +79,11 @@ pub struct EnvironmentalNode {
 /// Channel with environmental metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvironmentalChannel {
+    #[serde(with = "serde_arrays")]
     pub channel_id: ChannelId,
+    #[serde(with = "serde_arrays")]
     pub node1: NodeId,
+    #[serde(with = "serde_arrays")]
     pub node2: NodeId,
     
     /// Channel capacity

@@ -1,10 +1,10 @@
 use libp2p::{
-    core::Multiaddr,
+    Multiaddr,
     PeerId,
-    ping::{Ping, PingConfig, PingEvent},
-    identify::{Identify, IdentifyConfig, IdentifyEvent},
+    ping::{Behaviour as Ping, Config as PingConfig, Event as PingEvent},
+    identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent},
     swarm::{SwarmEvent, NetworkBehaviour},
-    mdns::{Mdns, MdnsEvent},
+    mdns::{tokio::Behaviour as Mdns, Event as MdnsEvent},
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};

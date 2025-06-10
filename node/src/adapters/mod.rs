@@ -196,7 +196,7 @@ pub mod result_converters {
 pub mod error_adapters {
     use btclib::storage::chain_state::ChainStateError;
     use crate::storage::database::StorageError;
-    use crate::api::error::ApiError;
+    use crate::api::ApiError;
     use std::fmt;
     use std::error::Error as StdError;
     

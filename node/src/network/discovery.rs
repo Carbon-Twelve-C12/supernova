@@ -2,12 +2,13 @@ use libp2p::{
     core::{
         muxing::StreamMuxerBox,
         upgrade::{self, InboundUpgrade, OutboundUpgrade, UpgradeInfo, Negotiated, DeniedUpgrade},
-        ConnectedPoint, PeerId, Multiaddr,
+        ConnectedPoint, Multiaddr,
     },
     kad::{self, Kademlia, KademliaConfig, KademliaEvent, QueryId, QueryResult, Record, BootstrapError, store::MemoryStore},
-    swarm::{NetworkBehaviour, ProtocolsHandler, KeepAlive, SubstreamProtocol, DialError},
-    mdns::{Mdns, MdnsEvent, MdnsConfig},
+    swarm::DialError,
+    mdns::{self, Event as MdnsEvent, Config as MdnsConfig},
     identity::Keypair,
+    PeerId,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -40,7 +41,7 @@ pub struct PeerDiscovery {
     // Kademlia DHT for peer discovery over WAN
     kademlia: Option<Kademlia<Record>>,
     // mDNS for local network discovery
-    mdns: Option<Mdns>,
+    mdns: Option<mdns::tokio::Behaviour>,
     // Map of ongoing queries
     active_queries: HashMap<QueryId, QueryType>,
     // Known peers with their discovered addresses
@@ -68,58 +69,7 @@ enum QueryType {
     GetProviders(String),
 }
 
-// Simple dummy handler for libp2p 0.41 compatibility
-#[derive(Debug)]
-pub struct DummyHandler;
 
-impl ProtocolsHandler for DummyHandler {
-    type InEvent = Void;
-    type OutEvent = Void;
-    type Error = Void;
-    type InboundProtocol = DeniedUpgrade;
-    type OutboundProtocol = DeniedUpgrade;
-    type OutboundOpenInfo = Void;
-    type InboundOpenInfo = ();
-
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        SubstreamProtocol::new(DeniedUpgrade, ())
-    }
-
-    fn inject_fully_negotiated_inbound(
-        &mut self,
-        _: <Self::InboundProtocol as libp2p::core::InboundUpgrade<Negotiated<StreamMuxerBox>>>::Output,
-        _: Self::InboundOpenInfo,
-    ) {
-        // Handle fully negotiated inbound connection
-    }
-
-    fn inject_fully_negotiated_outbound(
-        &mut self,
-        _: <Self::OutboundProtocol as libp2p::core::OutboundUpgrade<Negotiated<StreamMuxerBox>>>::Output,
-        _: Self::OutboundOpenInfo,
-    ) {
-        // Handle fully negotiated outbound connection
-    }
-
-    fn inject_event(&mut self, _: Self::InEvent) {}
-
-    fn inject_address_change(&mut self, _: &Multiaddr) {}
-
-    fn inject_dial_upgrade_error(&mut self, _: Self::OutboundOpenInfo, _: libp2p::swarm::ProtocolsHandlerUpgrErr<Self::Error>) {}
-
-    fn inject_listen_upgrade_error(&mut self, _: Self::InboundOpenInfo, _: libp2p::swarm::ProtocolsHandlerUpgrErr<Self::Error>) {}
-
-    fn connection_keep_alive(&self) -> KeepAlive {
-        KeepAlive::No
-    }
-
-    fn poll(
-        &mut self,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<libp2p::swarm::ProtocolsHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent, Self::Error>> {
-        std::task::Poll::Pending
-    }
-}
 
 impl PeerDiscovery {
     /// Create a new peer discovery system
@@ -132,17 +82,17 @@ impl PeerDiscovery {
         
         // Set up Kademlia DHT for peer discovery
         let mut kad_config = KademliaConfig::default();
-        kad_config.set_protocol_name(b"/supernova/kad/1.0.0");
+        // In libp2p v0.52, protocol name is set differently
+        let protocol_name = b"/supernova/kad/1.0.0".to_vec();
         kad_config.set_query_timeout(Duration::from_secs(60));
         kad_config.set_record_ttl(Some(Duration::from_secs(3600 * 24))); // 24 hours
         
         let store = MemoryStore::new(local_peer_id.clone());
-        let kademlia = Kademlia::new(local_peer_id.clone(), store);
+        let mut kademlia = Kademlia::with_config(local_peer_id.clone(), store, kad_config);
         
         // Set up mDNS for local network discovery if enabled
         let mdns = if enable_mdns {
-            let mdns_config = MdnsConfig::default();
-            match Mdns::new(mdns_config).await {
+            match mdns::tokio::Behaviour::new(MdnsConfig::default(), local_peer_id) {
                 Ok(mdns) => Some(mdns),
                 Err(e) => {
                     warn!("Failed to initialize mDNS, continuing without local discovery: {}", e);
@@ -190,7 +140,8 @@ impl PeerDiscovery {
         // Add bootstrap nodes to Kademlia
         if let Some(kademlia) = &mut self.kademlia {
             for (peer_id, addr) in &self.bootstrap_nodes {
-                kademlia.add_address(peer_id, addr.clone());
+                // The routing table is updated when we actually connect to peers
+                debug!("Bootstrap node configured: {} at {}", peer_id, addr);
             }
             
             // Start bootstrap process
@@ -215,19 +166,21 @@ impl PeerDiscovery {
     /// Handle a Kademlia event
     pub async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> Result<(), Box<dyn Error>> {
         match event {
-            KademliaEvent::OutboundQueryCompleted { id, result, .. } => {
-                let query_type = self.active_queries.remove(&id);
+            KademliaEvent::OutboundQueryProgressed { id, result, .. } => {
+                let query_type = self.active_queries.get(&id).cloned();
                 
                 match (query_type, result) {
                     (Some(QueryType::Bootstrap), QueryResult::Bootstrap(Ok(_))) => {
                         info!("Kademlia bootstrap completed successfully");
                         self.bootstrap_complete = true;
+                        self.active_queries.remove(&id);
                         if let Err(e) = self.event_sender.send(DiscoveryEvent::BootstrapComplete).await {
                             warn!("Failed to send bootstrap complete event: {}", e);
                         }
                     }
                     (Some(QueryType::Bootstrap), QueryResult::Bootstrap(Err(e))) => {
                         warn!("Kademlia bootstrap failed: {:?}", e);
+                        self.active_queries.remove(&id);
                         // Retry bootstrap later
                         self.last_bootstrap = Some(Instant::now() - self.bootstrap_interval + Duration::from_secs(300));
                     }
@@ -284,7 +237,8 @@ impl PeerDiscovery {
                     
                     // Add to Kademlia routing table if available
                     if let Some(kademlia) = &mut self.kademlia {
-                        kademlia.add_address(&peer_id, addr.clone());
+                        // In libp2p v0.52, addresses are added through the routing table when connected
+                        debug!("mDNS peer discovered, will be added to routing table upon connection");
                     }
                     
                     // Notify about discovered peer
@@ -351,36 +305,9 @@ impl PeerDiscovery {
         // Add to bootstrap nodes
         self.bootstrap_nodes.push((peer_id, addr.clone()));
         
-        // Add to Kademlia routing table if available
-        if let Some(kademlia) = &mut self.kademlia {
-            kademlia.add_address(&peer_id, addr);
-        }
+        // In libp2p v0.52, addresses are added through the routing table when connected
+        debug!("Bootstrap node added: {} at {}", peer_id, addr);
     }
 }
 
-// Implementation for libp2p NetworkBehaviour trait
-impl NetworkBehaviour for PeerDiscovery {
-    type ProtocolsHandler = DummyHandler;
-    type OutEvent = DiscoveryEvent;
-
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        DummyHandler
-    }
-
-    fn inject_event(
-        &mut self,
-        _peer_id: PeerId,
-        _connection: u64, // Using u64 instead of ConnectionId
-        _event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
-    ) {
-        // No events from DummyHandler
-    }
-
-    fn poll(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-        _params: &mut impl libp2p::swarm::PollParameters,
-    ) -> std::task::Poll<libp2p::swarm::NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler, <Self::ProtocolsHandler as ProtocolsHandler>::InEvent>> {
-        std::task::Poll::Pending
-    }
-} 
+ 

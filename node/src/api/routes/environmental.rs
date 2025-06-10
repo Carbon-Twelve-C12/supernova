@@ -51,12 +51,12 @@ struct GetEnvironmentalImpactParams {
 pub async fn get_environmental_impact(
     params: web::Query<GetEnvironmentalImpactParams>,
     environmental: web::Data<Arc<EnvironmentalMonitor>>,
-) -> ApiResult<EnvironmentalImpact> {
+) -> ApiResult<HttpResponse> {
     let period = params.period.unwrap_or(3600);
     let detail = params.detail.as_deref().unwrap_or("standard");
     
     match environmental.get_environmental_impact(period, detail) {
-        Ok(impact) => Ok(impact),
+        Ok(impact) => Ok(HttpResponse::Ok().json(impact)),
         Err(e) => Err(ApiError::internal_error(format!("Failed to get environmental impact: {}", e))),
     }
 }

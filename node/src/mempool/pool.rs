@@ -1,8 +1,9 @@
-use dashmap::DashMap;
+use crate::mempool::error::{MempoolError, MempoolResult};
+use crate::api::types::{MempoolInfo, MempoolTransaction, TransactionValidationResult, TransactionFees};
 use btclib::types::transaction::Transaction;
-use std::time::{Duration, SystemTime};
+use dashmap::DashMap;
+use std::time::{SystemTime, Duration};
 use crate::config;
-use crate::api::types::{MempoolInfo, MempoolTransaction, TransactionFees, TransactionValidationResult, MempoolTransactionSubmissionResponse};
 use hex;
 
 /// Configuration for the transaction memory pool
@@ -76,22 +77,28 @@ impl TransactionPool {
         
         // Check if transaction already exists
         if self.transactions.contains_key(&tx_hash) {
-            return Err(MempoolError::DuplicateTransaction);
+            return Err(MempoolError::TransactionExists(hex::encode(tx_hash)));
         }
 
         // Check pool size limit
         if self.transactions.len() >= self.config.max_size {
-            return Err(MempoolError::PoolFull);
+            return Err(MempoolError::MempoolFull { 
+                current: self.transactions.len(), 
+                max: self.config.max_size 
+            });
         }
 
         // Check minimum fee rate
         if fee_rate < self.config.min_fee_rate {
-            return Err(MempoolError::FeeTooLow);
+            return Err(MempoolError::FeeTooLow { 
+                required: self.config.min_fee_rate, 
+                provided: fee_rate 
+            });
         }
 
         // Calculate transaction size
         let tx_size = bincode::serialize(&transaction)
-            .map_err(|_| MempoolError::SerializationError)?
+            .map_err(|e| MempoolError::SerializationError(e.to_string()))?
             .len();
 
         // Create and insert new entry
@@ -189,14 +196,14 @@ impl TransactionPool {
     pub fn replace_transaction(&self, new_transaction: Transaction, fee_rate: u64) -> Result<Option<Transaction>, MempoolError> {
         // Check if RBF is enabled
         if !self.config.enable_rbf {
-            return Err(MempoolError::RbfDisabled);
+            return Err(MempoolError::InvalidTransaction("Replace-By-Fee is disabled".to_string()));
         }
         
         let tx_hash = new_transaction.hash();
         
         // Check if the transaction already exists
         if self.transactions.contains_key(&tx_hash) {
-            return Err(MempoolError::DuplicateTransaction);
+            return Err(MempoolError::TransactionExists(hex::encode(tx_hash)));
         }
         
         // Find transactions in the mempool that have inputs overlapping with the new transaction
@@ -204,7 +211,7 @@ impl TransactionPool {
         
         if conflicting_txs.is_empty() {
             // No conflicts, this is not an RBF but a new transaction
-            return Err(MempoolError::NoConflictingTransactions);
+            return Err(MempoolError::InvalidTransaction("No conflicting transactions found for RBF".to_string()));
         }
         
         // Calculate the total fee of the conflicting transactions
@@ -214,7 +221,7 @@ impl TransactionPool {
         // Calculate the new transaction size
         let new_tx_size = match bincode::serialize(&new_transaction) {
             Ok(bytes) => bytes.len(),
-            Err(_) => return Err(MempoolError::SerializationError),
+            Err(e) => return Err(MempoolError::SerializationError(e.to_string())),
         };
         
         // Calculate the new transaction fee
@@ -225,7 +232,10 @@ impl TransactionPool {
         let min_required_fee = ((total_conflicting_fee as f64) * min_increase) as u64;
         
         if new_tx_fee < min_required_fee {
-            return Err(MempoolError::InsufficientFeeIncrease(min_required_fee));
+            return Err(MempoolError::FeeTooLow { 
+                required: min_required_fee, 
+                provided: new_tx_fee 
+            });
         }
         
         // Remove all conflicting transactions
@@ -343,9 +353,9 @@ impl TransactionPool {
     /// Get a specific transaction by hex string ID
     pub fn get_transaction_by_id(&self, txid: &str) -> Result<Option<MempoolTransaction>, MempoolError> {
         // Parse hex string to bytes
-        let tx_hash_bytes = hex::decode(txid).map_err(|_| MempoolError::SerializationError)?;
+        let tx_hash_bytes = hex::decode(txid).map_err(|e| MempoolError::SerializationError(format!("Invalid hex: {}", e)))?;
         if tx_hash_bytes.len() != 32 {
-            return Err(MempoolError::SerializationError);
+            return Err(MempoolError::SerializationError("Transaction hash must be 32 bytes".to_string()));
         }
         
         let mut tx_hash = [0u8; 32];
@@ -368,7 +378,7 @@ impl TransactionPool {
     pub fn submit_transaction(&self, raw_tx: &[u8], allow_high_fees: bool) -> Result<String, MempoolError> {
         // Deserialize the transaction
         let transaction: Transaction = bincode::deserialize(raw_tx)
-            .map_err(|_| MempoolError::SerializationError)?;
+            .map_err(|e| MempoolError::SerializationError(format!("Failed to deserialize transaction: {}", e)))?;
         
         let tx_hash = transaction.hash();
         
@@ -378,7 +388,10 @@ impl TransactionPool {
         
         // Check for high fees if not allowed
         if !allow_high_fees && fee_rate > self.config.min_fee_rate * 10 {
-            return Err(MempoolError::FeeTooLow);
+            return Err(MempoolError::FeeTooLow { 
+                required: self.config.min_fee_rate * 10, 
+                provided: fee_rate 
+            });
         }
         
         // Add to mempool
@@ -391,7 +404,7 @@ impl TransactionPool {
     pub fn validate_transaction(&self, raw_tx: &[u8]) -> Result<TransactionValidationResult, MempoolError> {
         // Deserialize the transaction
         let transaction: Transaction = bincode::deserialize(raw_tx)
-            .map_err(|_| MempoolError::SerializationError)?;
+            .map_err(|e| MempoolError::SerializationError(format!("Failed to deserialize transaction: {}", e)))?;
         
         let tx_hash = transaction.hash();
         
@@ -480,30 +493,6 @@ impl TransactionPool {
             .map(|entry| entry.value().transaction.clone())
             .collect()
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum MempoolError {
-    #[error("Transaction already exists in mempool")]
-    DuplicateTransaction,
-    #[error("Mempool is full")]
-    PoolFull,
-    #[error("Transaction fee rate is too low")]
-    FeeTooLow,
-    #[error("Insufficient fee")]
-    InsufficientFee,
-    #[error("Double spend detected")]
-    DoubleSpend,
-    #[error("Invalid transaction: {0}")]
-    InvalidTransaction(String),
-    #[error("Failed to serialize transaction")]
-    SerializationError,
-    #[error("Replace-By-Fee is disabled")]
-    RbfDisabled,
-    #[error("No conflicting transactions found for RBF")]
-    NoConflictingTransactions,
-    #[error("Fee increase insufficient for RBF, minimum required: {0}")]
-    InsufficientFeeIncrease(u64),
 }
 
 #[cfg(test)]
@@ -615,7 +604,7 @@ mod tests {
         let tx2 = create_test_transaction([1u8; 32], 50_000_000);
         
         // RBF should fail when disabled
-        assert!(matches!(pool.replace_transaction(tx2, 2), Err(MempoolError::RbfDisabled)));
+        assert!(matches!(pool.replace_transaction(tx2, 2), Err(MempoolError::InvalidTransaction(_))));
     }
     
     #[test]
@@ -637,7 +626,7 @@ mod tests {
         // 10% increase is not enough
         assert!(matches!(
             pool.replace_transaction(tx2.clone(), 11), 
-            Err(MempoolError::InsufficientFeeIncrease(_))
+            Err(MempoolError::FeeTooLow { .. })
         ));
         
         // 60% increase should work

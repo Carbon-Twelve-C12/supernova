@@ -12,7 +12,7 @@ use crate::environmental::{
     oracle::{EnvironmentalOracle, OracleSubmission, EnvironmentalData, OracleError},
     emissions::{EmissionFactor, EmissionsCalculator},
     types::{Region, EnergySource as EnergySourceType},
-    verification::{RenewableCertificate, CarbonOffset},
+    verification::{RenewableCertificate as BaseRenewableCertificate, CarbonOffset as BaseCarbonOffset},
 };
 
 /// Carbon tracking validation results
@@ -110,6 +110,35 @@ pub enum ProofType {
     EnvironmentalAudit,
 }
 
+// Wrapper structs with additional tracking fields
+#[derive(Debug, Clone)]
+struct TrackedRenewableCertificate {
+    pub certificate: BaseRenewableCertificate,
+    pub owner_id: String,
+    pub certificate_hash: Vec<u8>,
+    pub issue_date: DateTime<Utc>,
+    pub expiry_date: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+struct TrackedCarbonOffset {
+    pub offset: BaseCarbonOffset,
+    pub owner_id: String,
+    pub certificate_hash: Vec<u8>,
+    pub issue_date: DateTime<Utc>,
+    pub expiry_date: DateTime<Utc>,
+}
+
+impl TrackedCarbonOffset {
+    pub fn is_valid(&self) -> bool {
+        self.expiry_date > Utc::now()
+    }
+    
+    pub fn amount_tonnes(&self) -> f64 {
+        self.offset.amount_tonnes
+    }
+}
+
 /// Real-time carbon tracking system
 pub struct CarbonTracker {
     /// Environmental oracle system
@@ -125,10 +154,10 @@ pub struct CarbonTracker {
     historical_data: Arc<RwLock<Vec<CarbonTrackingResult>>>,
     
     /// Renewable energy certificates
-    renewable_certificates: Arc<RwLock<HashMap<String, RenewableCertificate>>>,
+    renewable_certificates: Arc<RwLock<HashMap<String, TrackedRenewableCertificate>>>,
     
     /// Carbon offset certificates
-    carbon_offsets: Arc<RwLock<HashMap<String, CarbonOffset>>>,
+    carbon_offsets: Arc<RwLock<HashMap<String, TrackedCarbonOffset>>>,
     
     /// Real-time monitoring data
     monitoring_data: Arc<RwLock<MonitoringData>>,
@@ -465,7 +494,7 @@ impl CarbonTracker {
         let offsets = self.carbon_offsets.read().unwrap();
         let total_offsets = offsets.values()
             .filter(|offset| offset.owner_id == entity_id && offset.is_valid())
-            .map(|offset| offset.amount_tonnes)
+            .map(|offset| offset.amount_tonnes())
             .sum();
         
         Ok(total_offsets)
@@ -519,7 +548,7 @@ impl CarbonTracker {
                 proofs.push(VerificationProof {
                     proof_type: ProofType::RenewableEnergyCertificate,
                     proof_data: cert.certificate_hash.clone(),
-                    issuer: cert.issuer.clone(),
+                    issuer: cert.certificate.issuer.clone(),
                     timestamp: cert.issue_date,
                     expiry: Some(cert.expiry_date),
                 });
@@ -533,7 +562,7 @@ impl CarbonTracker {
                 proofs.push(VerificationProof {
                     proof_type: ProofType::CarbonOffsetCertificate,
                     proof_data: offset.certificate_hash.clone(),
-                    issuer: offset.issuer.clone(),
+                    issuer: offset.offset.issuer.clone(),
                     timestamp: offset.issue_date,
                     expiry: Some(offset.expiry_date),
                 });

@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc, Duration, Datelike};
+use chrono::{DateTime, Utc, Duration, Datelike, TimeZone};
 use sha2::{Sha256, Digest};
 
 use crate::environmental::{
@@ -49,7 +49,8 @@ pub struct ManualVerificationRequest {
     pub review_deadline: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Type of environmental verification
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum VerificationType {
     /// Large-scale renewable installation (>10MW)
     LargeScaleRenewable,
@@ -84,7 +85,8 @@ pub struct SubmittedDocument {
     pub metadata: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Document types for verification
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum DocumentType {
     RenewableEnergyCertificate,
     PowerPurchaseAgreement,
@@ -623,7 +625,9 @@ impl ManualVerificationSystem {
             _ => unreachable!(),
         };
         
-        Utc.ymd(year, end_month, end_day).and_hms(23, 59, 59)
+        Utc.with_ymd_and_hms(year, end_month, end_day, 23, 59, 59)
+            .single()
+            .expect("Invalid date")
     }
     
     fn validate_required_documents(

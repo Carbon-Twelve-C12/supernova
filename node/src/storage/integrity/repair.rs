@@ -17,7 +17,7 @@ pub struct IntegrityRepairer {
     /// Corruption handler for implementing repairs
     corruption_handler: Arc<Mutex<CorruptionHandler>>,
     /// Configuration for repairs
-    config: &'static IntegrityConfig,
+    config: IntegrityConfig,
 }
 
 impl IntegrityRepairer {
@@ -25,7 +25,7 @@ impl IntegrityRepairer {
     pub fn new(
         db: Arc<BlockchainDB>,
         corruption_handler: Arc<Mutex<CorruptionHandler>>,
-        config: &'static IntegrityConfig,
+        config: IntegrityConfig,
     ) -> Self {
         Self {
             db,
@@ -215,7 +215,7 @@ impl IntegrityRepairer {
             // Find an appropriate checkpoint to revert to
             let mut checkpoint_height = 0;
             
-            for issue in checkpoint_issues {
+            for issue in &checkpoint_issues {
                 if let IssueLocation::Chain { start_height, .. } = issue.location {
                     if let Some(height) = start_height {
                         // Find nearest checkpoint below this height

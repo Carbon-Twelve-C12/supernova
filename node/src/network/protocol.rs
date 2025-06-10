@@ -1,14 +1,7 @@
 use libp2p::{
-    gossipsub::{self, MessageId, IdentTopic},
+    gossipsub::{self, MessageId, Topic, Event as GossipsubEvent, Behaviour as Gossipsub, MessageAuthenticity, ValidationMode, ConfigBuilder, IdentTopic},
     identity::Keypair,
     PeerId,
-    core::ProtocolName,
-    request_response::{
-        ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseConfig,
-        RequestResponseEvent, RequestResponseMessage, RequestId,
-    },
-    swarm::NetworkBehaviourEventProcess,
-    NetworkBehaviour,
     Multiaddr,
 };
 use serde::{Serialize, Deserialize};
@@ -259,9 +252,9 @@ impl Default for ProtocolConfig {
     }
 }
 
-/// Main protocol implementation
+/// Protocol handler for Supernova network
 pub struct Protocol {
-    gossipsub: gossipsub::Gossipsub,
+    gossipsub: gossipsub::Behaviour,
     local_peer_id: PeerId,
     config: ProtocolConfig,
     identity_challenges: HashMap<PeerId, Vec<u8>>,
@@ -273,18 +266,18 @@ impl Protocol {
         let local_peer_id = PeerId::from(keypair.public());
         
         // Configure gossipsub with appropriate parameters
-        let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
+        let gossipsub_config = ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
-            .validation_mode(gossipsub::ValidationMode::Strict)
+            .validation_mode(ValidationMode::Strict)
             .message_id_fn(message_id_from_content)
             .build()
             .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
         
         // Create gossipsub behavior
-        let gossipsub = gossipsub::Gossipsub::new(
-            gossipsub::MessageAuthenticity::Signed(keypair),
+        let gossipsub = gossipsub::Behaviour::new(
+            MessageAuthenticity::Signed(keypair),
             gossipsub_config,
-        )?;
+        ).map_err(|e| format!("Failed to create gossipsub: {}", e))?;
         
         Ok(Self {
             gossipsub,
@@ -314,7 +307,7 @@ impl Protocol {
     }
     
     /// Access to the underlying gossipsub behavior
-    pub fn gossipsub(&mut self) -> &mut gossipsub::Gossipsub {
+    pub fn gossipsub(&mut self) -> &mut gossipsub::Behaviour {
         &mut self.gossipsub
     }
     
@@ -421,18 +414,18 @@ impl Protocol {
         let local_peer_id = PeerId::from(keypair.public());
         
         // Configure gossipsub with appropriate parameters
-        let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
+        let gossipsub_config = ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
-            .validation_mode(gossipsub::ValidationMode::Strict)
+            .validation_mode(ValidationMode::Strict)
             .message_id_fn(message_id_from_content)
             .build()
             .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
         
         // Create gossipsub behavior
-        let gossipsub = gossipsub::Gossipsub::new(
-            gossipsub::MessageAuthenticity::Signed(keypair),
+        let gossipsub = gossipsub::Behaviour::new(
+            MessageAuthenticity::Signed(keypair),
             gossipsub_config,
-        )?;
+        ).map_err(|e| format!("Failed to create gossipsub: {}", e))?;
         
         Ok(Self {
             gossipsub,
@@ -534,7 +527,7 @@ impl Protocol {
 }
 
 /// Format message_id from message content using a hash
-pub fn message_id_from_content(message: &gossipsub::GossipsubMessage) -> gossipsub::MessageId {
+pub fn message_id_from_content(message: &gossipsub::Message) -> gossipsub::MessageId {
     let mut hasher = Sha256::new();
     hasher.update(&message.data);
     if let Some(source) = &message.source {
@@ -542,8 +535,7 @@ pub fn message_id_from_content(message: &gossipsub::GossipsubMessage) -> gossips
     }
     
     let hash = hasher.finalize();
-    let hash_bytes: &[u8] = hash.as_ref();
-    gossipsub::MessageId::from(hash_bytes)
+    gossipsub::MessageId::from(hash.to_vec())
 }
 
 /// Error type for gossipsub publishing
@@ -578,14 +570,14 @@ impl fmt::Display for GossipsubError {
 
 impl StdError for GossipsubError {}
 
-impl From<gossipsub::error::PublishError> for GossipsubError {
-    fn from(err: gossipsub::error::PublishError) -> Self {
+impl From<gossipsub::PublishError> for GossipsubError {
+    fn from(err: gossipsub::PublishError) -> Self {
         GossipsubError::new(err.to_string())
     }
 }
 
-impl From<gossipsub::error::SubscriptionError> for GossipsubError {
-    fn from(err: gossipsub::error::SubscriptionError) -> Self {
+impl From<gossipsub::SubscriptionError> for GossipsubError {
+    fn from(err: gossipsub::SubscriptionError) -> Self {
         GossipsubError::new(err.to_string())
     }
 }

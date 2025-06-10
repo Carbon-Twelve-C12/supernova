@@ -456,8 +456,20 @@ impl ChainState {
         self.prune_fork_points()?;
         
         // Update fork info to reflect current state
-        for (hash, fork) in self.active_forks.iter_mut() {
-            fork.is_active = *hash == new_tip.hash() || self.is_ancestor_of(&fork.tip_hash, &new_tip.hash())?;
+        let new_tip_hash = new_tip.hash();
+        let updates: Vec<([u8; 32], bool)> = self.active_forks.iter()
+            .map(|(hash, fork)| {
+                let is_active = *hash == new_tip_hash || 
+                    self.is_ancestor_of(&fork.tip_hash, &new_tip_hash).unwrap_or(false);
+                (*hash, is_active)
+            })
+            .collect();
+        
+        // Apply the updates
+        for (hash, is_active) in updates {
+            if let Some(fork) = self.active_forks.get_mut(&hash) {
+                fork.is_active = is_active;
+            }
         }
 
         // Log successful reorganization

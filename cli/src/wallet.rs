@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use bip32::{XPrv, DerivationPath};
+use bip32::{XPrv, DerivationPath, PublicKey};
 use bip39::Mnemonic;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -93,11 +93,13 @@ impl WalletManager {
         
         // Get the signing key and create address
         let signing_key = child_xprv.private_key();
-        let verifying_key = child_xprv.public_key().public_key();
+        let public_key = child_xprv.public_key();
+        let verifying_key = public_key.public_key();
         
         // Generate Supernova address
         let network_prefix = get_network_prefix(&wallet.network);
-        let address = generate_supernova_address(&verifying_key.to_bytes(), network_prefix)?;
+        let verifying_key_bytes = verifying_key.to_bytes();
+        let address = generate_supernova_address(&verifying_key_bytes, network_prefix)?;
         
         // Export private key in hex format (Supernova format)
         let private_key_hex = hex::encode(signing_key.to_bytes());
@@ -105,7 +107,7 @@ impl WalletManager {
         let wallet_address = WalletAddress {
             index,
             address,
-            public_key: hex::encode(verifying_key.to_bytes()),
+            public_key: hex::encode(verifying_key_bytes),
             private_key: private_key_hex,
         };
         
