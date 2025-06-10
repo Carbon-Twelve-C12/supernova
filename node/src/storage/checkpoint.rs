@@ -638,7 +638,7 @@ impl CheckpointManager {
                 hasher.update(&contents);
             } else if path.is_dir() {
                 // Recursively hash directory
-                Self::hash_directory(&path, hasher).await?;
+                Box::pin(Self::hash_directory(&path, hasher)).await?;
             }
         }
         
@@ -657,7 +657,7 @@ impl CheckpointManager {
             if path.is_file() {
                 fs::copy(&path, &target).await?;
             } else if path.is_dir() {
-                Self::copy_directory(&path, &target).await?;
+                Box::pin(Self::copy_directory(&path, &target)).await?;
             }
         }
         
@@ -677,7 +677,7 @@ impl CheckpointManager {
                     total_size += metadata.len();
                 }
             } else if path.is_dir() {
-                total_size += Self::get_directory_size(&path).await?;
+                total_size += Box::pin(Self::get_directory_size(&path)).await?;
             }
         }
         

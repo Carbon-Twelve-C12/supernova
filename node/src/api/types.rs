@@ -644,63 +644,6 @@ pub struct EmissionsInfo {
     pub net_emissions: f64,
 }
 
-/// Energy usage data
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct EnergyUsage {
-    /// Total energy consumption in kWh
-    pub total_consumption: f64,
-    /// Renewable energy consumption in kWh
-    pub renewable_consumption: f64,
-    /// Non-renewable energy consumption in kWh
-    pub non_renewable_consumption: f64,
-}
-
-/// Carbon footprint data
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CarbonFootprint {
-    /// Timestamp
-    pub timestamp: u64,
-    /// Period in seconds
-    pub period: u64,
-    /// Total emissions in grams CO2e
-    pub total_emissions_g: f64,
-    /// Net emissions after offsets in grams CO2e
-    pub net_emissions_g: f64,
-    /// Carbon offsets
-    pub offsets: Option<Vec<CarbonOffset>>,
-    /// Carbon intensity (g CO2e per kWh)
-    pub intensity: f64,
-    /// Emissions sources
-    pub emissions_sources: Vec<EmissionsSource>,
-    /// Renewable energy percentage
-    pub renewable_percentage: f64,
-}
-
-/// Environmental settings
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct EnvironmentalSettings {
-    /// Carbon offset enabled
-    pub carbon_offset_enabled: bool,
-    /// Renewable energy tracking enabled
-    pub renewable_tracking_enabled: bool,
-    /// Environmental reporting enabled
-    pub reporting_enabled: bool,
-}
-
-/// Resource utilization data
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ResourceUtilization {
-    /// CPU utilization percentage
-    pub cpu_utilization: f64,
-    /// Memory utilization percentage
-    pub memory_utilization: f64,
-    /// Storage utilization percentage
-    pub storage_utilization: f64,
-}
-
-/// Emissions source data
-
-
 
 
 //
@@ -1733,6 +1676,17 @@ pub struct ChannelInfo {
     pub remote_balance: u64,
     /// Channel state
     pub state: String,
+}
+
+/// Energy usage history entry
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EnergyUsageHistory {
+    /// Timestamp
+    pub timestamp: u64,
+    /// Energy consumption in kWh
+    pub consumption: f64,
+    /// Renewable energy percentage
+    pub renewable_percentage: f64,
 }
 
 // Add Responder implementations for all API types

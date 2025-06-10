@@ -11,6 +11,7 @@ use std::sync::RwLock;
 use sha2::{Digest, Sha256};
 use lru::LruCache;
 use std::num::NonZeroUsize;
+use std::collections::HashMap;
 
 const BLOCKS_TREE: &str = "blocks";
 const TXNS_TREE: &str = "transactions";
@@ -1196,25 +1197,33 @@ impl BlockchainDB {
             return Ok(());
         }
         
-        // Create a transaction
-        let txn = self.db.transaction();
-        
-        // Execute each operation in the batch
+        // Group operations by tree
+        let mut ops_by_tree: HashMap<String, Vec<BatchOp>> = HashMap::new();
         for op in batch.operations {
-            match op {
-                BatchOp::Insert { tree, key, value } => {
-                    let tree = self.db.open_tree(tree)?;
-                    txn.insert(&tree, key.as_slice(), value.as_slice())?;
-                }
-                BatchOp::Remove { tree, key } => {
-                    let tree = self.db.open_tree(tree)?;
-                    txn.remove(&tree, key.as_slice())?;
-                }
-            }
+            ops_by_tree.entry(op.tree().to_string()).or_insert_with(Vec::new).push(op);
         }
         
-        // Commit the transaction
-        txn.commit()?;
+        // Execute operations for each tree
+        for (tree_name, ops) in ops_by_tree {
+            let tree = self.db.open_tree(&tree_name)?;
+            
+            // Use sled's batch operation
+            let mut sled_batch = sled::Batch::default();
+            
+            for op in ops {
+                match op {
+                    BatchOp::Insert { tree: _, key, value } => {
+                        sled_batch.insert(key.as_slice(), value.as_slice());
+                    }
+                    BatchOp::Remove { tree: _, key } => {
+                        sled_batch.remove(key.as_slice());
+                    }
+                }
+            }
+            
+            // Apply the batch atomically
+            tree.apply_batch(sled_batch)?;
+        }
         
         Ok(())
     }
@@ -1738,7 +1747,7 @@ impl BlockchainDB {
                 Ok(block) => {
                     // Skip genesis block (has no parent)
                     let prev_hash = block.prev_block_hash();
-                    let is_genesis = prev_hash == [0u8; 32];
+                    let is_genesis = *prev_hash == [0u8; 32];
                     
                     if !is_genesis {
                         // Check if parent exists
@@ -1942,7 +1951,7 @@ impl BlockchainDB {
     /// Store integrity check result
     pub fn store_integrity_check_result(&self, result: &IntegrityCheckResult) -> Result<(), StorageError> {
         let data = bincode::serialize(result)?;
-        self.metadata.insert("latest_integrity_check".as_bytes(), &data)?;
+        self.metadata.insert("latest_integrity_check".as_bytes(), data.as_slice())?;
         Ok(())
     }
 
@@ -2092,7 +2101,7 @@ impl BlockchainDB {
             for op in ops {
                 match op {
                     BatchOp::Insert { key, value, .. } => {
-                        tree_batch.insert(&key, value.as_slice());
+                        tree_batch.insert(key.clone(), value.as_slice());
                         
                         // Update bloom filters if enabled
                         if self.config.use_bloom_filters {
@@ -2106,7 +2115,7 @@ impl BlockchainDB {
                         }
                     },
                     BatchOp::Remove { key, .. } => {
-                        tree_batch.remove(&key);
+                        tree_batch.remove(key.clone());
                     },
                 }
             }
@@ -2129,7 +2138,10 @@ impl BlockchainDB {
         });
         
         // Await the result of the flush operation
-        task.await.map_err(|e| StorageError::DatabaseError(format!("Async flush failed: {}", e)))?
+        task.await
+            .map_err(|e| StorageError::DatabaseError(format!("Async flush failed: {}", e)))?
+            .map(|_| ()) // Discard the usize result and return ()
+            .map_err(|e| StorageError::Database(e))
     }
 
     /// Invalidate caches when necessary (e.g., during chain reorganization)
@@ -2391,6 +2403,8 @@ pub enum StorageError {
     Database(#[from] sled::Error),
     #[error("Serialization error: {0}")]
     Serialization(#[from] bincode::Error),
+    #[error("Serialization error")]
+    SerializationError,
     #[error("Invalid block")]
     InvalidBlock,
     #[error("Invalid chain reorganization")]
@@ -2444,7 +2458,7 @@ pub struct IntegrityCheckResult {
     pub items_checked: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum IntegrityCheckLevel {
     /// Fast check of critical structures only
     Quick,

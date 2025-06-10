@@ -5,9 +5,10 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{info, warn, error, debug};
+use metrics::{gauge, counter, histogram};
 
 use crate::metrics::registry::MetricsRegistry;
-use sysinfo::System;
+use sysinfo::{System, SystemExt};
 use crate::metrics::types::SystemMetrics;
 
 /// Configuration options for the metrics collector
@@ -73,7 +74,7 @@ impl MetricsCollector {
             config,
             running: Arc::new(Mutex::new(false)),
             task_handle: Arc::new(Mutex::new(None)),
-            system_metrics: Arc::new(SystemMetrics::new()),
+            system_metrics: Arc::new(SystemMetrics::default()),
             metrics_registry,
         }
     }
@@ -110,7 +111,8 @@ impl MetricsCollector {
                         extended_due = false;
                         
                         let duration = start_time.elapsed().as_secs_f64();
-                        system_metrics_clone.record_metrics_collection_time(duration);
+                        // Record collection time as a metric
+                        gauge!("metrics.collection_time_seconds", duration);
                     }
                     _ = extended_interval.tick() => {
                         extended_due = true;
@@ -185,35 +187,47 @@ impl MetricsCollector {
             let total_swap = sys.total_swap() * 1024;
             let used_swap = sys.used_swap() * 1024;
             
-            system_metrics.record_memory_usage(total_memory, used_memory, total_swap, used_swap);
-            
             // Record to metrics registry
-            metrics_registry.gauge("system.memory.total_bytes", total_memory as f64);
-            metrics_registry.gauge("system.memory.used_bytes", used_memory as f64);
-            metrics_registry.gauge("system.memory.utilization_pct", (used_memory as f64 / total_memory as f64) * 100.0);
-            metrics_registry.gauge("system.swap.total_bytes", total_swap as f64);
-            metrics_registry.gauge("system.swap.used_bytes", used_swap as f64);
+            gauge!("system.memory.total_bytes", total_memory as f64);
+            gauge!("system.memory.used_bytes", used_memory as f64);
+            gauge!("system.memory.utilization_pct", (used_memory as f64 / total_memory as f64) * 100.0);
+            gauge!("system.swap.total_bytes", total_swap as f64);
+            gauge!("system.swap.used_bytes", used_swap as f64);
         }
 
         // CPU metrics
         if metrics_types.cpu {
+            use sysinfo::{SystemExt, CpuExt};
             let cpu_count = sys.cpus().len() as u64;
             let global_cpu_usage = sys.global_cpu_info().cpu_usage();
             
-            system_metrics.record_cpu_usage(global_cpu_usage, cpu_count);
-            
             // Record to metrics registry
-            metrics_registry.gauge("system.cpu.usage_pct", global_cpu_usage);
-            metrics_registry.gauge("system.cpu.count", cpu_count as f64);
+            gauge!("system.cpu.usage_pct", global_cpu_usage as f64);
+            gauge!("system.cpu.count", cpu_count as f64);
             
             // Per-CPU metrics
             for (i, cpu) in sys.cpus().iter().enumerate() {
-                metrics_registry.gauge(&format!("system.cpu.{}.usage_pct", i), cpu.cpu_usage());
+                // Use a match statement or if-else chain for static strings
+                match i {
+                    0 => gauge!("system.cpu.0.usage_pct", cpu.cpu_usage() as f64),
+                    1 => gauge!("system.cpu.1.usage_pct", cpu.cpu_usage() as f64),
+                    2 => gauge!("system.cpu.2.usage_pct", cpu.cpu_usage() as f64),
+                    3 => gauge!("system.cpu.3.usage_pct", cpu.cpu_usage() as f64),
+                    4 => gauge!("system.cpu.4.usage_pct", cpu.cpu_usage() as f64),
+                    5 => gauge!("system.cpu.5.usage_pct", cpu.cpu_usage() as f64),
+                    6 => gauge!("system.cpu.6.usage_pct", cpu.cpu_usage() as f64),
+                    7 => gauge!("system.cpu.7.usage_pct", cpu.cpu_usage() as f64),
+                    _ => {
+                        // For CPUs beyond 8, we'll skip individual metrics
+                        // or use a different approach
+                    }
+                }
             }
         }
 
         // Process metrics
         if metrics_types.process {
+            use sysinfo::ProcessExt;
             // Get the current process
             let pid = std::process::id() as i32;
             if let Some(process) = sys.process(sysinfo::Pid::from(pid)) {
@@ -225,57 +239,76 @@ impl MetricsCollector {
                 let disk_read = process.disk_usage().read_bytes;
                 let disk_written = process.disk_usage().written_bytes;
                 
-                system_metrics.record_process_metrics(
-                    process_memory,
-                    process_cpu,
-                    process_uptime,
-                    disk_read,
-                    disk_written
-                );
-                
                 // Record to metrics registry
-                metrics_registry.gauge("process.memory_bytes", process_memory as f64);
-                metrics_registry.gauge("process.cpu_pct", process_cpu);
-                metrics_registry.gauge("process.uptime_sec", process_uptime as f64);
-                metrics_registry.gauge("process.disk_read_bytes", disk_read as f64);
-                metrics_registry.gauge("process.disk_written_bytes", disk_written as f64);
+                gauge!("process.memory_bytes", process_memory as f64);
+                gauge!("process.cpu_pct", process_cpu as f64);
+                gauge!("process.uptime_sec", process_uptime as f64);
+                gauge!("process.disk_read_bytes", disk_read as f64);
+                gauge!("process.disk_written_bytes", disk_written as f64);
             }
         }
 
         // Disk metrics (only when extended collection is due)
         if metrics_types.disk && collect_extended {
+            use sysinfo::DiskExt;
             for disk in sys.disks() {
                 let name = disk.name().to_string_lossy().to_string();
                 let total_space = disk.total_space();
                 let available_space = disk.available_space();
-                let disk_type = format!("{:?}", disk.type_());
-                
-                system_metrics.record_disk_metrics(
-                    name.clone(),
-                    total_space,
-                    available_space,
-                    disk_type
-                );
+                let disk_type = format!("{:?}", disk.kind());
                 
                 // Record to metrics registry
                 let mount_point = disk.mount_point().to_string_lossy().to_string();
-                let mount_point_safe = mount_point.replace("/", "_").replace(":", "_");
-                let metric_prefix = format!("system.disk.{}", mount_point_safe);
+                let mount_point_safe = mount_point.replace('/', "_").replace('\\', "_");
                 
-                metrics_registry.gauge(&format!("{}.total_bytes", metric_prefix), total_space as f64);
-                metrics_registry.gauge(&format!("{}.available_bytes", metric_prefix), available_space as f64);
+                // Calculate used space and usage percentage
                 let used = total_space.saturating_sub(available_space);
-                metrics_registry.gauge(&format!("{}.used_bytes", metric_prefix), used as f64);
+                let usage_pct = if total_space > 0 {
+                    (used as f64 / total_space as f64) * 100.0
+                } else {
+                    0.0
+                };
                 
-                if total_space > 0 {
-                    let usage_pct = (used as f64 / total_space as f64) * 100.0;
-                    metrics_registry.gauge(&format!("{}.usage_pct", metric_prefix), usage_pct);
+                // Use static metric names based on common mount points
+                match mount_point_safe.as_str() {
+                    "_" | "" => {
+                        gauge!("system.disk.root.total_bytes", total_space as f64);
+                        gauge!("system.disk.root.available_bytes", available_space as f64);
+                        gauge!("system.disk.root.used_bytes", used as f64);
+                        gauge!("system.disk.root.usage_pct", usage_pct);
+                    }
+                    "_home" => {
+                        gauge!("system.disk.home.total_bytes", total_space as f64);
+                        gauge!("system.disk.home.available_bytes", available_space as f64);
+                        gauge!("system.disk.home.used_bytes", used as f64);
+                        gauge!("system.disk.home.usage_pct", usage_pct);
+                    }
+                    "_var" => {
+                        gauge!("system.disk.var.total_bytes", total_space as f64);
+                        gauge!("system.disk.var.available_bytes", available_space as f64);
+                        gauge!("system.disk.var.used_bytes", used as f64);
+                        gauge!("system.disk.var.usage_pct", usage_pct);
+                    }
+                    "_tmp" => {
+                        gauge!("system.disk.tmp.total_bytes", total_space as f64);
+                        gauge!("system.disk.tmp.available_bytes", available_space as f64);
+                        gauge!("system.disk.tmp.used_bytes", used as f64);
+                        gauge!("system.disk.tmp.usage_pct", usage_pct);
+                    }
+                    _ => {
+                        // For other mount points, use generic metrics
+                        gauge!("system.disk.other.total_bytes", total_space as f64);
+                        gauge!("system.disk.other.available_bytes", available_space as f64);
+                        gauge!("system.disk.other.used_bytes", used as f64);
+                        gauge!("system.disk.other.usage_pct", usage_pct);
+                    }
                 }
             }
         }
 
         // Network metrics (only when extended collection is due)
         if metrics_types.network && collect_extended {
+            use sysinfo::NetworkExt;
             for (interface_name, network) in sys.networks() {
                 let received_bytes = network.total_received();
                 let transmitted_bytes = network.total_transmitted();
@@ -284,31 +317,57 @@ impl MetricsCollector {
                 let receive_errors = network.total_errors_on_received();
                 let transmit_errors = network.total_errors_on_transmitted();
                 
-                system_metrics.record_network_metrics(
-                    interface_name.to_string(),
-                    received_bytes,
-                    transmitted_bytes,
-                    received_packets,
-                    transmitted_packets,
-                    receive_errors,
-                    transmit_errors
-                );
-                
                 // Record to metrics registry
-                let interface_safe = interface_name.replace(".", "_");
-                let metric_prefix = format!("system.network.{}", interface_safe);
-                
-                metrics_registry.gauge(&format!("{}.received_bytes", metric_prefix), received_bytes as f64);
-                metrics_registry.gauge(&format!("{}.transmitted_bytes", metric_prefix), transmitted_bytes as f64);
-                metrics_registry.gauge(&format!("{}.received_packets", metric_prefix), received_packets as f64);
-                metrics_registry.gauge(&format!("{}.transmitted_packets", metric_prefix), transmitted_packets as f64);
-                metrics_registry.gauge(&format!("{}.receive_errors", metric_prefix), receive_errors as f64);
-                metrics_registry.gauge(&format!("{}.transmit_errors", metric_prefix), transmit_errors as f64);
+                // Use static metric names for common interfaces
+                match interface_name.as_str() {
+                    "eth0" => {
+                        gauge!("system.network.eth0.received_bytes", received_bytes as f64);
+                        gauge!("system.network.eth0.transmitted_bytes", transmitted_bytes as f64);
+                        gauge!("system.network.eth0.received_packets", received_packets as f64);
+                        gauge!("system.network.eth0.transmitted_packets", transmitted_packets as f64);
+                        gauge!("system.network.eth0.receive_errors", receive_errors as f64);
+                        gauge!("system.network.eth0.transmit_errors", transmit_errors as f64);
+                    }
+                    "eth1" => {
+                        gauge!("system.network.eth1.received_bytes", received_bytes as f64);
+                        gauge!("system.network.eth1.transmitted_bytes", transmitted_bytes as f64);
+                        gauge!("system.network.eth1.received_packets", received_packets as f64);
+                        gauge!("system.network.eth1.transmitted_packets", transmitted_packets as f64);
+                        gauge!("system.network.eth1.receive_errors", receive_errors as f64);
+                        gauge!("system.network.eth1.transmit_errors", transmit_errors as f64);
+                    }
+                    "lo" => {
+                        gauge!("system.network.lo.received_bytes", received_bytes as f64);
+                        gauge!("system.network.lo.transmitted_bytes", transmitted_bytes as f64);
+                        gauge!("system.network.lo.received_packets", received_packets as f64);
+                        gauge!("system.network.lo.transmitted_packets", transmitted_packets as f64);
+                        gauge!("system.network.lo.receive_errors", receive_errors as f64);
+                        gauge!("system.network.lo.transmit_errors", transmit_errors as f64);
+                    }
+                    "wlan0" => {
+                        gauge!("system.network.wlan0.received_bytes", received_bytes as f64);
+                        gauge!("system.network.wlan0.transmitted_bytes", transmitted_bytes as f64);
+                        gauge!("system.network.wlan0.received_packets", received_packets as f64);
+                        gauge!("system.network.wlan0.transmitted_packets", transmitted_packets as f64);
+                        gauge!("system.network.wlan0.receive_errors", receive_errors as f64);
+                        gauge!("system.network.wlan0.transmit_errors", transmit_errors as f64);
+                    }
+                    _ => {
+                        // For other interfaces, use generic metrics
+                        gauge!("system.network.other.received_bytes", received_bytes as f64);
+                        gauge!("system.network.other.transmitted_bytes", transmitted_bytes as f64);
+                        gauge!("system.network.other.received_packets", received_packets as f64);
+                        gauge!("system.network.other.transmitted_packets", transmitted_packets as f64);
+                        gauge!("system.network.other.receive_errors", receive_errors as f64);
+                        gauge!("system.network.other.transmit_errors", transmit_errors as f64);
+                    }
+                }
             }
         }
 
         // Record general uptime
-        metrics_registry.gauge("system.uptime_sec", system_metrics.node_uptime() as f64);
+        let uptime = sys.uptime();
+        gauge!("system.uptime_sec", uptime as f64);
     }
 }
 

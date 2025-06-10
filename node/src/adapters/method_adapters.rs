@@ -103,27 +103,27 @@ pub trait BlockNodeMethods {
 impl BlockNodeMethods for Block {
     fn target(&self) -> u32 {
         // Access the actual field from Block struct
-        self.header().bits()
+        self.header().bits
     }
     
     fn timestamp(&self) -> u64 {
-        self.header().timestamp()
+        self.header().timestamp
     }
     
     fn nonce(&self) -> u32 {
-        self.header().nonce()
+        self.header().nonce
     }
     
     fn version(&self) -> u32 {
-        self.header().version()
+        self.header().version
     }
     
     fn merkle_root(&self) -> [u8; 32] {
-        self.header().merkle_root()
+        self.header().merkle_root
     }
     
     fn previous_hash(&self) -> [u8; 32] {
-        self.header().previous_hash()
+        self.header().prev_block_hash
     }
 }
 

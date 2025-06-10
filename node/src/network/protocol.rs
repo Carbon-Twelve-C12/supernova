@@ -104,6 +104,8 @@ pub enum ProtocolMessage {
     GetBlocks(Vec<[u8; 32]>),
     /// Block data
     Block(Block),
+    /// Transaction data
+    Transaction(Transaction),
     /// Get data request
     GetData(Vec<[u8; 32]>),
     /// Status message
@@ -207,6 +209,8 @@ pub enum Message {
     Mempool {
         tx_hashes: Vec<[u8; 32]>,
     },
+    /// Get data request
+    GetData(Vec<[u8; 32]>),
 }
 
 /// Checkpoint information for validation
@@ -419,13 +423,13 @@ impl Protocol {
             .validation_mode(ValidationMode::Strict)
             .message_id_fn(message_id_from_content)
             .build()
-            .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
+            .map_err(|e| ProtocolError::NetworkError(format!("Failed to build gossipsub config: {}", e)))?;
         
         // Create gossipsub behavior
         let gossipsub = gossipsub::Behaviour::new(
             MessageAuthenticity::Signed(keypair),
             gossipsub_config,
-        ).map_err(|e| format!("Failed to create gossipsub: {}", e))?;
+        ).map_err(|e| ProtocolError::NetworkError(format!("Failed to create gossipsub: {}", e)))?;
         
         Ok(Self {
             gossipsub,
@@ -605,6 +609,8 @@ fn message_to_topic(message: &Message) -> &'static str {
         
         Message::GetMempool { .. } |
         Message::Mempool { .. } => MEMPOOL_TOPIC,
+        
+        Message::GetData(_) => MEMPOOL_TOPIC,
         
         // Default for other messages
         _ => STATUS_TOPIC,

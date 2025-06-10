@@ -131,7 +131,7 @@ impl UtxoSet {
     
     /// Load UTXO set from storage
     fn load(&mut self) -> Result<(), StorageError> {
-        let mmap = self.mmap.as_ref().ok_or_else(|| StorageError::Other("Mmap not initialized".into()))?;
+        let mmap = self.mmap.as_ref().ok_or_else(|| StorageError::DatabaseError("Mmap not initialized".into()))?;
         
         // First check if the file is empty
         if mmap[0] == 0 {
@@ -188,7 +188,7 @@ impl UtxoSet {
             return Ok(());
         }
         
-        let mmap = self.mmap.as_mut().ok_or_else(|| StorageError::Other("Mmap not initialized".into()))?;
+        let mmap = self.mmap.as_mut().ok_or_else(|| StorageError::DatabaseError("Mmap not initialized".into()))?;
         
         // Ensure the file is large enough
         let required_size = self.estimate_required_size();

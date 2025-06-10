@@ -1415,7 +1415,7 @@ impl ChainSync {
         
         // Check sequential ordering
         for i in 1..headers.len() {
-            if headers[i].prev_block_hash() != headers[i-1].hash() {
+            if *headers[i].prev_block_hash() != headers[i-1].hash() {
                 return Ok(false);
             }
         }
@@ -1425,13 +1425,13 @@ impl ChainSync {
             let prev_hash = first_header.prev_block_hash();
             
             // If this is not the genesis block, check if we have its parent
-            if prev_hash != [0u8; 32] {
-                if let Ok(None) = self.db.get_block_header(&prev_hash) {
+            if *prev_hash != [0u8; 32] {
+                if let Ok(None) = self.db.get_block_header(prev_hash) {
                     // We don't have the parent, check if it matches a checkpoint
                     let mut found_checkpoint = false;
                     
                     for checkpoint in &self.checkpoints {
-                        if checkpoint.hash == prev_hash {
+                        if checkpoint.hash == *prev_hash {
                             found_checkpoint = true;
                             break;
                         }

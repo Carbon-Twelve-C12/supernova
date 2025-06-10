@@ -725,13 +725,8 @@ impl<'a> CryptoVerifier<'a> {
     
     /// Verify proof of work for a block
     fn verify_block_pow(&self, block: &Block) -> bool {
-        let hash = block.hash();
-        let target = block.target();
-        
-        // Check that hash is below target
-        // For simplicity, we just check the first 4 bytes
-        let hash_value = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]);
-        hash_value <= target
+        // The block's verify_proof_of_work method already handles this
+        block.verify_proof_of_work()
     }
     
     /// Calculate merkle root from transactions

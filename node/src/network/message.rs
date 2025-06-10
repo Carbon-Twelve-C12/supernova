@@ -239,22 +239,24 @@ impl MessageHandler {
         
         // Basic validation based on message type
         match &message.message {
-            ProtocolMessage::Block { block } => {
-                if block.is_empty() {
-                    return Err("Empty block data".to_string());
+            ProtocolMessage::Block(block) => {
+                if block.transactions.is_empty() {
+                    return Err("Block has no transactions".to_string());
                 }
             }
             ProtocolMessage::Transaction { transaction } => {
+                // Transaction is just raw bytes, check if it's empty
                 if transaction.is_empty() {
                     return Err("Empty transaction data".to_string());
                 }
             }
-            ProtocolMessage::GetBlocks { start_height, end_height } => {
-                if end_height < start_height {
-                    return Err("Invalid block range".to_string());
+            ProtocolMessage::GetBlocks(msg) => {
+                // GetBlocks contains a GetBlocksMessage with locator hashes
+                if msg.locator_hashes.is_empty() {
+                    return Err("GetBlocks has no locator hashes".to_string());
                 }
-                if end_height - start_height > 1000 {
-                    return Err("Block range too large".to_string());
+                if msg.locator_hashes.len() > 500 {
+                    return Err("Too many locator hashes".to_string());
                 }
             }
             ProtocolMessage::GetHeaders { start_height, end_height } => {

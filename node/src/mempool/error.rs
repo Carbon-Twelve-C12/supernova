@@ -33,6 +33,9 @@ pub enum MempoolError {
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(String),
     
+    #[error("Transaction too large")]
+    TransactionTooLarge,
+    
     #[error("Storage error: {0}")]
     StorageError(String),
     

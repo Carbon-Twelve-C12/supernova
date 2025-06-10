@@ -152,9 +152,9 @@ impl SecureTransactionPool {
     /// Get a specific transaction by ID
     pub fn get_transaction_by_id(&self, txid: &str) -> Result<Option<MempoolTransaction>, MempoolError> {
         // Parse hex string to bytes
-        let tx_hash_bytes = hex::decode(txid).map_err(|_| MempoolError::SerializationError)?;
+        let tx_hash_bytes = hex::decode(txid).map_err(|_| MempoolError::SerializationError("Transaction ID must be 32 bytes".to_string()))?;
         if tx_hash_bytes.len() != 32 {
-            return Err(MempoolError::SerializationError);
+            return Err(MempoolError::SerializationError("Transaction ID must be 32 bytes".to_string()));
         }
         
         let mut tx_hash = [0u8; 32];
@@ -179,7 +179,7 @@ impl SecureTransactionPool {
     pub fn submit_transaction(&self, raw_tx: &[u8], allow_high_fees: bool) -> Result<String, MempoolError> {
         // Deserialize the transaction
         let transaction: Transaction = bincode::deserialize(raw_tx)
-            .map_err(|_| MempoolError::SerializationError)?;
+            .map_err(|e| MempoolError::SerializationError(format!("Failed to deserialize transaction: {}", e)))?;
         
         let tx_hash = transaction.hash();
         let fee_rate = 1; // Simplified
@@ -194,7 +194,7 @@ impl SecureTransactionPool {
     pub fn validate_transaction(&self, raw_tx: &[u8]) -> Result<TransactionValidationResult, MempoolError> {
         // Deserialize the transaction
         let transaction: Transaction = bincode::deserialize(raw_tx)
-            .map_err(|_| MempoolError::SerializationError)?;
+            .map_err(|e| MempoolError::SerializationError(format!("Failed to deserialize transaction: {}", e)))?;
         
         let tx_hash = transaction.hash();
         

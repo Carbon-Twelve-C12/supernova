@@ -16,6 +16,8 @@ pub struct PrioritizationConfig {
     pub max_ancestor_size: usize,
     /// Whether to consider descendant packages
     pub consider_descendants: bool,
+    /// Fee rate decay factor per hour (0.0 to 1.0)
+    pub fee_rate_decay: f64,
 }
 
 impl From<config::MempoolConfig> for PrioritizationConfig {
@@ -25,6 +27,7 @@ impl From<config::MempoolConfig> for PrioritizationConfig {
             min_ancestor_fee_rate: config.min_fee_rate as u64,
             enabled: true,
             consider_descendants: true,
+            fee_rate_decay: 0.0,
         }
     }
 }
@@ -36,6 +39,7 @@ impl Default for PrioritizationConfig {
             min_ancestor_fee_rate: 1,    // 1 nova/byte
             enabled: true,
             consider_descendants: true,
+            fee_rate_decay: 0.0,
         }
     }
 }
@@ -70,7 +74,7 @@ impl PrioritizedTransaction {
             .unwrap_or_default()
             .as_secs_f64() / 3600.0;
         
-        let decay_factor = 1.0 - (config.fee_rate_decay * age_hours);
+        let decay_factor: f64 = 1.0 - (config.fee_rate_decay * age_hours);
         self.fee_rate as f64 * decay_factor.max(0.0)
     }
 }
@@ -142,7 +146,7 @@ impl TransactionPrioritizer {
 
     /// Validate ancestor limits
     fn validate_ancestor_limits(&self, ancestors: &HashSet<[u8; 32]>, tx_size: usize) -> bool {
-        if ancestors.len() >= self.config.max_ancestor_count {
+        if ancestors.len() >= self.config.max_ancestor_size {
             return false;
         }
 
@@ -254,7 +258,7 @@ mod tests {
     #[test]
     fn test_ancestor_limits() {
         let mut config = PrioritizationConfig::default();
-        config.max_ancestor_count = 2;
+        config.max_ancestor_size = 2;
         let mut prioritizer = TransactionPrioritizer::new(config);
 
         // Create chain of transactions

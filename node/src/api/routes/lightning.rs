@@ -290,17 +290,12 @@ pub async fn send_payment(
     
     // Send payment
     let mut manager = lightning_manager.write().unwrap();
-    let response = if let Some(payment_request) = &request.payment_request {
-        // Pay invoice
-        manager.send_payment(
-            payment_request,
-            request.amount_msat,
-            request.timeout_seconds.unwrap_or(60),
-            request.fee_limit_msat,
-        ).await
-    } else {
-        return Err(ApiError::bad_request("Payment request must be provided"));
-    };
+    let response = manager.send_payment(
+        &request.payment_request,
+        request.amount_msat,
+        request.timeout_seconds.unwrap_or(60),
+        request.fee_limit_msat,
+    ).await;
     
     let response = response
         .map_err(|e| ApiError::internal_error(format!("Failed to send payment: {}", e)))?;

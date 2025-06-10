@@ -120,7 +120,7 @@ impl SystemMetrics {
         registry.register(Box::new(uptime.clone()))?;
         
         // Initialize system info collector
-        let mut system = System::new_all();
+        let mut system = System::new();
         system.refresh_all();
         
         Ok(Self {

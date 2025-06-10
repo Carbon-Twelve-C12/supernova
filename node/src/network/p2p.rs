@@ -555,7 +555,8 @@ impl P2PNetwork {
         );
         
         // Create the swarm
-        let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
+        let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id)
+            .build();
         
         // Subscribe to topics
         let topics = [
@@ -567,7 +568,7 @@ impl P2PNetwork {
         ];
         
         for topic_name in &topics {
-            let topic = gossipsub::IdentTopic::new(topic_name);
+            let topic = gossipsub::IdentTopic::new(topic_name.to_string());
             if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&topic) {
                 warn!("Failed to subscribe to topic {}: {}", topic_name, e);
             } else {
@@ -817,7 +818,7 @@ impl P2PNetwork {
                 _ => "status", // Default
             };
             
-            let topic = gossipsub::IdentTopic::new(topic_name);
+            let topic = gossipsub::IdentTopic::new(topic_name.to_string());
             
             // Publish the message
             match swarm.behaviour_mut().gossipsub.publish(topic, encoded.clone()) {
@@ -1767,7 +1768,7 @@ pub struct NetworkHealth {
 /// Build the libp2p transport stack
 fn build_transport(
     id_keys: identity::Keypair,
-) -> Result<impl Transport<Output = (PeerId, impl futures::stream::Stream<Item = Result<yamux::Stream, std::io::Error>> + Send)>, Box<dyn Error>> {
+) -> Result<libp2p::core::transport::Boxed<(PeerId, libp2p::core::muxing::StreamMuxerBox)>, Box<dyn Error>> {
     use libp2p::core::upgrade;
     
     let noise = noise::Config::new(&id_keys)?;

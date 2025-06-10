@@ -671,7 +671,7 @@ impl ChainState {
             
             debug!("Extended fork to height {} with tip {}", 
                 block.height(), hex::encode(&block_hash[..4]));
-        } else if prev_hash == self.best_block_hash {
+        } else if *prev_hash == self.best_block_hash {
             // This is a direct extension of the main chain
             let fork_info = ForkInfo {
                 fork_point_hash: prev_hash,
@@ -781,7 +781,7 @@ impl ChainState {
             let prev_hash = current_block.prev_block_hash();
             
             // Check if we found our ancestor
-            if &prev_hash == potential_ancestor_hash {
+            if prev_hash == potential_ancestor_hash {
                 return Ok(true);
             }
             

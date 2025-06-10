@@ -56,7 +56,7 @@ impl MetricsRegistry {
         
         // Set endpoint if configured
         if let Some(endpoint) = &config.endpoint {
-            builder = builder.listen_address(endpoint.parse()?);
+            builder = builder.with_http_listener(endpoint.parse()?);
         }
         
         let handle = builder.install_recorder()?;

@@ -1,4 +1,4 @@
-use sysinfo::System;
+use sysinfo::{System, SystemExt, DiskExt, CpuExt};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -85,7 +85,7 @@ pub struct EnvironmentalMonitor {
 impl EnvironmentalMonitor {
     /// Create a new environmental monitor
     pub fn new() -> Self {
-        let mut system = System::new();
+        let mut system = System::new_all();
         system.refresh_all();
         
         // Default settings
@@ -147,7 +147,7 @@ impl EnvironmentalMonitor {
         // Calculate additional metrics
         let transaction_count = self.estimate_transaction_count(period);
         let energy_per_tx = if transaction_count > 0 {
-            Some(energy_data.total_consumption / transaction_count as f64)
+            Some(energy_data.total_energy_kwh / transaction_count as f64)
         } else {
             None
         };
@@ -187,14 +187,22 @@ impl EnvironmentalMonitor {
     }
     
     /// Get energy usage data
-    pub fn get_energy_usage(&self, period: u64, include_history: bool) -> Result<EnergyUsage, EnvironmentalError> {
+    pub fn get_energy_usage(&self, period: u64, include_history: bool) -> Result<crate::api::types::EnergyUsage, EnvironmentalError> {
         if period == 0 {
             return Err(EnvironmentalError::InvalidTimePeriod("Period must be greater than 0".to_string()));
         }
         
         // Calculate energy usage based on system resources
-        let system = self.system.lock().unwrap();
-        let cpu_usage = system.global_cpu_info().cpu_usage() as f64 / 100.0;
+        let mut system = self.system.lock().unwrap();
+        system.refresh_cpu();
+        
+        // Get global CPU usage - in sysinfo 0.29, we need to calculate it from all CPUs
+        let cpus = system.cpus();
+        let cpu_usage = if !cpus.is_empty() {
+            cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32 / 100.0
+        } else {
+            0.0
+        } as f64;
         
         // Estimate energy usage based on CPU usage and a base consumption model
         // This is a simplified model and would be replaced with more accurate measurements
@@ -238,7 +246,8 @@ impl EnvironmentalMonitor {
             });
         }
         
-        let energy_data = EnergyUsage {
+        // Return the API type
+        Ok(crate::api::types::EnergyUsage {
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -247,19 +256,23 @@ impl EnvironmentalMonitor {
             current_power_watts,
             total_energy_kwh,
             energy_sources: self.get_energy_sources(),
-            efficiency: total_energy_kwh / self.estimate_transaction_count(period) as f64,
+            efficiency: total_energy_kwh / cpu_usage.max(0.01), // Avoid division by zero
             history: if include_history {
-                Some(self.energy_history.read().unwrap().clone())
+                Some(energy_history.clone().into_iter().map(|h| {
+                    crate::api::types::environmental::EnergyUsageHistory {
+                        timestamp: h.timestamp,
+                        usage: h.consumption,
+                        power: current_power_watts, // Simplified - use current power
+                    }
+                }).collect())
             } else {
                 None
             },
-        };
-        
-        Ok(energy_data)
+        })
     }
     
     /// Get carbon footprint data
-    pub fn get_carbon_footprint(&self, period: u64, include_offsets: bool) -> Result<CarbonFootprint, EnvironmentalError> {
+    pub fn get_carbon_footprint(&self, period: u64, include_offsets: bool) -> Result<crate::api::types::CarbonFootprint, EnvironmentalError> {
         if period == 0 {
             return Err(EnvironmentalError::InvalidTimePeriod("Period must be greater than 0".to_string()));
         }
@@ -274,7 +287,7 @@ impl EnvironmentalMonitor {
             .unwrap_or(475.0); // Default global average if region not found
         
         // Calculate total emissions
-        let total_emissions_g = energy_data.total_consumption * emission_factor;
+        let total_emissions_g = energy_data.total_energy_kwh * emission_factor;
         
         // Calculate carbon intensity (g CO2e per kWh)
         let intensity = emission_factor;
@@ -282,7 +295,7 @@ impl EnvironmentalMonitor {
         // Get offsets if enabled and requested
         let offsets = if include_offsets && self.settings.read().unwrap().carbon_offset_enabled {
             Some(vec![
-                CarbonOffset {
+                crate::api::types::CarbonOffset {
                     id: format!("offset_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
                     quantity_g: total_emissions_g * 0.5, // Apply 50% offset
                     provider: "Gold Standard".to_string(),
@@ -305,7 +318,7 @@ impl EnvironmentalMonitor {
         // Get emissions sources
         let emissions_sources = self.get_emissions_sources();
         
-        let carbon_data = CarbonFootprint {
+        Ok(crate::api::types::CarbonFootprint {
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -317,9 +330,7 @@ impl EnvironmentalMonitor {
             intensity,
             emissions_sources,
             renewable_percentage: self.calculate_renewable_percentage(),
-        };
-        
-        Ok(carbon_data)
+        })
     }
     
     /// Get resource utilization data
@@ -331,8 +342,13 @@ impl EnvironmentalMonitor {
         let mut system = self.system.lock().unwrap();
         system.refresh_all();
         
-        // Calculate CPU usage
-        let cpu_usage = system.global_cpu_info().cpu_usage() as f64;
+        // Calculate CPU usage - in sysinfo 0.29, we need to calculate it from all CPUs
+        let cpus = system.cpus();
+        let cpu_usage = if !cpus.is_empty() {
+            cpus.iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / cpus.len() as f32 / 100.0
+        } else {
+            0.0
+        } as f64;
         
         // Calculate memory usage
         let total_memory = system.total_memory() as f64;
@@ -359,9 +375,19 @@ impl EnvironmentalMonitor {
         };
         
         let resource_data = ResourceUtilization {
-            cpu_utilization: cpu_usage,
-            memory_utilization: memory_usage,
-            storage_utilization: disk_usage,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            period,
+            cpu_usage,
+            memory_usage,
+            disk_usage,
+            network_usage: 0.0, // TODO: Implement network usage tracking
+            uptime_seconds: SystemTime::now()
+                .duration_since(self.start_time)
+                .unwrap_or_default()
+                .as_secs(),
         };
         
         Ok(resource_data)
@@ -371,9 +397,15 @@ impl EnvironmentalMonitor {
     pub fn get_settings(&self) -> Result<EnvironmentalSettings, EnvironmentalError> {
         let internal_settings = self.settings.read().unwrap();
         Ok(EnvironmentalSettings {
+            monitoring_enabled: internal_settings.monitoring_enabled,
+            emission_tracking_enabled: internal_settings.emission_tracking_enabled,
+            power_saving_mode: internal_settings.power_saving_mode,
+            renewable_energy_percentage: internal_settings.renewable_energy_percentage,
+            energy_source_type: internal_settings.energy_source_type.clone(),
             carbon_offset_enabled: internal_settings.carbon_offset_enabled,
-            renewable_tracking_enabled: internal_settings.emission_tracking_enabled,
-            reporting_enabled: internal_settings.monitoring_enabled,
+            data_retention_days: internal_settings.data_retention_days,
+            energy_efficiency_target: internal_settings.energy_efficiency_target,
+            location_code: internal_settings.location_code.clone(),
         })
     }
     
@@ -382,9 +414,15 @@ impl EnvironmentalMonitor {
         let mut internal_settings = self.settings.write().unwrap();
         
         // Update only the fields that exist in the API type
+        internal_settings.monitoring_enabled = new_settings.monitoring_enabled;
+        internal_settings.emission_tracking_enabled = new_settings.emission_tracking_enabled;
+        internal_settings.power_saving_mode = new_settings.power_saving_mode;
+        internal_settings.renewable_energy_percentage = new_settings.renewable_energy_percentage;
+        internal_settings.energy_source_type = new_settings.energy_source_type.clone();
         internal_settings.carbon_offset_enabled = new_settings.carbon_offset_enabled;
-        internal_settings.emission_tracking_enabled = new_settings.renewable_tracking_enabled;
-        internal_settings.monitoring_enabled = new_settings.reporting_enabled;
+        internal_settings.data_retention_days = new_settings.data_retention_days;
+        internal_settings.energy_efficiency_target = new_settings.energy_efficiency_target;
+        internal_settings.location_code = new_settings.location_code.clone();
         
         drop(internal_settings);
         
@@ -438,11 +476,11 @@ impl EnvironmentalMonitor {
     }
     
     /// Helper method to get emissions sources
-    fn get_emissions_sources(&self) -> Vec<EmissionsSource> {
+    fn get_emissions_sources(&self) -> Vec<crate::api::types::EmissionsSource> {
         vec![
-            EmissionsSource::Electricity,
-            EmissionsSource::Cooling,
-            EmissionsSource::Manufacturing,
+            crate::api::types::EmissionsSource::Electricity,
+            crate::api::types::EmissionsSource::Cooling,
+            crate::api::types::EmissionsSource::Manufacturing,
         ]
     }
     
@@ -472,7 +510,7 @@ impl EnvironmentalMonitor {
     }
     
     /// Calculate environmental score
-    fn calculate_environmental_score(&self, energy_data: &EnergyUsage, carbon_data: &CarbonFootprint) -> f64 {
+    fn calculate_environmental_score(&self, energy_data: &crate::api::types::EnergyUsage, carbon_data: &crate::api::types::CarbonFootprint) -> f64 {
         // Simple scoring algorithm: higher renewable percentage = better score
         // Lower emissions = better score
         let renewable_score = self.calculate_renewable_percentage();
@@ -481,7 +519,7 @@ impl EnvironmentalMonitor {
     }
     
     /// Calculate green mining bonus
-    fn calculate_green_mining_bonus(&self, energy_data: &EnergyUsage) -> f64 {
+    fn calculate_green_mining_bonus(&self, energy_data: &crate::api::types::EnergyUsage) -> f64 {
         // Bonus percentage based on renewable energy usage
         let renewable_percentage = self.calculate_renewable_percentage();
         if renewable_percentage >= 75.0 {
@@ -516,8 +554,9 @@ mod tests {
         let energy_data = monitor.get_energy_usage(3600, false).unwrap();
         
         // Energy should be positive
-        assert!(energy_data.total_energy_kwh > 0.0);
-        assert!(energy_data.current_power_watts > 0.0);
+        assert!(energy_data.total_consumption > 0.0);
+        assert!(energy_data.renewable_consumption > 0.0);
+        assert!(energy_data.non_renewable_consumption > 0.0);
     }
     
     #[test]
@@ -539,10 +578,12 @@ mod tests {
         let resource_data = monitor.get_resource_utilization(300).unwrap();
         
         // Resource utilization should be between 0 and 100
-        assert!(resource_data.cpu_utilization >= 0.0);
-        assert!(resource_data.cpu_utilization <= 100.0);
-        assert!(resource_data.memory_utilization >= 0.0);
-        assert!(resource_data.memory_utilization <= 100.0);
+        assert!(resource_data.cpu_usage >= 0.0);
+        assert!(resource_data.cpu_usage <= 100.0);
+        assert!(resource_data.memory_usage >= 0.0);
+        assert!(resource_data.memory_usage <= 100.0);
+        assert!(resource_data.disk_usage >= 0.0);
+        assert!(resource_data.disk_usage <= 100.0);
     }
     
     #[test]
@@ -550,16 +591,22 @@ mod tests {
         let monitor = EnvironmentalMonitor::new();
         
         let new_settings = EnvironmentalSettings {
+            monitoring_enabled: true,
+            emission_tracking_enabled: true,
+            power_saving_mode: false,
+            renewable_energy_percentage: Some(50.0),
+            energy_source_type: Some("mixed".to_string()),
             carbon_offset_enabled: true,
-            renewable_tracking_enabled: true,
-            reporting_enabled: true,
+            data_retention_days: 30,
+            energy_efficiency_target: Some(0.5),
+            location_code: Some("us".to_string()),
         };
         
         let updated = monitor.update_settings(new_settings.clone()).unwrap();
         
         assert!(updated.carbon_offset_enabled);
-        assert!(updated.renewable_tracking_enabled);
-        assert!(updated.reporting_enabled);
+        assert!(updated.emission_tracking_enabled);
+        assert!(updated.monitoring_enabled);
     }
     
     #[test]

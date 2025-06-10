@@ -217,28 +217,28 @@ pub mod error_adapters {
     /// Convert StorageError to ApiError
     impl From<StorageError> for ApiError {
         fn from(err: StorageError) -> Self {
-            ApiError::InternalError(format!("Storage error: {}", err))
+            ApiError::internal_error(format!("Storage error: {}", err))
         }
     }
     
     /// Convert ChainStateError to ApiError
     impl From<ChainStateError> for ApiError {
         fn from(err: ChainStateError) -> Self {
-            ApiError::InternalError(format!("Chain state error: {}", err))
+            ApiError::internal_error(format!("Chain state error: {}", err))
         }
     }
     
     /// Convert Box<dyn Error> to ApiError
     impl From<Box<dyn StdError>> for ApiError {
         fn from(err: Box<dyn StdError>) -> Self {
-            ApiError::InternalError(format!("Error: {}", err))
+            ApiError::internal_error(format!("Error: {}", err))
         }
     }
     
     /// Convert Box<dyn Error + Send + Sync> to ApiError
     impl From<Box<dyn StdError + Send + Sync>> for ApiError {
         fn from(err: Box<dyn StdError + Send + Sync>) -> Self {
-            ApiError::InternalError(format!("Error: {}", err))
+            ApiError::internal_error(format!("Error: {}", err))
         }
     }
     
@@ -252,7 +252,7 @@ pub mod error_adapters {
     
     /// Convert any error to ApiError
     pub fn to_api_error<E: fmt::Display>(err: E) -> ApiError {
-        ApiError::InternalError(err.to_string())
+        ApiError::internal_error(err.to_string())
     }
     
     /// Handle error logging and conversion

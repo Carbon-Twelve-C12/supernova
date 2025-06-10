@@ -19,16 +19,20 @@ impl TransactionValidator {
     
     /// Validate a transaction for mempool inclusion
     pub fn validate(&self, tx: &Transaction) -> MempoolResult<()> {
+        let tx_size = tx.calculate_size();
+        
         // Check transaction size
-        let tx_size = tx.size();
         if tx_size > self.max_tx_size {
-            return Err(MempoolError::InvalidTransaction(
-                format!("Transaction size {} exceeds maximum {}", tx_size, self.max_tx_size)
-            ));
+            return Err(MempoolError::TransactionTooLarge);
         }
         
+        // Calculate fee (requires access to previous outputs)
+        let fee = tx.calculate_fee(|_hash, _index| {
+            // TODO: Implement proper UTXO lookup
+            None
+        }).unwrap_or(0);
+        
         // Check fee rate
-        let fee = tx.fee().unwrap_or(0);
         let fee_rate = if tx_size > 0 { fee / tx_size as u64 } else { 0 };
         
         if fee_rate < self.min_fee_rate {

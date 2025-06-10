@@ -216,14 +216,14 @@ impl AtomicUtxoSet {
             for input in &tx.inputs {
                 // Check if UTXO exists
                 if !utxos.contains_key(input) {
-                    return Err(StorageError::Other(
+                    return Err(StorageError::DatabaseError(
                         format!("UTXO not found: {:?}", input)
                     ));
                 }
                 
                 // Check if already spent
                 if spent.contains(input) {
-                    return Err(StorageError::Other(
+                    return Err(StorageError::DatabaseError(
                         format!("UTXO already spent: {:?}", input)
                     ));
                 }

@@ -8,8 +8,10 @@ use std::time::Instant;
 use libp2p::PeerId;
 use tokio::sync::RwLock as TokioRwLock;
 use sysinfo::System;
+use sysinfo::SystemExt;
 use crate::node::Node;
 use crate::api::ApiConfig;
+use crate::adapters::method_adapters::{BlockNodeMethods, TransactionPoolNodeMethods};
 
 /// Thread-safe wrapper for Node that can be shared across threads
 pub struct ThreadSafeNode {
@@ -69,15 +71,15 @@ impl NodeApiFacade {
     /// Create a new API facade from a Node
     pub fn from_node(node: &Node) -> Self {
         Self {
-            config: Arc::new(node.config.clone()),
-            chain_state: node.chain_state.clone(),
-            blockchain_db: node.blockchain_db.clone(),
-            network: node.network.clone(),
-            mempool: node.mempool.clone(),
+            config: Arc::new(node.config().read().unwrap().clone()),
+            chain_state: node.chain_state(),
+            blockchain_db: node.db(),
+            network: node.network(),
+            mempool: node.mempool(),
             performance_monitor: node.performance_monitor.clone(),
-            peer_id: node.peer_id.clone(),
+            peer_id: node.peer_id,
             start_time: node.start_time,
-            is_running: node.is_running.clone(),
+            is_running: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         }
     }
     
@@ -89,10 +91,10 @@ impl NodeApiFacade {
             node_id: self.peer_id.to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             protocol_version: 1,
-            network: self.config.network.clone(),
+            network: self.config.network.network_id.clone(),
             height: self.get_height(),
             best_block_hash: hex::encode(self.get_best_block_hash()),
-            connections: self.network.get_peer_count() as u32,
+            connections: 0, // TODO: Make this method async to get actual peer count
             synced: self.is_synced(),
             uptime: self.start_time.elapsed().as_secs(),
         })
@@ -101,7 +103,6 @@ impl NodeApiFacade {
     /// Get system information
     pub fn get_system_info(&self) -> Result<crate::api::types::SystemInfo, String> {
         let mut sys = System::new_all();
-        sys.refresh_all();
         
         let load_avg = sys.load_average();
         
@@ -177,7 +178,7 @@ impl NodeApiFacade {
     pub fn get_mempool_stats(&self) -> serde_json::Value {
         serde_json::json!({
             "size": self.mempool.size(),
-            "bytes": self.mempool.get_memory_usage(),
+            "bytes": TransactionPoolNodeMethods::get_memory_usage(&*self.mempool),
             "fee_histogram": [], // TODO: Get fee histogram
             "min_fee_rate": 1.0, // TODO: Get from mempool
             "max_fee_rate": 100.0, // TODO: Get from mempool

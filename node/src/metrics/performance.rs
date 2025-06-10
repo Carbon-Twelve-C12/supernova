@@ -11,16 +11,24 @@ use std::pin::Pin;
 pub enum MetricType {
     /// Transaction processing time
     TransactionProcessing,
+    /// Transaction validation time
+    TransactionValidation,
+    /// Block processing time
+    BlockProcessing,
     /// Block validation time
     BlockValidation,
     /// Database read operation
     DatabaseRead,
     /// Database write operation
     DatabaseWrite,
+    /// Storage operation
+    StorageOperation,
     /// Mempool operations
     Mempool,
     /// Network operations
     Network,
+    /// Network latency
+    NetworkLatency,
     /// Peer connections
     PeerConnection,
     /// Synchronization
@@ -144,11 +152,15 @@ impl PerformanceMetrics {
         for (metric_type, history) in &self.metrics {
             let metric_name = match metric_type {
                 MetricType::TransactionProcessing => "transaction_processing",
+                MetricType::TransactionValidation => "transaction_validation",
+                MetricType::BlockProcessing => "block_processing",
                 MetricType::BlockValidation => "block_validation",
                 MetricType::DatabaseRead => "database_read",
                 MetricType::DatabaseWrite => "database_write",
+                MetricType::StorageOperation => "storage_operation",
                 MetricType::Mempool => "mempool",
                 MetricType::Network => "network",
+                MetricType::NetworkLatency => "network_latency",
                 MetricType::PeerConnection => "peer_connection",
                 MetricType::Synchronization => "synchronization",
                 MetricType::ApiRequest => "api_request",

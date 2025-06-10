@@ -525,9 +525,9 @@ impl PeerDiversityManager {
     /// Evaluate the current network diversity score
     pub fn evaluate_diversity(&self) -> f64 {
         // Calculate Shannon entropy across different distribution metrics
-        let subnet_entropy = self.calculate_entropy(&self.subnet_distribution);
-        let asn_entropy = self.calculate_entropy(&self.asn_distribution);
-        let geo_entropy = self.calculate_entropy(&self.geographic_distribution);
+        let subnet_entropy = self.calculate_entropy_usize(&self.subnet_distribution);
+        let asn_entropy = self.calculate_entropy_usize(&self.asn_distribution);
+        let geo_entropy = self.calculate_entropy_usize(&self.geographic_distribution);
         
         // Weight the different entropy scores
         // Higher entropy = more diverse = better
@@ -542,21 +542,21 @@ impl PeerDiversityManager {
         weighted_score
     }
     
-    /// Calculate entropy of a distribution (Shannon entropy)
-    fn calculate_entropy<K: std::hash::Hash + Eq, V: Into<f64> + Copy>(&self, 
-                                                      distribution: &DashMap<K, V>) -> f64 {
+    /// Calculate entropy of a distribution (Shannon entropy) for usize values
+    fn calculate_entropy_usize<K: std::hash::Hash + Eq>(&self, 
+                                                      distribution: &DashMap<K, usize>) -> f64 {
         if distribution.is_empty() {
             return 0.0;
         }
         
-        let total: f64 = distribution.iter().map(|entry| (*entry.value()).into()).sum();
+        let total: f64 = distribution.iter().map(|entry| *entry.value() as f64).sum();
         if total == 0.0 {
             return 0.0;
         }
         
         let mut entropy = 0.0;
         for entry in distribution.iter() {
-            let p: f64 = (*entry.value()).into() / total;
+            let p: f64 = *entry.value() as f64 / total;
             if p > 0.0 {
                 entropy -= p * p.log2();
             }

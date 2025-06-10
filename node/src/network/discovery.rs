@@ -4,7 +4,7 @@ use libp2p::{
         upgrade::{self, InboundUpgrade, OutboundUpgrade, UpgradeInfo, Negotiated, DeniedUpgrade},
         ConnectedPoint, Multiaddr,
     },
-    kad::{self, Kademlia, KademliaConfig, KademliaEvent, QueryId, QueryResult, Record, BootstrapError, store::MemoryStore},
+    kad::{self, Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, QueryId, QueryResult, Record, BootstrapError, store::MemoryStore},
     swarm::DialError,
     mdns::{self, Event as MdnsEvent, Config as MdnsConfig},
     identity::Keypair,
@@ -39,7 +39,7 @@ pub enum DiscoveryEvent {
 /// Peer discovery using Kademlia DHT and mDNS
 pub struct PeerDiscovery {
     // Kademlia DHT for peer discovery over WAN
-    kademlia: Option<Kademlia<Record>>,
+    kademlia: Option<Kademlia<MemoryStore>>,
     // mDNS for local network discovery
     mdns: Option<mdns::tokio::Behaviour>,
     // Map of ongoing queries
@@ -152,9 +152,9 @@ impl PeerDiscovery {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to bootstrap Kademlia: {}", e);
+                    warn!("Failed to start bootstrap: {:?}", e);
                     Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, 
-                                                   format!("Bootstrap error: {}", e))))
+                                                   format!("Bootstrap failed: {:?}", e))))
                 }
             }
         } else {

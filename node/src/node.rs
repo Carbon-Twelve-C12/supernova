@@ -26,7 +26,7 @@ use tracing::{info, error, warn, debug};
 use crate::metrics::performance::{PerformanceMonitor, MetricType};
 use thiserror::Error;
 use libp2p::PeerId;
-use sysinfo::System;
+use sysinfo::{System, SystemExt};
 use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -51,7 +51,7 @@ pub struct NodeStatusInfo {
 }
 
 /// Node operation errors
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum NodeError {
     #[error("Storage error: {0}")]
     StorageError(#[from] StorageError),
@@ -69,6 +69,12 @@ pub enum NodeError {
     MempoolError(#[from] crate::mempool::MempoolError),
     #[error("Testnet error: {0}")]
     TestnetError(String),
+}
+
+impl From<Box<dyn std::error::Error>> for NodeError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        NodeError::General(err.to_string())
+    }
 }
 
 // Placeholder types for missing imports
@@ -147,7 +153,14 @@ impl Node {
         let mempool = Arc::new(TransactionPool::new(mempool_config));
         
         // Initialize network
-        let network = Arc::new(P2PNetwork::new());
+        let keypair = libp2p::identity::Keypair::generate_ed25519();
+        let genesis_hash = [0u8; 32]; // TODO: Use actual genesis hash
+        let (network, _command_tx, _event_rx) = P2PNetwork::new(
+            Some(keypair),
+            genesis_hash,
+            &config.node.chain_id,
+        ).await?;
+        let network = Arc::new(network);
         
         // Initialize testnet manager if enabled
         let testnet_manager = if config.testnet.enabled {
@@ -376,8 +389,8 @@ impl Node {
     
     /// Get system info
     pub fn get_system_info(&self) -> Result<SystemInfo, NodeError> {
+        use sysinfo::{System, SystemExt};
         let mut sys = System::new_all();
-        sys.refresh_all();
         
         let load_avg = sys.load_average();
         
@@ -407,11 +420,11 @@ impl Node {
     /// Get version info
     pub fn get_version(&self) -> Result<VersionInfo, NodeError> {
         Ok(VersionInfo {
-            node_version: env!("CARGO_PKG_VERSION").to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             protocol_version: 1,
-            api_version: "1.0.0".to_string(),
-            build_date: env!("VERGEN_BUILD_TIMESTAMP").to_string(),
-            git_commit: env!("VERGEN_GIT_SHA").to_string(),
+            git_commit: "unknown".to_string(), // TODO: Use actual git commit
+            build_date: chrono::Utc::now().to_rfc3339(),
+            rust_version: "1.79.0".to_string(), // TODO: Get actual rust version
         })
     }
     
@@ -470,16 +483,61 @@ impl Node {
     
     /// Get debug info
     pub fn get_debug_info(&self) -> Result<crate::api::types::DebugInfo, NodeError> {
-        // TODO: Implement debug info retrieval
+        // Get node info
+        let node_info = self.get_info()?;
+        
+        // Get system info
+        let system_info = self.get_system_info()?;
+        
+        // Get performance metrics
+        let performance_metrics = self.get_performance_metrics();
+        
+        // Get network stats (placeholder for now)
+        let network_stats = serde_json::json!({
+            "connected_peers": 0,
+            "inbound_connections": 0,
+            "outbound_connections": 0,
+            "bytes_sent": 0,
+            "bytes_received": 0
+        });
+        
+        // Get mempool stats
+        let mempool_stats = serde_json::json!({
+            "size": self.mempool.size(),
+            "bytes": 0,
+            "total_fee": 0
+        });
+        
+        // Get blockchain stats
+        let blockchain_stats = serde_json::json!({
+            "height": self.chain_state.get_height(),
+            "total_blocks": self.chain_state.get_height(),
+            "total_transactions": 0,
+            "utxo_set_size": 0
+        });
+        
+        // Get lightning stats
+        let lightning_stats = if self.lightning_manager.is_some() {
+            serde_json::json!({
+                "enabled": true,
+                "channels": 0,
+                "peers": 0,
+                "balance_msat": 0
+            })
+        } else {
+            serde_json::json!({
+                "enabled": false
+            })
+        };
+        
         Ok(crate::api::types::DebugInfo {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            uptime: self.start_time.elapsed().as_secs(),
-            memory_usage: 0,
-            goroutines: 0,
-            database_size: 0,
-            cache_size: 0,
-            log_level: "info".to_string(),
-            debug_mode: false,
+            node_info,
+            system_info,
+            performance_metrics,
+            network_stats,
+            mempool_stats,
+            blockchain_stats,
+            lightning_stats,
         })
     }
     
