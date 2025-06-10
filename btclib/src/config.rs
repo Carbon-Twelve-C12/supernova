@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
-use crate::crypto::{QuantumScheme, ClassicalScheme, ZkpType};
+use crate::crypto::{quantum::{QuantumScheme, ClassicalScheme}, zkp::ZkpType};
 use crate::environmental::EmissionsConfig;
 use std::path::PathBuf;
 use crate::api::ApiConfig;
-use crate::consensus::ConsensusConfig;
-use crate::utils::U256;
+// use crate::consensus::ConsensusConfig; // TODO: Implement ConsensusConfig
+// use crate::utils::U256; // TODO: Implement U256 if needed
 
 /// Configuration for advanced cryptographic features
 #[derive(Debug, Clone, Serialize, Deserialize)]

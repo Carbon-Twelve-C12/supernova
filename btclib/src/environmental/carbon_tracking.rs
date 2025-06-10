@@ -10,8 +10,8 @@ use sha2::{Sha256, Digest};
 
 use crate::environmental::{
     oracle::{EnvironmentalOracle, OracleSubmission, EnvironmentalData, OracleError},
-    emissions::{EmissionFactor, EmissionsCalculator, EnergySource},
-    types::{Region, EnergySourceType},
+    emissions::{EmissionFactor, EmissionsCalculator},
+    types::{Region, EnergySource as EnergySourceType},
     verification::{RenewableCertificate, CarbonOffset},
 };
 
