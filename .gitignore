@@ -45,3 +45,15 @@ makefile
 
 # Exclude all target directories
 **/target/
+
+# Documentation
+docs/investor/
+docs/*whitepaper*
+docs/*executive_summary*
+convert_whitepaper_*.py
+deployment/*GUIDE*
+deployment/*CHECKLIST*
+deployment/*PLAN*
+deployments/testnet/*GUIDE*
+deployments/testnet/*SUMMARY*
+deployments/testnet/*START*
