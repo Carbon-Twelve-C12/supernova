@@ -23,6 +23,7 @@ const HEADERS_TREE: &str = "headers";
 const PENDING_BLOCKS_TREE: &str = "pending_blocks";
 const PENDING_BLOCKS_META_TREE: &str = "pending_blocks_meta";
 const PENDING_BLOCKS_INDEX_TREE: &str = "pending_blocks_index";
+const SPENT_OUTPUTS_TREE: &str = "spent_outputs";
 const HEIGHT_KEY: &[u8] = b"height";
 
 /// Metadata about a pending block
@@ -326,6 +327,7 @@ pub struct BlockchainDB {
     pending_blocks: sled::Tree,
     pending_blocks_meta: sled::Tree,
     pending_blocks_index: sled::Tree,
+    spent_outputs: sled::Tree,
     /// Expiry time for pending blocks
     pending_block_expiry: Duration,
     /// Maximum number of pending blocks
@@ -406,6 +408,7 @@ impl BlockchainDB {
             pending_blocks: db.open_tree(PENDING_BLOCKS_TREE)?,
             pending_blocks_meta: db.open_tree(PENDING_BLOCKS_META_TREE)?,
             pending_blocks_index: db.open_tree(PENDING_BLOCKS_INDEX_TREE)?,
+            spent_outputs: db.open_tree(SPENT_OUTPUTS_TREE)?,
             db_path: path_buf,
             db: Arc::new(db),
             pending_block_expiry: db_config.pending_block_expiry,
@@ -909,13 +912,14 @@ impl BlockchainDB {
         self.blocks.clear()?;
         self.transactions.clear()?;
         self.utxos.clear()?;
+        self.metadata.clear()?;
         self.block_height_index.clear()?;
         self.tx_index.clear()?;
         self.headers.clear()?;
         self.pending_blocks.clear()?;
         self.pending_blocks_meta.clear()?;
         self.pending_blocks_index.clear()?;
-        self.metadata.clear()?;
+        self.spent_outputs.clear()?;
         Ok(())
     }
 
@@ -2193,6 +2197,7 @@ impl BlockchainDB {
         let pending_blocks = db.open_tree(PENDING_BLOCKS_TREE)?;
         let pending_blocks_meta = db.open_tree(PENDING_BLOCKS_META_TREE)?;
         let pending_blocks_index = db.open_tree(PENDING_BLOCKS_INDEX_TREE)?;
+        let spent_outputs = db.open_tree(SPENT_OUTPUTS_TREE)?;
         
         let block_filter = Arc::new(RwLock::new(BloomFilter::new(
             db_config.bloom_filter_capacity,
@@ -2241,6 +2246,7 @@ impl BlockchainDB {
             pending_blocks,
             pending_blocks_meta,
             pending_blocks_index,
+            spent_outputs,
             pending_block_expiry: db_config.pending_block_expiry,
             max_pending_blocks: db_config.max_pending_blocks,
             block_filter,
@@ -2314,13 +2320,68 @@ impl BlockchainDB {
     /// Check if an output is spent
     pub fn is_output_spent(&self, tx_hash: &[u8; 32], vout: u32) -> Result<Option<[u8; 32]>, StorageError> {
         let utxo_key = create_utxo_key(tx_hash, vout);
-        // If the UTXO exists, it's unspent
+        
+        // First check if the UTXO exists (if it does, it's unspent)
         if self.utxos.contains_key(&utxo_key)? {
-            Ok(None) // Not spent
+            return Ok(None); // Not spent
+        }
+        
+        // Check the spent outputs index to find which transaction spent it
+        if let Some(spending_tx_hash) = self.spent_outputs.get(&utxo_key)? {
+            if spending_tx_hash.len() == 32 {
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&spending_tx_hash);
+                Ok(Some(hash))
+            } else {
+                Err(StorageError::InvalidBlock)
+            }
         } else {
-            // For now, we don't track which transaction spent it
-            // In a full implementation, we'd have a spent_outputs index
-            Ok(Some([0u8; 32])) // Spent by unknown transaction
+            // Output doesn't exist in UTXO set or spent outputs
+            // This could mean it never existed or database is incomplete
+            Ok(None)
+        }
+    }
+    
+    /// Mark an output as spent by a specific transaction
+    pub fn mark_output_spent(&self, tx_hash: &[u8; 32], vout: u32, spending_tx_hash: &[u8; 32]) -> Result<(), StorageError> {
+        let utxo_key = create_utxo_key(tx_hash, vout);
+        
+        // Remove from UTXO set
+        self.remove_utxo(tx_hash, vout)?;
+        
+        // Add to spent outputs index
+        self.spent_outputs.insert(&utxo_key, spending_tx_hash)?;
+        
+        Ok(())
+    }
+    
+    /// Mark an output as unspent (used during reorg)
+    pub fn mark_output_unspent(&self, tx_hash: &[u8; 32], vout: u32, output_data: &[u8]) -> Result<(), StorageError> {
+        let utxo_key = create_utxo_key(tx_hash, vout);
+        
+        // Remove from spent outputs index
+        self.spent_outputs.remove(&utxo_key)?;
+        
+        // Add back to UTXO set
+        self.store_utxo(tx_hash, vout, output_data)?;
+        
+        Ok(())
+    }
+    
+    /// Get the transaction that spent a specific output
+    pub fn get_spending_transaction(&self, tx_hash: &[u8; 32], vout: u32) -> Result<Option<[u8; 32]>, StorageError> {
+        let utxo_key = create_utxo_key(tx_hash, vout);
+        
+        if let Some(spending_tx_hash) = self.spent_outputs.get(&utxo_key)? {
+            if spending_tx_hash.len() == 32 {
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&spending_tx_hash);
+                Ok(Some(hash))
+            } else {
+                Err(StorageError::InvalidBlock)
+            }
+        } else {
+            Ok(None)
         }
     }
 
@@ -2663,6 +2724,39 @@ mod tests {
         // The invalid data should be gone
         let invalid_data = db.get_raw_data(tree_name, b"empty_value_key")?;
         assert!(invalid_data.is_none());
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_spent_output_tracking() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let db = BlockchainDB::new(temp_dir.path())?;
+        
+        let tx_hash = [1u8; 32];
+        let spending_tx_hash = [2u8; 32];
+        let output_data = b"test_output";
+        let vout = 0;
+        
+        // Store a UTXO
+        db.store_utxo(&tx_hash, vout, output_data)?;
+        
+        // Check it's not spent
+        assert_eq!(db.is_output_spent(&tx_hash, vout)?, None);
+        
+        // Mark it as spent
+        db.mark_output_spent(&tx_hash, vout, &spending_tx_hash)?;
+        
+        // Check it's now spent and returns the correct spending transaction
+        assert_eq!(db.is_output_spent(&tx_hash, vout)?, Some(spending_tx_hash));
+        assert_eq!(db.get_spending_transaction(&tx_hash, vout)?, Some(spending_tx_hash));
+        
+        // Mark it as unspent again (simulating a reorg)
+        db.mark_output_unspent(&tx_hash, vout, output_data)?;
+        
+        // Check it's unspent again
+        assert_eq!(db.is_output_spent(&tx_hash, vout)?, None);
+        assert_eq!(db.get_spending_transaction(&tx_hash, vout)?, None);
         
         Ok(())
     }
