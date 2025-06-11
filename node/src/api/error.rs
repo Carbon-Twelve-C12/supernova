@@ -200,30 +200,6 @@ pub type Result<T> = std::result::Result<T, ApiError>;
 /// Legacy alias for compatibility
 pub type ApiResult<T> = Result<T>;
 
-/// Implement Responder for ApiResult<Vec<T>> where T is serializable
-impl<T: serde::Serialize> Responder for ApiResult<Vec<T>> {
-    type Body = actix_web::body::BoxBody;
-
-    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
-        match self {
-            Ok(data) => HttpResponse::Ok().json(data),
-            Err(err) => err.error_response(),
-        }
-    }
-}
-
-/// Implement Responder for ApiResult<T> where T is serializable
-impl<T: serde::Serialize> Responder for ApiResult<T> {
-    type Body = actix_web::body::BoxBody;
-
-    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
-        match self {
-            Ok(data) => HttpResponse::Ok().json(data),
-            Err(err) => err.error_response(),
-        }
-    }
-}
-
 /// Convert common error types to API errors with security considerations
 impl From<std::io::Error> for ApiError {
     fn from(err: std::io::Error) -> Self {
