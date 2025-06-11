@@ -60,7 +60,7 @@ pub enum NodeError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
     #[error("Lightning Network error: {0}")]
-    LightningError(#[from] LightningNetworkError),
+    LightningError(LightningNetworkError),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
     #[error("General error: {0}")]
@@ -77,15 +77,15 @@ impl From<Box<dyn std::error::Error>> for NodeError {
     }
 }
 
-impl From<btclib::lightning::error::LightningError> for NodeError {
-    fn from(err: btclib::lightning::error::LightningError) -> Self {
-        NodeError::LightningError(err)
+impl From<btclib::lightning::LightningError> for NodeError {
+    fn from(err: btclib::lightning::LightningError) -> Self {
+        NodeError::LightningError(LightningNetworkError::from(err))
     }
 }
 
 impl From<btclib::lightning::wallet::WalletError> for NodeError {
     fn from(err: btclib::lightning::wallet::WalletError) -> Self {
-        NodeError::LightningError(btclib::lightning::error::LightningError::WalletError(err))
+        NodeError::LightningError(LightningNetworkError::WalletError(err))
     }
 }
 
@@ -244,7 +244,7 @@ impl Node {
                 let (lightning_manager, event_receiver) = LightningManager::new(
                     lightning_config,
                     lightning_wallet,
-                ).map_err(|e| NodeError::LightningError(LightningNetworkError::ManagerError(e.to_string())))?;
+                ).map_err(|e| NodeError::General(format!("Lightning manager error: {}", e)))?;
                 
                 // Create event handler
                 let (event_handler, event_receiver_2) = LightningEventHandler::new();
@@ -264,7 +264,7 @@ impl Node {
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             db,
-            chain_state,
+            chain_state: Arc::clone(&chain_state),
             mempool,
             network,
             testnet_manager,
@@ -276,7 +276,7 @@ impl Node {
             peer_id: PeerId::random(),
             start_time: Instant::now(),
             performance_monitor: Arc::new(PerformanceMonitor::new(1000)),
-            blockchain: Arc::clone(&chain_state),
+            blockchain: chain_state,
             wallet: Arc::new(()),
             db_shutdown_handler: None,
             wal: None,

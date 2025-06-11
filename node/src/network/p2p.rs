@@ -1872,12 +1872,12 @@ impl P2PNetwork {
             })
         });
     }
-    
+
     /// Get network statistics synchronously
     pub fn get_stats(&self) -> NetworkStats {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
-                self.get_stats().await
+                self.stats.read().await.clone()
             })
         })
     }

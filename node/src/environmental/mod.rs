@@ -258,13 +258,18 @@ impl EnvironmentalMonitor {
             energy_sources: self.get_energy_sources(),
             efficiency: total_energy_kwh / cpu_usage.max(0.01), // Avoid division by zero
             history: if include_history {
-                Some(energy_history.clone().into_iter().map(|h| {
-                    crate::api::types::environmental::EnergyUsageHistory {
-                        timestamp: h.timestamp,
-                        usage: h.usage,
-                        power: h.power,
-                    }
-                }).collect())
+                // Read energy history for the response
+                if let Ok(energy_history) = self.energy_history.read() {
+                    Some(energy_history.clone().into_iter().map(|h| {
+                        crate::api::types::environmental::EnergyUsageHistory {
+                            timestamp: h.timestamp,
+                            usage: h.usage,
+                            power: h.power,
+                        }
+                    }).collect())
+                } else {
+                    None
+                }
             } else {
                 None
             },

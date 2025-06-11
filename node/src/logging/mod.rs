@@ -48,10 +48,11 @@ pub fn add_log_entry(level: &str, component: &str, message: String) {
     }
     
     buffer.push_back(LogEntry {
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: Utc::now().timestamp() as u64,
         level: level.to_string(),
         component: component.to_string(),
         message,
+        context: None,
     });
 }
 

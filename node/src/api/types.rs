@@ -1009,7 +1009,7 @@ pub struct SystemInfo {
 }
 
 /// Log entry
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LogEntry {
     /// Timestamp
     pub timestamp: u64,
