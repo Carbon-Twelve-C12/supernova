@@ -22,7 +22,8 @@ WORKDIR /build
 # Copy source code
 COPY . /build/
 
-# Build everything from the workspace root
+# Build the node binary specifically
+WORKDIR /build/node
 RUN cargo build --release
 
 ###############################################################################
@@ -42,11 +43,11 @@ RUN apt-get update && \
 # Create supernova user
 RUN useradd -m -u 1000 -U -s /bin/bash supernova
 
-# Copy the node binary from the workspace target directory
-COPY --from=builder /build/target/release/node /usr/local/bin/supernova
+# Copy the node binary - it should be named 'node' based on the Cargo.toml
+COPY --from=builder /build/node/target/release/node /usr/local/bin/supernova
 
 # Copy CLI binary if it exists
-COPY --from=builder /build/target/release/supernova-cli* /usr/local/bin/ 2>/dev/null || true
+COPY --from=builder /build/cli/target/release/supernova-cli* /usr/local/bin/ 2>/dev/null || true
 
 # Make binaries executable
 RUN chmod +x /usr/local/bin/supernova*
