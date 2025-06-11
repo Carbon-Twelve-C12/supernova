@@ -22,12 +22,7 @@ WORKDIR /build
 # Copy source code
 COPY . /build/
 
-# Build the node binary from the node directory
-WORKDIR /build/node
-RUN cargo build --release
-
-# Build the CLI binary from the cli directory  
-WORKDIR /build/cli
+# Build everything from the workspace root
 RUN cargo build --release
 
 ###############################################################################
@@ -47,12 +42,14 @@ RUN apt-get update && \
 # Create supernova user
 RUN useradd -m -u 1000 -U -s /bin/bash supernova
 
-# Copy binaries from builder - they should be in the respective target directories
-COPY --from=builder /build/node/target/release/node /usr/local/bin/supernova
-COPY --from=builder /build/cli/target/release/supernova-cli /usr/local/bin/supernova-cli
+# Copy the node binary from the workspace target directory
+COPY --from=builder /build/target/release/node /usr/local/bin/supernova
+
+# Copy CLI binary if it exists
+COPY --from=builder /build/target/release/supernova-cli* /usr/local/bin/ 2>/dev/null || true
 
 # Make binaries executable
-RUN chmod +x /usr/local/bin/supernova /usr/local/bin/supernova-cli
+RUN chmod +x /usr/local/bin/supernova*
 
 # Create data directories
 RUN mkdir -p /home/supernova/data \
@@ -65,10 +62,13 @@ USER supernova
 WORKDIR /home/supernova
 
 # Expose ports
-EXPOSE 8332 8333 9100
+# 8080 - REST API
+# 8333 - P2P Network
+# 9333 - Lightning Network
+EXPOSE 8080 8333 9333
 
 # Volume for blockchain data
 VOLUME ["/home/supernova/data"]
 
-# Default command
-CMD ["supernova", "--datadir=/home/supernova/data", "--config=/home/supernova/config/node.toml"] 
+# Default command - run in testnet mode
+CMD ["supernova", "--testnet", "--data-dir=/home/supernova/data", "--rpc-bind=0.0.0.0:8080", "--p2p-bind=0.0.0.0:8333"] 
