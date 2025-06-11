@@ -28,7 +28,7 @@ pub mod quantum_test_vectors;
 pub mod overflow_tests;
 
 // Export main types
-pub use block::Block;
+pub use block::{Block, BlockHeader};
 pub use transaction::{Transaction, TransactionInput, TransactionOutput, TransactionError};
 pub use extended_transaction::ExtendedTransactionInput;
 pub use units::UnitError;

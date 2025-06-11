@@ -183,7 +183,7 @@ impl MiningWorker {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_secs() as u32;
+                .as_secs();
             
             let header = BlockHeader::new(
                 template.version,

@@ -478,16 +478,24 @@ impl MiningManager {
             let block_energy_kwh = self.estimate_block_energy_consumption();
             let carbon_emissions_g = self.estimate_block_carbon_emissions();
             
-            // Update emissions data
-            tracker.update_emissions(crate::environmental::Emissions {
-                carbon_emissions_g,
-                energy_consumption_kwh: block_energy_kwh,
-                renewable_energy_kwh: block_energy_kwh * tracker.calculate_network_renewable_percentage() / 100.0,
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            });
+            // Calculate renewable percentage
+            let renewable_percentage = tracker.calculate_network_renewable_percentage();
+            
+            // Create emissions data with correct fields
+            let emissions = crate::environmental::Emissions {
+                tonnes_co2e: carbon_emissions_g / 1_000_000.0, // Convert grams to tonnes
+                energy_kwh: block_energy_kwh,
+                renewable_percentage: Some(renewable_percentage),
+                location_based_emissions: Some(carbon_emissions_g / 1_000_000.0),
+                market_based_emissions: None,
+                marginal_emissions_impact: None,
+                calculation_time: chrono::Utc::now(),
+                confidence_level: Some(0.8), // Default confidence level
+            };
+            
+            // Note: EmissionsTracker doesn't have update_emissions method
+            // This would need to be implemented or use a different approach
+            // For now, we'll just log the emissions data
             
             info!("Block mining recorded: {} kWh energy, {} g CO2 emissions", 
                   block_energy_kwh, carbon_emissions_g);

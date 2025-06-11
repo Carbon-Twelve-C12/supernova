@@ -160,6 +160,16 @@ impl TransactionInput {
         }
     }
 
+    /// Create a new coinbase input
+    pub fn new_coinbase(coinbase_script: Vec<u8>) -> Self {
+        Self {
+            prev_tx_hash: [0u8; 32], // Null hash for coinbase
+            prev_output_index: 0xffffffff, // Special index for coinbase
+            signature_script: coinbase_script,
+            sequence: 0xffffffff,
+        }
+    }
+
     pub fn prev_tx_hash(&self) -> [u8; 32] {
         self.prev_tx_hash
     }
@@ -191,6 +201,7 @@ impl TransactionOutput {
         }
     }
 
+    /// Get the amount of this output
     pub fn amount(&self) -> u64 {
         self.amount
     }

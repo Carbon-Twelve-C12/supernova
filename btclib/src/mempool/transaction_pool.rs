@@ -256,6 +256,17 @@ impl TransactionPool {
         self.transactions.iter().map(|entry| entry.transaction.clone()).collect()
     }
     
+    /// Get transactions sorted by fee rate (highest first)
+    pub fn get_sorted_transactions(&self) -> Vec<Transaction> {
+        let mut entries: Vec<_> = self.transactions.iter().map(|r| r.value().clone()).collect();
+        
+        // Sort by fee rate (highest first)
+        entries.sort_by(|a, b| b.fee_rate.cmp(&a.fee_rate));
+        
+        // Return just the transactions
+        entries.into_iter().map(|entry| entry.transaction).collect()
+    }
+    
     /// Get transactions in order of priority (highest fee rate first)
     pub fn get_prioritized_transactions(&self, max_size: usize) -> Vec<Transaction> {
         let mut entries: Vec<_> = self.transactions.iter().map(|r| r.value().clone()).collect();

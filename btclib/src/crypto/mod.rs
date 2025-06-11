@@ -19,4 +19,7 @@ pub use zkp::{ZkpType, Commitment, ZeroKnowledgeProof, ZkpParams};
 pub use signature::{SignatureScheme, SignatureVerifier, SignatureType, SignatureError, SignatureParams};
 pub use falcon::{FalconKeyPair, FalconParameters, FalconError};
 
+// Re-export hash256 from parent module
+pub use crate::hash::hash256;
+
 // Module that provides cryptographic primitives for the blockchain

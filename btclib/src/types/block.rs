@@ -186,6 +186,11 @@ impl BlockHeader {
     pub fn set_height(&mut self, height: u64) {
         self.height = height;
     }
+    
+    /// Get the target as a 256-bit value
+    pub fn target(&self) -> [u8; 32] {
+        bits_to_target(self.bits)
+    }
 }
 
 impl fmt::Display for BlockHeader {
