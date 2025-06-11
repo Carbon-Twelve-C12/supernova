@@ -77,6 +77,18 @@ impl From<Box<dyn std::error::Error>> for NodeError {
     }
 }
 
+impl From<btclib::lightning::error::LightningError> for NodeError {
+    fn from(err: btclib::lightning::error::LightningError) -> Self {
+        NodeError::LightningError(err)
+    }
+}
+
+impl From<btclib::lightning::wallet::WalletError> for NodeError {
+    fn from(err: btclib::lightning::wallet::WalletError) -> Self {
+        NodeError::LightningError(btclib::lightning::error::LightningError::WalletError(err))
+    }
+}
+
 // Placeholder types for missing imports
 type NetworkManager = P2PNetwork;
 type BlockValidator = ();
@@ -111,7 +123,7 @@ pub struct Node {
     /// Blockchain database
     db: Arc<BlockchainDB>,
     /// Chain state
-    chain_state: Arc<ChainState>,
+    chain_state: Arc<RwLock<ChainState>>,
     /// Transaction mempool
     mempool: Arc<TransactionPool>,
     /// P2P network
@@ -129,7 +141,7 @@ pub struct Node {
     pub peer_id: PeerId,
     pub start_time: Instant,
     pub performance_monitor: Arc<PerformanceMonitor>,
-    pub blockchain: Arc<ChainState>,
+    pub blockchain: Arc<RwLock<ChainState>>,
     pub wallet: Arc<()>,
     pub db_shutdown_handler: Option<Arc<DatabaseShutdownHandler>>,
     pub wal: Option<Arc<RwLock<WriteAheadLog>>>,
@@ -146,13 +158,13 @@ impl Node {
         let db = Arc::new(BlockchainDB::new(&config.storage.db_path)?);
         
         // Initialize chain state
-        let chain_state = Arc::new(ChainState::new(Arc::clone(&db))?);
+        let chain_state = Arc::new(RwLock::new(ChainState::new(Arc::clone(&db))?));
         
         // Initialize genesis block if needed
-        if chain_state.get_height() == 0 {
+        if chain_state.read().unwrap().get_height() == 0 {
             // Create genesis block
             let genesis_block = crate::blockchain::create_genesis_block(&config.node.chain_id);
-            chain_state.initialize_with_genesis(genesis_block)
+            chain_state.write().unwrap().initialize_with_genesis(genesis_block)
                 .map_err(|e| NodeError::StorageError(e.into()))?;
         }
         
@@ -162,7 +174,7 @@ impl Node {
         
         // Initialize network
         let keypair = libp2p::identity::Keypair::generate_ed25519();
-        let genesis_hash = chain_state.get_genesis_hash();
+        let genesis_hash = chain_state.read().unwrap().get_genesis_hash();
         let (network, _command_tx, _event_rx) = P2PNetwork::new(
             Some(keypair),
             genesis_hash,
@@ -226,13 +238,13 @@ impl Node {
                     } else {
                         None
                     },
-                )?;
+                ).map_err(|e| NodeError::LightningError(LightningNetworkError::WalletError(e)))?;
                 
                 // Create Lightning manager
                 let (lightning_manager, event_receiver) = LightningManager::new(
                     lightning_config,
                     lightning_wallet,
-                )?;
+                ).map_err(|e| NodeError::LightningError(LightningNetworkError::ManagerError(e.to_string())))?;
                 
                 // Create event handler
                 let (event_handler, event_receiver_2) = LightningEventHandler::new();
@@ -318,7 +330,7 @@ impl Node {
     }
     
     /// Get chain state
-    pub fn chain_state(&self) -> Arc<ChainState> {
+    pub fn chain_state(&self) -> Arc<RwLock<ChainState>> {
         Arc::clone(&self.chain_state)
     }
     
@@ -365,7 +377,7 @@ impl Node {
         }
         
         // Add to chain state
-        self.chain_state.add_block(&block)
+        self.chain_state.write().unwrap().add_block(&block)
             .map_err(|e| NodeError::StorageError(e.into()))?;
         
         // Remove transactions from mempool
@@ -391,7 +403,7 @@ impl Node {
     /// Get node status
     pub async fn get_status(&self) -> NodeStatusInfo {
         let config = self.config.read().unwrap();
-        let chain_height = self.chain_state.get_height() as u64;
+        let chain_height = self.chain_state.read().unwrap().get_height() as u64;
         let peer_count = self.network.peer_count().await;
         let is_syncing = self.network.is_syncing();
         
@@ -410,8 +422,8 @@ impl Node {
     /// Get node info
     pub fn get_info(&self) -> Result<NodeInfo, NodeError> {
         let config = self.config.read().unwrap();
-        let chain_height = self.chain_state.get_height() as u64;
-        let best_block_hash = self.chain_state.get_best_block_hash();
+        let chain_height = self.chain_state.read().unwrap().get_height() as u64;
+        let best_block_hash = self.chain_state.read().unwrap().get_best_block_hash();
         let connections = self.network.peer_count_sync();
         let synced = !self.network.is_syncing();
         
@@ -503,7 +515,7 @@ impl Node {
         Ok(NodeMetrics {
             uptime: self.start_time.elapsed().as_secs(),
             peer_count: self.network.peer_count_sync(),
-            block_height: self.chain_state.get_height() as u64,
+            block_height: self.chain_state.read().unwrap().get_height() as u64,
             mempool_size: self.mempool.size(),
             mempool_bytes,
             sync_progress,
@@ -635,8 +647,8 @@ impl Node {
         
         // Get blockchain stats
         let blockchain_stats = serde_json::json!({
-            "height": self.chain_state.get_height(),
-            "total_blocks": self.chain_state.get_height(),
+            "height": self.chain_state.read().unwrap().get_height(),
+            "total_blocks": self.chain_state.read().unwrap().get_height(),
             "total_transactions": 0,
             "utxo_set_size": 0
         });
