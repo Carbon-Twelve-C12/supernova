@@ -118,6 +118,37 @@ impl ChainState {
         self.best_block_hash
     }
 
+    /// Initialize the chain state with a genesis block
+    pub fn initialize_with_genesis(&mut self, genesis_block: Block) -> Result<(), StorageError> {
+        // Check if already initialized
+        if self.current_height > 0 {
+            return Err(StorageError::General("Chain already initialized".to_string()));
+        }
+        
+        // Store the genesis block
+        self.store_block(genesis_block.clone())?;
+        
+        // Set genesis hash in metadata
+        self.db.store_metadata(b"genesis_hash", &genesis_block.hash())?;
+        
+        Ok(())
+    }
+    
+    /// Add a block to the chain
+    pub fn add_block(&mut self, block: &Block) -> Result<(), StorageError> {
+        // Process the block using existing logic
+        let block_clone = block.clone();
+        tokio::runtime::Handle::current().block_on(async {
+            self.process_block(block_clone).await
+        })?;
+        Ok(())
+    }
+    
+    /// Get a block by hash
+    pub fn get_block(&self, hash: &[u8; 32]) -> Option<Block> {
+        self.db.get_block(hash).ok().flatten()
+    }
+
     /// Get the genesis block hash
     pub fn get_genesis_hash(&self) -> [u8; 32] {
         // Fetch the genesis block hash from database or use a cached value

@@ -1,0 +1,1 @@
+        let chain_height = self.chain_state.get_height() as u64; 

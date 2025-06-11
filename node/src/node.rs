@@ -374,7 +374,7 @@ impl Node {
         }
         
         // Store full block in database
-        self.db.store_block(&block)
+        self.db.insert_block(&block)
             .map_err(|e| NodeError::StorageError(e))?;
         
         // Broadcast to network if this is a new block we mined
@@ -391,7 +391,7 @@ impl Node {
     /// Get node status
     pub async fn get_status(&self) -> NodeStatusInfo {
         let config = self.config.read().unwrap();
-        let chain_height = self.chain_state.get_height().unwrap_or(0) as u64;
+        let chain_height = self.chain_state.get_height() as u64;
         let peer_count = self.network.peer_count().await;
         let is_syncing = self.network.is_syncing();
         
@@ -410,7 +410,7 @@ impl Node {
     /// Get node info
     pub fn get_info(&self) -> Result<NodeInfo, NodeError> {
         let config = self.config.read().unwrap();
-        let chain_height = self.chain_state.get_height().unwrap_or(0) as u64;
+        let chain_height = self.chain_state.get_height() as u64;
         let best_block_hash = self.chain_state.get_best_block_hash();
         let connections = self.network.peer_count_sync();
         let synced = !self.network.is_syncing();
@@ -503,7 +503,7 @@ impl Node {
         Ok(NodeMetrics {
             uptime: self.start_time.elapsed().as_secs(),
             peer_count: self.network.peer_count_sync(),
-            block_height: self.chain_state.get_height().unwrap_or(0) as u64,
+            block_height: self.chain_state.get_height() as u64,
             mempool_size: self.mempool.size(),
             mempool_bytes,
             sync_progress,
@@ -635,8 +635,8 @@ impl Node {
         
         // Get blockchain stats
         let blockchain_stats = serde_json::json!({
-            "height": self.chain_state.get_height().unwrap_or(0),
-            "total_blocks": self.chain_state.get_height().unwrap_or(0),
+            "height": self.chain_state.get_height(),
+            "total_blocks": self.chain_state.get_height(),
             "total_transactions": 0,
             "utxo_set_size": 0
         });

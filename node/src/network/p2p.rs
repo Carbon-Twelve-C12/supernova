@@ -1111,6 +1111,11 @@ impl P2PNetwork {
         self.connected_peers.read().await.len()
     }
     
+    /// Get peer count (alias for get_peer_count)
+    pub async fn peer_count(&self) -> usize {
+        self.get_peer_count().await
+    }
+    
     /// Stop the network
     pub async fn stop(&self) -> Result<(), Box<dyn Error>> {
         let mut running = self.running.write().await;
