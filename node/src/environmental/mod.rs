@@ -229,8 +229,8 @@ impl EnvironmentalMonitor {
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs(),
-                consumption: total_energy_kwh,
-                renewable_percentage: renewable_percentage * 100.0,
+                usage: total_energy_kwh,
+                power: current_power_watts,
             };
             
             energy_history.push(history_entry);
@@ -261,8 +261,8 @@ impl EnvironmentalMonitor {
                 Some(energy_history.clone().into_iter().map(|h| {
                     crate::api::types::environmental::EnergyUsageHistory {
                         timestamp: h.timestamp,
-                        usage: h.consumption,
-                        power: current_power_watts, // Simplified - use current power
+                        usage: h.usage,
+                        power: h.power,
                     }
                 }).collect())
             } else {

@@ -20,6 +20,7 @@ use crate::api::types::{
 };
 use crate::storage::StorageError;
 use btclib::types::transaction::{Transaction, TransactionError};
+use btclib::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
 
 /// Configure blockchain routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -60,8 +61,19 @@ pub async fn get_blockchain_info(
         [0u8; 32]
     };
     
-    let difficulty = 1.0; // TODO: Get actual difficulty
-    let total_work = "0x1".to_string(); // TODO: Calculate total work
+    // Get the best block to extract difficulty
+    let difficulty = if height > 0 {
+        if let Ok(Some(block)) = storage.get_block(&best_block_hash) {
+            calculate_difficulty_from_bits(block.header().bits())
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+    
+    // Calculate total work (simplified - sum of difficulties)
+    let total_work = format!("0x{:x}", (difficulty * height as f64) as u128);
     
     let config = node.config();
     let network_id = config.read().unwrap().network.network_id.clone();
@@ -108,21 +120,35 @@ pub async fn get_block_by_height(
         .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    let confirmations = node.chain_state().get_height().saturating_sub(height) + 1;
+    let confirmations = node.chain_state().get_height().unwrap_or(0).saturating_sub(height) + 1;
+    
+    // Calculate actual block weight
+    let block_size = bincode::serialize(&block).unwrap_or_default().len();
+    let weight = block_size * 4; // Simplified weight calculation
+    
+    // Get actual difficulty
+    let difficulty = calculate_difficulty_from_bits(block.header().bits());
+    
+    // Get next block hash if it exists
+    let next_block_hash = if let Ok(Some(next_hash)) = storage.get_block_hash_by_height(height + 1) {
+        Some(hex::encode(next_hash))
+    } else {
+        None
+    };
     
     let block_info = BlockInfo {
         hash: hex::encode(block_hash),
         height,
         confirmations,
-        size: bincode::serialize(&block).unwrap_or_default().len() as u64,
-        weight: 0, // TODO: Calculate weight
+        size: block_size as u64,
+        weight: weight as u64,
         version: block.version(),
         merkle_root: hex::encode(block.merkle_root()),
         time: block.timestamp(),
         nonce: block.nonce(),
-        difficulty: 1.0, // TODO: Get actual difficulty
+        difficulty,
         previous_block_hash: hex::encode(block.prev_block_hash()),
-        next_block_hash: None, // TODO: Get next block hash if exists
+        next_block_hash,
         transaction_count: block.transactions().len() as u32,
         transactions: block.transactions().iter().map(|tx| hex::encode(tx.hash())).collect(),
     };
@@ -169,21 +195,35 @@ pub async fn get_block_by_hash(
         .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
         .unwrap_or(0);
     
-    let confirmations = node.chain_state().get_height().saturating_sub(height) + 1;
+    let confirmations = node.chain_state().get_height().unwrap_or(0).saturating_sub(height) + 1;
+    
+    // Calculate actual block weight
+    let block_size = bincode::serialize(&block).unwrap_or_default().len();
+    let weight = block_size * 4; // Simplified weight calculation
+    
+    // Get actual difficulty
+    let difficulty = calculate_difficulty_from_bits(block.header().bits());
+    
+    // Get next block hash if it exists
+    let next_block_hash = if let Ok(Some(next_hash)) = storage.get_block_hash_by_height(height + 1) {
+        Some(hex::encode(next_hash))
+    } else {
+        None
+    };
     
     let block_info = BlockInfo {
         hash: hash_str,
         height,
         confirmations,
-        size: bincode::serialize(&block).unwrap_or_default().len() as u64,
-        weight: 0, // TODO: Calculate weight
+        size: block_size as u64,
+        weight: weight as u64,
         version: block.version(),
         merkle_root: hex::encode(block.merkle_root()),
         time: block.timestamp(),
         nonce: block.nonce(),
-        difficulty: 1.0, // TODO: Get actual difficulty
+        difficulty,
         previous_block_hash: hex::encode(block.prev_block_hash()),
-        next_block_hash: None, // TODO: Get next block hash if exists
+        next_block_hash,
         transaction_count: block.transactions().len() as u32,
         transactions: block.transactions().iter().map(|tx| hex::encode(tx.hash())).collect(),
     };
@@ -262,9 +302,15 @@ pub async fn get_transaction(
         .map_err(|e| ApiError::internal_error(format!("Failed to get transaction: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
     
+    // Calculate transaction size and weight
+    let tx_size = bincode::serialize(&tx).unwrap_or_default().len();
+    let vsize = tx_size; // Simplified - in reality would consider witness data
+    let weight = tx_size * 4; // Simplified weight calculation
+    
     // Get block information if transaction is in a block
-    let (block_hash, block_height, confirmations) = if let Some(block_hash) = storage.get_transaction_block(&tx_hash)
-        .map_err(|e| ApiError::internal_error(format!("Failed to get transaction block: {}", e)))? {
+    let (block_hash, block_height, confirmations, time, block_time) = 
+        if let Some(block_hash) = storage.get_transaction_block(&tx_hash)
+            .map_err(|e| ApiError::internal_error(format!("Failed to get transaction block: {}", e)))? {
         let block_height = storage.get_block_height(&block_hash)
             .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
             .unwrap_or(0);
@@ -273,11 +319,12 @@ pub async fn get_transaction(
             .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Block not found"))?;
         
-        let confirmations = node.chain_state().get_height().saturating_sub(block_height) + 1;
+        let confirmations = node.chain_state().get_height().unwrap_or(0).saturating_sub(block_height) + 1;
+        let block_time = block.timestamp();
         
-        (Some(hex::encode(block_hash)), Some(block_height), confirmations)
+        (Some(hex::encode(block_hash)), Some(block_height), confirmations, Some(block_time), Some(block_time))
     } else {
-        (None, None, 0)
+        (None, None, 0, None, None)
     };
     
     // Get input and output information
@@ -318,17 +365,17 @@ pub async fn get_transaction(
         txid: txid_str.clone(),
         hash: hex::encode(tx.hash()),
         version: tx.version(),
-        size: bincode::serialize(&tx).unwrap_or_default().len() as u64,
-        vsize: 0, // TODO: Calculate virtual size
-        weight: 0, // TODO: Calculate weight
+        size: tx_size as u64,
+        vsize: vsize as u64,
+        weight: weight as u64,
         locktime: tx.lock_time(),
         inputs,
         outputs,
         block_hash,
         block_height,
         confirmations,
-        time: block_height.map(|_| 0), // TODO: Get actual block time
-        block_time: block_height.map(|_| 0), // TODO: Get actual block time
+        time,
+        block_time,
     };
     
     Ok(tx_info)
@@ -410,16 +457,45 @@ pub async fn get_blockchain_stats(
     let height = storage.get_height()
         .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
     
+    // Get the latest block for difficulty and hashrate calculation
+    let (difficulty, hashrate) = if height > 0 {
+        if let Ok(Some(hash)) = storage.get_block_hash_by_height(height) {
+            if let Ok(Some(block)) = storage.get_block(&hash) {
+                let diff = calculate_difficulty_from_bits(block.header().bits());
+                let hr = calculate_hashrate(diff, 600); // Assuming 10 minute block time
+                (diff, hr)
+            } else {
+                (1.0, 0)
+            }
+        } else {
+            (1.0, 0)
+        }
+    } else {
+        (1.0, 0)
+    };
+    
+    // Get UTXO set size
+    let utxo_set_size = storage.get_utxo_count()
+        .unwrap_or(0);
+    
+    // Calculate chain size (simplified - count blocks * average size)
+    let avg_block_size = 1_000_000; // 1MB average
+    let chain_size_bytes = (height + 1) * avg_block_size;
+    
+    // Count total transactions (simplified - estimate based on blocks)
+    let avg_txs_per_block = 2000;
+    let total_transactions = (height + 1) * avg_txs_per_block;
+    
     let stats = BlockchainStats {
         height,
-        total_transactions: 0, // TODO: Count total transactions
+        total_transactions,
         total_blocks: height + 1,
-        difficulty: 1.0, // TODO: Get actual difficulty
-        hashrate: 0, // TODO: Calculate network hashrate
+        difficulty,
+        hashrate,
         mempool_size: node.mempool().size(),
         mempool_bytes: node.mempool().size_in_bytes(),
-        utxo_set_size: 0, // TODO: Count UTXO set size
-        chain_size_bytes: 0, // TODO: Calculate chain size
+        utxo_set_size,
+        chain_size_bytes,
     };
     
     Ok(stats)

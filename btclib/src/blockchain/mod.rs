@@ -25,3 +25,7 @@ pub use crate::consensus::{
 pub use crate::storage::utxo_set::UtxoSet;
 
 // This module organizes the core blockchain components for easier imports 
+
+pub mod difficulty;
+
+pub use difficulty::{calculate_difficulty_from_bits, calculate_hashrate}; 

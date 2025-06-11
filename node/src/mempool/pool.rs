@@ -486,8 +486,13 @@ impl TransactionPool {
         self.transactions.iter().map(|entry| entry.size).sum()
     }
 
+    /// Get mempool memory usage in bytes
+    pub fn get_memory_usage(&self) -> u64 {
+        self.size_in_bytes() as u64
+    }
+
     /// Get mempool transactions
-    pub fn get_transactions(&self) -> Vec<Transaction> {
+    pub fn get_all_transactions(&self) -> Vec<Transaction> {
         self.transactions
             .iter()
             .map(|entry| entry.value().transaction.clone())

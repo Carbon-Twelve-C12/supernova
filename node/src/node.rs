@@ -26,7 +26,7 @@ use tracing::{info, error, warn, debug};
 use crate::metrics::performance::{PerformanceMonitor, MetricType};
 use thiserror::Error;
 use libp2p::PeerId;
-use sysinfo::{System, SystemExt};
+use sysinfo::{System, SystemExt, DiskExt, CpuExt};
 use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -148,13 +148,21 @@ impl Node {
         // Initialize chain state
         let chain_state = Arc::new(ChainState::new(Arc::clone(&db))?);
         
+        // Initialize genesis block if needed
+        if chain_state.get_height() == 0 {
+            // Create genesis block
+            let genesis_block = crate::blockchain::create_genesis_block(&config.node.chain_id);
+            chain_state.initialize_with_genesis(genesis_block)
+                .map_err(|e| NodeError::StorageError(e.into()))?;
+        }
+        
         // Initialize mempool
         let mempool_config = crate::mempool::MempoolConfig::from(config.mempool.clone());
         let mempool = Arc::new(TransactionPool::new(mempool_config));
         
         // Initialize network
         let keypair = libp2p::identity::Keypair::generate_ed25519();
-        let genesis_hash = [0u8; 32]; // TODO: Use actual genesis hash
+        let genesis_hash = chain_state.get_genesis_hash();
         let (network, _command_tx, _event_rx) = P2PNetwork::new(
             Some(keypair),
             genesis_hash,
@@ -336,14 +344,42 @@ impl Node {
     
     /// Broadcast a transaction to the network
     pub fn broadcast_transaction(&self, tx: &Transaction) {
-        // TODO: Implement transaction broadcasting
-        tracing::debug!("Broadcasting transaction: {:?}", tx.hash());
+        // Add to mempool first
+        if let Err(e) = self.mempool.add_transaction(tx.clone()) {
+            tracing::warn!("Failed to add transaction to mempool: {}", e);
+            return;
+        }
+        
+        // Broadcast to network
+        self.network.broadcast_transaction(tx);
+        tracing::info!("Broadcasting transaction: {:?}", tx.hash());
     }
     
     /// Process a new block
     pub async fn process_block(&self, block: Block) -> Result<(), NodeError> {
-        // TODO: Implement block processing
-        tracing::debug!("Processing block at height: {}", block.header.height);
+        tracing::info!("Processing block at height: {}", block.header.height);
+        
+        // Validate block
+        if !block.validate() {
+            return Err(NodeError::General("Block validation failed".to_string()));
+        }
+        
+        // Add to chain state
+        self.chain_state.add_block(&block)
+            .map_err(|e| NodeError::StorageError(e.into()))?;
+        
+        // Remove transactions from mempool
+        for tx in block.transactions() {
+            self.mempool.remove_transaction(&tx.hash());
+        }
+        
+        // Store full block in database
+        self.db.store_block(&block)
+            .map_err(|e| NodeError::StorageError(e))?;
+        
+        // Broadcast to network if this is a new block we mined
+        self.network.broadcast_block(&block);
+        
         Ok(())
     }
     
@@ -355,7 +391,9 @@ impl Node {
     /// Get node status
     pub async fn get_status(&self) -> NodeStatusInfo {
         let config = self.config.read().unwrap();
-        let chain_height = self.chain_state.get_height();
+        let chain_height = self.chain_state.get_height().unwrap_or(0) as u64;
+        let peer_count = self.network.peer_count().await;
+        let is_syncing = self.network.is_syncing();
         
         NodeStatusInfo {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -363,8 +401,8 @@ impl Node {
             chain_id: config.node.chain_id.clone(),
             chain_height,
             mempool_size: self.mempool.size(),
-            peer_count: 0, // TODO: Get from network
-            is_syncing: false, // TODO: Get sync status
+            peer_count,
+            is_syncing,
             is_testnet: config.testnet.enabled,
         }
     }
@@ -372,7 +410,10 @@ impl Node {
     /// Get node info
     pub fn get_info(&self) -> Result<NodeInfo, NodeError> {
         let config = self.config.read().unwrap();
-        let chain_height = self.chain_state.get_height();
+        let chain_height = self.chain_state.get_height().unwrap_or(0) as u64;
+        let best_block_hash = self.chain_state.get_best_block_hash();
+        let connections = self.network.peer_count_sync();
+        let synced = !self.network.is_syncing();
         
         Ok(NodeInfo {
             node_id: self.peer_id.to_string(),
@@ -380,9 +421,9 @@ impl Node {
             protocol_version: 1,
             network: config.node.network_name.clone(),
             height: chain_height,
-            best_block_hash: hex::encode([0u8; 32]), // TODO: Get actual best block hash
-            connections: 0, // TODO: Get from network
-            synced: true, // TODO: Get sync status
+            best_block_hash: hex::encode(best_block_hash),
+            connections,
+            synced,
             uptime: self.start_time.elapsed().as_secs(),
         })
     }
@@ -413,8 +454,9 @@ impl Node {
     
     /// Get logs
     pub fn get_logs(&self, level: &str, component: Option<&str>, limit: usize, offset: usize) -> Result<Vec<LogEntry>, NodeError> {
-        // TODO: Implement real log retrieval
-        Ok(vec![])
+        // Get logs from the logging system
+        let logs = crate::logging::get_recent_logs(level, component, limit, offset);
+        Ok(logs)
     }
     
     /// Get version info
@@ -422,25 +464,54 @@ impl Node {
         Ok(VersionInfo {
             version: env!("CARGO_PKG_VERSION").to_string(),
             protocol_version: 1,
-            git_commit: "unknown".to_string(), // TODO: Use actual git commit
-            build_date: chrono::Utc::now().to_rfc3339(),
-            rust_version: "1.79.0".to_string(), // TODO: Get actual rust version
+            git_commit: env!("VERGEN_GIT_SHA").to_string(),
+            build_date: env!("VERGEN_BUILD_TIMESTAMP").to_string(),
+            rust_version: env!("VERGEN_RUSTC_SEMVER").to_string(),
         })
     }
     
     /// Get metrics
     pub fn get_metrics(&self, period: u64) -> Result<NodeMetrics, NodeError> {
-        // TODO: Implement real metrics retrieval
+        use sysinfo::{System, SystemExt, DiskExt, CpuExt};
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        
+        // Calculate CPU usage
+        let cpu_usage = sys.global_cpu_info().cpu_usage() as f64;
+        
+        // Calculate memory usage
+        let memory_usage = sys.used_memory();
+        
+        // Calculate disk usage (simplified - just get first disk)
+        let disk_usage = sys.disks().first()
+            .map(|disk| disk.total_space() - disk.available_space())
+            .unwrap_or(0);
+        
+        // Get mempool size in bytes
+        let mempool_bytes = self.mempool.get_memory_usage();
+        
+        // Get sync progress
+        let sync_progress = if self.network.is_syncing() {
+            self.network.get_sync_progress()
+        } else {
+            1.0
+        };
+        
+        // Get network stats
+        let network_stats = self.network.get_stats();
+        
         Ok(NodeMetrics {
-            cpu_usage: 0.0,
-            memory_usage: 0.0,
-            disk_usage: 0.0,
-            network_in: 0,
-            network_out: 0,
-            block_processing_time: 0.0,
-            transaction_throughput: 0.0,
-            peer_count: 0,
+            uptime: self.start_time.elapsed().as_secs(),
+            peer_count: self.network.peer_count_sync(),
+            block_height: self.chain_state.get_height().unwrap_or(0) as u64,
             mempool_size: self.mempool.size(),
+            mempool_bytes,
+            sync_progress,
+            network_bytes_sent: network_stats.bytes_sent,
+            network_bytes_received: network_stats.bytes_received,
+            cpu_usage,
+            memory_usage,
+            disk_usage,
         })
     }
     
@@ -453,32 +524,86 @@ impl Node {
     
     /// Update config
     pub fn update_config(&self, new_config: serde_json::Value) -> Result<serde_json::Value, NodeError> {
-        // TODO: Implement config update with validation
-        Err(NodeError::ConfigError("Config update not implemented".to_string()))
+        // Parse new config
+        let updated_config: NodeConfig = serde_json::from_value(new_config)
+            .map_err(|e| NodeError::ConfigError(format!("Invalid config: {}", e)))?;
+        
+        // Validate new config
+        updated_config.validate()
+            .map_err(|e| NodeError::ConfigError(e.to_string()))?;
+        
+        // Update config
+        let mut config = self.config.write().unwrap();
+        *config = updated_config;
+        
+        // Return updated config
+        serde_json::to_value(&*config)
+            .map_err(|e| NodeError::ConfigError(e.to_string()))
     }
     
     /// Create backup
     pub fn create_backup(&self, destination: Option<&str>, include_wallet: bool, encrypt: bool) -> Result<crate::api::types::BackupInfo, NodeError> {
-        // TODO: Implement backup creation
-        Err(NodeError::General("Backup creation not implemented".to_string()))
+        use crate::storage::backup::BackupManager;
+        
+        let backup_manager = BackupManager::new(self.db.clone());
+        let backup_path = destination.unwrap_or("/tmp/supernova_backup");
+        
+        let backup_info = backup_manager.create_backup(backup_path, include_wallet, encrypt)
+            .map_err(|e| NodeError::StorageError(e.into()))?;
+        
+        Ok(crate::api::types::BackupInfo {
+            id: backup_info.id,
+            timestamp: backup_info.timestamp,
+            size: backup_info.size,
+            path: backup_info.path,
+            encrypted: backup_info.encrypted,
+            includes_wallet: backup_info.includes_wallet,
+        })
     }
     
     /// Get backup info
     pub fn get_backup_info(&self) -> Result<Vec<crate::api::types::BackupInfo>, NodeError> {
-        // TODO: Implement backup info retrieval
-        Ok(vec![])
+        use crate::storage::backup::BackupManager;
+        
+        let backup_manager = BackupManager::new(self.db.clone());
+        let backups = backup_manager.list_backups()
+            .map_err(|e| NodeError::StorageError(e.into()))?;
+        
+        Ok(backups.into_iter().map(|b| crate::api::types::BackupInfo {
+            id: b.id,
+            timestamp: b.timestamp,
+            size: b.size,
+            path: b.path,
+            encrypted: b.encrypted,
+            includes_wallet: b.includes_wallet,
+        }).collect())
     }
     
     /// Restart node
     pub fn restart(&self) -> Result<(), NodeError> {
-        // TODO: Implement node restart
-        Err(NodeError::General("Node restart not implemented".to_string()))
+        // Signal restart to the main process
+        std::process::Command::new(std::env::current_exe()?)
+            .args(std::env::args().skip(1))
+            .spawn()
+            .map_err(|e| NodeError::IoError(e))?;
+        
+        // Shutdown current instance
+        self.shutdown()?;
+        
+        Ok(())
     }
     
     /// Shutdown node
     pub fn shutdown(&self) -> Result<(), NodeError> {
-        // TODO: Implement node shutdown
-        Err(NodeError::General("Node shutdown not implemented".to_string()))
+        tracing::info!("Initiating node shutdown...");
+        
+        // Stop all services
+        tokio::runtime::Handle::current().block_on(async {
+            self.stop().await
+        })?;
+        
+        // Exit process
+        std::process::exit(0);
     }
     
     /// Get debug info
@@ -510,8 +635,8 @@ impl Node {
         
         // Get blockchain stats
         let blockchain_stats = serde_json::json!({
-            "height": self.chain_state.get_height(),
-            "total_blocks": self.chain_state.get_height(),
+            "height": self.chain_state.get_height().unwrap_or(0),
+            "total_blocks": self.chain_state.get_height().unwrap_or(0),
             "total_transactions": 0,
             "utxo_set_size": 0
         });

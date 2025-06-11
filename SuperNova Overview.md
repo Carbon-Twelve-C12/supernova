@@ -334,6 +334,41 @@ The system follows a modular architecture with the following main components (al
 12. ✅ **Command-Line Interface**: User-friendly CLI for all blockchain operations
 13. ✅ **Deployment System**: Docker, automation scripts, and infrastructure as code
 
+### Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "Supernova Blockchain Architecture"
+        A[Node Core] --> B[Blockchain State]
+        A --> C[P2P Network]
+        A --> D[Mempool]
+        A --> E[Mining Manager]
+        A --> F[Lightning Network]
+        A --> G[Environmental Tracking]
+        
+        B --> H[Storage Layer<br/>- BlockchainDB<br/>- ChainState<br/>- UTXO Management]
+        
+        C --> I[libp2p Network<br/>- Gossipsub<br/>- Kademlia DHT<br/>- Peer Discovery]
+        
+        D --> J[Transaction Pool<br/>- Fee Prioritization<br/>- RBF Support<br/>- Double-spend Detection]
+        
+        E --> K[Mining Workers<br/>- Multi-threaded<br/>- Green Mining<br/>- Quantum-resistant]
+        
+        F --> L[Lightning Manager<br/>- Channel Management<br/>- Payment Routing<br/>- Invoice Handling]
+        
+        G --> M[Emissions Tracker<br/>- Carbon Tracking<br/>- Renewable Energy<br/>- Green Rewards]
+        
+        A --> N[API Server<br/>- REST API<br/>- WebSocket<br/>- Swagger Docs]
+        
+        N --> O[API Endpoints<br/>- Blockchain<br/>- Mining<br/>- Lightning<br/>- Environmental]
+    end
+    
+    style A fill:#f9f,stroke:#333,stroke-width:4px
+    style E fill:#9f9,stroke:#333,stroke-width:2px
+    style F fill:#99f,stroke:#333,stroke-width:2px
+    style G fill:#9ff,stroke:#333,stroke-width:2px
+```
+
 ## Contributor Information
 
 The Supernova project welcomes contributions. Current priorities include:

@@ -1753,6 +1753,129 @@ impl P2PNetwork {
     pub async fn configure_rate_limiting(&mut self, config: RateLimitConfig) {
         self.rate_limiter = Arc::new(NetworkRateLimiter::new(config));
     }
+    
+    /// Create P2P network instance for compatibility
+    pub fn new_simple() -> Self {
+        let (event_sender, _) = mpsc::channel(1);
+        
+        Self {
+            swarm: Arc::new(RwLock::new(None)),
+            local_peer_id: PeerId::random(),
+            protocol: Protocol::new(identity::Keypair::generate_ed25519()).unwrap(),
+            command_sender: Arc::new(RwLock::new(None)),
+            command_receiver: Arc::new(RwLock::new(None)),
+            event_sender,
+            peer_manager: Arc::new(PeerManager::new()),
+            connection_manager: Arc::new(RwLock::new(ConnectionManager::new(
+                Arc::new(PeerManager::new()),
+                Arc::new(PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 10)),
+                MAX_INBOUND_CONNECTIONS,
+                MAX_OUTBOUND_CONNECTIONS,
+            ))),
+            diversity_manager: Arc::new(PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 10)),
+            eclipse_prevention: Arc::new(EclipsePreventionSystem::new(EclipsePreventionConfig::default())),
+            rate_limiter: Arc::new(NetworkRateLimiter::new(RateLimitConfig::default())),
+            message_handler: MessageHandler::new(),
+            discovery: Arc::new(RwLock::new(None)),
+            stats: Arc::new(RwLock::new(NetworkStats::default())),
+            genesis_hash: [0; 32],
+            network_id: "supernova".to_string(),
+            bootstrap_nodes: Vec::new(),
+            trusted_peers: Arc::new(RwLock::new(HashSet::new())),
+            network_task: Arc::new(RwLock::new(None)),
+            running: Arc::new(RwLock::new(false)),
+            identity_challenges: Arc::new(RwLock::new(HashMap::new())),
+            verification_status: Arc::new(RwLock::new(HashMap::new())),
+            challenge_difficulty: DEFAULT_CHALLENGE_DIFFICULTY,
+            require_verification: true,
+            connected_peers: Arc::new(RwLock::new(HashMap::new())),
+            banned_peers: Arc::new(RwLock::new(HashMap::new())),
+            message_routes: Arc::new(RwLock::new(HashMap::new())),
+            bandwidth_tracker: Arc::new(RwLock::new(BandwidthTracker::new())),
+        }
+    }
+    
+    /// Get peer count synchronously (blocking)
+    pub fn peer_count_sync(&self) -> usize {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.get_peer_count().await
+            })
+        })
+    }
+    
+    /// Check if the node is currently syncing
+    pub fn is_syncing(&self) -> bool {
+        // Check if we have peers and if our height is significantly behind
+        // This is a simplified implementation
+        let stats = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.get_stats().await
+            })
+        });
+        
+        // Consider syncing if we have peers but low block count
+        stats.peers_connected > 0 && stats.blocks_received < 100
+    }
+    
+    /// Get sync progress (0.0 to 1.0)
+    pub fn get_sync_progress(&self) -> f64 {
+        // This is a simplified implementation
+        // In a real implementation, this would check actual sync state
+        if self.is_syncing() {
+            let stats = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    self.get_stats().await
+                })
+            });
+            
+            // Simple progress based on blocks received
+            (stats.blocks_received as f64 / 1000.0).min(0.99)
+        } else {
+            1.0
+        }
+    }
+    
+    /// Broadcast a transaction to all peers
+    pub fn broadcast_transaction(&self, tx: &Transaction) {
+        let message = Message::Transaction(tx.clone());
+        
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                Self::broadcast_message_static(
+                    message,
+                    &self.swarm,
+                    &self.stats,
+                    &self.bandwidth_tracker,
+                ).await;
+            })
+        });
+    }
+    
+    /// Broadcast a block to all peers
+    pub fn broadcast_block(&self, block: &Block) {
+        let message = Message::Block(block.clone());
+        
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                Self::broadcast_message_static(
+                    message,
+                    &self.swarm,
+                    &self.stats,
+                    &self.bandwidth_tracker,
+                ).await;
+            })
+        });
+    }
+    
+    /// Get network statistics synchronously
+    pub fn get_stats(&self) -> NetworkStats {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.get_stats().await
+            })
+        })
+    }
 }
 
 /// Network health metrics
@@ -1860,51 +1983,6 @@ fn solve_pow_challenge(challenge: &[u8], difficulty: u8) -> Vec<u8> {
     }
     
     solution
-}
-
-// Implement a simple constructor for P2PNetwork to satisfy the Node struct
-impl P2PNetwork {
-    pub fn new() -> Self {
-        // This is a simplified constructor for compatibility
-        // In practice, you should use the async `new` method
-        let (event_sender, _) = mpsc::channel(1);
-        
-        Self {
-            swarm: Arc::new(RwLock::new(None)),
-            local_peer_id: PeerId::random(),
-            protocol: Protocol::new(identity::Keypair::generate_ed25519()).unwrap(),
-            command_sender: Arc::new(RwLock::new(None)),
-            command_receiver: Arc::new(RwLock::new(None)),
-            event_sender,
-            peer_manager: Arc::new(PeerManager::new()),
-            connection_manager: Arc::new(RwLock::new(ConnectionManager::new(
-                Arc::new(PeerManager::new()),
-                Arc::new(PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 10)),
-                MAX_INBOUND_CONNECTIONS,
-                MAX_OUTBOUND_CONNECTIONS,
-            ))),
-            diversity_manager: Arc::new(PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 10)),
-            eclipse_prevention: Arc::new(EclipsePreventionSystem::new(EclipsePreventionConfig::default())),
-            rate_limiter: Arc::new(NetworkRateLimiter::new(RateLimitConfig::default())),
-            message_handler: MessageHandler::new(),
-            discovery: Arc::new(RwLock::new(None)),
-            stats: Arc::new(RwLock::new(NetworkStats::default())),
-            genesis_hash: [0; 32],
-            network_id: "supernova".to_string(),
-            bootstrap_nodes: Vec::new(),
-            trusted_peers: Arc::new(RwLock::new(HashSet::new())),
-            network_task: Arc::new(RwLock::new(None)),
-            running: Arc::new(RwLock::new(false)),
-            identity_challenges: Arc::new(RwLock::new(HashMap::new())),
-            verification_status: Arc::new(RwLock::new(HashMap::new())),
-            challenge_difficulty: DEFAULT_CHALLENGE_DIFFICULTY,
-            require_verification: true,
-            connected_peers: Arc::new(RwLock::new(HashMap::new())),
-            banned_peers: Arc::new(RwLock::new(HashMap::new())),
-            message_routes: Arc::new(RwLock::new(HashMap::new())),
-            bandwidth_tracker: Arc::new(RwLock::new(BandwidthTracker::new())),
-        }
-    }
 }
 
 #[cfg(test)]

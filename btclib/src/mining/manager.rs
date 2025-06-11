@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 use tracing::{info, warn, error, debug};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
+use std::cell::RefCell;
 
 use crate::mining::{MiningConfig, BlockTemplate, MiningWorker, MiningMetrics};
 use crate::types::{Block, Transaction};
@@ -30,7 +31,7 @@ pub struct MiningManager {
     blocks_mined: Arc<AtomicU64>,
     
     /// Mining workers
-    workers: Arc<RwLock<Vec<Arc<MiningWorker>>>>,
+    workers: Arc<RwLock<Vec<Arc<RefCell<MiningWorker>>>>>,
     
     /// Current block template
     current_template: Arc<RwLock<Option<BlockTemplate>>>,
@@ -473,8 +474,23 @@ impl MiningManager {
         
         // Update environmental tracking
         if let Some(tracker) = &self.environmental_tracker {
-            // TODO: Add method to record block mining in EmissionsTracker
-            // tracker.record_block_mined(&block);
+            // Record block mining in emissions tracker
+            let block_energy_kwh = self.estimate_block_energy_consumption();
+            let carbon_emissions_g = self.estimate_block_carbon_emissions();
+            
+            // Update emissions data
+            tracker.update_emissions(crate::environmental::Emissions {
+                carbon_emissions_g,
+                energy_consumption_kwh: block_energy_kwh,
+                renewable_energy_kwh: block_energy_kwh * tracker.calculate_network_renewable_percentage() / 100.0,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            });
+            
+            info!("Block mining recorded: {} kWh energy, {} g CO2 emissions", 
+                  block_energy_kwh, carbon_emissions_g);
         }
         
         info!("Block submitted successfully: {}", hex::encode(block.hash()));
@@ -560,29 +576,39 @@ impl MiningManager {
         
         info!("Starting mining with {} threads", thread_count);
         
+        // Create mining template first
+        let template = self.create_mining_template()?;
+        
         // Create mining workers
         let mut workers = self.workers.write().unwrap();
         workers.clear();
         
         for i in 0..thread_count {
-            let worker = Arc::new(MiningWorker::new(
+            let mut worker = MiningWorker::new(
                 i as usize,
                 self.config.clone(),
                 self.mempool.clone(),
                 self.block_sender.clone(),
-            ));
+            );
             
-            workers.push(worker);
-        }
-        
-        // Start workers
-        for worker in workers.iter() {
-            worker.start();
+            // Start worker with template
+            worker.start(template.clone());
+            
+            workers.push(Arc::new(RefCell::new(worker)));
         }
         
         // Update state
         self.is_mining.store(true, Ordering::Relaxed);
         self.mining_threads.store(thread_count as u64, Ordering::Relaxed);
+        
+        // Store template
+        {
+            let mut current_template = self.current_template.write().unwrap();
+            *current_template = Some(template);
+            
+            let mut template_created = self.template_created.write().unwrap();
+            *template_created = Some(Instant::now());
+        }
         
         let mut start_time = self.start_time.write().unwrap();
         *start_time = Some(Instant::now());
@@ -603,7 +629,7 @@ impl MiningManager {
         // Stop all workers
         let workers = self.workers.read().unwrap();
         for worker in workers.iter() {
-            worker.stop();
+            worker.borrow_mut().stop();
         }
         
         // Update state

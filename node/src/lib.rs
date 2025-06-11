@@ -1,7 +1,8 @@
 pub mod api;
-// pub mod blockchain; // TODO: Implement
+pub mod blockchain;
 pub mod config;
 pub mod environmental;
+pub mod logging;
 pub mod mempool;
 // pub mod miner; // TODO: Implement
 pub mod network;

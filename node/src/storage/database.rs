@@ -2388,6 +2388,28 @@ impl BlockchainDB {
     }
     
     // ===== END ADAPTER METHODS =====
+
+    /// Get the total number of UTXOs in the database
+    pub fn get_utxo_count(&self) -> Result<u64, StorageError> {
+        Ok(self.utxos.len() as u64)
+    }
+    
+    /// Get the best block hash
+    pub fn get_best_block_hash(&self) -> Result<[u8; 32], StorageError> {
+        let height_key = b"best_block_hash";
+        if let Some(hash_bytes) = self.metadata.get(height_key)? {
+            let mut hash = [0u8; 32];
+            if hash_bytes.len() == 32 {
+                hash.copy_from_slice(&hash_bytes);
+                Ok(hash)
+            } else {
+                Err(StorageError::InvalidBlock)
+            }
+        } else {
+            // Return genesis hash if no best block is set
+            Ok([0u8; 32])
+        }
+    }
 }
 
 fn create_utxo_key(tx_hash: &[u8; 32], index: u32) -> Vec<u8> {
