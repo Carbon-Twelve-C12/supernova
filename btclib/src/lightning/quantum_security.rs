@@ -229,14 +229,12 @@ impl QuantumChannelSecurity {
     /// Generate a quantum key pair
     fn generate_quantum_keypair(&self) -> Result<QuantumKeyPair, QuantumSecurityError> {
         // Use the quantum scheme to generate a key pair
-        let mut rng = rand::rngs::OsRng;
-        
         let params = crate::crypto::quantum::QuantumParameters {
             scheme: self.config.primary_scheme.clone(),
             security_level: self.config.security_level as u8,
         };
         
-        QuantumKeyPair::generate(&mut rng, params)
+        QuantumKeyPair::generate(params)
             .map_err(|e| QuantumSecurityError::KeyGenerationFailed(e.to_string()))
     }
     

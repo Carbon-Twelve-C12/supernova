@@ -150,7 +150,7 @@ impl KeyManager {
                         security_level: 3, // Medium security level by default
                     };
                     
-                    let quantum_keypair = QuantumKeyPair::generate(&mut rng, quantum_params)
+                    let quantum_keypair = QuantumKeyPair::generate(quantum_params)
                         .map_err(|e| WalletError::CryptoError(format!("Failed to generate quantum keypair: {:?}", e)))?;
                     
                     // Store the key pair

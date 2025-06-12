@@ -188,7 +188,7 @@ impl TransactionValidator {
                     // These schemes are quantum-resistant
                     SignatureSchemeType::Dilithium |
                     SignatureSchemeType::Falcon |
-                    SignatureSchemeType::Sphincs |
+                    SignatureSchemeType::SphincsPlus |
                     SignatureSchemeType::Hybrid => {
                         // Acceptable quantum-resistant schemes
                     }
@@ -327,7 +327,7 @@ impl TransactionValidator {
                 SignatureSchemeType::Ed25519 => SignatureType::Ed25519,
                 SignatureSchemeType::Dilithium => SignatureType::Dilithium,
                 SignatureSchemeType::Falcon => SignatureType::Falcon,
-                SignatureSchemeType::Sphincs => SignatureType::Sphincs,
+                SignatureSchemeType::SphincsPlus => SignatureType::Sphincs,
                 SignatureSchemeType::Hybrid => SignatureType::Hybrid,
             };
             
@@ -469,7 +469,7 @@ impl TransactionValidator {
                     scheme: match scheme {
                         QuantumScheme::Dilithium => SignatureSchemeType::Dilithium,
                         QuantumScheme::Falcon => SignatureSchemeType::Falcon,
-                        QuantumScheme::Sphincs => SignatureSchemeType::Sphincs,
+                        QuantumScheme::SphincsPlus => SignatureSchemeType::SphincsPlus,
                         QuantumScheme::Hybrid(_) => SignatureSchemeType::Hybrid,
                     },
                     security_level: self.config.security_level.into(),
@@ -494,7 +494,7 @@ impl TransactionValidator {
                 scheme: match sig_data.scheme {
                     SignatureSchemeType::Dilithium => QuantumScheme::Dilithium,
                     SignatureSchemeType::Falcon => QuantumScheme::Falcon,
-                    SignatureSchemeType::Sphincs => QuantumScheme::Sphincs,
+                    SignatureSchemeType::SphincsPlus => QuantumScheme::SphincsPlus,
                     SignatureSchemeType::Hybrid => QuantumScheme::Hybrid(crate::crypto::quantum::ClassicalScheme::Secp256k1),
                     _ => return Ok(ValidationResult::Invalid(ValidationError::InvalidSignatureScheme)),
                 },

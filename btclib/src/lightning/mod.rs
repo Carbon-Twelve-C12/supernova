@@ -15,6 +15,7 @@ pub mod manager;
 pub mod atomic_operations;
 pub mod quantum_lightning;
 pub mod green_routing;
+pub mod quantum_channel;
 
 #[cfg(test)]
 pub mod race_condition_tests;

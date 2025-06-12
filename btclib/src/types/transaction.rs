@@ -117,7 +117,7 @@ pub enum SignatureSchemeType {
     /// Post-quantum Falcon signatures
     Falcon,
     /// Post-quantum SPHINCS+ signatures
-    Sphincs,
+    SphincsPlus,
     /// Hybrid scheme combining classical and quantum signatures
     Hybrid,
 }
@@ -489,9 +489,9 @@ impl Transaction {
                     Err(_) => false,
                 }
             },
-            SignatureSchemeType::Sphincs => {
+            SignatureSchemeType::SphincsPlus => {
                 let params = QuantumParameters {
-                    scheme: QuantumScheme::Sphincs,
+                    scheme: QuantumScheme::SphincsPlus,
                     security_level: signature_data.security_level,
                 };
                 
@@ -688,7 +688,7 @@ impl Transaction {
                 quantum_keypair.sign(&tx_hash)
                     .map_err(|e| SignatureError::CryptoOperationFailed(format!("Falcon signing failed: {}", e)))?
             },
-            SignatureSchemeType::Sphincs => {
+            SignatureSchemeType::SphincsPlus => {
                 // This is a placeholder - SPHINCS+ is not yet fully implemented
                 return Err(SignatureError::UnsupportedScheme("SPHINCS+ not yet implemented".to_string()));
             },
@@ -735,7 +735,7 @@ impl Transaction {
             match sig_data.scheme {
                 SignatureSchemeType::Dilithium | 
                 SignatureSchemeType::Falcon | 
-                SignatureSchemeType::Sphincs | 
+                SignatureSchemeType::SphincsPlus | 
                 SignatureSchemeType::Hybrid => {
                     // 10% bonus for quantum-resistant transactions
                     priority = priority.saturating_add(priority / 10);

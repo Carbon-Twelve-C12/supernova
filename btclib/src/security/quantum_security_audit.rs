@@ -335,7 +335,7 @@ impl QuantumSecurityAuditor {
                 security_level: level,
             };
             
-            if QuantumKeyPair::generate(&mut OsRng, params).is_ok() {
+            if QuantumKeyPair::generate(params).is_ok() {
                 passed_tests += 1;
             }
         }
@@ -360,7 +360,7 @@ impl QuantumSecurityAuditor {
         
         // Benchmark key generation
         let start = Instant::now();
-        let keypair = QuantumKeyPair::generate(&mut OsRng, params).unwrap();
+        let keypair = QuantumKeyPair::generate(params).unwrap();
         let keygen_time = start.elapsed();
         
         // Benchmark signing
@@ -408,7 +408,7 @@ impl QuantumSecurityAuditor {
                 security_level: 3,
             };
             
-            let keypair = QuantumKeyPair::generate(&mut OsRng, params).unwrap();
+            let keypair = QuantumKeyPair::generate(params).unwrap();
             let message = b"Test message for signature validation";
             let signature = keypair.sign(message).unwrap();
             

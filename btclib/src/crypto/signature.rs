@@ -485,7 +485,7 @@ impl SignatureVerifier {
                         let scheme = FalconScheme::new(self.security_level);
                         scheme.verify(public_key, message, signature)
                     }
-                    QuantumScheme::Sphincs => {
+                    QuantumScheme::SphincsPlus => {
                         let scheme = SphincsScheme::new(self.security_level);
                         scheme.verify(public_key, message, signature)
                     }
@@ -651,7 +651,7 @@ impl Signature {
                 match quantum_scheme {
                     QuantumScheme::Dilithium => self.verify_dilithium(message),
                     QuantumScheme::Falcon => self.verify_falcon(message),
-                    QuantumScheme::Sphincs => Err(SignatureError::UnsupportedType("SPHINCS+ not implemented".to_string())),
+                    QuantumScheme::SphincsPlus => Err(SignatureError::UnsupportedType("SPHINCS+ not implemented".to_string())),
                     QuantumScheme::Hybrid(classical_scheme) => {
                         match classical_scheme {
                             ClassicalScheme::Secp256k1 => self.verify_secp256k1(message),
@@ -752,7 +752,7 @@ impl KeyPair {
                 match quantum_scheme {
                     QuantumScheme::Dilithium => Err(SignatureError::UnsupportedType("Dilithium not implemented".to_string())),
                     QuantumScheme::Falcon => Err(SignatureError::UnsupportedType("Falcon not implemented".to_string())),
-                    QuantumScheme::Sphincs => Err(SignatureError::UnsupportedType("SPHINCS+ not implemented".to_string())),
+                    QuantumScheme::SphincsPlus => Err(SignatureError::UnsupportedType("SPHINCS+ not implemented".to_string())),
                     QuantumScheme::Hybrid(classical_scheme) => {
                         match classical_scheme {
                             ClassicalScheme::Secp256k1 => self.sign_secp256k1(message),

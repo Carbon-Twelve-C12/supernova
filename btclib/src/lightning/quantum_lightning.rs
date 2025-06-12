@@ -295,7 +295,7 @@ impl QuantumLightningManager {
         // Verify key size is appropriate for quantum resistance
         let min_key_size = match self.node_quantum_keys.parameters.scheme {
             QuantumScheme::Dilithium => 2420, // Dilithium2 public key size
-            QuantumScheme::Sphincs => 1088,   // SPHINCS+ public key size
+            QuantumScheme::SphincsPlus => 1088,   // SPHINCS+ public key size
             QuantumScheme::Falcon => 897,     // Falcon-512 public key size
             QuantumScheme::Hybrid(_) => 2420 + 32, // Dilithium + classical
         };

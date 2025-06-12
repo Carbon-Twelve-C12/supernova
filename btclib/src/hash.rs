@@ -9,6 +9,8 @@ use crate::crypto::hash::{
     Blake3Hash, 
     SuperNovaHash
 };
+use sha2::{Sha256, Digest};
+use std::fmt;
 
 /// 256-bit hash value - fixed size array for blockchain use
 pub type Hash256 = [u8; 32];
@@ -91,9 +93,26 @@ pub fn meets_difficulty(hash: &[u8], target: &[u8]) -> bool {
     true
 }
 
-/// Perform SHA-256 hash returning fixed-size array
+/// Compute SHA256(SHA256(data))
 pub fn hash256(data: &[u8]) -> Hash256 {
-    to_32_bytes(&hash_default(data))
+    let first_hash = Sha256::digest(data);
+    let second_hash = Sha256::digest(&first_hash);
+    
+    let mut result = [0u8; 32];
+    result.copy_from_slice(&second_hash);
+    result
+}
+
+/// Compute RIPEMD160(SHA256(data))
+pub fn hash160(data: &[u8]) -> [u8; 20] {
+    use ripemd::{Ripemd160, Digest as RipemdDigest};
+    
+    let sha256_hash = Sha256::digest(data);
+    let ripemd_hash = Ripemd160::digest(&sha256_hash);
+    
+    let mut result = [0u8; 20];
+    result.copy_from_slice(&ripemd_hash);
+    result
 }
 
 /// Convert hash to hexadecimal string

@@ -7,11 +7,14 @@ use crate::crypto::quantum::{
     QuantumKeyPair, QuantumScheme, QuantumParameters,
     sign_quantum, verify_quantum_signature, QuantumError
 };
-use crate::crypto::hash::{hash256, hash160};
+use crate::crypto::{hash256, hash160};
+use crate::crypto::zkp::{ZkpParams, ZeroKnowledgeProof, generate_zkp, verify_zkp};
 use crate::types::{Transaction, TransactionInput, TransactionOutput};
 use bip39::{Mnemonic, Language};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use sha2::{Sha256, Digest};
+use sha3::{Sha3_512, Digest as Sha3Digest};
 
 /// Quantum-safe HD wallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,7 +91,7 @@ pub struct WalletMetadata {
 }
 
 /// Classical keys for hybrid mode transition
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ClassicalKeys {
     /// BIP32 extended private key
     xprv: Vec<u8>,

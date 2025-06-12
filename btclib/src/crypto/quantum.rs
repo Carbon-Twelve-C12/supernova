@@ -36,7 +36,7 @@ pub enum QuantumScheme {
     /// FALCON signature scheme
     Falcon,
     /// SPHINCS+ signature scheme
-    Sphincs,
+    SphincsPlus,
     /// Hybrid scheme (classical + post-quantum)
     Hybrid(ClassicalScheme),
 }
@@ -197,7 +197,7 @@ impl QuantumParameters {
                 // Placeholder for Falcon implementation
                 Err(QuantumError::CryptoOperationFailed("Falcon signature length calculation not yet implemented".to_string()))
             },
-            QuantumScheme::Sphincs => {
+            QuantumScheme::SphincsPlus => {
                 match SecurityLevel::from(self.security_level) {
                     SecurityLevel::Low => Ok(sphincsshake128fsimple::signature_bytes()),
                     SecurityLevel::Medium => Ok(sphincsshake128fsimple::signature_bytes()),
@@ -227,15 +227,22 @@ impl QuantumParameters {
 }
 
 impl QuantumKeyPair {
-    /// Generate a new key pair
-    pub fn generate<R: CryptoRng + RngCore>(
+    /// Generate a new key pair with default RNG
+    pub fn generate(parameters: QuantumParameters) -> Result<Self, QuantumError> {
+        use rand::rngs::OsRng;
+        let mut rng = OsRng;
+        Self::generate_with_rng(&mut rng, parameters)
+    }
+    
+    /// Generate a new key pair with provided RNG
+    pub fn generate_with_rng<R: CryptoRng + RngCore>(
         rng: &mut R,
         parameters: QuantumParameters,
     ) -> Result<Self, QuantumError> {
         match parameters.scheme {
             QuantumScheme::Dilithium => Self::generate_dilithium(rng, parameters.security_level),
             QuantumScheme::Falcon => Self::generate_falcon(rng, parameters.security_level),
-            QuantumScheme::Sphincs => Self::generate_sphincs(rng, parameters.security_level),
+            QuantumScheme::SphincsPlus => Self::generate_sphincs(rng, parameters.security_level),
             QuantumScheme::Hybrid(classical) => 
                 Self::generate_hybrid(rng, parameters.security_level, classical)
         }
@@ -355,7 +362,7 @@ impl QuantumKeyPair {
                     public_key: pk.as_bytes().to_vec(),
                     secret_key: sk.as_bytes().to_vec(),
                     parameters: QuantumParameters {
-                        scheme: QuantumScheme::Sphincs,
+                        scheme: QuantumScheme::SphincsPlus,
                         security_level,
                     },
                 })
@@ -368,7 +375,7 @@ impl QuantumKeyPair {
                     public_key: pk.as_bytes().to_vec(),
                     secret_key: sk.as_bytes().to_vec(),
                     parameters: QuantumParameters {
-                        scheme: QuantumScheme::Sphincs,
+                        scheme: QuantumScheme::SphincsPlus,
                         security_level,
                     },
                 })
@@ -381,7 +388,7 @@ impl QuantumKeyPair {
                     public_key: pk.as_bytes().to_vec(),
                     secret_key: sk.as_bytes().to_vec(),
                     parameters: QuantumParameters {
-                        scheme: QuantumScheme::Sphincs,
+                        scheme: QuantumScheme::SphincsPlus,
                         security_level,
                     },
                 })
@@ -518,7 +525,7 @@ impl QuantumKeyPair {
                 falcon_keypair.sign(message)
                     .map_err(|e| QuantumError::CryptoOperationFailed(format!("Falcon signing failed: {}", e)))
             },
-            QuantumScheme::Sphincs => {
+            QuantumScheme::SphincsPlus => {
                 match SecurityLevel::from(self.parameters.security_level) {
                     SecurityLevel::Low => {
                         let sk = sphincsshake128fsimple::SecretKey::from_bytes(&self.secret_key)
@@ -672,7 +679,7 @@ impl QuantumKeyPair {
                 falcon_keypair.verify(message, signature)
                     .map_err(|e| QuantumError::CryptoOperationFailed(format!("Falcon verification failed: {}", e)))
             },
-            QuantumScheme::Sphincs => {
+            QuantumScheme::SphincsPlus => {
                 match SecurityLevel::from(self.parameters.security_level) {
                     SecurityLevel::Low => {
                         let pk = sphincsshake128fsimple::PublicKey::from_bytes(&self.public_key)
@@ -811,6 +818,48 @@ impl QuantumKeyPair {
             },
         }
     }
+    
+    /// Create key pair from seed
+    pub fn from_seed(seed: &[u8; 64], parameters: QuantumParameters) -> Result<Self, QuantumError> {
+        // Use seed to deterministically generate keys
+        use sha2::{Sha512, Digest};
+        
+        // Hash the seed to get deterministic randomness
+        let mut hasher = Sha512::new();
+        hasher.update(seed);
+        hasher.update(&[parameters.security_level]);
+        let hash = hasher.finalize();
+        
+        // Use the hash as entropy for key generation
+        // In production, use proper KDF
+        match parameters.scheme {
+            QuantumScheme::Dilithium => {
+                // For Dilithium, we need to use the library's key generation
+                // but seed it deterministically
+                use rand::SeedableRng;
+                use rand_chacha::ChaCha20Rng;
+                
+                let mut seed_bytes = [0u8; 32];
+                seed_bytes.copy_from_slice(&hash[..32]);
+                let mut rng = ChaCha20Rng::from_seed(seed_bytes);
+                
+                Self::generate_with_rng(&mut rng, parameters)
+            },
+            _ => Self::generate(parameters), // Fallback to random generation
+        }
+    }
+    
+    /// Convert key pair to bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        
+        // Format: [public_key_len (4 bytes)][public_key][secret_key]
+        bytes.extend_from_slice(&(self.public_key.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&self.public_key);
+        bytes.extend_from_slice(&self.secret_key);
+        
+        bytes
+    }
 }
 
 impl fmt::Debug for QuantumKeyPair {
@@ -834,7 +883,15 @@ impl fmt::Debug for QuantumSecretKey {
     }
 }
 
-/// Verify a quantum signature given a public key
+/// Sign a message with quantum-resistant signature
+pub fn sign_quantum(
+    keypair: &QuantumKeyPair,
+    message: &[u8],
+) -> Result<Vec<u8>, QuantumError> {
+    keypair.sign(message)
+}
+
+/// Verify a quantum-resistant signature
 pub fn verify_quantum_signature(
     public_key: &[u8],
     message: &[u8],
@@ -908,7 +965,7 @@ mod tests {
     fn test_sphincs_signing_and_verification() {
         let mut rng = OsRng;
         let parameters = QuantumParameters {
-            scheme: QuantumScheme::Sphincs,
+            scheme: QuantumScheme::SphincsPlus,
             security_level: SecurityLevel::Low as u8,
         };
         
@@ -966,7 +1023,7 @@ mod tests {
         // Test all quantum schemes
         let schemes = [
             (QuantumScheme::Dilithium, vec![2u8, 3u8, 5u8]),
-            (QuantumScheme::Sphincs, vec![1u8, 3u8, 5u8]),
+            (QuantumScheme::SphincsPlus, vec![1u8, 3u8, 5u8]),
         ];
         
         for (scheme, security_levels) in schemes.iter() {

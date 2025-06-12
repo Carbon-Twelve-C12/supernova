@@ -9,8 +9,9 @@ use crate::crypto::quantum::{
 };
 use crate::crypto::kem::{KemKeyPair, encapsulate, decapsulate};
 use libp2p::{
-    core::{identity, transport::Transport, upgrade},
-    noise, tcp, yamux, PeerId,
+    identity, PeerId,
+    tcp, yamux, noise,
+    core::transport::Transport,
 };
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
@@ -119,10 +120,10 @@ impl QuantumP2PConfig {
     }
     
     /// Create quantum-safe transport
-    pub fn create_transport(&self) -> Result<impl Transport<Output = (PeerId, yamux::Muxed<tcp::TcpStream>)>, P2PError> {
+    pub fn create_transport(&self) -> Result<impl Transport<Output = (PeerId, yamux::Stream)>, P2PError> {
         // For now, use classical libp2p transport with plans to upgrade
         // In production, this would use post-quantum noise protocol
-        let tcp_transport = tcp::TcpTransport::new(tcp::Config::default());
+        let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default());
         
         // Create classical keypair for compatibility
         let classical_key = identity::Keypair::generate_ed25519();
@@ -131,9 +132,9 @@ impl QuantumP2PConfig {
         // Configure transport with Noise protocol
         // TODO: Replace with post-quantum key exchange
         let transport = tcp_transport
-            .upgrade(upgrade::Version::V1)
-            .authenticate(noise::NoiseAuthenticated::xx(&classical_key)?)
-            .multiplex(yamux::YamuxConfig::default())
+            .upgrade(libp2p::core::upgrade::Version::V1)
+            .authenticate(noise::Config::new(&classical_key).unwrap())
+            .multiplex(yamux::Config::default())
             .boxed();
         
         Ok(transport)
@@ -390,8 +391,8 @@ pub enum P2PError {
     #[error("KEM error: {0}")]
     Kem(#[from] crate::crypto::kem::KemError),
     
-    #[error("Noise protocol error: {0}")]
-    Noise(#[from] libp2p::noise::NoiseError),
+    #[error("Noise protocol error")]
+    Noise,
     
     #[error("Peer not found")]
     PeerNotFound,

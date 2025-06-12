@@ -6,6 +6,8 @@ use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use std::net::{IpAddr, SocketAddr};
 
+pub mod quantum_p2p;
+
 /// Network error types
 #[derive(Debug, Error)]
 pub enum NetworkError {
@@ -88,6 +90,12 @@ pub mod p2p {
 // Re-export node protocol stubs
 pub use self::protocol::BlockHeader;
 pub use self::p2p::Block;
+
+// Re-export quantum P2P types
+pub use quantum_p2p::{
+    QuantumP2PConfig, QuantumPeerInfo, QuantumHandshake, QuantumMessage,
+    QuantumProtocolHandler, P2PError
+};
 
 // Re-export networking components that will be implemented later
 // pub mod peer;

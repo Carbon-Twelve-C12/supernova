@@ -231,7 +231,7 @@ impl QuantumTransaction {
                 keypair.verify(&tx_hash, &self.signature)
                     .map_err(|e| QuantumError::VerificationFailed(format!("Falcon verification failed: {}", e)))
             },
-            QuantumScheme::Sphincs => {
+            QuantumScheme::SphincsPlus => {
                 // Validate key length based on security level 
                 let expected_key_len = match self.security_level {
                     1 => 32,  // SPHINCS+-128f
@@ -497,9 +497,9 @@ impl QuantumTransactionBuilder {
             (QuantumScheme::Falcon, 5) => 2305, // Falcon-1024 secret key
             
             // SPHINCS+ key sizes
-            (QuantumScheme::Sphincs, 1) => 64,  // SPHINCS+-128f secret key
-            (QuantumScheme::Sphincs, 3) => 96,  // SPHINCS+-192f secret key
-            (QuantumScheme::Sphincs, 5) => 128, // SPHINCS+-256f secret key
+            (QuantumScheme::SphincsPlus, 1) => 64,  // SPHINCS+-128f secret key
+            (QuantumScheme::SphincsPlus, 3) => 96,  // SPHINCS+-192f secret key
+            (QuantumScheme::SphincsPlus, 5) => 128, // SPHINCS+-256f secret key
             
             // Hybrid schemes combine classical and quantum keys
             (QuantumScheme::Hybrid(ClassicalScheme::Secp256k1), _) => {
@@ -580,7 +580,7 @@ impl QuantumTransactionBuilder {
                 keypair.sign(&tx_hash)
                     .map_err(|e| QuantumError::SigningFailed(format!("Falcon signing failed: {}", e)))?
             },
-            QuantumScheme::Sphincs => {
+            QuantumScheme::SphincsPlus => {
                 // Use the actual SPHINCS+ signing
                 use pqcrypto_sphincsplus::sphincsshake128fsimple;
                 

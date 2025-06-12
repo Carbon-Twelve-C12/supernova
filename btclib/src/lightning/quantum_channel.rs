@@ -17,8 +17,10 @@ use crate::crypto::hash::{hash256, hash160};
 use crate::crypto::zkp::{ZkpParams, ZeroKnowledgeProof, generate_zkp, verify_zkp};
 use crate::types::{Transaction, TransactionInput, TransactionOutput};
 use serde::{Serialize, Deserialize};
+use serde_arrays::*;
 use std::collections::HashMap;
 use std::time::{SystemTime, Duration};
+use hex;
 
 /// Quantum-safe channel state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,7 +72,7 @@ pub struct QuantumHtlc {
     pub amount: u64,
     
     /// Payment hash (quantum-safe: SHA3-512)
-    pub payment_hash: [u8; 64],
+    pub payment_hash: Vec<u8>,
     
     /// Timeout block height
     pub timeout: u64,
@@ -240,7 +242,7 @@ impl QuantumChannel {
     pub fn add_htlc(
         &mut self,
         amount: u64,
-        payment_hash: [u8; 64],
+        payment_hash: Vec<u8>,
         timeout: u64,
         offered: bool,
     ) -> Result<u64, ChannelError> {
@@ -253,7 +255,7 @@ impl QuantumChannel {
         }
         
         // Create HTLC with quantum signature
-        let htlc_data = format!("{}{}{}{}", self.channel_id.encode_hex(), amount, payment_hash.encode_hex(), timeout);
+        let htlc_data = format!("{}{}{}{}", self.channel_id.encode_hex(), amount, hex::encode(&payment_hash), timeout);
         let quantum_signature = sign_quantum(
             &self.local_quantum_keys,
             htlc_data.as_bytes(),
@@ -297,7 +299,7 @@ impl QuantumChannel {
         
         // Verify preimage hash
         let computed_hash = hash256(&preimage);
-        if computed_hash != htlc.payment_hash[..32] {
+        if computed_hash.as_slice() != &htlc.payment_hash[..32] {
             return Err(ChannelError::InvalidPreimage);
         }
         
@@ -419,7 +421,7 @@ pub struct QuantumOnionPacket {
     pub layers: Vec<QuantumOnionLayer>,
     
     /// HMAC using quantum-safe hash
-    pub hmac: [u8; 64],
+    pub hmac: Vec<u8>,
 }
 
 /// Single layer of quantum onion encryption
@@ -439,7 +441,7 @@ impl QuantumOnionPacket {
     /// Create quantum-safe onion packet
     pub fn create(
         route: &[Vec<u8>], // Quantum public keys of nodes in route
-        payment_hash: [u8; 64],
+        payment_hash: Vec<u8>, // Changed from [u8; 64]
         amount: u64,
     ) -> Result<Self, ChannelError> {
         let mut layers = Vec::new();
@@ -497,7 +499,7 @@ impl QuantumOnionPacket {
     }
     
     /// Compute quantum-safe HMAC
-    fn compute_quantum_hmac(layers: &[QuantumOnionLayer]) -> Result<[u8; 64], ChannelError> {
+    fn compute_quantum_hmac(layers: &[QuantumOnionLayer]) -> Result<Vec<u8>, ChannelError> {
         use sha3::{Sha3_512, Digest};
         let mut hasher = Sha3_512::new();
         
@@ -508,9 +510,7 @@ impl QuantumOnionPacket {
         }
         
         let result = hasher.finalize();
-        let mut hmac = [0u8; 64];
-        hmac.copy_from_slice(&result);
-        Ok(hmac)
+        Ok(result.to_vec())
     }
 }
 
@@ -621,7 +621,7 @@ mod tests {
         
         // Add HTLC
         let payment_hash = [2u8; 64];
-        let htlc_id = channel.add_htlc(100_000, payment_hash, 1000, true).unwrap();
+        let htlc_id = channel.add_htlc(100_000, payment_hash.to_vec(), 1000, true).unwrap();
         
         assert_eq!(channel.htlcs.len(), 1);
         assert_eq!(channel.local_balance, 500_000);

@@ -4,6 +4,8 @@ use sha2::{Sha256, Sha512, Digest};
 use blake3;
 use std::fmt::Debug;
 use hex;
+use std::fmt;
+use serde::{Serialize, Deserialize};
 
 /// Hash trait for different hashing algorithms
 pub trait Hash: Debug + Send + Sync {
@@ -220,6 +222,103 @@ pub fn double_sha256(data: &[u8]) -> Vec<u8> {
 /// Convert a hash to hexadecimal string
 pub fn hash_to_hex(hash: &[u8]) -> String {
     hex::encode(hash)
+}
+
+/// A 256-bit hash
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CryptoHash([u8; 32]);
+
+impl CryptoHash {
+    /// Create a new hash from bytes
+    pub fn new(bytes: [u8; 32]) -> Self {
+        CryptoHash(bytes)
+    }
+    
+    /// Get the bytes of the hash
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+    
+    /// Convert to a hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.0)
+    }
+    
+    /// Create from a hex string
+    pub fn from_hex(hex_str: &str) -> Result<Self, hex::FromHexError> {
+        let bytes = hex::decode(hex_str)?;
+        if bytes.len() != 32 {
+            return Err(hex::FromHexError::InvalidStringLength);
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&bytes);
+        Ok(CryptoHash(arr))
+    }
+}
+
+impl fmt::Debug for CryptoHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CryptoHash({})", self.to_hex())
+    }
+}
+
+impl fmt::Display for CryptoHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
+}
+
+impl Default for CryptoHash {
+    fn default() -> Self {
+        CryptoHash([0u8; 32])
+    }
+}
+
+impl AsRef<[u8]> for CryptoHash {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl From<[u8; 32]> for CryptoHash {
+    fn from(bytes: [u8; 32]) -> Self {
+        CryptoHash(bytes)
+    }
+}
+
+impl From<CryptoHash> for [u8; 32] {
+    fn from(hash: CryptoHash) -> Self {
+        hash.0
+    }
+}
+
+/// Compute SHA256(data)
+pub fn sha256(data: &[u8]) -> CryptoHash {
+    let hash = Sha256::digest(data);
+    let mut result = [0u8; 32];
+    result.copy_from_slice(&hash);
+    CryptoHash(result)
+}
+
+/// Compute SHA256(SHA256(data))
+pub fn hash256(data: &[u8]) -> [u8; 32] {
+    let first_hash = Sha256::digest(data);
+    let second_hash = Sha256::digest(&first_hash);
+    let mut result = [0u8; 32];
+    result.copy_from_slice(&second_hash);
+    result
+}
+
+/// Compute RIPEMD160(SHA256(data))
+pub fn hash160(data: &[u8]) -> [u8; 20] {
+    use ripemd::{Ripemd160, Digest as RipemdDigest};
+    
+    let sha256_hash = Sha256::digest(data);
+    let ripemd_hash = Ripemd160::digest(&sha256_hash);
+    
+    let mut result = [0u8; 20];
+    result.copy_from_slice(&ripemd_hash);
+    result
 }
 
 #[cfg(test)]

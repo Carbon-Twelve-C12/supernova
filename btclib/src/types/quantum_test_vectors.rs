@@ -101,7 +101,7 @@ mod tests {
         println!("Testing SPHINCS+ signature");
         
         // SPHINCS+ with security level 1 (fast variant)
-        let params = QuantumParameters::with_security_level(QuantumScheme::Sphincs, 1);
+        let params = QuantumParameters::with_security_level(QuantumScheme::SphincsPlus, 1);
         let mut rng = thread_rng();
         let keypair = QuantumKeyPair::generate(&mut rng, params)
             .expect("Failed to generate SPHINCS+ keypair");
@@ -110,7 +110,7 @@ mod tests {
         let tx = create_test_transaction();
         
         // Sign the transaction
-        let builder = QuantumTransactionBuilder::new(QuantumScheme::Sphincs, 1);
+        let builder = QuantumTransactionBuilder::new(QuantumScheme::SphincsPlus, 1);
         let signed_tx = builder.sign_transaction(tx.clone(), &keypair.secret_key)
             .expect("Failed to sign transaction");
         

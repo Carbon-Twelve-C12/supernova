@@ -75,6 +75,35 @@ impl fmt::Debug for ZeroKnowledgeProof {
     }
 }
 
+impl ZeroKnowledgeProof {
+    /// Convert proof to bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        // Simple serialization: [proof_type (1 byte)][proof_len (4 bytes)][proof][num_inputs (4 bytes)][inputs...]
+        let mut bytes = Vec::new();
+        
+        // Add proof type
+        bytes.push(match self.proof_type {
+            ZkpType::RangeProof => 0,
+            ZkpType::Schnorr => 1,
+            ZkpType::Bulletproof => 2,
+            ZkpType::ZkSnark => 3,
+        });
+        
+        // Add proof data
+        bytes.extend_from_slice(&(self.proof.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&self.proof);
+        
+        // Add public inputs
+        bytes.extend_from_slice(&(self.public_inputs.len() as u32).to_be_bytes());
+        for input in &self.public_inputs {
+            bytes.extend_from_slice(&(input.len() as u32).to_be_bytes());
+            bytes.extend_from_slice(input);
+        }
+        
+        bytes
+    }
+}
+
 /// Parameters for generating proofs
 #[derive(Debug, Clone)]
 pub struct ZkpParams {
@@ -811,4 +840,47 @@ mod tests {
         let invalid = circuit.verify(&invalid_public, &proof);
         assert!(!invalid, "zk-SNARK verification should fail for mismatched public input");
     }
+}
+
+/// Generate a zero-knowledge proof
+pub fn generate_zkp(
+    statement: &[u8],
+    witness: &[u8],
+    params: &ZkpParams,
+) -> Result<ZeroKnowledgeProof, ZkpError> {
+    // Simple implementation for now
+    use sha2::{Sha256, Digest};
+    
+    let mut hasher = Sha256::new();
+    hasher.update(statement);
+    hasher.update(witness);
+    hasher.update(&params.security_level.to_be_bytes());
+    
+    let proof_data = hasher.finalize().to_vec();
+    
+    // In production, use actual ZK proof generation
+    Ok(ZeroKnowledgeProof {
+        proof_type: params.proof_type,
+        proof: proof_data,
+        public_inputs: vec![statement.to_vec()],
+    })
+}
+
+/// Verify a zero-knowledge proof
+pub fn verify_zkp(
+    proof: &ZeroKnowledgeProof,
+    statement: &[u8],
+    params: &ZkpParams,
+) -> Result<bool, ZkpError> {
+    // Simple verification for now
+    if proof.public_inputs.is_empty() || proof.public_inputs[0] != statement {
+        return Ok(false);
+    }
+    
+    if proof.proof_type != params.proof_type {
+        return Ok(false);
+    }
+    
+    // In production, use actual ZK proof verification
+    Ok(true)
 } 

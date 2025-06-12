@@ -49,7 +49,7 @@ impl Default for CryptoValidationConfig {
                 SignatureType::Sphincs,
                 SignatureType::Quantum(QuantumScheme::Dilithium),
                 SignatureType::Quantum(QuantumScheme::Falcon),
-                SignatureType::Quantum(QuantumScheme::Sphincs),
+                SignatureType::Quantum(QuantumScheme::SphincsPlus),
             ],
         }
     }
@@ -83,7 +83,7 @@ pub fn create_config_for_security_level(level: SecurityLevel) -> CryptoValidatio
                     SignatureType::Classical(ClassicalScheme::Secp256k1),
                     SignatureType::Quantum(QuantumScheme::Falcon), // Falcon is typically faster than Dilithium
                     SignatureType::Quantum(QuantumScheme::Dilithium),
-                    SignatureType::Quantum(QuantumScheme::Sphincs),
+                    SignatureType::Quantum(QuantumScheme::SphincsPlus),
                     SignatureType::Dilithium,
                     SignatureType::Falcon,
                     SignatureType::Sphincs,
@@ -95,7 +95,7 @@ pub fn create_config_for_security_level(level: SecurityLevel) -> CryptoValidatio
             min_signature_security_level: 5,
             allowed_signature_types: vec![
                 SignatureType::Quantum(QuantumScheme::Dilithium),
-                SignatureType::Quantum(QuantumScheme::Sphincs),
+                SignatureType::Quantum(QuantumScheme::SphincsPlus),
                 SignatureType::Dilithium,
                 SignatureType::Sphincs,
             ],
@@ -105,7 +105,7 @@ pub fn create_config_for_security_level(level: SecurityLevel) -> CryptoValidatio
             require_quantum_resistance: true,
             min_signature_security_level: 5,
             allowed_signature_types: vec![
-                SignatureType::Quantum(QuantumScheme::Sphincs),
+                SignatureType::Quantum(QuantumScheme::SphincsPlus),
                 SignatureType::Sphincs,
             ],
         },

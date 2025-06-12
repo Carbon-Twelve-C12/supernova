@@ -26,7 +26,7 @@ mod tests {
         // Test all quantum schemes
         let schemes = [
             (QuantumScheme::Dilithium, vec![2u8, 3u8, 5u8]),
-            (QuantumScheme::Sphincs, vec![1u8, 3u8, 5u8]),
+            (QuantumScheme::SphincsPlus, vec![1u8, 3u8, 5u8]),
         ];
         
         for (scheme, security_levels) in schemes.iter() {
