@@ -297,7 +297,7 @@ impl UtxoSet {
     }
     
     /// Process a new transaction (add its outputs, remove spent inputs)
-    pub fn process_transaction(&self, tx: &Transaction, height: u64, is_coinbase: bool) -> Result<(), StorageError> {
+    pub fn process_transaction(&mut self, tx: &Transaction, height: u64, is_coinbase: bool) -> Result<(), StorageError> {
         // Remove spent inputs (except for coinbase which has no real inputs)
         if !is_coinbase {
             for input in tx.inputs() {

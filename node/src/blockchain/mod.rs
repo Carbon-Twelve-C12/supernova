@@ -24,9 +24,9 @@ pub fn create_genesis_block(chain_id: &str) -> Block {
     
     // Create genesis block header
     let timestamp = match chain_id {
-        "mainnet" => 1767225600, // January 1, 2026 00:00:00 UTC
-        "testnet" => Utc::now().timestamp() as u32,
-        _ => Utc::now().timestamp() as u32,
+        "mainnet" => 1767225600u64, // January 1, 2026 00:00:00 UTC
+        "testnet" => Utc::now().timestamp() as u64,
+        _ => Utc::now().timestamp() as u64,
     };
     
     let genesis_header = BlockHeader::new(

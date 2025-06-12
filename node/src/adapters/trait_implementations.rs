@@ -62,8 +62,15 @@ impl Hash for MetricType {
             MetricType::BlockProcessing => 1.hash(state),
             MetricType::TransactionValidation => 2.hash(state),
             MetricType::StorageOperation => 3.hash(state),
+            MetricType::TransactionProcessing => 4.hash(state),
+            MetricType::BlockValidation => 5.hash(state),
+            MetricType::DatabaseRead => 6.hash(state),
+            MetricType::DatabaseWrite => 7.hash(state),
+            MetricType::NetworkBandwidth => 8.hash(state),
+            MetricType::PeerConnection => 9.hash(state),
+            MetricType::Mempool => 10.hash(state),
             MetricType::Custom(s) => {
-                4.hash(state);
+                11.hash(state);
                 s.hash(state);
             }
         }

@@ -45,10 +45,10 @@ struct Cli {
     #[arg(short, long, default_value = "http://localhost:8332")]
     rpc_url: String,
     
-    #[arg(short, long)]
+    #[arg(short = 'u', long)]
     rpc_user: Option<String>,
     
-    #[arg(short, long)]
+    #[arg(short = 'p', long)]
     rpc_password: Option<String>,
     
     #[arg(short, long)]

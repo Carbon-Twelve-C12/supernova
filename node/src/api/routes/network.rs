@@ -37,13 +37,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 )]
 pub async fn get_network_info(
     network: web::Data<Arc<P2PNetwork>>,
-) -> ApiResult<NetworkInfo> {
-    let info = match network.get_network_info().await {
-        Ok(info) => info,
-        Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve network info: {}", e))),
-    };
-
-    Ok(info)
+) -> Result<HttpResponse, actix_web::Error> {
+    match network.get_network_info().await {
+        Ok(info) => Ok(HttpResponse::Ok().json(info)),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to retrieve network info: {}", e))
+        )),
+    }
 }
 
 /// Get connection count
@@ -59,13 +59,13 @@ pub async fn get_network_info(
 )]
 pub async fn get_connection_count(
     network: web::Data<Arc<P2PNetwork>>,
-) -> ApiResult<ConnectionCount> {
-    let count = match network.get_connection_count().await {
-        Ok(count) => count,
-        Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve connection count: {}", e))),
-    };
-
-    Ok(count)
+) -> Result<HttpResponse, actix_web::Error> {
+    match network.get_connection_count().await {
+        Ok(count) => Ok(HttpResponse::Ok().json(count)),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to retrieve connection count: {}", e))
+        )),
+    }
 }
 
 /// Get a list of connected peers
@@ -96,21 +96,21 @@ struct GetPeersParams {
 pub async fn get_peers(
     params: web::Query<GetPeersParams>,
     network: web::Data<Arc<P2PNetwork>>,
-) -> ApiResult<Vec<PeerInfo>> {
+) -> Result<HttpResponse, actix_web::Error> {
     let connection_state = params.connection_state.as_ref().map(|s| s.clone());
     let verbose = params.verbose.unwrap_or(false);
     
-    let peers = match network.get_peers().await {
+    match network.get_peers().await {
         Ok(mut peers) => {
             if let Some(state) = connection_state {
                 peers.retain(|p| p.direction == state);
             }
-            peers
+            Ok(HttpResponse::Ok().json(peers))
         },
-        Err(e) => return Err(ApiError::internal_error(format!("Failed to retrieve peers: {}", e))),
-    };
-
-    Ok(peers)
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to retrieve peers: {}", e))
+        )),
+    }
 }
 
 /// Get information about a specific peer
@@ -131,13 +131,17 @@ pub async fn get_peers(
 pub async fn get_peer(
     path: web::Path<String>,
     network: web::Data<Arc<P2PNetwork>>,
-) -> ApiResult<PeerInfo> {
+) -> Result<HttpResponse, actix_web::Error> {
     let peer_id = path.into_inner();
     
-    match network.get_peer(&peer_id).await
-        .map_err(|e| ApiError::internal_error(format!("Failed to get peer: {}", e)))? {
-        Some(peer) => Ok(peer),
-        None => Err(ApiError::not_found("Peer not found")),
+    match network.get_peer(&peer_id).await {
+        Ok(Some(peer)) => Ok(HttpResponse::Ok().json(peer)),
+        Ok(None) => Ok(HttpResponse::NotFound().json(
+            ApiError::not_found("Peer not found")
+        )),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to get peer: {}", e))
+        )),
     }
 }
 
@@ -157,14 +161,16 @@ pub async fn get_peer(
 pub async fn add_peer(
     request: web::Json<PeerAddRequest>,
     network: web::Data<Arc<P2PNetwork>>,
-) -> ApiResult<PeerAddResponse> {
+) -> Result<HttpResponse, actix_web::Error> {
     let address = &request.address;
     let permanent = request.permanent.unwrap_or(false);
     
-    let result = network.add_peer(&address, permanent).await
-        .map_err(|e| ApiError::internal_error(format!("Failed to add peer: {}", e)))?;
-
-    Ok(result)
+    match network.add_peer(&address, permanent).await {
+        Ok(result) => Ok(HttpResponse::Ok().json(result)),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to add peer: {}", e))
+        )),
+    }
 }
 
 /// Remove a peer connection
@@ -185,21 +191,25 @@ pub async fn add_peer(
 pub async fn remove_peer(
     path: web::Path<String>,
     network: web::Data<Arc<P2PNetwork>>,
-) -> ApiResult<serde_json::Value> {
+) -> Result<HttpResponse, actix_web::Error> {
     let peer_id = path.into_inner();
     
     match network.remove_peer(&peer_id).await {
         Ok(success) => {
             if success {
-                Ok(serde_json::json!({
+                Ok(HttpResponse::Ok().json(serde_json::json!({
                     "success": true,
                     "message": "Peer removed successfully"
-                }))
+                })))
             } else {
-                Err(ApiError::not_found("Peer not found"))
+                Ok(HttpResponse::NotFound().json(
+                    ApiError::not_found("Peer not found")
+                ))
             }
         },
-        Err(e) => Err(ApiError::internal_error(format!("Failed to remove peer: {}", e))),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to remove peer: {}", e))
+        )),
     }
 }
 
@@ -228,11 +238,13 @@ struct GetBandwidthParams {
 pub async fn get_bandwidth_usage(
     params: web::Query<GetBandwidthParams>,
     network: web::Data<Arc<P2PNetwork>>,
-) -> ApiResult<BandwidthUsage> {
+) -> Result<HttpResponse, actix_web::Error> {
     let period = params.period.unwrap_or(3600);
     
-    let usage = network.get_bandwidth_usage(period).await
-        .map_err(|e| ApiError::internal_error(format!("Failed to get bandwidth usage: {}", e)))?;
-    
-    Ok(usage)
+    match network.get_bandwidth_usage(period).await {
+        Ok(usage) => Ok(HttpResponse::Ok().json(usage)),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to get bandwidth usage: {}", e))
+        )),
+    }
 } 

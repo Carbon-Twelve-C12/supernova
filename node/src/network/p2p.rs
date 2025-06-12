@@ -851,14 +851,14 @@ impl P2PNetwork {
         Self::broadcast_message_static(message, swarm, stats, bandwidth_tracker).await;
     }
     
-    /// Handle a libp2p swarm event (static version)
+    /// Handle swarm events (static version)
     async fn handle_swarm_event_static<THandlerErr>(
         event: SwarmEvent<SupernovaBehaviourEvent, THandlerErr>,
         event_sender: &mpsc::Sender<NetworkEvent>,
         stats: &Arc<RwLock<NetworkStats>>,
         connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
         bandwidth_tracker: &Arc<RwLock<BandwidthTracker>>,
-    ) where THandlerErr: std::fmt::Display {
+    ) where THandlerErr: std::fmt::Display + std::fmt::Debug {
         match event {
             SwarmEvent::Behaviour(SupernovaBehaviourEvent::Gossipsub(GossipsubEvent::Message { 
                 propagation_source,
@@ -1813,11 +1813,7 @@ impl P2PNetwork {
     pub fn is_syncing(&self) -> bool {
         // Check if we have peers and if our height is significantly behind
         // This is a simplified implementation
-        let stats = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                self.get_stats().await
-            })
-        });
+        let stats = self.get_stats_sync();
         
         // Consider syncing if we have peers but low block count
         stats.peers_connected > 0 && stats.blocks_received < 100
@@ -1828,11 +1824,7 @@ impl P2PNetwork {
         // This is a simplified implementation
         // In a real implementation, this would check actual sync state
         if self.is_syncing() {
-            let stats = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    self.get_stats().await
-                })
-            });
+            let stats = self.get_stats_sync();
             
             // Simple progress based on blocks received
             (stats.blocks_received as f64 / 1000.0).min(0.99)
@@ -1874,10 +1866,10 @@ impl P2PNetwork {
     }
 
     /// Get network statistics synchronously
-    pub fn get_stats(&self) -> NetworkStats {
+    pub fn get_stats_sync(&self) -> NetworkStats {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
-                self.stats.read().await.clone()
+                self.get_stats().await
             })
         })
     }

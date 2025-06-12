@@ -2167,11 +2167,15 @@ impl BlockchainDB {
         }
         
         if self.config.use_bloom_filters {
-            let mut block_filter = self.block_filter.write().unwrap();
-            block_filter.clear();
+            {
+                let mut block_filter = self.block_filter.write().unwrap();
+                block_filter.clear();
+            } // Lock is dropped here
             
-            let mut tx_filter = self.tx_filter.write().unwrap();
-            tx_filter.clear();
+            {
+                let mut tx_filter = self.tx_filter.write().unwrap();
+                tx_filter.clear();
+            } // Lock is dropped here
             
             // Reinitialize bloom filters
             self.init_bloom_filters()?;

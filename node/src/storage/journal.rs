@@ -458,7 +458,7 @@ impl WriteAheadLog {
             if let Some(name) = path.file_name() {
                 if let Some(name_str) = name.to_str() {
                     if name_str.starts_with("wal.") && name_str.ends_with(".archive") {
-                        tokio::fs::remove_file(path)?;
+                        tokio::fs::remove_file(path).await?;
                     }
                 }
             }
@@ -485,7 +485,7 @@ impl WriteAheadLog {
         
         if marker_path.exists() {
             // Remove the marker
-            tokio::fs::remove_file(&marker_path)?;
+            tokio::fs::remove_file(&marker_path).await?;
             Ok(true)
         } else {
             Ok(false)

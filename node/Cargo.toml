@@ -102,7 +102,4 @@ vergen = { version = "8", features = ["build", "git", "gitcl", "rustc", "cargo"]
 [lib]
 name = "node"
 path = "src/lib.rs"
-[[bin]]
-name = "node"
-path = "src/main.rs"
 

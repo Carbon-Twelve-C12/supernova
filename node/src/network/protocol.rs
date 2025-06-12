@@ -136,7 +136,7 @@ pub enum Message {
     /// Pong response to ping
     Pong(u64),
     /// Address announcement
-    Addr(Vec<(PeerId, Multiaddr)>),
+    Addr(Vec<(String, String)>),
     /// Get addresses request
     GetAddr,
     /// Environmental data

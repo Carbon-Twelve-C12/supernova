@@ -105,7 +105,9 @@ impl Modify for SecurityAddon {
         node::get_debug_info,
         
         // Faucet routes
-        faucet::get_faucet_status_axum,
+        faucet::get_faucet_status,
+        faucet::request_tokens,
+        faucet::get_recent_transactions,
     ),
     components(
         schemas(
@@ -184,6 +186,10 @@ impl Modify for SecurityAddon {
             
             // Faucet types
             faucet::FaucetStatusResponse,
+            faucet::FaucetRequest,
+            faucet::FaucetResponse,
+            faucet::FaucetTransaction,
+            faucet::RecentTransactionsResponse,
             
             // Error types
             types::ApiErrorResponse,

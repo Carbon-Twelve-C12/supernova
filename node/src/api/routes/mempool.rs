@@ -55,9 +55,9 @@ pub struct ValidateTransactionRequest {
 )]
 pub async fn get_mempool_info(
     node: web::Data<Arc<Node>>,
-) -> ApiResult<MempoolInfo> {
+) -> Result<HttpResponse, actix_web::Error> {
     let info = node.mempool().get_info();
-    Ok(info)
+    Ok(HttpResponse::Ok().json(info))
 }
 
 /// Get mempool transactions
@@ -93,14 +93,16 @@ struct GetMempoolTransactionsParams {
 pub async fn get_mempool_transactions(
     params: web::Query<GetMempoolTransactionsParams>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<Vec<MempoolTransaction>> {
+) -> Result<HttpResponse, actix_web::Error> {
     let limit = params.limit.unwrap_or(100) as usize;
     let offset = params.offset.unwrap_or(0) as usize;
     let _verbose = params.verbose.unwrap_or(false);
     
     match node.mempool().get_transactions(limit, offset, "fee_desc") {
-        Ok(transactions) => Ok(transactions),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to get mempool transactions: {}", e))),
+        Ok(transactions) => Ok(HttpResponse::Ok().json(transactions)),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to get mempool transactions: {}", e))
+        )),
     }
 }
 
@@ -122,13 +124,17 @@ pub async fn get_mempool_transactions(
 pub async fn get_mempool_transaction(
     path: web::Path<String>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<MempoolTransaction> {
+) -> Result<HttpResponse, actix_web::Error> {
     let txid = path.into_inner();
     
     match node.mempool().get_transaction_by_id(&txid) {
-        Ok(Some(tx)) => Ok(tx),
-        Ok(None) => Err(ApiError::not_found("Transaction not found in mempool")),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to get transaction: {}", e))),
+        Ok(Some(tx)) => Ok(HttpResponse::Ok().json(tx)),
+        Ok(None) => Ok(HttpResponse::NotFound().json(
+            ApiError::not_found("Transaction not found in mempool")
+        )),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to get transaction: {}", e))
+        )),
     }
 }
 
@@ -148,17 +154,21 @@ pub async fn get_mempool_transaction(
 pub async fn submit_transaction(
     request: web::Json<SubmitTxRequest>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<MempoolTransactionSubmissionResponse> {
+) -> Result<HttpResponse, actix_web::Error> {
     // Parse the raw transaction
     let tx_data = match hex::decode(&request.raw_tx) {
         Ok(data) => data,
-        Err(_) => return Err(ApiError::bad_request("Invalid transaction format")),
+        Err(_) => return Ok(HttpResponse::BadRequest().json(
+            ApiError::bad_request("Invalid transaction format")
+        )),
     };
     
     // Deserialize the transaction
     let tx = match bincode::deserialize::<btclib::types::transaction::Transaction>(&tx_data) {
         Ok(tx) => tx,
-        Err(_) => return Err(ApiError::bad_request("Invalid transaction format")),
+        Err(_) => return Ok(HttpResponse::BadRequest().json(
+            ApiError::bad_request("Invalid transaction format")
+        )),
     };
     
     let txid = hex::encode(tx.hash());
@@ -169,24 +179,32 @@ pub async fn submit_transaction(
             // Broadcast to network
             node.broadcast_transaction(&tx);
             
-            Ok(MempoolTransactionSubmissionResponse {
+            Ok(HttpResponse::Ok().json(MempoolTransactionSubmissionResponse {
                 txid,
                 accepted: true,
-            })
+            }))
         },
         Err(e) => {
             match e {
                 crate::mempool::MempoolError::TransactionExists(_) => {
-                    Err(ApiError::bad_request("Transaction already exists in mempool"))
+                    Ok(HttpResponse::BadRequest().json(
+                        ApiError::bad_request("Transaction already exists in mempool")
+                    ))
                 },
                 crate::mempool::MempoolError::InvalidTransaction(msg) => {
-                    Err(ApiError::bad_request(format!("Invalid transaction: {}", msg)))
+                    Ok(HttpResponse::BadRequest().json(
+                        ApiError::bad_request(format!("Invalid transaction: {}", msg))
+                    ))
                 },
                 crate::mempool::MempoolError::FeeTooLow { .. } => {
-                    Err(ApiError::bad_request("Insufficient transaction fee"))
+                    Ok(HttpResponse::BadRequest().json(
+                        ApiError::bad_request("Insufficient transaction fee")
+                    ))
                 },
                 _ => {
-                    Err(ApiError::internal_error(format!("Failed to add transaction to mempool: {}", e)))
+                    Ok(HttpResponse::InternalServerError().json(
+                        ApiError::internal_error(format!("Failed to add transaction to mempool: {}", e))
+                    ))
                 }
             }
         }
@@ -209,16 +227,20 @@ pub async fn submit_transaction(
 pub async fn validate_transaction(
     request: web::Json<SubmitTxRequest>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<TransactionValidationResult> {
+) -> Result<HttpResponse, actix_web::Error> {
     // Parse the raw transaction
     let tx_data = match hex::decode(&request.raw_tx) {
         Ok(data) => data,
-        Err(_) => return Err(ApiError::bad_request("Invalid transaction format")),
+        Err(_) => return Ok(HttpResponse::BadRequest().json(
+            ApiError::bad_request("Invalid transaction format")
+        )),
     };
     
     match node.mempool().validate_transaction(&tx_data) {
-        Ok(result) => Ok(result),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to validate transaction: {}", e))),
+        Ok(result) => Ok(HttpResponse::Ok().json(result)),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to validate transaction: {}", e))
+        )),
     }
 }
 
@@ -257,11 +279,13 @@ struct GetFeeEstimatesParams {
 pub async fn get_fee_estimates(
     params: web::Query<GetFeeEstimatesParams>,
     node: web::Data<Arc<Node>>,
-) -> ApiResult<TransactionFees> {
+) -> Result<HttpResponse, actix_web::Error> {
     let target_blocks = params.target_blocks.unwrap_or(6);
     
     match node.mempool().estimate_fee(target_blocks) {
-        Ok(fees) => Ok(fees),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to get fee estimates: {}", e))),
+        Ok(fees) => Ok(HttpResponse::Ok().json(fees)),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(
+            ApiError::internal_error(format!("Failed to get fee estimates: {}", e))
+        )),
     }
 } 
