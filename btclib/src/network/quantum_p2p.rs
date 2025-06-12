@@ -120,7 +120,7 @@ impl QuantumP2PConfig {
     }
     
     /// Create quantum-safe transport
-    pub fn create_transport(&self) -> Result<impl Transport<Output = (PeerId, yamux::Stream)>, P2PError> {
+    pub fn create_transport(&self) -> Result<libp2p::core::transport::Boxed<(PeerId, libp2p::core::muxing::StreamMuxerBox)>, P2PError> {
         // For now, use classical libp2p transport with plans to upgrade
         // In production, this would use post-quantum noise protocol
         let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default());

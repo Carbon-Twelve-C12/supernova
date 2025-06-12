@@ -34,7 +34,7 @@ sysinfo = "0.29"
 uuid = { version = "1.3", features = ["v4"] }
 merlin = "3.0"
 curve25519-dalek = { version = "4.0", features = ["serde"] }
-libp2p = { version = "0.52", features = ["tcp", "noise", "yamux", "dns", "gossipsub"] }
+libp2p = { version = "0.52", features = ["tcp", "noise", "yamux", "dns", "gossipsub", "tokio"] }
 futures = "0.3"
 async-trait = "0.1"
 blake3 = "1.3"

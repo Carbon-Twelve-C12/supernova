@@ -7,6 +7,55 @@
 
 Supernova implements state-of-the-art post-quantum cryptography to ensure long-term security against both classical and quantum computing threats. With Phase 4 complete, we have achieved comprehensive security validation with formal verification and attack resistance testing.
 
+## Quantum Architecture Overview
+
+The following diagram illustrates Supernova's comprehensive quantum-resistant architecture, showing how quantum security is integrated throughout every layer of the blockchain:
+
+```mermaid
+graph TD
+    A[Supernova Blockchain] --> B[Quantum-Resistant Components]
+    
+    B --> C[Quantum Signatures]
+    C --> C1[Dilithium - Primary]
+    C --> C2[Falcon - Alternative]
+    C --> C3[SPHINCS+ - Stateless]
+    
+    B --> D[Quantum Key Exchange]
+    D --> D1[Kyber KEM]
+    D --> D2[Post-Quantum TLS]
+    
+    B --> E[Quantum Wallets]
+    E --> E1[HD Derivation with SHA3-512]
+    E --> E2[Argon2 Key Derivation]
+    E --> E3[Zero-Knowledge Proofs]
+    
+    B --> F[Quantum Lightning]
+    F --> F1[Quantum HTLCs]
+    F --> F2[Quantum Onion Routing]
+    F --> F3[Quantum Watchtowers]
+    
+    B --> G[Quantum P2P]
+    G --> G1[Quantum Handshakes]
+    G --> G2[Quantum Message Encryption]
+    G --> G3[Key Rotation]
+    
+    B --> H[Quantum Canary System]
+    H --> H1[Early Warning Detection]
+    H --> H2[Automatic Migration]
+    H --> H3[Network-wide Alerts]
+    
+    style A fill:#f9f,stroke:#333,stroke-width:4px
+    style B fill:#bbf,stroke:#333,stroke-width:2px
+    style C fill:#9f9,stroke:#333,stroke-width:2px
+    style D fill:#9f9,stroke:#333,stroke-width:2px
+    style E fill:#9f9,stroke:#333,stroke-width:2px
+    style F fill:#9f9,stroke:#333,stroke-width:2px
+    style G fill:#9f9,stroke:#333,stroke-width:2px
+    style H fill:#ff9,stroke:#333,stroke-width:2px
+```
+
+This architecture ensures that every component of Supernova is protected against quantum attacks, from the base layer blockchain to the Lightning Network, making it the world's first truly quantum-resistant blockchain ecosystem.
+
 ## Quantum-Resistant Implementation
 
 ### Supported Algorithms

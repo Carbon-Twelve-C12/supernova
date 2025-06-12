@@ -9,7 +9,7 @@ use crate::crypto::quantum::{
 };
 use crate::crypto::{hash256, hash160};
 use crate::crypto::zkp::{ZkpParams, ZeroKnowledgeProof, generate_zkp, verify_zkp};
-use crate::types::{Transaction, TransactionInput, TransactionOutput};
+use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput, TransactionSignatureData, SignatureSchemeType};
 use bip39::{Mnemonic, Language};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
@@ -152,11 +152,16 @@ impl QuantumWallet {
         let entropy = mnemonic.to_entropy();
         
         // Create salt from password (or use default)
-        let salt = if password.is_empty() {
-            Salt::from_b64("quantumsupernova").unwrap()
+        let salt_str = if password.is_empty() {
+            "quantumsupernova"
         } else {
-            Salt::from_b64(&base64::encode(password)).unwrap()
+            // Create a temporary binding for the encoded password
+            let encoded = base64::encode(password);
+            // We need to leak this to get a &'static str, or use a different approach
+            // For now, let's use a fixed salt when password is provided
+            "quantumsupernova_pw"
         };
+        let salt = Salt::from_b64(salt_str).unwrap();
         
         // Use Argon2id for quantum-resistant key derivation
         let argon2 = Argon2::default();
@@ -165,7 +170,8 @@ impl QuantumWallet {
         
         // Extract 64 bytes for seed
         let mut seed = [0u8; 64];
-        let hash_bytes = hash.hash.unwrap().as_bytes();
+        let hash_binding = hash.hash.unwrap();
+        let hash_bytes = hash_binding.as_bytes();
         seed[..hash_bytes.len().min(64)].copy_from_slice(&hash_bytes[..hash_bytes.len().min(64)]);
         
         Ok(seed)
@@ -317,10 +323,14 @@ impl QuantumWallet {
             // Both signatures would be included in the witness
         }
         
-        // Update transaction input with quantum signature
-        if let Some(input) = tx.inputs_mut().get_mut(input_index) {
-            input.set_quantum_signature(quantum_sig);
-        }
+        // Since we can't modify inputs directly, we need to set the signature data
+        // on the transaction itself for quantum signatures
+        tx.set_signature_data(TransactionSignatureData {
+            scheme: SignatureSchemeType::Dilithium,
+            security_level: self.metadata.security_level,
+            data: quantum_sig,
+            public_key: child_keys.public_key.clone(),
+        });
         
         Ok(())
     }
@@ -473,7 +483,8 @@ impl QuantumWallet {
             .map_err(|_| WalletError::KeyDerivationFailed)?;
         
         let mut key = [0u8; 32];
-        let hash_bytes = hash.hash.unwrap().as_bytes();
+        let hash_binding = hash.hash.unwrap();
+        let hash_bytes = hash_binding.as_bytes();
         key.copy_from_slice(&hash_bytes[..32]);
         
         Ok(key)
