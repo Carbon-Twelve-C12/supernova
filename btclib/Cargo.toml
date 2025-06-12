@@ -63,6 +63,13 @@ siphasher = "0.3"
 memmap2 = "0.7"
 num_cpus = "1.16"
 priority-queue = "2.0"  # For Lightning Network routing
+argon2 = "0.5"
+bech32 = "0.9"
+chacha20poly1305 = "0.10"
+sha3 = "0.10"
+hkdf = "0.12"
+base64 = "0.21"
+bip39 = "2.0"
 
 [dependencies.prost]
 version = "0.12"

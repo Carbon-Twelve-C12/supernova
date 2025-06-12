@@ -235,7 +235,7 @@ impl Node {
                     config.node.enable_quantum_security,
                     if config.node.enable_quantum_security {
                         Some(QuantumScheme::Dilithium)
-                    } else {
+                            } else {
                         None
                     },
                 ).map_err(|e| NodeError::LightningError(LightningNetworkError::WalletError(e)))?;
@@ -257,10 +257,10 @@ impl Node {
                 });
                 
                 (Some(manager_clone), Some(event_handler), Some(event_task))
-            } else {
+        } else {
                 (None, None, None)
-            };
-        
+        };
+
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             db,
@@ -282,7 +282,7 @@ impl Node {
             wal: None,
         })
     }
-    
+
     /// Start the node
     pub async fn start(&self) -> Result<(), NodeError> {
         tracing::info!("Starting Supernova node...");
@@ -300,7 +300,7 @@ impl Node {
         tracing::info!("Node started successfully");
         Ok(())
     }
-    
+
     /// Stop the node
     pub async fn stop(&self) -> Result<(), NodeError> {
         tracing::info!("Stopping Supernova node...");
@@ -318,7 +318,7 @@ impl Node {
         tracing::info!("Node stopped successfully");
         Ok(())
     }
-    
+
     /// Get node configuration
     pub fn config(&self) -> Arc<RwLock<NodeConfig>> {
         Arc::clone(&self.config)
@@ -392,8 +392,8 @@ impl Node {
         // Broadcast to network if this is a new block we mined
         self.network.broadcast_block(&block);
         
-        Ok(())
-    }
+                Ok(())
+            }
     
     /// Get storage (blockchain database)
     pub fn storage(&self) -> Arc<BlockchainDB> {
@@ -439,7 +439,7 @@ impl Node {
             uptime: self.start_time.elapsed().as_secs(),
         })
     }
-    
+
     /// Get system info
     pub fn get_system_info(&self) -> Result<SystemInfo, NodeError> {
         use sysinfo::{System, SystemExt};
@@ -463,7 +463,7 @@ impl Node {
             },
         })
     }
-    
+
     /// Get logs
     pub fn get_logs(&self, level: &str, component: Option<&str>, limit: usize, offset: usize) -> Result<Vec<LogEntry>, NodeError> {
         // Get logs from the logging system
@@ -655,8 +655,8 @@ impl Node {
         
         // Get lightning stats
         let lightning_stats = if self.lightning_manager.is_some() {
-            serde_json::json!({
-                "enabled": true,
+                    serde_json::json!({
+                        "enabled": true,
                 "channels": 0,
                 "peers": 0,
                 "balance_msat": 0
