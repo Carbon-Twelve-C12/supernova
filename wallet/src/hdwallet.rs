@@ -5,9 +5,10 @@ use bitcoin::{
     Address, PrivateKey,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use thiserror::Error;
 use rand::RngCore;
+use btclib::storage::utxo_set::UtxoSet;
 
 #[derive(Error, Debug)]
 pub enum HDWalletError {
@@ -23,6 +24,8 @@ pub enum HDWalletError {
     AddressNotFound(String),
     #[error("Bitcoin error: {0}")]
     Bitcoin(String),
+    #[error("Address parsing error: {0}")]
+    AddressParsing(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,18 +136,24 @@ impl HDWallet {
         Ok(hd_address)
     }
 
-    pub fn get_balance(&self, account_name: &str) -> Result<u64, HDWalletError> {
-        let _account = self.accounts.get(account_name)
+    pub fn get_balance(&self, account_name: &str, utxo_set: &UtxoSet) -> Result<u64, HDWalletError> {
+        let account = self.accounts.get(account_name)
             .ok_or_else(|| HDWalletError::AccountNotFound(account_name.to_string()))?;
 
-        // TODO: Implement actual balance calculation from blockchain
-        Ok(0)
+        let mut balance = 0;
+        for hd_address in &account.addresses {
+            let address = Address::from_str(&hd_address.address)
+                .map_err(|e| HDWalletError::AddressParsing(e.to_string()))?;
+            balance += utxo_set.get_balance(&address.script_pubkey());
+        }
+
+        Ok(balance)
     }
 
-    pub fn get_total_balance(&self) -> Result<u64, HDWalletError> {
+    pub fn get_total_balance(&self, utxo_set: &UtxoSet) -> Result<u64, HDWalletError> {
         let mut total = 0;
         for account_name in self.accounts.keys() {
-            total += self.get_balance(account_name)?;
+            total += self.get_balance(account_name, utxo_set)?;
         }
         Ok(total)
     }

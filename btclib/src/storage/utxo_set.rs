@@ -509,6 +509,20 @@ impl UtxoSet {
         Ok(stats.clone())
     }
 
+    /// Get the balance for a specific script pubkey
+    pub fn get_balance(&self, script_pubkey: &[u8]) -> u64 {
+        let mut balance = 0;
+        let cache = self.cache.read().unwrap();
+        
+        for entry in cache.values() {
+            if entry.output.pub_key_script == script_pubkey {
+                balance += entry.amount();
+            }
+        }
+        
+        balance
+    }
+
     /// Clear the UTXO set (for testing or resetting)
     pub fn clear(&self) -> Result<(), String> {
         // Clear cache
