@@ -8,14 +8,16 @@
     <a href="https://supernovanetwork.xyz/"><img src="https://img.shields.io/badge/website-supernovanetwork.xyz-blue" alt="Official Website" /></a>
     <a href="https://github.com/Carbon-Twelve-C12/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/Carbon-Twelve-C12/supernova" alt="Contributors" /></a>
     <a href="https://github.com/Carbon-Twelve-C12/supernova/stargazers"><img src="https://img.shields.io/github/stars/Carbon-Twelve-C12/supernova" alt="Stars" /></a>
-    <a href="https://github.com/Carbon-Twelve-C12/supernova/releases"><img src="https://img.shields.io/badge/version-2.0.0-green" alt="Version" /></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/releases"><img src="https://img.shields.io/badge/version-1.0.0--RC3-green" alt="Version" /></a>
      <a href="https://deepwiki.com/Carbon-Twelve-C12/supernova"><img src="https://img.shields.io/badge/Ask%20DeepWiki-222222?logo=deepwiki" alt="Ask DeepWiki"></a>
   </p>
 </div>
 
 ## Overview
 
-Supernova is a production-grade Proof-of-Work blockchain written in Rust. It is designed to address two of the most significant challenges facing the blockchain industry: the existential threat of quantum computing and the environmental impact of PoW consensus.
+Supernova is a production-grade Proof-of-Work blockchain written in Rust. It is designed to address three of the most significant challenges facing the blockchain industry: the existential threat of quantum computing, the environmental impact of PoW consensus, and the demand for scalable, low-cost transactions.
+
+For a more detailed breakdown of the project's status, architecture, and goals, please see the [Supernova Overview](docs/supernova_overview.md) document.
 
 Our primary goal is to provide a secure, scalable, and sustainable platform for the next generation of decentralized applications. We achieve this through a series of core technical innovations.
 
@@ -122,7 +124,7 @@ cargo test --workspace --release
 ---
 
 ## Current Status
-**Version: 2.0.0** (Quantum-Resistant Release)
+**Version: 1.0.0-RC3** (Release Candidate 3)
 
 The core quantum cryptography infrastructure is complete and compiling. We are now in the final phase of integration and testing before the public testnet launch.
 
