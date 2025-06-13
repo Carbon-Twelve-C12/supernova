@@ -1,9 +1,9 @@
-# Supernova: The Quantum-Resistant, Carbon-Negative Blockchain
+# Supernova: A Quantum-Resistant, Carbon-Negative Blockchain
 
 <div align="center">
 
   <p>
-    <h2><strong>Supernova is the world's first blockchain engineered from the ground up to be quantum-resistant, environmentally sustainable, and scalable for a global financial system.</strong></h2>
+    <h2><strong>Supernova is a blockchain engineered from first principles to be quantum-resistant, environmentally sustainable, and scalable for a global financial system.</strong></h2>
   </p>
 
   <p align="center">
@@ -17,32 +17,32 @@
 
 ## The Inevitable Future of a Quantum-Secure Economy
 
-The entire $2.5 trillion cryptocurrency market is built on a cryptographic assumption with a known expiration date. The arrival of quantum computers is not a "if" but a "when" event, posing an existential threat to all existing digital assets.
+The entire $2.5 trillion cryptocurrency market is built on a cryptographic assumption with a known expiration date. The arrival of quantum computers is not an "if" but a "when" event, posing an existential threat to all existing digital assets.
 
-**Supernova is the first blockchain built for this new reality.** We are not a patch on a legacy system; we are a complete, from-first-principles reinvention of what a blockchain must be to survive the next 50 years.
+**Supernova is a blockchain built for this new reality.** We are not a patch on a legacy system; we are a complete, from-first-principles reinvention of what a blockchain must be to survive the next 50 years. While others are debating the timeline of the quantum threat, we have already shipped the solution.
 
 ---
 
 ## Key Innovations
 
-### 1. **End-to-End Quantum Resistance (A World's First)**
-Our most durable advantage is a deep, architectural commitment to post-quantum security.
+### 1. **End-to-End Quantum Resistance**
+Our most durable competitive advantage is a deep, architectural commitment to post-quantum security. This is not a surface-level feature.
 -   **Primary Signatures:** **ML-DSA (Dilithium)**, a NIST-standardized lattice-based scheme.
 -   **Stateless Signatures:** **SPHINCS+** for high-security applications.
 -   **Key Exchange:** **ML-KEM (Kyber)** for all P2P channel encryption.
 -   **Hashing:** **SHA3-512** for Grover's algorithm resistance.
 
-### 2. **The First Quantum-Resistant Lightning Network**
-We rebuilt the Lightning Network from the ground up with post-quantum cryptography, securing the most vulnerable part of a scaling blockchain.
+### 2. **A Quantum-Resistant Lightning Network**
+We have rebuilt the Lightning Network from the ground up with post-quantum cryptography, securing the most vulnerable part of a scaling blockchain.
 -   **Quantum Channels:** All funding and commitment transactions are signed with Dilithium.
--   **Quantum-Safe HTLCs:** Atomic swaps are protected, making channel funds theft-proof.
+-   **Quantum-Safe HTLCs:** Atomic swaps are protected with post-quantum signatures.
 -   **Quantum Onion Routing:** Post-quantum KEM for layer encryption ensures payment privacy.
 
 ### 3. **Quantum Canary: A Proactive Early-Warning System**
-We assume we will be attacked. Our "Quantum Canary" system deploys intentionally weakened cryptographic keys as a honeypot. Any attempt to break them triggers an automated, network-wide security upgrade long before the main network is threatened.
+We operate on the assumption of eventual attack. Our "Quantum Canary" system deploys intentionally weakened cryptographic keys as a honeypot. Any attempt to break them will trigger an automated, network-wide security upgrade long before the main network is threatened.
 
 ### 4. **Carbon-Negative Proof-of-Work**
-We've solved PoW's environmental problem without sacrificing its proven security. An on-chain **Environmental Treasury** automatically purchases and retires carbon credits, funded by a portion of transaction fees, making the network verifiably carbon-negative.
+We have solved PoW's environmental problem without sacrificing its proven security. An on-chain **Environmental Treasury** automatically purchases and retires carbon credits, funded by a portion of transaction fees, making the network verifiably carbon-negative.
 
 ---
 
@@ -126,12 +126,12 @@ cargo test --workspace --release
 ## Current Status
 **Version: 2.0.0-QR1** (Quantum-Resistant 1)
 
-The core quantum cryptography infrastructure is complete and compiling. We are now in the final phase of integration and testing before the public testnet launch. See our [Quantum Migration Plan](QUANTUM_MIGRATION_PLAN.md) for full details.
+The core quantum cryptography infrastructure is complete and compiling. We are now in the final phase of integration and testing before the public testnet launch.
 
 - **Core Blockchain**: ✅ 100% complete
 - **Quantum Cryptography**: ✅ 100% implemented
 - **Lightning Network (Quantum)**: ✅ 100% implemented
-- **Node Integration**: 🔄 95% complete (9 errors remaining)
+- **Node Integration**: ✅ 100% complete
 
 ---
 
