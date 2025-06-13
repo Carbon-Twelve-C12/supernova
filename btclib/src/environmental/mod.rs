@@ -1,4 +1,4 @@
-// Environmental subsystem for SuperNova blockchain
+// Environmental subsystem for supernova blockchain
 // Provides features for environmental monitoring, carbon offsetting, and ESG compliance
 
 // Re-export all modules

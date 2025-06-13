@@ -1,6 +1,6 @@
 # Transaction Validation Guide
 
-The SuperNova blockchain includes a comprehensive validation system for both standard and advanced transactions. This guide explains how to use the validation service for transaction validation and security auditing.
+The supernova blockchain includes a comprehensive validation system for both standard and advanced transactions. This guide explains how to use the validation service for transaction validation and security auditing.
 
 ## Overview
 

@@ -84,14 +84,14 @@ pub enum ApiError {
 /// API result type
 pub type ApiResult<T> = Result<T, ApiError>;
 
-/// Main API for interacting with the SuperNova blockchain
-pub struct SuperNovaApi {
+/// Main API for interacting with the supernova blockchain
+pub struct supernovaApi {
     /// Configuration
     config: Config,
 }
 
-impl SuperNovaApi {
-    /// Create a new SuperNova API
+impl supernovaApi {
+    /// Create a new supernova API
     pub fn new(config: Config) -> Self {
         Self {
             config,

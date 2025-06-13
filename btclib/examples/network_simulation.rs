@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(tracing::Level::INFO)
         .init();
     
-    println!("SuperNova Network Simulation Example");
+    println!("supernova Network Simulation Example");
     println!("===================================");
     
     // Run basic connectivity test

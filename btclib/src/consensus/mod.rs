@@ -1,4 +1,4 @@
-/// Consensus subsystem for SuperNova blockchain
+/// Consensus subsystem for supernova blockchain
 /// 
 /// Provides algorithms and rules governing the blockchain consensus,
 /// including difficulty adjustment, block validation, and fork resolution.

@@ -1,4 +1,4 @@
-// Storage module for SuperNova node
+// Storage module for supernova node
 // 
 // This module handles persistence of blockchain data and related functionality
 

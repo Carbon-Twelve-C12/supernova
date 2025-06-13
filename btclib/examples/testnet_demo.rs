@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use std::thread;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("SuperNova Testnet Demo");
+    println!("supernova Testnet Demo");
     println!("=====================\n");
     
     // Create a high-speed testnet configuration

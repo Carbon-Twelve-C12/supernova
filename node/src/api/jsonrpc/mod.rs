@@ -1,6 +1,6 @@
 //! JSON-RPC server implementation
 //! 
-//! This module implements the JSON-RPC 2.0 API for SuperNova blockchain.
+//! This module implements the JSON-RPC 2.0 API for supernova blockchain.
 
 mod handlers;
 mod types;
@@ -103,7 +103,7 @@ pub async fn get_docs() -> impl Responder {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SuperNova JSON-RPC API Documentation</title>
+    <title>supernova JSON-RPC API Documentation</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.2.0/github-markdown-light.css">
     <style>
         .markdown-body {{

@@ -1,6 +1,6 @@
 //! API rate limiting middleware
 //!
-//! This module provides rate limiting functionality for the SuperNova API.
+//! This module provides rate limiting functionality for the supernova API.
 
 use std::collections::HashMap;
 use std::future::{ready, Ready};

@@ -1,4 +1,4 @@
-// SuperNova Emissions Visualizer
+// supernova Emissions Visualizer
 // A command line tool that visualizes emissions data using ASCII/Unicode art charts
 // This demonstrates the use of the environmental module's emissions tracking capabilities
 
@@ -385,7 +385,7 @@ fn print_miner_summary(miners: &[MinerSimulation]) {
 }
 
 fn main() {
-    println!("SuperNova Emissions Visualizer");
+    println!("supernova Emissions Visualizer");
     println!("==============================");
     
     // Configure simulation parameters

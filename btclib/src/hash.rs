@@ -7,7 +7,7 @@ use crate::crypto::hash::{
     Sha256Hash, 
     DoubleSha256Hash, 
     Blake3Hash, 
-    SuperNovaHash
+    supernovaHash
 };
 use sha2::{Sha256, Digest};
 use std::fmt;
@@ -33,9 +33,9 @@ pub fn hash_quantum_resistant(data: &[u8]) -> Vec<u8> {
     hasher.hash(data)
 }
 
-/// SuperNova's enhanced hash (combination of algorithms)
+/// supernova's enhanced hash (combination of algorithms)
 pub fn hash_supernova(data: &[u8]) -> Vec<u8> {
-    let hasher = SuperNovaHash::new();
+    let hasher = supernovaHash::new();
     hasher.hash(data)
 }
 

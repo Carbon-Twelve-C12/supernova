@@ -1,12 +1,12 @@
-# UTXO Set Optimization in SuperNova
+# UTXO Set Optimization in supernova
 
-This document describes the optimizations implemented in SuperNova's UTXO (Unspent Transaction Output) set, which is critical for transaction validation and overall blockchain performance.
+This document describes the optimizations implemented in supernova's UTXO (Unspent Transaction Output) set, which is critical for transaction validation and overall blockchain performance.
 
 ## Overview
 
 The UTXO set is one of the most accessed components of a blockchain node, as every transaction requires multiple UTXO lookups to validate inputs. As the blockchain grows, the UTXO set can become quite large (tens of GB), making efficient storage and retrieval crucial for node performance.
 
-SuperNova implements several optimizations to make UTXO operations fast and resource-efficient:
+supernova implements several optimizations to make UTXO operations fast and resource-efficient:
 
 1. **Memory-Mapped Storage**: Efficient disk-to-memory mapping for large UTXO sets
 2. **Tiered Caching**: Fast in-memory cache for hot UTXOs with smart eviction policies
@@ -65,7 +65,7 @@ commitment: Arc<RwLock<UtxoCommitment>>
 
 ### 1. Tiered Storage Strategy
 
-SuperNova employs a tiered storage approach:
+supernova employs a tiered storage approach:
 
 - **L1 Cache**: Recently used UTXOs in memory
 - **L2 Storage**: Memory-mapped UTXO database file
@@ -125,7 +125,7 @@ The commitment is calculated using a Merkle tree of all UTXOs, which allows for:
 
 ## Memory Usage Considerations
 
-SuperNova's UTXO optimization balances memory usage and performance:
+supernova's UTXO optimization balances memory usage and performance:
 
 - Configurable cache size to adapt to available system memory
 - Automatic pruning of the cache when memory pressure increases
@@ -197,7 +197,7 @@ println!("Cache hits: {}, misses: {}", stats.hits, stats.misses);
 
 ## Performance Benchmarks
 
-Under typical workloads with a properly sized cache, SuperNova's optimized UTXO set achieves:
+Under typical workloads with a properly sized cache, supernova's optimized UTXO set achieves:
 
 - Lookup times under 10μs for cached UTXOs
 - Throughput of 100,000+ UTXO operations per second

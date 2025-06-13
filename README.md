@@ -1,48 +1,46 @@
 # Supernova: A Quantum-Resistant, Carbon-Negative Blockchain
 
 <div align="center">
-
   <p>
-    <h2><strong>Supernova is a blockchain engineered from first principles to be quantum-resistant, environmentally sustainable, and scalable for a global financial system.</strong></h2>
+    <h2><strong>Supernova is a PoW blockchain engineered from first principles to be quantum-resistant, environmentally sustainable, and scalable for a global financial system.</strong></h2>
   </p>
-
   <p align="center">
     <a href="https://supernovanetwork.xyz/"><img src="https://img.shields.io/badge/website-supernovanetwork.xyz-blue" alt="Official Website" /></a>
     <a href="https://github.com/Carbon-Twelve-C12/supernova/graphs/contributors"><img src="https://img.shields.io/github/contributors/Carbon-Twelve-C12/supernova" alt="Contributors" /></a>
     <a href="https://github.com/Carbon-Twelve-C12/supernova/stargazers"><img src="https://img.shields.io/github/stars/Carbon-Twelve-C12/supernova" alt="Stars" /></a>
-    <a href="https://github.com/Carbon-Twelve-C12/supernova/releases"><img src="https://img.shields.io/badge/version-2.0.0--QR1-green" alt="Version" /></a>
-     <a href="https://deepwiki.com/Carbon-Twelve-C12/supernova"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+    <a href="https://github.com/Carbon-Twelve-C12/supernova/releases"><img src="https://img.shields.io/badge/version-2.0.0-green" alt="Version" /></a>
+     <a href="https://deepwiki.com/Carbon-Twelve-C12/supernova"><img src="https://img.shields.io/badge/Ask%20DeepWiki-222222?logo=deepwiki" alt="Ask DeepWiki"></a>
   </p>
 </div>
 
-## The Inevitable Future of a Quantum-Secure Economy
+## Overview
 
-The entire $2.5 trillion cryptocurrency market is built on a cryptographic assumption with a known expiration date. The arrival of quantum computers is not an "if" but a "when" event, posing an existential threat to all existing digital assets.
+Supernova is a production-grade Proof-of-Work blockchain written in Rust. It is designed to address two of the most significant challenges facing the blockchain industry: the existential threat of quantum computing and the environmental impact of PoW consensus.
 
-**Supernova is a blockchain built for this new reality.** We are not a patch on a legacy system; we are a complete, from-first-principles reinvention of what a blockchain must be to survive the next 50 years. While others are debating the timeline of the quantum threat, we have already shipped the solution.
+Our primary goal is to provide a secure, scalable, and sustainable platform for the next generation of decentralized applications. We achieve this through a series of core technical innovations.
 
 ---
 
 ## Key Innovations
 
 ### 1. **End-to-End Quantum Resistance**
-Our most durable competitive advantage is a deep, architectural commitment to post-quantum security. This is not a surface-level feature.
--   **Primary Signatures:** **ML-DSA (Dilithium)**, a NIST-standardized lattice-based scheme.
--   **Stateless Signatures:** **SPHINCS+** for high-security applications.
--   **Key Exchange:** **ML-KEM (Kyber)** for all P2P channel encryption.
--   **Hashing:** **SHA3-512** for Grover's algorithm resistance.
+Supernova is engineered with a deep, architectural commitment to post-quantum security. We have replaced classical cryptographic primitives (ECDSA, secp256k1) with NIST-standardized post-quantum schemes across the entire protocol stack.
+-   **Primary Signatures:** **ML-DSA (Dilithium)** for general on-chain transactions.
+-   **Stateless Signatures:** **SPHINCS+** for high-security applications like wallet recovery.
+-   **Key Exchange:** **ML-KEM (Kyber)** for securing the P2P communication layer.
+-   **Hashing:** **SHA3-512** for resistance against Grover's algorithm.
 
 ### 2. **A Quantum-Resistant Lightning Network**
-We have rebuilt the Lightning Network from the ground up with post-quantum cryptography, securing the most vulnerable part of a scaling blockchain.
--   **Quantum Channels:** All funding and commitment transactions are signed with Dilithium.
--   **Quantum-Safe HTLCs:** Atomic swaps are protected with post-quantum signatures.
--   **Quantum Onion Routing:** Post-quantum KEM for layer encryption ensures payment privacy.
+We have implemented a Lightning Network that is quantum-secure by design, addressing a critical vulnerability in second-layer scaling solutions.
+-   **Quantum Channels:** All channel operations (funding, commitment, and closing transactions) are secured with Dilithium signatures.
+-   **Quantum-Safe HTLCs:** Hash Time-Locked Contracts use SHA3-512 hashes, ensuring that payments are secure even from quantum adversaries.
+-   **Quantum Onion Routing:** Payment privacy is protected using a post-quantum Key Encapsulation Mechanism (KEM) for layer encryption.
 
-### 3. **Quantum Canary: A Proactive Early-Warning System**
-We operate on the assumption of eventual attack. Our "Quantum Canary" system deploys intentionally weakened cryptographic keys as a honeypot. Any attempt to break them will trigger an automated, network-wide security upgrade long before the main network is threatened.
-
-### 4. **Carbon-Negative Proof-of-Work**
-We have solved PoW's environmental problem without sacrificing its proven security. An on-chain **Environmental Treasury** automatically purchases and retires carbon credits, funded by a portion of transaction fees, making the network verifiably carbon-negative.
+### 3. **Carbon-Negative Proof-of-Work**
+Supernova's PoW consensus mechanism is designed to be environmentally sustainable.
+-   **Real-Time Emissions Tracking:** An on-chain system tracks the carbon footprint of mining operations in real-time.
+-   **Green Mining Incentives:** Miners who use verified renewable energy sources receive a block reward bonus, creating an economic incentive for sustainable practices.
+-   **Environmental Treasury:** A portion of transaction fees is automatically allocated to a decentralized treasury that funds carbon offset projects.
 
 ---
 
@@ -124,7 +122,7 @@ cargo test --workspace --release
 ---
 
 ## Current Status
-**Version: 2.0.0-QR1** (Quantum-Resistant 1)
+**Version: 2.0.0** (Quantum-Resistant Release)
 
 The core quantum cryptography infrastructure is complete and compiling. We are now in the final phase of integration and testing before the public testnet launch.
 
@@ -147,4 +145,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-Supernova is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Supernova is licensed under the MIT License. See [LICENSE](LICENSE) for details. 

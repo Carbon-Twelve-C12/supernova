@@ -1,5 +1,5 @@
-// SuperNova Testnet Runner
-// This binary provides a minimal environment for running the SuperNova testnet
+// supernova Testnet Runner
+// This binary provides a minimal environment for running the supernova testnet
 
 use std::env;
 use std::process::Command;
@@ -7,7 +7,7 @@ use std::path::Path;
 
 // Main function that launches the testnet environment
 fn main() {
-    println!("SuperNova Testnet Runner");
+    println!("supernova Testnet Runner");
     println!("-------------------------");
     
     // Parse command line arguments
@@ -54,7 +54,7 @@ fn check_docker() -> bool {
 
 // Launch testnet environment
 fn launch_testnet() {
-    println!("Launching SuperNova testnet...");
+    println!("Launching supernova testnet...");
     
     // Check if Docker Compose file exists
     if !Path::new("docker-compose.yml").exists() {

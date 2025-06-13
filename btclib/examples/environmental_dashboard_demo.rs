@@ -146,7 +146,7 @@ fn populate_mock_data(api: &mut MockEnvironmentalApi) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("SuperNova Environmental Dashboard Demo");
+    println!("supernova Environmental Dashboard Demo");
     println!("======================================\n");
     
     // Initialize our mock API

@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Using default configuration");
             NodeConfig::default()
         });
-
+    
     // Check if this is a testnet deployment
     let is_testnet = config.node.network_name.to_lowercase().contains("test") || 
                      config.testnet.enabled;
@@ -95,4 +95,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Node stopped successfully");
 
     Ok(())
-} 
+}

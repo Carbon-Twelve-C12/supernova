@@ -1,17 +1,17 @@
-# SuperNova Blockchain API Reference
+# supernova Blockchain API Reference
 
-This document details the APIs available in the SuperNova blockchain implementation. SuperNova provides both RESTful APIs and JSON-RPC APIs for interacting with the blockchain, including querying data, sending transactions, and managing the node.
+This document details the APIs available in the supernova blockchain implementation. supernova provides both RESTful APIs and JSON-RPC APIs for interacting with the blockchain, including querying data, sending transactions, and managing the node.
 
 ## API Types Overview
 
-SuperNova provides two different types of APIs:
+supernova provides two different types of APIs:
 
 1. **RESTful API** - Modern, resource-oriented API using standard HTTP methods and JSON responses
 2. **JSON-RPC API** - Bitcoin-compatible API following the JSON-RPC 2.0 specification
 
 ## RESTful API
 
-The RESTful API provides a comprehensive interface for interacting with the SuperNova blockchain using standard HTTP methods and JSON responses. This API is designed to be easy to use and follows RESTful principles.
+The RESTful API provides a comprehensive interface for interacting with the supernova blockchain using standard HTTP methods and JSON responses. This API is designed to be easy to use and follows RESTful principles.
 
 ### API Documentation
 
@@ -36,7 +36,7 @@ Authorization: Bearer YOUR_API_KEY
 
 ## JSON-RPC API
 
-SuperNova provides a JSON-RPC 2.0 compatible API that can be accessed via HTTP or WebSocket connections. All API requests should be sent to the configured RPC endpoint.
+supernova provides a JSON-RPC 2.0 compatible API that can be accessed via HTTP or WebSocket connections. All API requests should be sent to the configured RPC endpoint.
 
 **Default Endpoints:**
 - HTTP: `http://localhost:8332`
@@ -400,7 +400,7 @@ Returns data about each connected network node.
     "pingtime": 0.01,
     "minping": 0.01,
     "version": 70015,
-    "subver": "/SuperNova:1.0.0/",
+    "subver": "/supernova:1.0.0/",
     "inbound": false,
     "startingheight": 1234,
     "banscore": 0,

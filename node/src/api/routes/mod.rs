@@ -1,6 +1,6 @@
 //! API routes
 //!
-//! This module defines the API routes for the SuperNova blockchain node.
+//! This module defines the API routes for the supernova blockchain node.
 
 pub mod blockchain;
 pub mod mempool;

@@ -112,7 +112,7 @@ impl Hash for DoubleSha256Hash {
     }
 }
 
-/// Available hash algorithms in SuperNovaHash
+/// Available hash algorithms in supernovaHash
 #[derive(Debug, Clone)]
 pub enum HashAlgorithm {
     Sha256(Sha256Hash),
@@ -150,18 +150,18 @@ impl Hash for HashAlgorithm {
     }
 }
 
-/// SuperNovaHash - A composite hash that combines multiple algorithms 
+/// supernovaHash - A composite hash that combines multiple algorithms 
 /// for increased quantum resistance
 #[derive(Debug, Clone)]
-pub struct SuperNovaHash {
+pub struct supernovaHash {
     /// The primary hash algorithm
     pub primary: HashAlgorithm,
     /// The secondary hash algorithm for additional security
     pub secondary: HashAlgorithm,
 }
 
-impl SuperNovaHash {
-    /// Create a new SuperNovaHash with default algorithms (BLAKE3 + SHA-256)
+impl supernovaHash {
+    /// Create a new supernovaHash with default algorithms (BLAKE3 + SHA-256)
     pub fn new() -> Self {
         Self {
             primary: HashAlgorithm::Blake3(Blake3Hash),
@@ -169,7 +169,7 @@ impl SuperNovaHash {
         }
     }
     
-    /// Create a new SuperNovaHash with custom algorithms
+    /// Create a new supernovaHash with custom algorithms
     pub fn with_algorithms(primary: HashAlgorithm, secondary: HashAlgorithm) -> Self {
         Self {
             primary,
@@ -178,13 +178,13 @@ impl SuperNovaHash {
     }
 }
 
-impl Default for SuperNovaHash {
+impl Default for supernovaHash {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Hash for SuperNovaHash {
+impl Hash for supernovaHash {
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         // Hash with primary algorithm
         let primary_hash = self.primary.hash(data);
@@ -205,7 +205,7 @@ impl Hash for SuperNovaHash {
     }
     
     fn algorithm_name(&self) -> &'static str {
-        "SuperNovaHash"
+        "supernovaHash"
     }
     
     fn output_size(&self) -> usize {
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn test_sha256() {
         let hasher = Sha256Hash;
-        let data = b"Hello, SuperNova!";
+        let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
         
         // Known SHA-256 hash for the input
@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn test_blake3() {
         let hasher = Blake3Hash;
-        let data = b"Hello, SuperNova!";
+        let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
         
         assert_eq!(hash.len(), 32);
@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn test_double_sha256() {
         let hasher = DoubleSha256Hash;
-        let data = b"Hello, SuperNova!";
+        let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
         
         assert_eq!(hash.len(), 32);
@@ -355,8 +355,8 @@ mod tests {
     
     #[test]
     fn test_supernova_hash() {
-        let hasher = SuperNovaHash::new();
-        let data = b"Hello, SuperNova!";
+        let hasher = supernovaHash::new();
+        let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
         
         assert_eq!(hash.len(), 32);
@@ -366,10 +366,10 @@ mod tests {
     fn test_hash_multiple() {
         let hasher = Sha256Hash;
         let data1 = b"Hello";
-        let data2 = b", SuperNova!";
+        let data2 = b", supernova!";
         
         let hash1 = hasher.hash_multiple(&[data1, data2]);
-        let hash2 = hasher.hash(b"Hello, SuperNova!");
+        let hash2 = hasher.hash(b"Hello, supernova!");
         
         assert_eq!(hash1, hash2);
     }

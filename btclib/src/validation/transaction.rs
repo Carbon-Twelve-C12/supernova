@@ -1,4 +1,4 @@
-// Transaction validation module for SuperNova blockchain
+// Transaction validation module for supernova blockchain
 
 use serde::{Serialize, Deserialize};
 use crate::types::transaction::{Transaction, TransactionOutput, SignatureSchemeType};

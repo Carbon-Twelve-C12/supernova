@@ -1,4 +1,4 @@
-/// Utility functions and data structures for SuperNova blockchain
+/// Utility functions and data structures for supernova blockchain
 /// 
 /// Provides various utility tools used throughout the codebase,
 /// including Merkle trees, serialization helpers, and common algorithms.

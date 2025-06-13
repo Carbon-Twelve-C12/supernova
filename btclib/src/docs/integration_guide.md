@@ -1,6 +1,6 @@
 # Integration Guide: Quantum Signatures and Confidential Transactions
 
-This guide demonstrates how to integrate quantum-resistant cryptography and zero-knowledge proofs into your blockchain applications using the SuperNova library.
+This guide demonstrates how to integrate quantum-resistant cryptography and zero-knowledge proofs into your blockchain applications using the supernova library.
 
 ## Setting Up Your Environment
 
@@ -459,7 +459,7 @@ When attempting to use non-Dilithium schemes, your code must properly handle `Qu
 
 ## Further Resources
 
-- [SuperNova Documentation](https://supernova.docs)  
+- [supernova Documentation](https://supernova.docs)  
 - [Quantum Cryptography Tutorial](https://quantum.tutorial)
 - [Zero-Knowledge Proofs Explained](https://zkp.explained)
 - [Post-Quantum Security Standards](https://pqsecurity.standards) 

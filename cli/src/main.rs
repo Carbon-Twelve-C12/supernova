@@ -1,5 +1,5 @@
-// SuperNova CLI Client
-// This binary provides a command-line interface for interacting with the SuperNova blockchain
+// supernova CLI Client
+// This binary provides a command-line interface for interacting with the supernova blockchain
 
 mod config;
 mod rpc;

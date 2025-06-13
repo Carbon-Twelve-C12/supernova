@@ -1,4 +1,4 @@
-# SuperNova Seed Node 2 Configuration
+# supernova Seed Node 2 Configuration
 [network]
 network_name = "supernova-testnet"
 p2p_port = 9333

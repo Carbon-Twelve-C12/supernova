@@ -1,6 +1,6 @@
 //! API middleware components
 //!
-//! This module contains middleware components used by the SuperNova API,
+//! This module contains middleware components used by the supernova API,
 //! including authentication, rate limiting, and request logging.
 
 pub mod auth;

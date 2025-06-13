@@ -1,8 +1,8 @@
-# SuperNova Network Simulation Guide
+# supernova Network Simulation Guide
 
 ## Overview
 
-The SuperNova blockchain includes a powerful network simulation framework designed to test blockchain behavior under various network conditions. This framework allows developers to:
+The supernova blockchain includes a powerful network simulation framework designed to test blockchain behavior under various network conditions. This framework allows developers to:
 
 - Test blockchain performance in realistic network environments
 - Simulate adverse conditions like high latency, packet loss, and bandwidth constraints

@@ -1,4 +1,4 @@
-# SuperNova Node Configuration Example
+# supernova Node Configuration Example
 # Copy this file to node.toml to use as your configuration
 
 [node]

@@ -2,7 +2,7 @@
 name = "supernova-testnet"
 version = "0.1.0"
 edition = "2021"
-description = "SuperNova Blockchain Testnet Runner"
+description = "supernova Blockchain Testnet Runner"
 
 [dependencies]
 clap = "3.2" 

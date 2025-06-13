@@ -73,7 +73,7 @@ This guide provides detailed instructions for setting up a **production-ready** 
 
 ## Quick Start Guide
 
-For those familiar with blockchain node operation who want to get started quickly with **production-ready SuperNova v1.0.0-BETA**:
+For those familiar with blockchain node operation who want to get started quickly with **production-ready supernova v1.0.0-BETA**:
 
 ```bash
 # Clone repository
@@ -83,7 +83,7 @@ cd supernova
 # Build production-ready version
 cargo build --release
 
-# Verify build success (should show v1.0.0-BETA)
+# Verify build success (should show v1.0.0-RC3)
 ./target/release/supernova --version
 
 # Create configuration

@@ -1,4 +1,4 @@
-# SuperNova Cryptographic Features
+# supernova Cryptographic Features
 
 This document provides an overview of the advanced cryptographic features available in the Supernova blockchain (v0.7.5).
 
@@ -34,7 +34,7 @@ The quantum-resistant signature schemes are implemented in the `crypto/quantum.r
 
 ## Classical Cryptography
 
-In addition to post-quantum schemes, SuperNova continues to support classical cryptographic algorithms for compatibility and performance:
+In addition to post-quantum schemes, supernova continues to support classical cryptographic algorithms for compatibility and performance:
 
 - **Secp256k1**: ECDSA signatures compatible with Bitcoin
 - **Ed25519**: Edwards-curve Digital Signature Algorithm 
@@ -46,7 +46,7 @@ In addition to post-quantum schemes, SuperNova continues to support classical cr
 
 ### Multi-Signature Support
 
-SuperNova supports advanced multi-signature capabilities:
+supernova supports advanced multi-signature capabilities:
 
 - **M-of-N Signatures**: Requiring M signatures from N authorized parties
 - **Threshold Signatures**: Cryptographic threshold schemes
@@ -64,7 +64,7 @@ The framework includes support for zero-knowledge proofs:
 
 ### Security Levels
 
-All cryptographic algorithms in SuperNova are configured with appropriate security parameters:
+All cryptographic algorithms in supernova are configured with appropriate security parameters:
 
 - **Standard**: Equivalent to 128-bit classical security
 - **Enhanced**: Equivalent to 192-bit classical security
@@ -151,7 +151,7 @@ While all quantum-resistant algorithms are now fully implemented, future enhance
 
 ## Unified Signature Verification Layer
 
-SuperNova provides a unified cryptographic abstraction layer that allows seamless integration of both classical and post-quantum signature schemes through a common interface.
+supernova provides a unified cryptographic abstraction layer that allows seamless integration of both classical and post-quantum signature schemes through a common interface.
 
 ### Key Features
 
@@ -193,7 +193,7 @@ let batch_result = verifier.verify_batch(
 
 ## Further Resources
 
-- [SuperNova Documentation](https://supernova.docs)  
+- [supernova Documentation](https://supernova.docs)  
 - [Quantum Cryptography Tutorial](https://quantum.tutorial)
 - [Zero-Knowledge Proofs Explained](https://zkp.explained)
 - [Post-Quantum Security Standards](https://pqsecurity.standards) 

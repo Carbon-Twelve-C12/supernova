@@ -1,6 +1,6 @@
 //! API server implementation
 //!
-//! This module implements the HTTP server for the SuperNova API, 
+//! This module implements the HTTP server for the supernova API, 
 //! handling requests, routing, and middleware.
 
 use actix_web::{web, App, HttpServer, middleware, dev::Server};

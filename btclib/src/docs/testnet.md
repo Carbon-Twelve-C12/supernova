@@ -1,10 +1,10 @@
-# SuperNova Test Network
+# supernova Test Network
 
-This document outlines the test network infrastructure provided by the SuperNova blockchain project. The test network features are designed to facilitate development, testing, and experimentation with various network conditions.
+This document outlines the test network infrastructure provided by the supernova blockchain project. The test network features are designed to facilitate development, testing, and experimentation with various network conditions.
 
 ## Overview
 
-The SuperNova Test Network provides:
+The supernova Test Network provides:
 
 1. **Fast Block Times**: Configurable block intervals as low as 5 seconds for rapid iteration
 2. **Simplified Difficulty Adjustment**: Faster and more predictable difficulty changes for testing

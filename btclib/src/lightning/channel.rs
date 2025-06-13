@@ -1,4 +1,4 @@
-// SuperNova Lightning Network - Channel Implementation
+// supernova Lightning Network - Channel Implementation
 //
 // This file contains the implementation of Lightning Network payment channels.
 // It handles channel state management, commitment transactions, and HTLC operations.

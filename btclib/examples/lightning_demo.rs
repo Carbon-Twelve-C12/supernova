@@ -1,7 +1,7 @@
-// SuperNova Lightning Network Demo
+// supernova Lightning Network Demo
 //
 // This example demonstrates the basic functionality of the Lightning Network
-// implementation in SuperNova, including channel creation, payments, and closure.
+// implementation in supernova, including channel creation, payments, and closure.
 
 use btclib::lightning::{
     LightningNetwork,
@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(Level::INFO)
         .init();
     
-    info!("Starting SuperNova Lightning Network Demo");
+    info!("Starting supernova Lightning Network Demo");
     
     // Create a test wallet with 1 BTC balance
     let mut wallet = LightningWallet::new_test_wallet(100_000_000);

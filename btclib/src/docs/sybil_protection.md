@@ -1,6 +1,6 @@
-# Sybil Attack Protection in SuperNova
+# Sybil Attack Protection in supernova
 
-This document outlines the Sybil Attack protection mechanisms implemented in the SuperNova blockchain to defend against adversaries who may attempt to create multiple identities to gain disproportionate influence over the network.
+This document outlines the Sybil Attack protection mechanisms implemented in the supernova blockchain to defend against adversaries who may attempt to create multiple identities to gain disproportionate influence over the network.
 
 ## Overview
 
@@ -11,7 +11,7 @@ Sybil attacks occur when a malicious actor creates multiple identities to gain i
 - Transaction censorship
 - Denial of service conditions
 
-SuperNova implements several defensive mechanisms to mitigate these risks.
+supernova implements several defensive mechanisms to mitigate these risks.
 
 ## Core Protection Mechanisms
 
@@ -47,7 +47,7 @@ These scores influence peer selection for outbound connections and disconnection
 
 ### 4. Forced Peer Rotation
 
-To prevent gradual isolation, SuperNova implements periodic peer rotation:
+To prevent gradual isolation, supernova implements periodic peer rotation:
 
 - Identifies overrepresented network segments
 - Disconnects lowest-scoring peers from these segments

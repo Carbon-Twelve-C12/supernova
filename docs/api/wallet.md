@@ -1,6 +1,6 @@
 # Wallet API Reference
 
-This document describes the Wallet API endpoints provided by the SuperNova blockchain node.
+This document describes the Wallet API endpoints provided by the supernova blockchain node.
 
 ## Endpoints
 

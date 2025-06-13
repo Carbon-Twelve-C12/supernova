@@ -1,8 +1,8 @@
-# Environmental Features in SuperNova
+# Environmental Features in supernova
 
 ## Overview
 
-SuperNova implements a comprehensive framework for measuring, reporting, and mitigating the environmental impact of blockchain operations. Inspired by best practices from industry leaders, the system provides unprecedented transparency and tools for promoting sustainable blockchain operations.
+supernova implements a comprehensive framework for measuring, reporting, and mitigating the environmental impact of blockchain operations. Inspired by best practices from industry leaders, the system provides unprecedented transparency and tools for promoting sustainable blockchain operations.
 
 Key features include:
 
@@ -15,7 +15,7 @@ Key features include:
 
 ## Emissions Tracking Methodology
 
-SuperNova's emissions tracking is built on a hierarchical approach to emissions factors, similar to the methodology used by Industry Leaders:
+supernova's emissions tracking is built on a hierarchical approach to emissions factors, similar to the methodology used by Industry Leaders:
 
 ```rust
 // Create an emissions tracker with configuration
@@ -45,7 +45,7 @@ let daily_emissions = emissions_tracker.calculate_network_emissions(day_ago, now
 
 ### Hierarchical Data Sources
 
-SuperNova uses a tiered approach to emissions data:
+supernova uses a tiered approach to emissions data:
 
 1. **Real-time Grid Data**: Where available, we use real-time emissions data from services like WattTime or Electricity Maps
 2. **Regional Grid Averages**: For areas without real-time data, we use regional grid averages from authorities like the IEA
@@ -61,7 +61,7 @@ The system provides multiple emission calculation methodologies:
 
 ## REC Prioritization Framework
 
-SuperNova prioritizes Renewable Energy Certificates (RECs) over carbon offsets because RECs directly address the source of emissions from electricity consumption:
+supernova prioritizes Renewable Energy Certificates (RECs) over carbon offsets because RECs directly address the source of emissions from electricity consumption:
 
 ```rust
 // Register a miner with REC certificates
@@ -98,7 +98,7 @@ let discount = miner_reporting.calculate_fee_discount_with_rec_priority(miner_id
 3. **Verification Standards**: RECs have well-established verification mechanisms with regulatory oversight
 4. **Alignment with Industry Standards**: Follows best practices for scope 2 emissions accounting
 
-### Implementation in SuperNova
+### Implementation in supernova
 
 The REC prioritization framework is implemented through:
 
@@ -109,7 +109,7 @@ The REC prioritization framework is implemented through:
 
 ## Miner Verification System
 
-SuperNova employs a sophisticated verification system for miner environmental claims:
+supernova employs a sophisticated verification system for miner environmental claims:
 
 ```rust
 // Add location verification

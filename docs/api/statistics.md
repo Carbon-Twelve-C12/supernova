@@ -1,6 +1,6 @@
 # Statistics API Reference
 
-This document describes the Statistics API endpoints provided by the SuperNova blockchain node, which provide detailed analytics and metrics about the blockchain, network, and environmental impact.
+This document describes the Statistics API endpoints provided by the supernova blockchain node, which provide detailed analytics and metrics about the blockchain, network, and environmental impact.
 
 ## Endpoints
 

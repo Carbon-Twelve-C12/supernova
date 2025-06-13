@@ -1,4 +1,4 @@
-// Emissions calculator example using SuperNova's environmental features
+// Emissions calculator example using supernova's environmental features
 // This example demonstrates how to calculate emissions for different miners
 
 use chrono::Utc;
@@ -503,7 +503,7 @@ impl NetworkEmissionsSimulator {
 }
 
 fn main() {
-    println!("SuperNova Emissions Calculator Example");
+    println!("supernova Emissions Calculator Example");
     println!("======================================\n");
     
     // Create the emissions calculator
@@ -662,7 +662,7 @@ fn main() {
     println!("With Offsets: {:.2} tonnes CO2e (Reduction: {:.2}%)", 
              offset_emissions, ((base_emissions - offset_emissions) / base_emissions) * 100.0);
     
-    println!("\nConclusion: SuperNova's emissions tracking system allows miners to accurately");
+    println!("\nConclusion: supernova's emissions tracking system allows miners to accurately");
     println!("quantify their environmental impact and contribute to the environmental treasury");
     println!("based on their net emissions. This creates incentives for miners to adopt renewable");
     println!("energy and carbon reduction strategies to minimize their environmental footprint.");

@@ -1,4 +1,4 @@
-// SuperNova Node - Checkpoint System
+// supernova Node - Checkpoint System
 //
 // This module implements an automatic checkpoint system that regularly saves
 // the state of the node to enable fast recovery in case of failures.

@@ -1,6 +1,6 @@
-# SuperNova Testnet Deployment
+# supernova Testnet Deployment
 
-This directory contains configuration files and scripts for deploying a SuperNova testnet environment. The testnet is designed to provide a sandbox for testing the SuperNova blockchain network before deploying to mainnet.
+This directory contains configuration files and scripts for deploying a supernova testnet environment. The testnet is designed to provide a sandbox for testing the supernova blockchain network before deploying to mainnet.
 
 ## Quick Start (Recommended)
 
@@ -92,13 +92,13 @@ The testnet deployment includes:
 
 If you prefer to set up manually:
 
-1. Clone the SuperNova repository:
+1. Clone the supernova repository:
    ```bash
    git clone https://github.com/Carbon-Twelve-C12/supernova.git
    cd supernova
    ```
 
-2. Build the SuperNova Docker image:
+2. Build the supernova Docker image:
    ```bash
    docker build -t supernova:latest -f docker/Dockerfile .
    ```
@@ -235,7 +235,7 @@ docker-compose up -d
 
 ## Contributing
 
-Contributions to the SuperNova testnet configuration are welcome. Please follow these steps:
+Contributions to the supernova testnet configuration are welcome. Please follow these steps:
 
 1. Fork the repository
 2. Create a feature branch
@@ -244,4 +244,4 @@ Contributions to the SuperNova testnet configuration are welcome. Please follow 
 
 ## License
 
-SuperNova is released under the [MIT License](https://github.com/Carbon-Twelve-C12/supernova/blob/main/LICENSE). 
+supernova is released under the [MIT License](https://github.com/Carbon-Twelve-C12/supernova/blob/main/LICENSE). 

@@ -7,7 +7,7 @@ use btclib::crypto::{
 };
 
 fn main() {
-    println!("SuperNova Cryptographic Benchmarks");
+    println!("supernova Cryptographic Benchmarks");
     println!("==================================\n");
 
     // Generate a test message

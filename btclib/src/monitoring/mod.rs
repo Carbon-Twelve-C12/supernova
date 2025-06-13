@@ -1,4 +1,4 @@
-// Monitoring subsystem for SuperNova blockchain
+// Monitoring subsystem for supernova blockchain
 
 use prometheus::Registry;
 

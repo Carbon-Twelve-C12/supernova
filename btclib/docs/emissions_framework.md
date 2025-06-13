@@ -1,8 +1,8 @@
-# SuperNova Emissions Framework Documentation
+# supernova Emissions Framework Documentation
 
 ## Overview
 
-The SuperNova Emissions Framework provides a comprehensive system for measuring, tracking, and reducing the environmental impact of mining operations. This framework prioritizes the following environmental strategies in order of preference:
+The supernova Emissions Framework provides a comprehensive system for measuring, tracking, and reducing the environmental impact of mining operations. This framework prioritizes the following environmental strategies in order of preference:
 
 1. **Direct Renewable Energy Usage** - The most preferred strategy is for miners to directly use renewable energy sources.
 2. **Renewable Energy Certificates (RECs)** - When direct renewable energy usage is not possible, RECs are strongly prioritized.
@@ -10,7 +10,7 @@ The SuperNova Emissions Framework provides a comprehensive system for measuring,
 
 ## REC Prioritization
 
-Renewable Energy Certificates (RECs) are given higher priority over carbon offsets in the SuperNova emissions framework for several key reasons:
+Renewable Energy Certificates (RECs) are given higher priority over carbon offsets in the supernova emissions framework for several key reasons:
 
 1. **Direct Impact on Electricity Generation**: RECs directly support the production of renewable electricity, which is the primary source of emissions from mining operations.
 
@@ -36,7 +36,7 @@ The framework implements REC prioritization through:
 
 ## Miner Classification
 
-Miners in the SuperNova network are classified based on their environmental commitment:
+Miners in the supernova network are classified based on their environmental commitment:
 
 1. **Green Miners**: Directly using verifiable renewable energy (80%+ renewable)
 2. **REC-Backed Miners**: Using Renewable Energy Certificates to offset grid electricity
@@ -107,7 +107,7 @@ This scoring system is used to calculate weighted environmental impact scores fo
 
 ## Future Enhancements
 
-The SuperNova team is continuously working to enhance the emissions framework with:
+The supernova team is continuously working to enhance the emissions framework with:
 
 1. **Advanced REC Verification**: Implementing more sophisticated verification mechanisms for REC claims
 2. **Regional REC Markets**: Supporting region-specific REC markets and pricing

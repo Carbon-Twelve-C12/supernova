@@ -1,6 +1,6 @@
 //! API data types for requests and responses
 //!
-//! This module defines the data structures used in the SuperNova API for
+//! This module defines the data structures used in the supernova API for
 //! serializing and deserializing requests and responses.
 
 use serde::{Deserialize, Serialize};

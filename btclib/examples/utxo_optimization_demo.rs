@@ -9,7 +9,7 @@ const CACHE_SIZE: usize = 5_000;
 const BLOCK_HEIGHT: u32 = 600_000;
 
 fn main() {
-    println!("SuperNova UTXO Set Optimization Demo");
+    println!("supernova UTXO Set Optimization Demo");
     println!("====================================\n");
     
     // Create an in-memory UTXO set

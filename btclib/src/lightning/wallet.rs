@@ -1,4 +1,4 @@
-// SuperNova Lightning Network - Wallet Implementation
+// supernova Lightning Network - Wallet Implementation
 //
 // This file contains the wallet implementation for the Lightning Network,
 // including key management, invoice handling, and payment processing.

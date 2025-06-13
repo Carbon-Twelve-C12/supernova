@@ -1,4 +1,4 @@
-//! Journal and write-ahead log implementation for SuperNova blockchain
+//! Journal and write-ahead log implementation for supernova blockchain
 //! 
 //! This module provides journaling functionality for recording all write operations before they hit the
 //! main database, ensuring durability and recoverability.

@@ -274,7 +274,7 @@ impl Default for TestNetConfig {
                         amount: 420_000_000_000, // 4.2 million NOVA for test faucet
                     },
                 ],
-                message: "SuperNova Test Network Genesis Block".to_string(),
+                message: "supernova Test Network Genesis Block".to_string(),
                 test_accounts: vec![
                     TestAccount {
                         name: "Alice".to_string(),

@@ -178,15 +178,15 @@ use super::types;
         (name = "node", description = "Node API - Node status, configuration, and operations"),
     ),
     info(
-        title = "SuperNova Blockchain API",
+        title = "supernova Blockchain API",
         version = "1.0.0",
-        description = "RESTful API for SuperNova blockchain node with support for environmental impact tracking and the Lightning Network",
+        description = "RESTful API for supernova blockchain node with support for environmental impact tracking and the Lightning Network",
         license(
             name = "MIT",
             url = "https://opensource.org/licenses/MIT"
         ),
         contact(
-            name = "SuperNova Developer Team",
+            name = "supernova Developer Team",
             url = "https://supernovanetwork.xyz",
             email = "dev@supernovanetwork.xyz"
         )
@@ -221,7 +221,7 @@ pub mod jsonrpc {
             let doc = r#"
 # JSON-RPC API Reference
 
-SuperNova provides a JSON-RPC 2.0 compatible API that follows the Bitcoin Core JSON-RPC specification.
+supernova provides a JSON-RPC 2.0 compatible API that follows the Bitcoin Core JSON-RPC specification.
 
 ## Endpoint
 

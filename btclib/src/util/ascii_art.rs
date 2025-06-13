@@ -34,7 +34,7 @@ pub fn clear_screen() -> io::Result<()> {
     Ok(())
 }
 
-/// Display the SuperNova logo without animation
+/// Display the supernova logo without animation
 pub fn display_logo() -> io::Result<()> {
     let mut stdout = io::stdout();
     
@@ -64,7 +64,7 @@ pub fn display_logo() -> io::Result<()> {
     Ok(())
 }
 
-/// Display SuperNova logo with a slide-in animation from left to right
+/// Display supernova logo with a slide-in animation from left to right
 pub fn animate_logo_slide_in() -> io::Result<()> {
     let mut stdout = io::stdout();
     clear_screen()?;
@@ -96,7 +96,7 @@ pub fn animate_logo_slide_in() -> io::Result<()> {
     Ok(())
 }
 
-/// Display SuperNova logo with a dissolve animation from bottom to top
+/// Display supernova logo with a dissolve animation from bottom to top
 pub fn animate_logo_dissolve_out() -> io::Result<()> {
     let mut stdout = io::stdout();
     
@@ -144,7 +144,7 @@ pub fn testnet_startup_animation() -> io::Result<()> {
     // Display testnet info below the logo
     let logo_height = SUPERNOVA_LARGE.lines().count();
     let progress_steps = vec![
-        "Initializing SuperNova Testnet...",
+        "Initializing supernova Testnet...",
         "Loading network configuration...",
         "Starting blockchain services...", 
         "Initializing P2P connections...",
@@ -156,7 +156,7 @@ pub fn testnet_startup_animation() -> io::Result<()> {
     
     stdout.execute(MoveTo(0, (logo_height + 2) as u16))?;
     stdout.execute(SetForegroundColor(Color::Green))?;
-    println!("SuperNova Testnet Launch Sequence");
+    println!("supernova Testnet Launch Sequence");
     stdout.execute(ResetColor)?;
     
     for (i, step) in progress_steps.iter().enumerate() {
@@ -234,7 +234,7 @@ pub fn display_startup_sequence() -> io::Result<()> {
     
     execute!(stdout, MoveTo(0, (logo_height + 2) as u16))?;
     execute!(stdout, SetForegroundColor(Color::Green))?;
-    println!("Starting SuperNova Blockchain...");
+    println!("Starting supernova Blockchain...");
     execute!(stdout, ResetColor)?;
     
     for i in 0..5 {

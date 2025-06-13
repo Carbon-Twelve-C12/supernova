@@ -1,10 +1,10 @@
 # Security Mitigation Systems
 
-This document details the security mitigation systems implemented in SuperNova, with a specific focus on protections against common attack vectors in blockchain networks.
+This document details the security mitigation systems implemented in supernova, with a specific focus on protections against common attack vectors in blockchain networks.
 
 ## Sybil Attack Protection
 
-A Sybil attack occurs when a single attacker creates multiple identities (nodes) to gain a disproportionate influence over the network. SuperNova implements several layers of protection against Sybil attacks:
+A Sybil attack occurs when a single attacker creates multiple identities (nodes) to gain a disproportionate influence over the network. supernova implements several layers of protection against Sybil attacks:
 
 ### Identity Verification Challenges
 
@@ -79,7 +79,7 @@ Diversity limits:
 
 ## Eclipse Attack Prevention
 
-An eclipse attack occurs when an attacker isolates a node from the rest of the honest network, surrounding it with attacker-controlled nodes. SuperNova implements the following protections:
+An eclipse attack occurs when an attacker isolates a node from the rest of the honest network, surrounding it with attacker-controlled nodes. supernova implements the following protections:
 
 ### Forced Peer Rotation
 
@@ -188,4 +188,4 @@ Planned security enhancements include:
 
 ## Conclusion
 
-SuperNova's multi-layered approach to security provides robust protection against Sybil and Eclipse attacks, while maintaining network performance and connectivity. The combination of identity verification challenges, peer reputation tracking, connection rate limiting, and diversity enforcement creates a secure network environment resistant to common attack vectors. 
+supernova's multi-layered approach to security provides robust protection against Sybil and Eclipse attacks, while maintaining network performance and connectivity. The combination of identity verification challenges, peer reputation tracking, connection rate limiting, and diversity enforcement creates a secure network environment resistant to common attack vectors. 

@@ -1,6 +1,6 @@
 # Miner Environmental Reporting Framework
 
-This document describes the miner-level environmental reporting framework in SuperNova, which enables miners to report, verify, and improve their environmental impact.
+This document describes the miner-level environmental reporting framework in supernova, which enables miners to report, verify, and improve their environmental impact.
 
 ## Overview
 
@@ -229,7 +229,7 @@ println!("Green miners: {}", report.green_miners);
 
 ## Integration with Fee Structure
 
-The miner reporting framework integrates with SuperNova's fee structure to provide incentives:
+The miner reporting framework integrates with supernova's fee structure to provide incentives:
 
 1. **Green Miner Discounts**: Verified miners with high renewable percentages receive transaction fee discounts
 2. **REC Prioritization**: Miners with RECs receive higher discounts than those with only carbon offsets

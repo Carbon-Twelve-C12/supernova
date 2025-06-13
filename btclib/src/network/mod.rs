@@ -1,4 +1,4 @@
-/// Network module for SuperNova
+/// Network module for supernova
 ///
 /// This module provides networking capabilities for node-to-node communication.
 

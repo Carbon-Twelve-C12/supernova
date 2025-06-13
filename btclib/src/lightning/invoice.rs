@@ -1,4 +1,4 @@
-// SuperNova Lightning Network - Invoice Implementation
+// supernova Lightning Network - Invoice Implementation
 //
 // This file contains the implementation of Lightning Network payment invoices,
 // including invoice generation, parsing, and verification.

@@ -1,6 +1,6 @@
-# SuperNova Blockchain Consensus Rules
+# supernova Blockchain Consensus Rules
 
-This document outlines the formal specification of the SuperNova blockchain consensus rules. These rules define the properties that must be satisfied for blocks and transactions to be considered valid according to the consensus protocol.
+This document outlines the formal specification of the supernova blockchain consensus rules. These rules define the properties that must be satisfied for blocks and transactions to be considered valid according to the consensus protocol.
 
 ## Table of Contents
 
@@ -62,7 +62,7 @@ This document outlines the formal specification of the SuperNova blockchain cons
 
 ### Transaction Structure
 
-1. **Format**: Transactions must adhere to the SuperNova transaction format.
+1. **Format**: Transactions must adhere to the supernova transaction format.
 
 2. **Size**: A transaction must not exceed `MAX_TRANSACTION_SIZE` (currently 1MB).
 
@@ -118,7 +118,7 @@ This document outlines the formal specification of the SuperNova blockchain cons
 
 ## Formal Properties
 
-The SuperNova consensus must satisfy the following formal properties:
+The supernova consensus must satisfy the following formal properties:
 
 ### Safety Properties
 
@@ -148,7 +148,7 @@ The SuperNova consensus must satisfy the following formal properties:
 
 ## Verification Framework
 
-The SuperNova project includes a formal verification framework that allows for automated checking of these consensus rules. The framework supports:
+The supernova project includes a formal verification framework that allows for automated checking of these consensus rules. The framework supports:
 
 1. **Invariant Checking**: Verifies that invariant properties hold at all times.
 
@@ -236,4 +236,4 @@ let proofs = framework.generate_proofs()?;
 
 ## Conclusion
 
-This formal specification provides a precise and unambiguous definition of the SuperNova consensus rules. By adhering to these rules, nodes can independently verify the blockchain and reach consensus on its state. The formal verification framework allows for automated checking of these rules, increasing confidence in the correctness of the implementation. 
+This formal specification provides a precise and unambiguous definition of the supernova consensus rules. By adhering to these rules, nodes can independently verify the blockchain and reach consensus on its state. The formal verification framework allows for automated checking of these rules, increasing confidence in the correctness of the implementation. 

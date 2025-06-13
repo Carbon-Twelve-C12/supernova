@@ -1,4 +1,4 @@
-# SuperNova Node Configuration
+# supernova Node Configuration
 
 [node]
 chain_id = "supernova-dev"

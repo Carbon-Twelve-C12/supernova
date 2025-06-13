@@ -2,7 +2,7 @@ use btclib::util::ascii_art;
 use std::io;
 
 fn main() -> io::Result<()> {
-    println!("SuperNova ASCII Art");
+    println!("supernova ASCII Art");
     println!("========================\n");
     
     println!("1. Static Logo:");

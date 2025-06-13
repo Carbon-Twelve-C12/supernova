@@ -1,6 +1,6 @@
 # Admin API Reference
 
-This document describes the Admin API endpoints provided by the SuperNova blockchain node, which allow for node administration and management.
+This document describes the Admin API endpoints provided by the supernova blockchain node, which allow for node administration and management.
 
 ## Endpoints
 

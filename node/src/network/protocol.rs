@@ -120,7 +120,7 @@ pub enum ProtocolMessage {
     Custom(String, Vec<u8>),
 }
 
-/// Message types in the SuperNova protocol
+/// Message types in the supernova protocol
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
     /// Version handshake message

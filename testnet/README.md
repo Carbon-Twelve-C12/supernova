@@ -1,10 +1,10 @@
-# SuperNova Testnet
+# supernova Testnet
 
 This module provides the testnet environment runner for the Supernova blockchain.
 
 ## Overview
 
-The testnet runner provides a development environment for testing SuperNova features, including:
+The testnet runner provides a development environment for testing supernova features, including:
 
 - Quantum-resistant cryptography
 - Environmental sustainability tracking

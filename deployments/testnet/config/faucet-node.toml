@@ -1,4 +1,4 @@
-# SuperNova Faucet Node Configuration
+# supernova Faucet Node Configuration
 [network]
 network_name = "supernova-testnet"
 p2p_port = 9333

@@ -5,7 +5,7 @@ use btclib::environmental::{
 };
 
 fn main() {
-    println!("SuperNova Miner Environmental Reporting Demo");
+    println!("supernova Miner Environmental Reporting Demo");
     println!("============================================\n");
     
     // Create a miner reporting manager

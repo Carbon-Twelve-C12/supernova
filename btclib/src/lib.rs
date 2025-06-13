@@ -1,5 +1,5 @@
-// SuperNova Blockchain Library
-// Core implementation of the SuperNova blockchain
+// supernova Blockchain Library
+// Core implementation of the supernova blockchain
 
 // Public modules
 pub mod api;
@@ -51,7 +51,7 @@ pub use crate::validation::ValidationError;
 
 // Re-export public API
 pub use crate::api::{Api, ApiConfig};
-pub use crate::config::SuperNovaConfig;
+pub use crate::config::supernovaConfig;
 pub use crate::environmental::{
     EmissionsTracker, 
     Emissions, 
@@ -77,7 +77,7 @@ pub use crate::validation::{
 };
 pub use crate::mempool::{TransactionPool, TransactionPoolConfig, MempoolError};
 pub use crate::util::merkle::{MerkleTree, MerkleProof, MerkleError};
-pub use crate::errors::{SuperNovaError, SuperNovaResult};
+pub use crate::errors::{supernovaError, supernovaResult};
 
 // Re-export Lightning types when feature is enabled
 #[cfg(feature = "lightning")]

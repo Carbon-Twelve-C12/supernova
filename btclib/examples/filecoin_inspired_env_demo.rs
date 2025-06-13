@@ -166,7 +166,7 @@ mod mock {
         }
         
         pub fn generate_text_report(&self, _period: EmissionsTimePeriod) -> Result<String, String> {
-            Ok("SuperNova Environmental Impact Report: Daily (Last 24 hours)\n\
+            Ok("supernova Environmental Impact Report: Daily (Last 24 hours)\n\
                 --------------------------------------------\n\
                 Location-based Emissions: 1250.00 tonnes CO2e\n\
                 Market-based Emissions: 950.00 tonnes CO2e\n\
@@ -199,7 +199,7 @@ mod mock {
 use mock::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("SuperNova Environmental System Demo (Filecoin Green-Inspired)");
+    println!("supernova Environmental System Demo (Filecoin Green-Inspired)");
     println!("=============================================================\n");
 
     // Step 1: Create the environmental API with enhanced configuration

@@ -1,4 +1,4 @@
-//! SuperNova Blockchain API
+//! supernova Blockchain API
 //!
 //! This module implements a comprehensive REST API for interacting with the Supernova blockchain,
 //! providing endpoints for blocks, transactions, wallet operations, network information,

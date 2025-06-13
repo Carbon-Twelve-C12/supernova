@@ -448,8 +448,8 @@ Test the following aspects:
 For integration support, contact:
 
 - **Documentation**: [https://docs.supernovanetwork.xyz](https://docs.supernova.io)
-- **Discord**: [SuperNova Developers](https://discord.gg/supernova-dev)
-- **GitHub**: [SuperNova Issues](https://github.com/Carbon-Twelve-C12/supernova/issues)
+- **Discord**: [supernova Developers](https://discord.gg/supernova-dev)
+- **GitHub**: [supernova Issues](https://github.com/Carbon-Twelve-C12/supernova/issues)
 - **Email**: integration-support@supernova.io
 
 ## Appendix

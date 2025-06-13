@@ -1,4 +1,4 @@
-// SuperNova Lightning Network - Watchtower Implementation
+// supernova Lightning Network - Watchtower Implementation
 //
 // This file contains the implementation of the Lightning Network watchtower,
 // which monitors channels for breaches and protects against channel theft.

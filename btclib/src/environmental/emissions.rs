@@ -384,7 +384,7 @@ impl Default for EmissionsConfig {
     }
 }
 
-/// Emissions tracker for the SuperNova network
+/// Emissions tracker for the supernova network
 #[derive(Clone)]
 pub struct EmissionsTracker {
     /// Network hashrate by geographic region

@@ -1,12 +1,12 @@
-# SuperNova Tokenomics
+# supernova Tokenomics
 
-This document provides detailed information about SuperNova's token economics, including the foundation's role, token allocation, vesting schedules, operational expenses, and environmental treasury management.
+This document provides detailed information about supernova's token economics, including the foundation's role, token allocation, vesting schedules, operational expenses, and environmental treasury management.
 
 ## 1. NOVA Token Overview
 
 ### 1.1 Token Basics
 
-- **Name**: SuperNova Token
+- **Name**: supernova Token
 - **Symbol**: NOVA
 - **Total Supply**: 42,000,000 NOVA
 - **Type**: Native blockchain token
@@ -17,7 +17,7 @@ This document provides detailed information about SuperNova's token economics, i
 
 ### 1.2 Token Utility
 
-The NOVA token serves multiple functions within the SuperNova ecosystem:
+The NOVA token serves multiple functions within the supernova ecosystem:
 
 1. **Transaction Fees**: NOVA is used to pay for transaction fees on the network
 2. **Mining Rewards**: Miners receive NOVA as rewards for securing the network
@@ -82,10 +82,10 @@ The emission continues with halvings every 840,000 blocks until all 16,800,000 m
 
 ### 3.3 Environmental Mining Adjustments
 
-SuperNova implements a unique environmental reward system:
+supernova implements a unique environmental reward system:
 
 - **Green Mining Bonus**: Miners using verified renewable energy receive up to 20% additional rewards
-- **Verification**: Renewable energy use must be verified through the SuperNova certification system
+- **Verification**: Renewable energy use must be verified through the supernova certification system
 - **Energy Efficiency Bonus**: Miners demonstrating exceptional energy efficiency can receive up to 10% additional rewards
 - **REC Multiplier**: Mining pools purchasing Renewable Energy Certificates receive reward multipliers based on coverage percentage
 
@@ -151,7 +151,7 @@ Based on the vesting and release schedules, the projected circulating supply gro
 
 ### 5.1 Operational Funding
 
-The SuperNova Foundation funds its operations through:
+The supernova Foundation funds its operations through:
 
 1. **Token Sales**: Planned, transparent sales from the Foundation Reserve
 2. **Partnerships**: Strategic partnerships and integrations
@@ -230,7 +230,7 @@ Prior to public launch, the Foundation will secure strategic investors through a
 
 - **Strategic Round Allocation**: 525,000 NOVA (1.25% of total supply) from Foundation Reserve
 - **Investor Criteria**:
-  - Demonstrated alignment with SuperNova's environmental mission
+  - Demonstrated alignment with supernova's environmental mission
   - Technical expertise in blockchain infrastructure or quantum computing
   - Long-term investment horizon (minimum 2-year lockup with linear vesting)
   - Ability to provide technical, operational, or market-making support
@@ -316,7 +316,7 @@ The Liquidity Reserve is not intended for speculation or profit-generation but s
 
 ### 6.1 Carbon Negativity Mechanism
 
-The Environmental Treasury supports SuperNova's carbon negative commitment through:
+The Environmental Treasury supports supernova's carbon negative commitment through:
 
 1. **Fee Allocation**: A percentage of transaction fees automatically allocated to environmental initiatives
 2. **Token Reserve**: 10% of total supply (4,200,000 NOVA) reserved for environmental purposes
@@ -347,7 +347,7 @@ The environmental treasury funds are allocated as follows:
 
 ### 6.4 Carbon Negative Targets
 
-SuperNova has established the following carbon negativity targets:
+supernova has established the following carbon negativity targets:
 
 | Year | Carbon Negative Target | Verification Method |
 |------|------------------------|---------------------|
@@ -387,7 +387,7 @@ Beyond transaction fees and governance, NOVA tokens serve additional purposes:
 - **Smart Contract Operations**: Gas fees for smart contract execution
 - **REC Verification Staking**: Validators stake NOVA to participate in REC verification
 - **Environmental Data Oracle**: Staking required for emissions data reporting
-- **Ecosystem Applications**: Various applications built on SuperNova
+- **Ecosystem Applications**: Various applications built on supernova
 
 ## 8. Comparison with Other Projects
 
@@ -395,7 +395,7 @@ Beyond transaction fees and governance, NOVA tokens serve additional purposes:
 
 | Project | Total Supply | Initial Circulating | Mining % | Team % | Launch Date |
 |---------|--------------|---------------------|----------|--------|-------------|
-| SuperNova | 42,000,000 | 2,520,000 (6.0%) | 40% | 10% | 2025 (est.) |
+| supernova | 42,000,000 | 2,520,000 (6.0%) | 40% | 10% | 2025 (est.) |
 | Bitcoin | 21,000,000 | 50 (0.00024%) | 100% | 0% | 2009 |
 | Ethereum | ~120,000,000 | 72,000,000 (60%) | ~10% | ~15% | 2015 |
 | Cardano | 45,000,000,000 | 25,927,070,538 (57.6%) | 0% | 13.54% | 2017 |
@@ -405,7 +405,7 @@ Beyond transaction fees and governance, NOVA tokens serve additional purposes:
 
 | Project | Carbon Status | Consensus | Offset Mechanism | Energy Efficiency |
 |---------|--------------|-----------|------------------|-------------------|
-| SuperNova | Carbon Negative (150%+) | PoW with Green Incentives | Built-in treasury | Moderate |
+| supernova | Carbon Negative (150%+) | PoW with Green Incentives | Built-in treasury | Moderate |
 | Bitcoin | Carbon Intensive | Proof of Work | External only | Very Low |
 | Ethereum | Carbon Neutral (claimed) | Proof of Stake | Foundation initiative | High |
 | Cardano | Low Carbon | Proof of Stake | None built-in | Very High |
@@ -437,7 +437,7 @@ Beyond transaction fees and governance, NOVA tokens serve additional purposes:
 
 ### 10.1 Resources
 
-- [SuperNova Foundation Website](https://c12.space)
+- [supernova Foundation Website](https://c12.space)
 - [Environmental Dashboard](https://c12.space)
 - [Governance Portal](https://c12.space)
 - [GitHub Repository](https://c12.space)
@@ -464,4 +464,4 @@ The Foundation provides regular updates on tokenomics through:
 
 ---
 
-*This document will be updated periodically as the SuperNova project evolves. Last updated: April 2025.* 
+*This document will be updated periodically as the supernova project evolves. Last updated: April 2025.* 

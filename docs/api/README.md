@@ -1,6 +1,6 @@
-# SuperNova API Documentation
+# supernova API Documentation
 
-The SuperNova API provides a comprehensive interface for interacting with the SuperNova blockchain node, including functionality for blockchain data access, mempool management, network operations, mining, environmental metrics, Lightning Network operations, and node management.
+The supernova API provides a comprehensive interface for interacting with the supernova blockchain node, including functionality for blockchain data access, mempool management, network operations, mining, environmental metrics, Lightning Network operations, and node management.
 
 ## API Structure
 

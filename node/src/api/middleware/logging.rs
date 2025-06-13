@@ -1,6 +1,6 @@
 //! API logging middleware
 //!
-//! This module provides detailed request logging for the SuperNova API.
+//! This module provides detailed request logging for the supernova API.
 
 use actix_web::{
     dev::{ServiceRequest, ServiceResponse, forward_ready},

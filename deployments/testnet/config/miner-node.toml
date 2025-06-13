@@ -1,4 +1,4 @@
-# SuperNova Miner Node Configuration
+# supernova Miner Node Configuration
 [network]
 network_name = "supernova-testnet"
 p2p_port = 9333

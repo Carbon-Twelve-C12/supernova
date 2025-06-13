@@ -2,7 +2,7 @@
 // Basic RPC types for backwards compatibility
 
 use serde::{Deserialize, Serialize};
-use crate::errors::SuperNovaError;
+use crate::errors::supernovaError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcRequest {

@@ -1,4 +1,4 @@
-/// Storage subsystem for SuperNova blockchain
+/// Storage subsystem for supernova blockchain
 ///
 /// Provides persistent storage for blockchain data including blocks, transactions,
 /// UTXO set, and associated metadata. Optimized for performance and data integrity.

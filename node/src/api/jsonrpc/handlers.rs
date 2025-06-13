@@ -464,7 +464,7 @@ async fn get_network_info(
     
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION").replace(".", ""),
-        "subversion": format!("/SuperNova:{}/", env!("CARGO_PKG_VERSION")),
+        "subversion": format!("/supernova:{}/", env!("CARGO_PKG_VERSION")),
         "protocolversion": 70015, // Protocol version
         "localservices": "000000000000000d",
         "localrelay": true,

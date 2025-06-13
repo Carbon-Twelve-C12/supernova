@@ -1,9 +1,9 @@
 use thiserror::Error;
 use std::fmt;
 
-/// Main error type for the SuperNova blockchain
+/// Main error type for the supernova blockchain
 #[derive(Error, Debug)]
-pub enum SuperNovaError {
+pub enum supernovaError {
     // Block-related errors
     #[error("Block validation error: {0}")]
     BlockValidation(#[from] crate::validation::BlockValidationError),
@@ -79,50 +79,50 @@ pub enum SuperNovaError {
     Other(String),
 }
 
-/// Type alias for Result with SuperNovaError
-pub type SuperNovaResult<T> = Result<T, SuperNovaError>;
+/// Type alias for Result with supernovaError
+pub type supernovaResult<T> = Result<T, supernovaError>;
 
-/// Helper function to convert string errors to SuperNovaError
-pub fn to_supernova_error<E: std::error::Error>(err: E, context: &str) -> SuperNovaError {
-    SuperNovaError::Other(format!("{}: {}", context, err))
+/// Helper function to convert string errors to supernovaError
+pub fn to_supernova_error<E: std::error::Error>(err: E, context: &str) -> supernovaError {
+    supernovaError::Other(format!("{}: {}", context, err))
 }
 
-impl From<String> for SuperNovaError {
+impl From<String> for supernovaError {
     fn from(err: String) -> Self {
-        SuperNovaError::Other(err)
+        supernovaError::Other(err)
     }
 }
 
-impl From<&str> for SuperNovaError {
+impl From<&str> for supernovaError {
     fn from(err: &str) -> Self {
-        SuperNovaError::Other(err.to_string())
+        supernovaError::Other(err.to_string())
     }
 }
 
 /// Safe unwrap extension trait
 pub trait SafeUnwrap<T> {
     /// Unwrap with context, converting None to an error
-    fn safe_unwrap<C: fmt::Display>(self, context: C) -> SuperNovaResult<T>;
+    fn safe_unwrap<C: fmt::Display>(self, context: C) -> supernovaResult<T>;
 }
 
 impl<T> SafeUnwrap<T> for Option<T> {
-    fn safe_unwrap<C: fmt::Display>(self, context: C) -> SuperNovaResult<T> {
-        self.ok_or_else(|| SuperNovaError::Other(format!("Unwrap failed: {}", context)))
+    fn safe_unwrap<C: fmt::Display>(self, context: C) -> supernovaResult<T> {
+        self.ok_or_else(|| supernovaError::Other(format!("Unwrap failed: {}", context)))
     }
 }
 
 /// Result extension trait for better error handling
 pub trait ResultExt<T> {
     /// Add context to an error
-    fn context<C: fmt::Display>(self, context: C) -> SuperNovaResult<T>;
+    fn context<C: fmt::Display>(self, context: C) -> supernovaResult<T>;
 }
 
 impl<T, E> ResultExt<T> for Result<T, E>
 where
     E: std::error::Error + Send + Sync + 'static,
 {
-    fn context<C: fmt::Display>(self, context: C) -> SuperNovaResult<T> {
-        self.map_err(|e| SuperNovaError::Other(format!("{}: {}", context, e)))
+    fn context<C: fmt::Display>(self, context: C) -> supernovaResult<T> {
+        self.map_err(|e| supernovaError::Other(format!("{}: {}", context, e)))
     }
 }
 
@@ -130,13 +130,13 @@ where
 #[macro_export]
 macro_rules! safe_lock {
     ($mutex:expr) => {
-        $mutex.lock().map_err(|e| $crate::errors::SuperNovaError::LockPoisoned(format!("Lock poisoned: {}", e)))?
+        $mutex.lock().map_err(|e| $crate::errors::supernovaError::LockPoisoned(format!("Lock poisoned: {}", e)))?
     };
     ($rwlock:expr, read) => {
-        $rwlock.read().map_err(|e| $crate::errors::SuperNovaError::LockPoisoned(format!("RwLock read poisoned: {}", e)))?
+        $rwlock.read().map_err(|e| $crate::errors::supernovaError::LockPoisoned(format!("RwLock read poisoned: {}", e)))?
     };
     ($rwlock:expr, write) => {
-        $rwlock.write().map_err(|e| $crate::errors::SuperNovaError::LockPoisoned(format!("RwLock write poisoned: {}", e)))?
+        $rwlock.write().map_err(|e| $crate::errors::supernovaError::LockPoisoned(format!("RwLock write poisoned: {}", e)))?
     };
 }
 
@@ -144,44 +144,44 @@ macro_rules! safe_lock {
 #[macro_export]
 macro_rules! safe_add {
     ($a:expr, $b:expr) => {
-        $a.checked_add($b).ok_or_else(|| $crate::errors::SuperNovaError::ArithmeticOverflow("Addition overflow".to_string()))?
+        $a.checked_add($b).ok_or_else(|| $crate::errors::supernovaError::ArithmeticOverflow("Addition overflow".to_string()))?
     };
 }
 
 #[macro_export]
 macro_rules! safe_sub {
     ($a:expr, $b:expr) => {
-        $a.checked_sub($b).ok_or_else(|| $crate::errors::SuperNovaError::ArithmeticOverflow("Subtraction underflow".to_string()))?
+        $a.checked_sub($b).ok_or_else(|| $crate::errors::supernovaError::ArithmeticOverflow("Subtraction underflow".to_string()))?
     };
 }
 
 #[macro_export]
 macro_rules! safe_mul {
     ($a:expr, $b:expr) => {
-        $a.checked_mul($b).ok_or_else(|| $crate::errors::SuperNovaError::ArithmeticOverflow("Multiplication overflow".to_string()))?
+        $a.checked_mul($b).ok_or_else(|| $crate::errors::supernovaError::ArithmeticOverflow("Multiplication overflow".to_string()))?
     };
 }
 
 /// Helper function to safely get system time
-pub fn get_system_time() -> SuperNovaResult<u64> {
+pub fn get_system_time() -> supernovaResult<u64> {
     use std::time::{SystemTime, UNIX_EPOCH};
     
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| SuperNovaError::TimeError(e.to_string()))
+        .map_err(|e| supernovaError::TimeError(e.to_string()))
         .map(|d| d.as_secs())
 }
 
 /// Safe serialization helper
-pub fn safe_serialize<T: serde::Serialize>(value: &T) -> SuperNovaResult<Vec<u8>> {
+pub fn safe_serialize<T: serde::Serialize>(value: &T) -> supernovaResult<Vec<u8>> {
     bincode::serialize(value)
-        .map_err(|e| SuperNovaError::Serialization(e))
+        .map_err(|e| supernovaError::Serialization(e))
 }
 
 /// Safe deserialization helper  
-pub fn safe_deserialize<'a, T: serde::Deserialize<'a>>(data: &'a [u8]) -> SuperNovaResult<T> {
+pub fn safe_deserialize<'a, T: serde::Deserialize<'a>>(data: &'a [u8]) -> supernovaResult<T> {
     bincode::deserialize(data)
-        .map_err(|e| SuperNovaError::Serialization(e))
+        .map_err(|e| supernovaError::Serialization(e))
 }
 
 #[cfg(test)]
@@ -190,12 +190,12 @@ mod tests {
 
     #[test]
     fn test_error_conversion() {
-        let err = SuperNovaError::from("test error");
-        assert!(matches!(err, SuperNovaError::Other(_)));
+        let err = supernovaError::from("test error");
+        assert!(matches!(err, supernovaError::Other(_)));
         
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-        let err = SuperNovaError::from(io_err);
-        assert!(matches!(err, SuperNovaError::Io(_)));
+        let err = supernovaError::from(io_err);
+        assert!(matches!(err, supernovaError::Io(_)));
     }
     
     #[test]
@@ -215,11 +215,11 @@ mod tests {
         let a: u64 = u64::MAX - 10;
         let b: u64 = 20;
         
-        let result = (|| -> SuperNovaResult<u64> {
+        let result = (|| -> supernovaResult<u64> {
             Ok(safe_add!(a, b))
         })();
         
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SuperNovaError::ArithmeticOverflow(_)));
+        assert!(matches!(result.unwrap_err(), supernovaError::ArithmeticOverflow(_)));
     }
 } 

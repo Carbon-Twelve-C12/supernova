@@ -246,7 +246,7 @@ impl ConsensusVerificationFramework {
                     "Proof construction".to_string(),
                     "Machine verification".to_string(),
                 ],
-                verification_tool: "SuperNova Formal Verification Suite".to_string(),
+                verification_tool: "supernova Formal Verification Suite".to_string(),
             };
             
             proofs.add_proof(proof);

@@ -535,7 +535,7 @@ impl EnvironmentalDashboard {
         
         // Build the report
         let mut report = format!(
-            "SuperNova Environmental Impact Report: {}\n\
+            "supernova Environmental Impact Report: {}\n\
             --------------------------------------------\n",
             period_str
         );
@@ -892,7 +892,7 @@ mod tests {
         let report = report_result.unwrap();
         
         // Basic checks on the report content
-        assert!(report.contains("SuperNova Environmental Impact Report"), "Report should have title");
+        assert!(report.contains("supernova Environmental Impact Report"), "Report should have title");
         assert!(report.contains("Total Emissions"), "Report should have emissions data");
         assert!(report.contains(&format!("Transactions Processed: {}", transaction_count)), 
                 "Report should have transaction count");

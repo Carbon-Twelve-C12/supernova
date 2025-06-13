@@ -1,4 +1,4 @@
-// SuperNova Lightning Network - Wire Protocol Implementation
+// supernova Lightning Network - Wire Protocol Implementation
 //
 // This file contains the implementation of the Lightning Network wire protocol,
 // which handles message serialization, encryption, and exchange between nodes.

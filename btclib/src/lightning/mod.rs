@@ -1,4 +1,4 @@
-// SuperNova Lightning Network Implementation
+// supernova Lightning Network Implementation
 //
 // This module implements Lightning Network functionality for the Supernova blockchain.
 // It provides payment channel creation, management, and routing capabilities.
@@ -589,7 +589,7 @@ impl Default for LightningConfig {
     }
 }
 
-// Register Lightning module with the SuperNova node
+// Register Lightning module with the supernova node
 // This function is called during node initialization
 // NOTE: This function should be implemented in the node crate, not here
 // Commented out to resolve cross-crate reference issues

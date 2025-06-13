@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 
 fn main() -> Result<(), ApiError> {
-    println!("SuperNova Environmental Features Demo");
+    println!("supernova Environmental Features Demo");
     println!("======================================");
     
     // Create an API instance with environmental features enabled

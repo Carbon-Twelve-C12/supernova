@@ -129,7 +129,7 @@ impl WalletTui {
                         Span::styled(rest, Style::default().fg(Color::White)),
                     ])
         }).collect::<Vec<_>>())
-            .block(Block::default().borders(Borders::ALL).title("SuperNova Wallet"))
+            .block(Block::default().borders(Borders::ALL).title("supernova Wallet"))
             .select(self.current_tab as usize)
                 .style(Style::default().fg(Color::White))
             .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
@@ -389,7 +389,7 @@ impl WalletTui {
     fn render_help(&self, f: &mut Frame, area: Rect) {
         let text = vec![
             Line::from(vec![
-                Span::styled("SuperNova Wallet Help", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                Span::styled("supernova Wallet Help", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             ]),
             Line::from(""),
             Line::from(vec![

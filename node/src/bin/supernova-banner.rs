@@ -2,7 +2,7 @@ use btclib::util::ascii_art;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(author, version, about = "SuperNova ASCII Art Banner Tool")]
+#[command(author, version, about = "supernova ASCII Art Banner Tool")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

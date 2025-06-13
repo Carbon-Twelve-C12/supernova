@@ -1,4 +1,4 @@
-/// Validation subsystem for SuperNova blockchain
+/// Validation subsystem for supernova blockchain
 /// 
 /// Provides tools for validating transactions, blocks, and signatures
 /// with customizable policy settings for both cryptographic and emissions compliance.

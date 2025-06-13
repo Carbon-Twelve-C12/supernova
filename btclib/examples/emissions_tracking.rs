@@ -12,7 +12,7 @@ use btclib::environmental::emissions::{
 fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logger for debugging
     env_logger::init();
-    println!("SuperNova Emissions Tracking Examples");
+    println!("supernova Emissions Tracking Examples");
     println!("====================================");
 
     // Run different examples showcasing various features

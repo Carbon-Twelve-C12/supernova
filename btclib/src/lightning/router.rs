@@ -1,4 +1,4 @@
-// SuperNova Lightning Network - Router Implementation
+// supernova Lightning Network - Router Implementation
 //
 // This file contains the implementation of the Lightning Network router,
 // which handles finding payment paths and routing payments through the network.
