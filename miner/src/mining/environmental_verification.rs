@@ -156,7 +156,7 @@ impl EnvironmentalVerifier {
         
         // For simplicity, assume 100% coverage if > 100 MWh/month
         // In production, this would be compared against actual consumption
-        Ok((total_mwh / 100.0).min(1.0))
+        Ok((total_mwh / 100.0).min(1.0_f64))
     }
     
     /// Verify efficiency audit
@@ -167,7 +167,7 @@ impl EnvironmentalVerifier {
         }
         
         // Calculate efficiency score based on metrics
-        let mut score = 0.0;
+        let mut score: f64 = 0.0;
         
         // Hash rate per watt scoring (higher is better)
         if audit.hash_rate_per_watt > 100.0 {

@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::mempool::TransactionPool;
 use crate::storage::ChainState;
 use btclib::types::{Block, BlockHeader, Transaction};
-use btclib::crypto::hash256;
+use sha2::{Sha256, Digest};
 
 pub struct BlockProducer {
     mempool: Arc<TransactionPool>,
@@ -28,9 +28,19 @@ impl BlockProducer {
         let height = chain_state.get_height() + 1;
         let difficulty_target = chain_state.get_difficulty_target();
 
-        let transactions = self.mempool.get_transactions_for_block();
-
-        // TODO: Create coinbase transaction
+        // Create coinbase transaction
+        let coinbase = self.create_coinbase_transaction(height);
+        
+        // Get transactions from mempool sorted by fee
+        let mempool_txs = self.mempool.get_sorted_transactions();
+        
+        // Limit to reasonable number of transactions
+        let max_txs = 1000;
+        let mempool_txs: Vec<_> = mempool_txs.into_iter().take(max_txs).collect();
+        
+        // Combine coinbase with mempool transactions
+        let mut transactions = vec![coinbase];
+        transactions.extend(mempool_txs);
 
         let merkle_root = self.calculate_merkle_root(&transactions);
 
@@ -61,14 +71,23 @@ impl BlockProducer {
         while level.len() > 1 {
             let mut next_level = Vec::new();
             for chunk in level.chunks(2) {
-                let mut hasher = hash256::new();
+                let mut hasher = Sha256::new();
                 hasher.update(&chunk[0]);
                 if let Some(second) = chunk.get(1) {
                     hasher.update(second);
                 } else {
                     hasher.update(&chunk[0]); // Duplicate last hash if odd number
                 }
-                next_level.push(hasher.finalize().into());
+                let result = hasher.finalize();
+                
+                // Double SHA-256
+                let mut hasher = Sha256::new();
+                hasher.update(&result);
+                let double_hash = hasher.finalize();
+                
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&double_hash);
+                next_level.push(hash);
             }
             level = next_level;
         }

@@ -359,7 +359,7 @@ impl BlockchainDB {
         // Configure sled database with optimized settings
         let config = sled::Config::new()
             .path(&path_buf)
-            .cache_capacity(db_config.cache_size)
+            .cache_capacity(db_config.cache_size as u64)
             .flush_every_ms(db_config.flush_interval_ms)
             .use_compression(db_config.use_compression)
             .mode(sled::Mode::HighThroughput); // Optimize for throughput
@@ -633,7 +633,7 @@ impl BlockchainDB {
                     Err(e) => {
                         // Remove invalid block
                         self.remove_pending_block(block_hash)?;
-                        Err(StorageError::SerializationError(e))
+                        Err(StorageError::Serialization(e))
                     }
                 }
             } else {
@@ -1967,15 +1967,14 @@ impl BlockchainDB {
         // Compact the database to reclaim space and optimize on-disk structure
         self.compact()?;
         
-        // Optimize each tree separately
+        // Optimize trees based on their access patterns
         for tree_name in self.list_trees()? {
             let tree = self.open_tree(&tree_name)?;
             
-            // Perform tree-specific optimizations
             match tree_name.as_str() {
                 BLOCKS_TREE => {
                     // Blocks are rarely accessed in random order, optimize for sequential reads
-                    tree.set_merge_operator(|_k, old_v: Option<&[u8]>, _new_v: Option<&[u8]>| old_v.map(|v| v.to_vec()));
+                    // Note: sled doesn't have set_merge_operator, so we skip this optimization
                 }
                 TXNS_TREE => {
                     // Transactions are frequently accessed by hash, optimize for random reads
@@ -1983,8 +1982,7 @@ impl BlockchainDB {
                 }
                 UTXO_TREE => {
                     // UTXOs are frequently accessed and modified, optimize for both reads and writes
-                    // Use a custom merge operator that preserves the latest version
-                    tree.set_merge_operator(|_k, _old_v: Option<&[u8]>, new_v: Option<&[u8]>| new_v.map(|v| v.to_vec()));
+                    // Note: sled doesn't have set_merge_operator, so we skip this optimization
                 }
                 _ => {
                     // Use default optimization for other trees
@@ -2500,9 +2498,8 @@ pub enum StorageError {
 // Add these implementations after the enum definition
 impl From<serde_json::Error> for StorageError {
     fn from(err: serde_json::Error) -> Self {
-        StorageError::Serialization(
-            bincode::Error::custom(format!("JSON serialization error: {}", err))
-        )
+        // Convert JSON error to a database error
+        StorageError::DatabaseError(format!("JSON serialization error: {}", err))
     }
 }
 

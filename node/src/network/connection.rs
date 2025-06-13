@@ -42,7 +42,7 @@ pub enum ConnectionEvent {
     /// Connection closed
     Disconnected(PeerId),
     /// Connection attempt failed
-    Failed(PeerId, DialError),
+    Failed(PeerId, String),
     /// Connection state changed
     StateChanged(PeerId, ConnectionState),
     /// Outbound slots available
@@ -291,7 +291,7 @@ impl ConnectionManager {
         self.peer_manager.record_failed_attempt(peer_id);
         
         // Emit failure event
-        self.emit_event(ConnectionEvent::Failed(peer_id.clone(), error.clone()));
+        self.emit_event(ConnectionEvent::Failed(peer_id.clone(), error.to_string()));
         
         // Notify about available outbound slot
         self.emit_event(ConnectionEvent::OutboundSlotAvailable);

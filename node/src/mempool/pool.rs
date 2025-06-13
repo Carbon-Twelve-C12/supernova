@@ -286,7 +286,7 @@ impl TransactionPool {
             // Check for any overlap in inputs
             for input in &new_inputs {
                 if existing_inputs.contains(input) {
-                    conflicting_txs.push((tx_hash, entry.clone()));
+                    conflicting_txs.push((tx_hash, MempoolEntry { transaction: entry.transaction.clone(), timestamp: entry.timestamp, fee_rate: entry.fee_rate, size: entry.size }));
                     break;
                 }
             }
@@ -497,6 +497,17 @@ impl TransactionPool {
             .iter()
             .map(|entry| entry.value().transaction.clone())
             .collect()
+    }
+
+    /// Get all transactions for a given block
+    pub fn get_transactions_for_block(&self, block: &btclib::types::block::Block) -> Vec<Transaction> {
+        let mut transactions = Vec::new();
+        for tx in block.transactions() {
+            if let Some(mempool_tx) = self.get_transaction(&tx.hash()) {
+                transactions.push(mempool_tx);
+            }
+        }
+        transactions
     }
 }
 

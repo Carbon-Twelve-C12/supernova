@@ -305,7 +305,8 @@ impl PeerManager {
     
     /// Check if a peer is banned
     pub fn is_peer_banned(&self, peer_id: &PeerId) -> bool {
-        if let Some((expiration, _, _)) = self.banned_peers.get(peer_id) {
+        if let Some(entry) = self.banned_peers.get(peer_id) {
+            let (expiration, _, _) = entry.value();
             if expiration.elapsed().as_secs() > 0 {
                 // Ban expired, remove it
                 self.banned_peers.remove(peer_id);
@@ -320,7 +321,8 @@ impl PeerManager {
     
     /// Check if a subnet is banned
     pub fn is_subnet_banned(&self, subnet: &IpSubnet) -> bool {
-        if let Some((expiration, _)) = self.banned_subnets.get(subnet) {
+        if let Some(entry) = self.banned_subnets.get(subnet) {
+            let (expiration, _) = entry.value();
             if expiration.elapsed().as_secs() > 0 {
                 // Ban expired, remove it
                 self.banned_subnets.remove(subnet);

@@ -12,6 +12,8 @@ pub mod utxo_set;
 pub mod atomic_utxo_set;
 pub mod database_shutdown;
 pub mod journal;
+pub mod traits;
+pub mod memory;
 
 #[cfg(test)]
 pub mod database_shutdown_tests;
@@ -28,3 +30,5 @@ pub use database_shutdown::{DatabaseShutdownHandler, DatabaseStartupHandler, Shu
 pub use journal::{WriteAheadLog, JournalEntry, WalError};
 pub use utxo_set::UtxoSet;
 pub use atomic_utxo_set::{AtomicUtxoSet, UnspentOutput, OutPoint};
+pub use traits::Storage;
+pub use memory::MemoryStorage;

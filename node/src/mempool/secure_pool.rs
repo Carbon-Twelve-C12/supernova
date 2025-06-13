@@ -71,6 +71,7 @@ impl SecureTransactionPool {
 
     /// Replace transaction (RBF) atomically
     pub fn replace_transaction(&self, new_transaction: Transaction, fee_rate: u64) -> Result<Option<Transaction>, MempoolError> {
+        let new_tx_hash = new_transaction.hash();
         let result = self.atomic_pool.replace_transaction(new_transaction, fee_rate)?;
         
         // Update compatibility map
@@ -78,7 +79,7 @@ impl SecureTransactionPool {
             self.transactions.remove(&tx.hash());
         }
         
-        if let Some(new_tx) = self.atomic_pool.get_transaction(&new_transaction.hash()) {
+        if let Some(new_tx) = self.atomic_pool.get_transaction(&new_tx_hash) {
             self.transactions.insert(new_tx.hash(), ());
         }
         

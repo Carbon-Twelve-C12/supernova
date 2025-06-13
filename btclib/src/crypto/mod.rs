@@ -6,8 +6,12 @@ pub mod hash;
 pub mod signature;
 pub mod quantum;
 pub mod zkp;
-pub mod falcon;
+pub mod falcon_real;  // Using Falcon implementation
 pub mod kem;
+
+// Legacy fake falcon module (to be removed)
+#[deprecated(note = "Use falcon_real instead - the old falcon module contains fake cryptography")]
+pub mod falcon;
 
 // Test modules
 #[cfg(test)]
@@ -18,7 +22,20 @@ mod quantum_security_test;
 pub use quantum::{QuantumScheme, QuantumKeyPair, QuantumParameters, QuantumError, sign_quantum, verify_quantum_signature};
 pub use zkp::{ZkpType, Commitment, ZeroKnowledgeProof, ZkpParams, generate_zkp, verify_zkp};
 pub use signature::{SignatureScheme, SignatureVerifier, SignatureType, SignatureError, SignatureParams};
+
+// Export REAL Falcon implementation
+pub use falcon_real::{
+    FalconKeyPair as RealFalconKeyPair, 
+    FalconParameters as RealFalconParameters, 
+    FalconError as RealFalconError,
+    FalconSecurityLevel,
+    falcon_sign,
+    falcon_verify
+};
+
+// Legacy exports (deprecated)
 pub use falcon::{FalconKeyPair, FalconParameters, FalconError};
+
 pub use kem::{KemKeyPair, KemError, encapsulate, decapsulate};
 
 // Re-export hash functions from parent module

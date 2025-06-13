@@ -18,6 +18,7 @@ use crate::{
     hdwallet::{HDWallet, AccountType, HDAddress},
     history::{TransactionHistory, TransactionDirection, TransactionStatus, TransactionRecord},
 };
+use btclib::storage::utxo_set::UtxoSet;
 
 #[derive(Debug)]
 pub enum InputMode {
@@ -45,6 +46,7 @@ pub struct WalletTui {
     message: Option<Message>,
     last_generated_address: Option<HDAddress>,
     selected_transaction: Option<String>, // Transaction hash
+    utxo_set: UtxoSet, // Add UTXO set
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -71,6 +73,7 @@ impl WalletTui {
             message: None,
             last_generated_address: None,
             selected_transaction: None,
+            utxo_set: UtxoSet::new_in_memory(1000), // Create in-memory UTXO set
         })
     }
 
@@ -214,7 +217,7 @@ impl WalletTui {
     }
 
     fn render_overview(&self, f: &mut Frame, area: Rect) {
-        let total_balance = self.wallet.get_total_balance().unwrap_or(0);
+        let total_balance = self.wallet.get_total_balance(&self.utxo_set).unwrap_or(0);
         let total_sent = self.history.get_total_sent();
         let total_received = self.history.get_total_received();
         let net_flow = self.history.get_net_flow();
@@ -274,7 +277,7 @@ impl WalletTui {
         let accounts_data: Vec<_> = {
             let accounts = self.wallet.list_accounts();
             accounts.iter().map(|(index, account)| {
-                let balance = self.wallet.get_balance(&account.name).unwrap_or(0);
+                let balance = self.wallet.get_balance(&account.name, &self.utxo_set).unwrap_or(0);
                 let addr_count = account.addresses.len();
                 (*index, account.name.clone(), account.account_type, balance, addr_count)
             }).collect()

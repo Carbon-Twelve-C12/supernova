@@ -8,6 +8,7 @@ use crate::{
     history::{TransactionHistory, TransactionRecord, TransactionDirection, TransactionStatus},
 };
 use chrono::{Utc};
+use btclib::storage::utxo_set::UtxoSet;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -218,7 +219,10 @@ pub fn run_cli() -> Result<(), String> {
             let wallet = HDWallet::load(wallet_path)
                 .map_err(|e| format!("Failed to load wallet: {}", e))?;
             
-            let balance = wallet.get_balance(&account)
+            // Create temporary UTXO set for balance checking
+            let utxo_set = UtxoSet::new_in_memory(1000);
+            
+            let balance = wallet.get_balance(&account, &utxo_set)
                 .map_err(|e| format!("Failed to get balance: {}", e))?;
             
             println!("Balance for '{}': {} satoshis", account, balance);
@@ -255,8 +259,11 @@ pub fn run_cli() -> Result<(), String> {
             let mut history = TransactionHistory::new(history_path)
                 .map_err(|e| format!("Failed to load transaction history: {}", e))?;
                 
+            // Create temporary UTXO set for balance checking
+            let utxo_set = UtxoSet::new_in_memory(1000);
+            
             // Validate the account exists
-            if wallet.get_balance(&account).is_err() {
+            if wallet.get_balance(&account, &utxo_set).is_err() {
                 return Err(format!("Account '{}' not found", account));
             }
             

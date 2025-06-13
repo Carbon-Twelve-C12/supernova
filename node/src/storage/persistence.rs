@@ -122,7 +122,7 @@ impl ChainState {
     pub fn initialize_with_genesis(&mut self, genesis_block: Block) -> Result<(), StorageError> {
         // Check if already initialized
         if self.current_height > 0 {
-            return Err(StorageError::General("Chain already initialized".to_string()));
+            return Err(StorageError::DatabaseError("Chain already initialized".to_string()));
         }
         
         // Store the genesis block
@@ -215,6 +215,15 @@ impl ChainState {
         self.active_forks.values().cloned().collect()
     }
 
+    /// Get the difficulty target for the next block
+    pub fn get_difficulty_target(&self) -> u32 {
+        // This is a placeholder. In a real implementation, this would involve a
+        // sophisticated algorithm based on the timestamps and difficulties of
+        // previous blocks.
+        // For now, we'll just return a constant value.
+        0x1f00ffff // A reasonably low difficulty for testing
+    }
+
     pub async fn process_block(&mut self, block: Block) -> Result<bool, StorageError> {
         let block_hash = block.hash();
         let prev_hash = block.prev_block_hash();
@@ -239,7 +248,7 @@ impl ChainState {
                 Some(work) => *work,
                 None => {
                     // If we don't have work for current tip, calculate it
-                    if let Some(block) = self.db.get_block(&self.best_block_hash)? {
+                    if let Ok(Some(block)) = self.db.get_block(&self.best_block_hash) {
                         let work = self.calculate_chain_work(&block)?;
                         self.chain_work.insert(self.best_block_hash, work);
                         work
@@ -394,10 +403,12 @@ impl ChainState {
 
             if current.height() > main_chain.height() {
                 blocks_to_apply.push(current.clone());
-                current = self.db.get_block(&current.prev_block_hash())?.unwrap();
+                let prev_hash = *current.prev_block_hash();
+                current = self.db.get_block(&prev_hash)?.ok_or(StorageError::DatabaseError("Block not found".to_string()))?;
             } else {
                 blocks_to_disconnect.push(main_chain.clone());
-                main_chain = self.db.get_block(&main_chain.prev_block_hash())?.unwrap();
+                let prev_hash = *main_chain.prev_block_hash();
+                main_chain = self.db.get_block(&prev_hash)?.ok_or(StorageError::DatabaseError("Block not found".to_string()))?;
             }
         }
 
@@ -415,7 +426,7 @@ impl ChainState {
         let old_tip = self.best_block_hash;
         let time_since_last_reorg = SystemTime::now()
             .duration_since(self.last_reorg_time)
-            .unwrap_or_else(|_| Duration::from_secs(0));
+            .map_err(|e| StorageError::DatabaseError(e.to_string()))?;
             
         let reorg_event = ReorganizationEvent {
             old_tip,
@@ -537,7 +548,7 @@ impl ChainState {
         self.db.store_metadata(b"total_difficulty", &difficulty_bytes)?;
 
         self.current_height -= 1;
-        self.best_block_hash = block.prev_block_hash();
+        self.best_block_hash = *block.prev_block_hash();
         
         self.db.store_metadata(b"height", &bincode::serialize(&self.current_height)?)?;
         self.db.store_metadata(b"best_hash", &self.best_block_hash)?;
@@ -597,7 +608,7 @@ impl ChainState {
             
             // Get previous block
             let prev_hash = current.prev_block_hash();
-            if let Some(prev_block) = self.db.get_block(&prev_hash)? {
+            if let Ok(Some(prev_block)) = self.db.get_block(prev_hash) {
                 current = prev_block;
             } else {
                 return Err("BlockNotFound".into());
@@ -616,7 +627,7 @@ impl ChainState {
                 return Ok(distance);
             }
             distance += 1;
-            if let Some(prev_block) = self.db.get_block(&current.prev_block_hash())? {
+            if let Ok(Some(prev_block)) = self.db.get_block(current.prev_block_hash()) {
                 current = prev_block;
             } else {
                 break;
@@ -635,7 +646,7 @@ impl ChainState {
             if let Ok(Some(block)) = self.db.get_block(hash) {
                 let age = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .map_err(|e| StorageError::DatabaseError(e.to_string()))?
                     .as_secs() - self.header_timestamp(&block);
                 
                 if age < 86400 {
@@ -665,8 +676,8 @@ impl ChainState {
         let mut current_height = self.current_height;
 
         while current_height > height {
-            let block = self.db.get_block(&current_hash)?.unwrap();
-            current_hash = block.prev_block_hash();
+            let block = self.db.get_block(&current_hash)?.ok_or(StorageError::DatabaseError("Block not found".to_string()))?;
+            current_hash = *block.prev_block_hash();
             current_height -= 1;
         }
 
@@ -686,17 +697,30 @@ impl ChainState {
         let now = SystemTime::now();
         
         // Check if this is an extension of an existing fork
-        if let Some(fork) = self.active_forks.get_mut(&prev_hash) {
-            // Update existing fork with new tip
-            fork.tip_hash = block_hash;
-            fork.tip_height = block.height();
-            fork.blocks_added += 1;
-            fork.last_updated = now;
-            fork.chain_work = self.calculate_chain_work(block)?;
-            
-            // Clone the updated fork info
-            let updated_fork = fork.clone();
-            
+        let prev_hash_clone = *prev_hash;
+        
+        // First check if we need to update an existing fork
+        let fork_update = if let Some(fork) = self.active_forks.get(&prev_hash_clone) {
+            // Create updated fork info
+            Some(ForkInfo {
+                fork_point_hash: fork.fork_point_hash,
+                fork_point_height: fork.fork_point_height,
+                tip_hash: block_hash,
+                tip_height: block.height(),
+                blocks_added: fork.blocks_added + 1,
+                first_seen: fork.first_seen,
+                last_updated: now,
+                chain_work: self.calculate_chain_work(block)?,
+                is_active: fork.is_active,
+            })
+        } else {
+            None
+        };
+        
+        // Apply the update if needed
+        if let Some(updated_fork) = fork_update {
+            // Update existing fork
+            self.active_forks.insert(prev_hash_clone, updated_fork.clone());
             // Also store under the new block hash
             self.active_forks.insert(block_hash, updated_fork);
             
@@ -705,7 +729,7 @@ impl ChainState {
         } else if *prev_hash == self.best_block_hash {
             // This is a direct extension of the main chain
             let fork_info = ForkInfo {
-                fork_point_hash: prev_hash,
+                fork_point_hash: *prev_hash,
                 fork_point_height: self.current_height,
                 tip_hash: block_hash,
                 tip_height: block.height(),
@@ -729,10 +753,10 @@ impl ChainState {
             while current.height() > 0 {
                 let prev_hash = current.prev_block_hash();
                 
-                if let Ok(Some(_)) = self.db.get_block(&prev_hash) {
+                if let Ok(Some(_)) = self.db.get_block(prev_hash) {
                     // Found a block we know about
-                    fork_point_hash = prev_hash;
-                    if let Ok(prev_block) = self.db.get_block(&prev_hash)? {
+                    fork_point_hash = *prev_hash;
+                    if let Ok(Some(prev_block)) = self.db.get_block(prev_hash) {
                         fork_point_height = prev_block.height();
                     }
                     break;
@@ -740,7 +764,7 @@ impl ChainState {
                 
                 blocks_on_fork += 1;
                 
-                if let Ok(Some(prev_block)) = self.db.get_block(&prev_hash) {
+                if let Ok(Some(prev_block)) = self.db.get_block(prev_hash) {
                     current = prev_block;
                 } else {
                     // We don't have the previous block, so we can't determine the fork point
@@ -817,7 +841,7 @@ impl ChainState {
             }
             
             // Move to previous block
-            current_hash = prev_hash;
+            current_hash = *prev_hash;
         }
     }
 
@@ -847,6 +871,11 @@ impl ChainState {
         }
         
         metrics
+    }
+
+    /// Get all transactions for a given block hash
+    pub fn get_transactions_for_block(&self, hash: &[u8; 32]) -> Option<Vec<Transaction>> {
+        self.get_block(hash).map(|b| b.transactions().to_vec())
     }
 }
 

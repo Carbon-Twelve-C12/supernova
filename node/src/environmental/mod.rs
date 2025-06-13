@@ -159,7 +159,7 @@ impl EnvironmentalMonitor {
         };
         
         // Calculate efficiency improvements
-        let efficiency_improvement = None; // Simplified for now
+        let efficiency_improvement: Option<f64> = None; // Simplified for now
         
         // Calculate renewable percentage
         let renewable_percentage = self.calculate_renewable_percentage();

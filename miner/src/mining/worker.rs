@@ -121,6 +121,8 @@ impl MiningWorker {
             self.target.load(Ordering::Relaxed) as u32,
             reward_address.clone(),
             self.mempool.as_ref(),
+            1, // TODO: Get actual block height
+            None, // TODO: Get environmental profile
         ).await;
 
         let mut block = template.create_block();
@@ -165,6 +167,8 @@ impl MiningWorker {
                     self.target.load(Ordering::Relaxed) as u32,
                     reward_address.clone(),
                     self.mempool.as_ref(),
+            1, // TODO: Get actual block height
+            None, // TODO: Get environmental profile
                 ).await;
                 block = template.create_block();
             }

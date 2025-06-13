@@ -49,7 +49,7 @@ impl OutPoint {
 }
 
 /// Atomic transaction for UTXO operations
-pub struct UtxoTransaction {
+#[derive(Serialize, Deserialize)] pub struct UtxoTransaction {
     /// Outputs to be spent (removed)
     pub inputs: Vec<OutPoint>,
     /// New outputs to be created

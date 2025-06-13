@@ -59,7 +59,7 @@ pub enum MessageEvent {
     /// Broadcast completed
     MessageBroadcast(gossipsub::MessageId),
     /// Error publishing a message
-    PublishError(PublishError),
+    PublishError(String), // Changed from PublishError to String
 }
 
 /// Error types for message broadcasting
@@ -316,7 +316,7 @@ impl MessageHandler {
         
         // Emit publish error event
         if let Some(sender) = &self.event_sender {
-            if let Err(e) = sender.send(MessageEvent::PublishError(error)).await {
+            if let Err(e) = sender.send(MessageEvent::PublishError(error.to_string())).await {
                 warn!("Failed to send publish error event: {}", e);
             }
         }

@@ -144,7 +144,8 @@ impl HDWallet {
         for hd_address in &account.addresses {
             let address = Address::from_str(&hd_address.address)
                 .map_err(|e| HDWalletError::AddressParsing(e.to_string()))?;
-            balance += utxo_set.get_balance(&address.script_pubkey());
+            let address = address.assume_checked();
+            balance += utxo_set.get_balance(address.script_pubkey().as_bytes());
         }
 
         Ok(balance)

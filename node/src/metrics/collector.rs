@@ -229,7 +229,7 @@ impl MetricsCollector {
         if metrics_types.process {
             use sysinfo::ProcessExt;
             // Get the current process
-            let pid = std::process::id() as i32;
+            let pid = std::process::id() as usize;
             if let Some(process) = sys.process(sysinfo::Pid::from(pid)) {
                 let process_memory = process.memory() * 1024; // Convert KB to bytes
                 let process_cpu = process.cpu_usage();

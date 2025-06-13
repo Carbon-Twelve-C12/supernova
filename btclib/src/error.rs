@@ -6,6 +6,7 @@
 use std::fmt;
 use std::error::Error as StdError;
 use thiserror::Error;
+use std::io;
 
 /// Main error type for the Supernova blockchain
 #[derive(Debug, Error)]

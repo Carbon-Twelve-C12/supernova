@@ -1029,6 +1029,60 @@ impl LightningManager {
     }
     
     fn payment_to_lightning_payment(&self, payment: &Payment) -> LightningPayment {
+        // Convert HTLCs from payment
+        let htlcs = if let Some(route) = &payment.route {
+            vec![HTLCAttempt {
+                attempt_id: 0, // Single attempt for now
+                status: match payment.status {
+                    PaymentStatus::Pending => "IN_FLIGHT".to_string(),
+                    PaymentStatus::Succeeded => "SUCCEEDED".to_string(),
+                    PaymentStatus::Failed(_) => "FAILED".to_string(),
+                    PaymentStatus::Cancelled => "FAILED".to_string(),
+                },
+                route: Route {
+                    total_time_lock: 0, // Would need to track this
+                    total_fees: payment.fee_msat / 1000,
+                    total_amt: payment.amount_msat / 1000,
+                    hops: route.iter().map(|h| Hop {
+                        chan_id: format!("{:016x}", h.channel_id),
+                        chan_capacity: 1000000, // Would need channel info
+                        amt_to_forward: h.amount_msat / 1000,
+                        fee: h.channel_fee(h.amount_msat) / 1000,
+                        expiry: h.cltv_expiry_delta as u32,
+                        amt_to_forward_msat: h.amount_msat,
+                        fee_msat: h.channel_fee(h.amount_msat),
+                        pub_key: h.node_id.clone(),
+                        tlv_payload: true,
+                        mpp_record: None,
+                        amp_record: None,
+                        custom_records: HashMap::new(),
+                    }).collect(),
+                    total_fees_msat: payment.fee_msat,
+                    total_amt_msat: payment.amount_msat,
+                },
+                attempt_time_ns: payment.created_at * 1_000_000_000,
+                resolve_time_ns: payment.completed_at.unwrap_or(payment.created_at) * 1_000_000_000,
+                failure: payment.failure_reason.as_ref().map(|reason| Failure {
+                    code: reason.clone(),
+                    channel_update: None,
+                    htlc_msat: payment.amount_msat,
+                    onion_sha_256: vec![],
+                    cltv_expiry: 0,
+                    flags: 0,
+                    failure_source_index: 0,
+                    height: 0,
+                }),
+                preimage: payment.payment_preimage.as_ref()
+                    .map(|p| p.to_hex())
+                    .unwrap_or_default(),
+            }]
+        } else {
+            vec![]
+        };
+        
+        // Get payment index
+        let payment_index = self.payment_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        
         LightningPayment {
             payment_hash: payment.payment_hash.to_hex(),
             value: payment.amount_msat / 1000,
@@ -1039,7 +1093,7 @@ impl LightningManager {
                 .unwrap_or_default(),
             value_sat: payment.amount_msat / 1000,
             value_msat: payment.amount_msat,
-            payment_request: "".to_string(), // TODO: Store original request
+            payment_request: "".to_string(),
             status: match payment.status {
                 PaymentStatus::Pending => "IN_FLIGHT".to_string(),
                 PaymentStatus::Succeeded => "SUCCEEDED".to_string(),
@@ -1049,13 +1103,50 @@ impl LightningManager {
             fee_sat: payment.fee_msat / 1000,
             fee_msat: payment.fee_msat,
             creation_time_ns: payment.created_at * 1_000_000_000,
-            htlcs: vec![], // TODO: Convert HTLCs
-            payment_index: 0, // TODO: Implement indexing
+            htlcs,
+            payment_index,
             failure_reason: payment.failure_reason.clone().unwrap_or_default(),
         }
     }
     
     fn invoice_to_lightning_invoice(&self, invoice: &Invoice) -> LightningInvoice {
+        // Get HTLCs for this invoice
+        let htlcs = {
+            let channels = self.channels.read().unwrap();
+            let mut invoice_htlcs = vec![];
+            
+            for (channel_id, atomic_channel) in channels.iter() {
+                if let Ok(channel) = atomic_channel.channel.lock() {
+                    for (idx, htlc) in channel.pending_htlcs.iter().enumerate() {
+                        if htlc.payment_hash == *invoice.payment_hash().as_bytes() {
+                            invoice_htlcs.push(InvoiceHTLC {
+                                chan_id: channel_id.to_hex().parse().unwrap_or(0),
+                                htlc_index: idx as u64,
+                                amt_msat: htlc.amount_novas * 1000, // Convert to msat
+                                accept_height: htlc.expiry_height as i32,
+                                accept_time: invoice.created_at(),
+                                resolve_time: invoice.settled_at().unwrap_or(0),
+                                expiry_height: htlc.expiry_height as i32,
+                                state: if invoice.is_settled() { "SETTLED".to_string() } else { "ACCEPTED".to_string() },
+                                custom_records: HashMap::new(),
+                                mpp_total_amt_msat: 0, // Would need MPP info
+                                amp: None, // Would need AMP info
+                            });
+                        }
+                    }
+                }
+            }
+            
+            invoice_htlcs
+        };
+        
+        // Generate BOLT11 payment request
+        let payment_request = self.encode_payment_request(invoice).unwrap_or_default();
+        
+        // Get invoice index
+        let add_index = self.invoice_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let settle_index = if invoice.is_settled() { add_index } else { 0 };
+        
         LightningInvoice {
             memo: invoice.description().to_string(),
             r_preimage: invoice.payment_preimage().as_bytes().to_vec(),
@@ -1065,20 +1156,20 @@ impl LightningManager {
             settled: invoice.is_settled(),
             creation_date: invoice.created_at(),
             settle_date: invoice.settled_at().unwrap_or(0),
-            payment_request: "".to_string(), // TODO: Generate BOLT11
+            payment_request,
             description_hash: vec![],
             expiry: invoice.expiry_seconds() as u64,
             fallback_addr: "".to_string(),
             cltv_expiry: invoice.min_final_cltv_expiry() as u64,
-            route_hints: vec![], // TODO: Add route hints
+            route_hints: vec![], // Would need to add route hints from channels
             private: invoice.is_private(),
-            add_index: 0, // TODO: Implement indexing
-            settle_index: 0,
+            add_index,
+            settle_index,
             amt_paid: if invoice.is_settled() { invoice.amount_msat() / 1000 } else { 0 },
             amt_paid_sat: if invoice.is_settled() { invoice.amount_msat() / 1000 } else { 0 },
             amt_paid_msat: if invoice.is_settled() { invoice.amount_msat() } else { 0 },
             state: if invoice.is_settled() { "SETTLED".to_string() } else { "OPEN".to_string() },
-            htlcs: vec![], // TODO: Add HTLCs
+            htlcs,
             features: HashMap::new(),
             is_keysend: false,
             payment_addr: vec![],
@@ -1172,23 +1263,40 @@ impl LightningManager {
         match self.router.find_route(pub_key, amt_msat, &[]) {
             Ok(route) => {
                 if route.total_fee_msat <= fee_limit_msat {
+                    // Get channel capacities for each hop
+                    let channels = self.channels.read().unwrap();
+                    
                     Ok(Some(Route {
-                        total_time_lock: 0, // TODO: Calculate
+                        total_time_lock: route.hops.iter().map(|h| h.cltv_expiry_delta as u32).sum(),
                         total_fees: route.total_fee_msat / 1000,
                         total_amt: amt_msat / 1000,
-                        hops: route.hops.iter().map(|hop| Hop {
-                            chan_id: hop.channel_id.to_hex(),
-                            chan_capacity: 1000000, // TODO: Get from channel
-                            amt_to_forward: hop.amount_msat / 1000,
-                            fee: hop.channel_fee(hop.amount_msat) / 1000,
-                            expiry: hop.cltv_expiry as u32,
-                            amt_to_forward_msat: hop.amount_msat,
-                            fee_msat: hop.channel_fee(hop.amount_msat),
-                            pub_key: hop.node_id.to_string(),
-                            tlv_payload: true,
-                            mpp_record: None,
-                            amp_record: None,
-                            custom_records: HashMap::new(),
+                        hops: route.hops.iter().map(|hop| {
+                            // Try to find channel capacity from our channels
+                            let chan_capacity = channels.values()
+                                .find_map(|atomic_channel| {
+                                    atomic_channel.get_channel_info().ok()
+                                        .filter(|info| {
+                                            // Compare channel IDs directly as byte arrays
+                                            &info.channel_id == hop.channel_id.as_bytes()
+                                        })
+                                        .map(|info| info.capacity_novas)
+                                })
+                                .unwrap_or(1000000); // Default 1M novas if not found
+                            
+                            Hop {
+                                chan_id: hop.channel_id.to_hex(),
+                                chan_capacity,
+                                amt_to_forward: hop.amount_msat / 1000,
+                                fee: hop.channel_fee(hop.amount_msat) / 1000,
+                                expiry: hop.cltv_expiry_delta as u32,
+                                amt_to_forward_msat: hop.amount_msat,
+                                fee_msat: hop.channel_fee(hop.amount_msat),
+                                pub_key: hop.node_id.to_string(),
+                                tlv_payload: true,
+                                mpp_record: None,
+                                amp_record: None,
+                                custom_records: HashMap::new(),
+                            }
                         }).collect(),
                         total_fees_msat: route.total_fee_msat,
                         total_amt_msat: amt_msat,

@@ -188,13 +188,18 @@ impl UtxoSet {
             return Ok(());
         }
         
-        let mmap = self.mmap.as_mut().ok_or_else(|| StorageError::DatabaseError("Mmap not initialized".into()))?;
-        
         // Ensure the file is large enough
         let required_size = self.estimate_required_size();
-        if required_size > mmap.len() {
+        
+        // Check if we need to resize
+        let needs_resize = if let Some(mmap) = &self.mmap {
+            required_size > mmap.len()
+        } else {
+            return Err(StorageError::DatabaseError("Mmap not initialized".into()));
+        };
+        
+        if needs_resize {
             // Need to resize the file and remap
-            drop(mmap);
             self.mmap = None;
             
             // Open the file and resize
@@ -204,12 +209,13 @@ impl UtxoSet {
                 .open(&self.db_path)?;
                 
             // Resize to double the required size to allow growth
-            file.set_len(required_size * 2)?;
+            file.set_len((required_size * 2) as u64)?;
             
             // Remap
             self.mmap = Some(unsafe { MmapOptions::new().map_mut(&file)? });
         }
         
+        // Get mmap again after potential remapping
         let mmap = self.mmap.as_mut().unwrap();
         
         // Write header with entry count
@@ -288,7 +294,7 @@ impl UtxoSet {
     
     /// Remove a UTXO (spend it)
     pub fn remove(&mut self, outpoint: &OutPoint) -> Option<UnspentOutput> {
-        if let Some(output) = self.utxos.remove(outpoint) {
+        if let Some((_, output)) = self.utxos.remove(outpoint) {
             self.dirty = true;
             Some(output)
         } else {

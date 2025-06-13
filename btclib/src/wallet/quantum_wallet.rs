@@ -15,6 +15,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use sha2::{Sha256, Digest};
 use sha3::{Sha3_512, Digest as Sha3Digest};
+use rand::RngCore;
 
 /// Quantum-safe HD wallet
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -489,6 +490,57 @@ impl QuantumWallet {
         
         Ok(key)
     }
+
+    /// Generate a new 12-word mnemonic phrase
+    pub fn generate_mnemonic() -> Result<String, WalletError> {
+        let mut entropy = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut entropy);
+        let mnemonic = Mnemonic::from_entropy(&entropy)
+            .map_err(|_| WalletError::MnemonicGenerationFailed)?;
+        Ok(mnemonic.to_string())
+    }
+
+    /// Import an encrypted wallet
+    pub fn import_encrypted(encrypted_wallet: &str, password: &str) -> Result<Self, WalletError> {
+        // Decode from base64
+        let encrypted_bytes = base64::decode(encrypted_wallet)
+            .map_err(|_| WalletError::DecryptionFailed)?;
+        
+        // Decrypt wallet
+        let wallet_bytes = Self::quantum_decrypt(&encrypted_bytes, password)?;
+        
+        // Deserialize wallet
+        let wallet: QuantumWallet = bincode::deserialize(&wallet_bytes)
+            .map_err(|_| WalletError::DeserializationFailed)?;
+        
+        Ok(wallet)
+    }
+
+    /// Quantum-safe decryption (placeholder)
+    fn quantum_decrypt(ciphertext: &[u8], password: &str) -> Result<Vec<u8>, WalletError> {
+        // In production, use post-quantum KEM like Kyber
+        // For now, use XChaCha20Poly1305 with Argon2 key derivation
+        use chacha20poly1305::{
+            aead::{Aead, KeyInit, OsRng},
+            XChaCha20Poly1305, XNonce,
+        };
+
+        if ciphertext.len() < 24 {
+            return Err(WalletError::DecryptionFailed);
+        }
+        
+        // Derive key from password
+        let key = Self::derive_encryption_key(password)?;
+        let cipher = XChaCha20Poly1305::new(&key.into());
+        
+        // Extract nonce and ciphertext
+        let (nonce_bytes, ct) = ciphertext.split_at(24);
+        let nonce = XNonce::from_slice(nonce_bytes);
+        
+        // Decrypt
+        cipher.decrypt(nonce, ct)
+            .map_err(|_| WalletError::DecryptionFailed)
+    }
 }
 
 /// Wallet errors
@@ -515,8 +567,17 @@ pub enum WalletError {
     #[error("Serialization failed")]
     SerializationFailed,
     
+    #[error("Deserialization failed")]
+    DeserializationFailed,
+    
     #[error("Encryption failed")]
     EncryptionFailed,
+    
+    #[error("Decryption failed")]
+    DecryptionFailed,
+    
+    #[error("Mnemonic generation failed")]
+    MnemonicGenerationFailed,
     
     #[error("Quantum error: {0}")]
     Quantum(#[from] QuantumError),

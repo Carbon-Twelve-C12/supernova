@@ -55,6 +55,7 @@ impl ChainStateNodeAdapter for ChainState {
 /// Helper functions for Result type conversions
 pub mod result_adapters {
     use btclib::storage::chain_state::ChainStateError;
+    use tracing::warn;
     
     /// Convert Result<u32, E> to u64, using default on error
     pub fn result_u32_to_u64<E>(result: Result<u32, E>, default: u64) -> u64 
@@ -118,6 +119,8 @@ pub mod hash_adapters {
 
 /// Adapter for block height conversions
 pub mod height_adapters {
+    use tracing::warn;
+    
     /// Safely convert u64 to u32, clamping to u32::MAX if needed
     pub fn u64_to_u32_clamped(height: u64) -> u32 {
         if height > u32::MAX as u64 {
@@ -137,7 +140,7 @@ pub mod height_adapters {
 /// Result type conversion utilities
 pub mod result_converters {
     use super::*;
-    use tracing::error;
+    use tracing::{error, warn};
     
     /// Convert Result<u32> to Result<u64> with error handling
     pub fn convert_result_to_u64(result: Result<u32, ChainStateError>) -> Result<u64, ChainStateError> {
@@ -199,6 +202,7 @@ pub mod error_adapters {
     use crate::api::ApiError;
     use std::fmt;
     use std::error::Error as StdError;
+    use tracing::error;
     
     /// Convert ChainStateError to StorageError
     impl From<ChainStateError> for StorageError {
@@ -265,6 +269,7 @@ pub mod error_adapters {
 /// Method extension adapters for missing methods
 pub mod method_extension_adapters {
     use std::fmt;
+    use tracing::warn;
     
     /// Extension trait to add ok_or_else to Result<T, E> where it's missing
     pub trait ResultExt<T, E> {

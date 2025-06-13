@@ -4,36 +4,44 @@ use libp2p::{
     identity,
     PeerId,
     Multiaddr,
-    gossipsub::{self, Behaviour as Gossipsub, Event as GossipsubEvent, MessageAuthenticity, ValidationMode, ConfigBuilder},
+    gossipsub::{self, Behaviour as Gossipsub, Event as GossipsubEvent, MessageAuthenticity, ValidationMode, ConfigBuilder, MessageId, Topic, TopicHash},
     identify::{self, Behaviour as Identify, Event as IdentifyEvent},
-    kad::{self, Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, store::MemoryStore},
+    kad::{self, Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, store::MemoryStore, record::Key},
     mdns::{self, tokio::Behaviour as Mdns, Event as MdnsEvent},
     noise,
     swarm::{Swarm, SwarmBuilder, SwarmEvent, NetworkBehaviour, ConnectionError},
     tcp,
     yamux,
     Transport,
-    core::ConnectedPoint,
+    core::{
+        ConnectedPoint,
+        multiaddr::Protocol,
+        transport::{self, Transport as CoreTransport},
+        upgrade,
+    },
+    dns,
 };
 use void::Void;
-use crate::network::{
-    protocol::{Message, Protocol, PublishError, message_id_from_content},
-    connection::{ConnectionManager, ConnectionEvent, ConnectionState},
-    peer::{PeerInfo, PeerManager, PeerState, PeerMetadata},
-    peer_diversity::{PeerDiversityManager, ConnectionStrategy, IpSubnet},
-    message::{MessageHandler, NetworkMessage, MessageEvent},
-    discovery::{PeerDiscovery, DiscoveryEvent},
-    eclipse_prevention::{EclipsePreventionSystem, EclipsePreventionConfig, EclipseRiskLevel},
-    rate_limiter::{NetworkRateLimiter, RateLimitConfig, RateLimitError, RateLimitMetrics},
-    behaviour::{SupernovaBehaviour, SupernovaBehaviourEvent},
-    MAX_PEERS, MAX_INBOUND_CONNECTIONS, MAX_OUTBOUND_CONNECTIONS,
+use byteorder::{BigEndian, WriteBytesExt};
+use crate::{
+    network::{
+        behaviour::{SupernovaBehaviour, SupernovaBehaviourEvent},
+        discovery::PeerDiscovery,
+        protocol::{Message, Protocol as NetworkProtocol, PublishError, message_id_from_content},
+        rate_limiter::{NetworkRateLimiter as RateLimiter, RateLimitConfig, RateLimitMetrics},
+        peer::{self, PeerInfo, PeerState},
+        eclipse_prevention::EclipseRiskLevel,
+        peer_manager::{PeerManager, ConnectionLimits},
+        identity_verification::{IdentityVerificationSystem, IdentityChallenge as IdentityVerificationChallenge},
+    },
+    api::types::{PeerInfo as ApiPeerInfo, NetworkInfo, ConnectionCount, PeerAddResponse, BandwidthUsage},
 };
 use btclib::{Block, BlockHeader, Transaction};
 use std::{
     error::Error,
     net::IpAddr,
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tokio::sync::{mpsc, RwLock};
@@ -44,8 +52,7 @@ use dashmap::DashMap;
 use futures::StreamExt;
 use rand::{Rng, RngCore, rngs::OsRng};
 use sha2::{Sha256, Digest};
-use byteorder::{ByteOrder, BigEndian};
-use crate::api::types::{NetworkInfo, PeerInfo as ApiPeerInfo, ConnectionCount, BandwidthUsage, PeerAddResponse};
+use serde::{Serialize, Deserialize};
 
 // Constants for network behavior
 const MIN_PEERS: usize = 3;
@@ -260,73 +267,124 @@ pub enum NetworkEvent {
     
     /// General network error
     NetworkError(String),
+    
+    /// Peer banned
+    PeerBanned(PeerId),
+    
+    /// Peer added to trusted list
+    PeerAddedToTrusted(PeerId),
+    
+    /// Peer removed from trusted list
+    PeerRemovedFromTrusted(PeerId),
+    
+    /// Peers received in response to GetPeers
+    PeersReceived(Vec<PeerId>),
 }
 
-/// Enhanced P2P network implementation with peer management
+/// Commands that can be sent to the swarm thread
+#[derive(Debug)]
+enum SwarmCommand {
+    Dial(Multiaddr),
+    Publish(TopicHash, Vec<u8>),
+    Stop,
+}
+
+/// Wrapper for swarm events that can be sent across threads
+#[derive(Debug)]
+enum SwarmEventWrapper {
+    ConnectionEstablished { peer_id: PeerId, endpoint: String },
+    ConnectionClosed { peer_id: PeerId },
+    IncomingConnection { local_addr: Multiaddr },
+    Message { peer_id: PeerId, topic: String, data: Vec<u8> },
+    Discovered { peers: Vec<PeerId> },
+}
+
+impl SwarmEventWrapper {
+    /// Convert a SwarmEvent to a wrapper that can be sent across threads
+    fn from_event(event: SwarmEvent<SupernovaBehaviour>) -> Result<Self, Box<dyn Error>> {
+        match event {
+            SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                Ok(SwarmEventWrapper::ConnectionEstablished {
+                    peer_id,
+                    endpoint: endpoint.get_remote_address().to_string(),
+                })
+            }
+            SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                Ok(SwarmEventWrapper::ConnectionClosed { peer_id })
+            }
+            SwarmEvent::IncomingConnection { local_addr, .. } => {
+                Ok(SwarmEventWrapper::IncomingConnection { local_addr })
+            }
+            SwarmEvent::Behaviour(behaviour_event) => {
+                // Handle behaviour-specific events
+                match behaviour_event {
+                    SupernovaBehaviourEvent::Gossipsub(gossipsub::Event::Message {
+                        propagation_source,
+                        message,
+                        ..
+                    }) => {
+                        Ok(SwarmEventWrapper::Message {
+                            peer_id: propagation_source,
+                            topic: message.topic.to_string(),
+                            data: message.data,
+                        })
+                    }
+                    SupernovaBehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
+                        let peers: Vec<PeerId> = list.into_iter().map(|(peer_id, _)| peer_id).collect();
+                        Ok(SwarmEventWrapper::Discovered { peers })
+                    }
+                    _ => Err("Unhandled behaviour event".into()),
+                }
+            }
+            _ => Err("Unhandled swarm event".into()),
+        }
+    }
+}
+
+/// P2P network implementation
 pub struct P2PNetwork {
-    /// LibP2P swarm
-    swarm: Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
     /// Local peer ID
     local_peer_id: PeerId,
-    /// Protocol handler
-    protocol: Protocol,
-    /// Command sender
-    command_sender: Arc<RwLock<Option<mpsc::Sender<NetworkCommand>>>>,
+    /// The libp2p swarm
+    swarm: Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
+    /// Channel to send commands to the swarm thread
+    swarm_cmd_tx: Arc<RwLock<Option<mpsc::Sender<SwarmCommand>>>>,
+    /// Bootstrap nodes
+    bootstrap_nodes: Vec<Multiaddr>,
+    /// Network event sender
+    event_sender: mpsc::Sender<NetworkEvent>,
     /// Command receiver
     command_receiver: Arc<RwLock<Option<mpsc::Receiver<NetworkCommand>>>>,
-    /// Event sender channel
-    event_sender: mpsc::Sender<NetworkEvent>,
-    /// Peer manager
-    peer_manager: Arc<PeerManager>,
-    /// Connection manager
-    connection_manager: Arc<RwLock<ConnectionManager>>,
-    /// Diversity manager for Sybil protection
-    diversity_manager: Arc<PeerDiversityManager>,
-    /// Eclipse prevention system
-    eclipse_prevention: Arc<EclipsePreventionSystem>,
-    /// Network rate limiter
-    rate_limiter: Arc<NetworkRateLimiter>,
-    /// Message handler
-    message_handler: MessageHandler,
-    /// Peer discovery system
-    discovery: Arc<RwLock<Option<PeerDiscovery>>>,
     /// Network statistics
     stats: Arc<RwLock<NetworkStats>>,
-    /// Genesis hash for chain identification
-    genesis_hash: [u8; 32],
-    /// Network ID string
-    network_id: String,
-    /// Bootstrap nodes
-    bootstrap_nodes: Vec<(PeerId, Multiaddr)>,
-    /// Trusted peers that are always connected
-    trusted_peers: Arc<RwLock<HashSet<PeerId>>>,
+    /// Running flag
+    running: Arc<RwLock<bool>>,
+    /// Connected peers
+    connected_peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
+    /// Peer discovery
+    discovery: Arc<RwLock<Option<PeerDiscovery>>>,
     /// Network task handle
     network_task: Arc<RwLock<Option<JoinHandle<()>>>>,
-    /// Is the network running
-    running: Arc<RwLock<bool>>,
-    /// Identity verification challenges
-    identity_challenges: Arc<RwLock<HashMap<PeerId, IdentityChallenge>>>,
-    
-    /// Peer verification status
-    verification_status: Arc<RwLock<HashMap<PeerId, IdentityVerificationStatus>>>,
-    
-    /// Challenge difficulty for identity verification (leading zero bits)
-    challenge_difficulty: u8,
-    
-    /// Whether to require identity verification
-    require_verification: bool,
-    
-    /// Connected peers with their information
-    connected_peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
-    
-    /// Banned peers with ban expiry times
+    /// Bandwidth tracker
+    bandwidth_tracker: Arc<Mutex<BandwidthTracker>>,
+    /// Rate limiter
+    rate_limiter: Arc<RateLimiter>,
+    /// Banned peers
     banned_peers: Arc<RwLock<HashMap<PeerId, Instant>>>,
-    
-    /// Message routing table for efficient message delivery
-    message_routes: Arc<RwLock<HashMap<PeerId, Vec<PeerId>>>>,
-    
-    /// Bandwidth tracking
-    bandwidth_tracker: Arc<RwLock<BandwidthTracker>>,
+    /// Trusted peers
+    trusted_peers: Arc<RwLock<HashSet<PeerId>>>,
+    /// Network ID
+    network_id: String,
+    /// Peer manager
+    peer_manager: Arc<PeerManager>,
+    /// Challenge difficulty for identity verification
+    challenge_difficulty: u8,
+    /// Whether identity verification is required
+    require_identity_verification: bool,
+    /// Identity verification system
+    identity_system: Arc<IdentityVerificationSystem>,
+    /// Storage backend
+    storage: Arc<dyn crate::storage::Storage>,
 }
 
 /// Network statistics for monitoring
@@ -355,6 +413,10 @@ pub struct NetworkStats {
     // Performance
     pub avg_latency_ms: f64,
     pub message_throughput: f64,
+    
+    // Bandwidth
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
 }
 
 /// Bandwidth tracking for network monitoring
@@ -412,72 +474,36 @@ impl P2PNetwork {
         let local_peer_id = PeerId::from(id_keys.public());
         info!("Local peer id: {}", local_peer_id);
         
-        // Create protocol handler
-        let protocol = Protocol::new(id_keys.clone())?;
-        
         // Create communication channels
         let (command_sender, command_receiver) = mpsc::channel(128);
         let (event_sender, event_receiver) = mpsc::channel(128);
         
-        // Create peer manager
-        let peer_manager = Arc::new(PeerManager::new());
-        
-        // Create diversity manager for Sybil protection
-        let diversity_manager = Arc::new(PeerDiversityManager::with_config(
-            0.6, // Minimum diversity score
-            ConnectionStrategy::BalancedDiversity,
-            10,  // Max connection attempts per minute
-        ));
-        
-        // Create eclipse prevention system
-        let eclipse_config = EclipsePreventionConfig::default();
-        let eclipse_prevention = Arc::new(EclipsePreventionSystem::new(eclipse_config));
-        
-        // Create network rate limiter
-        let rate_limit_config = RateLimitConfig::default();
-        let rate_limiter = Arc::new(NetworkRateLimiter::new(rate_limit_config));
-        
-        // Create message handler
-        let message_handler = MessageHandler::new();
-        
-        // Create connection manager
-        let connection_manager = ConnectionManager::new(
-            Arc::clone(&peer_manager),
-            Arc::clone(&diversity_manager),
-            MAX_INBOUND_CONNECTIONS,
-            MAX_OUTBOUND_CONNECTIONS,
-        );
+        // Create storage backend
+        let storage: Arc<dyn crate::storage::Storage> = Arc::new(crate::storage::MemoryStorage::new());
         
         Ok((
             Self {
-                swarm: Arc::new(RwLock::new(None)),
                 local_peer_id,
-                protocol,
-                command_sender: Arc::new(RwLock::new(Some(command_sender.clone()))),
-                command_receiver: Arc::new(RwLock::new(Some(command_receiver))),
-                event_sender,
-                peer_manager,
-                connection_manager: Arc::new(RwLock::new(connection_manager)),
-                diversity_manager,
-                eclipse_prevention,
-                rate_limiter,
-                message_handler,
-                discovery: Arc::new(RwLock::new(None)),
-                stats: Arc::new(RwLock::new(NetworkStats::default())),
-                genesis_hash,
-                network_id: network_id.to_string(),
+                swarm: Arc::new(RwLock::new(None)),
+                swarm_cmd_tx: Arc::new(RwLock::new(None)),
                 bootstrap_nodes: Vec::new(),
-                trusted_peers: Arc::new(RwLock::new(HashSet::new())),
-                network_task: Arc::new(RwLock::new(None)),
+                event_sender,
+                command_receiver: Arc::new(RwLock::new(Some(command_receiver))),
+                stats: Arc::new(RwLock::new(NetworkStats::default())),
                 running: Arc::new(RwLock::new(false)),
-                identity_challenges: Arc::new(RwLock::new(HashMap::new())),
-                verification_status: Arc::new(RwLock::new(HashMap::new())),
-                challenge_difficulty: DEFAULT_CHALLENGE_DIFFICULTY,
-                require_verification: true,
                 connected_peers: Arc::new(RwLock::new(HashMap::new())),
+                discovery: Arc::new(RwLock::new(None)),
+                network_task: Arc::new(RwLock::new(None)),
+                bandwidth_tracker: Arc::new(Mutex::new(BandwidthTracker::new())),
+                rate_limiter: Arc::new(RateLimiter::new(RateLimitConfig::default())),
                 banned_peers: Arc::new(RwLock::new(HashMap::new())),
-                message_routes: Arc::new(RwLock::new(HashMap::new())),
-                bandwidth_tracker: Arc::new(RwLock::new(BandwidthTracker::new())),
+                trusted_peers: Arc::new(RwLock::new(HashSet::new())),
+                network_id: network_id.to_string(),
+                peer_manager: Arc::new(PeerManager::new(storage.clone(), ConnectionLimits::default())),
+                challenge_difficulty: DEFAULT_CHALLENGE_DIFFICULTY,
+                require_identity_verification: true,
+                identity_system: Arc::new(IdentityVerificationSystem::new(DEFAULT_CHALLENGE_DIFFICULTY, true)),
+                storage,
             },
             command_sender,
             event_receiver,
@@ -491,12 +517,12 @@ impl P2PNetwork {
     
     /// Add a bootstrap node
     pub fn add_bootstrap_node(&mut self, peer_id: PeerId, addr: Multiaddr) {
-        self.bootstrap_nodes.push((peer_id, addr));
+        self.bootstrap_nodes.push(addr);
     }
     
     /// Add multiple bootstrap nodes
     pub fn add_bootstrap_nodes(&mut self, nodes: Vec<(PeerId, Multiaddr)>) {
-        self.bootstrap_nodes.extend(nodes);
+        self.bootstrap_nodes.extend(nodes.into_iter().map(|(_, addr)| addr));
     }
     
     /// Add a trusted peer
@@ -505,178 +531,176 @@ impl P2PNetwork {
         trusted.insert(peer_id);
     }
     
+    /// Disconnect from a peer
+    pub async fn disconnect_from_peer(&self, peer_id: &PeerId) -> Result<(), String> {
+        // Send disconnect command
+        if let Some(tx) = self.swarm_cmd_tx.read().await.as_ref() {
+            // For now, we don't have a specific disconnect command in SwarmCommand
+            // In a real implementation, we would add a Disconnect variant
+            debug!("Disconnecting from peer: {}", peer_id);
+            
+            // Remove from connected peers
+            self.connected_peers.write().await.remove(peer_id);
+            
+            // Update stats
+            self.stats.write().await.peers_connected = self.stats.write().await.peers_connected.saturating_sub(1);
+            
+            // Send event
+            let _ = self.event_sender.send(NetworkEvent::PeerDisconnected(*peer_id)).await;
+            
+            Ok(())
+        } else {
+            Err("Network not running".to_string())
+        }
+    }
+    
     /// Start the network
     pub async fn start(&self) -> Result<(), Box<dyn Error>> {
-        let mut running = self.running.write().await;
-        if *running {
-            return Ok(());
-        }
+        // Set running flag
+        *self.running.write().await = true;
         
-        info!("Starting P2P network");
-        
-        // Initialize the swarm
-        let keypair = identity::Keypair::generate_ed25519();
-        let local_peer_id = PeerId::from(keypair.public());
-        
-        // Build transport
-        let transport = build_transport(keypair.clone())?;
-        
-        // Configure gossipsub
-        let gossipsub_config = gossipsub::ConfigBuilder::default()
-            .heartbeat_interval(Duration::from_secs(10))
-            .validation_mode(gossipsub::ValidationMode::Strict)
-            .message_id_fn(message_id_from_content)
-            .build()
-            .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
+        // Initialize swarm if not already done
+        if self.swarm.read().await.is_none() {
+            // Generate a new keypair for the transport
+            let id_keys = identity::Keypair::generate_ed25519();
             
-        let gossipsub = gossipsub::Behaviour::new(
-            gossipsub::MessageAuthenticity::Signed(keypair.clone()),
-            gossipsub_config,
-        ).map_err(|e| format!("Failed to create gossipsub: {}", e))?;
-        
-        // Create Kademlia
-        let store = kad::store::MemoryStore::new(local_peer_id);
-        let kademlia = kad::Kademlia::new(local_peer_id, store);
-        
-        // Create mDNS
-        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
-        
-        // Create Identify
-        let identify_config = identify::Config::new("/supernova/1.0.0".to_string(), keypair.public());
-        let identify = identify::Behaviour::new(identify_config);
-        
-        // Create the combined behaviour
-        let behaviour = SupernovaBehaviour::new(
-            local_peer_id,
-            gossipsub,
-            kademlia,
-            mdns,
-            identify,
-        );
-        
-        // Create the swarm
-        let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id)
-            .build();
-        
-        // Subscribe to topics
-        let topics = [
-            "blocks",
-            "transactions", 
-            "headers",
-            "status",
-            "mempool",
-        ];
-        
-        for topic_name in &topics {
-            let topic = gossipsub::IdentTopic::new(topic_name.to_string());
-            if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&topic) {
-                warn!("Failed to subscribe to topic {}: {}", topic_name, e);
-            } else {
-                debug!("Subscribed to topic: {}", topic_name);
-            }
+            // Build transport
+            let transport = build_transport(id_keys)?;
+            
+            // Create behaviour
+            let behaviour = SupernovaBehaviour::new(self.local_peer_id.clone())?;
+            
+            // Create swarm
+            let swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, self.local_peer_id.clone())
+                .build();
+            
+            *self.swarm.write().await = Some(swarm);
         }
         
-        // Initialize peer discovery
-        let (discovery, discovery_rx) = PeerDiscovery::new(
-            &keypair,
-            self.bootstrap_nodes.clone(),
-            true, // Enable mDNS
-        ).await?;
+        // Start listening on default address
+        let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?;
+        if let Some(swarm) = self.swarm.write().await.as_mut() {
+            swarm.listen_on(listen_addr)?;
+        }
         
-        *self.discovery.write().await = Some(discovery);
-        
-        // Store the swarm
-        *self.swarm.write().await = Some(swarm);
-        
-        // Mark as running
-        *running = true;
+        // Start network event loop in a way that handles non-Send types
+        self.start_network_loop_with_channels().await?;
         
         // Send started event
-        if let Err(e) = self.event_sender.send(NetworkEvent::Started).await {
-            warn!("Failed to send network started event: {}", e);
-        }
-        
-        // Start the main network loop
-        self.start_network_loop().await?;
+        let _ = self.event_sender.send(NetworkEvent::Started).await;
         
         info!("P2P network started");
-        
         Ok(())
     }
     
-    /// Start the main network event loop
-    async fn start_network_loop(&self) -> Result<(), Box<dyn Error>> {
-        let swarm = Arc::clone(&self.swarm);
-        let command_receiver = Arc::clone(&self.command_receiver);
+    /// Start network loop using channels to avoid Send trait issues
+    async fn start_network_loop_with_channels(&self) -> Result<(), Box<dyn Error>> {
+        // Create channels for communication between threads
+        let (swarm_cmd_tx, mut swarm_cmd_rx) = mpsc::channel::<SwarmCommand>(100);
+        let (swarm_event_tx, mut swarm_event_rx) = mpsc::channel::<SwarmEventWrapper>(100);
+        
         let event_sender = self.event_sender.clone();
-        let running = Arc::clone(&self.running);
         let stats = Arc::clone(&self.stats);
         let connected_peers = Arc::clone(&self.connected_peers);
         let bandwidth_tracker = Arc::clone(&self.bandwidth_tracker);
         let rate_limiter = Arc::clone(&self.rate_limiter);
         let banned_peers = Arc::clone(&self.banned_peers);
+        let running = Arc::clone(&self.running);
+        
+        // Take ownership of the swarm
+        let mut swarm = self.swarm.write().await.take()
+            .ok_or("Swarm not initialized")?;
+        
+        // Spawn the swarm handler in a dedicated thread
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for swarm thread");
+            
+            runtime.block_on(async move {
+                loop {
+                    tokio::select! {
+                        // Handle commands to the swarm
+                        Some(cmd) = swarm_cmd_rx.recv() => {
+                            match cmd {
+                                SwarmCommand::Dial(addr) => {
+                                    let _ = swarm.dial(addr);
+                                }
+                                SwarmCommand::Publish(topic, data) => {
+                                    let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
+                                }
+                                SwarmCommand::Stop => {
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Handle swarm events
+                        event = swarm.next() => {
+                            if let Some(event) = event {
+                                // Wrap and send the event
+                                if let Ok(wrapped) = SwarmEventWrapper::from_event(event) {
+                                    let _ = swarm_event_tx.send(wrapped).await;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Store the command sender for other methods to use
+        self.swarm_cmd_tx.write().await.replace(swarm_cmd_tx);
+        
+        // Handle events and commands in the main async context
+        let command_receiver = Arc::clone(&self.command_receiver);
+        let swarm_cmd_tx = self.swarm_cmd_tx.read().await.clone().unwrap();
         
         let task = tokio::spawn(async move {
             let mut command_rx = command_receiver.write().await.take().unwrap();
-            
-            // Create interval timers
-            let mut rate_limit_cleanup_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
-            let mut ban_cleanup_interval = tokio::time::interval(Duration::from_secs(60)); // 1 minute
+            let mut rate_limit_cleanup_interval = tokio::time::interval(Duration::from_secs(300));
+            let mut ban_cleanup_interval = tokio::time::interval(Duration::from_secs(60));
             
             loop {
-                let is_running = *running.read().await;
-                if !is_running {
+                if !*running.read().await {
+                    let _ = swarm_cmd_tx.send(SwarmCommand::Stop).await;
                     break;
                 }
                 
                 tokio::select! {
                     // Process network commands
-                    command = command_rx.recv() => {
-                        if let Some(cmd) = command {
-                            Self::handle_command_static(
-                                cmd,
-                                &swarm,
-                                &event_sender,
-                                &stats,
-                                &connected_peers,
-                                &bandwidth_tracker,
-                            ).await;
-                        } else {
-                            // Command channel closed, exit
-                            break;
-                        }
+                    Some(cmd) = command_rx.recv() => {
+                        Self::handle_command_with_channels(
+                            cmd,
+                            &swarm_cmd_tx,
+                            &event_sender,
+                            &stats,
+                            &connected_peers,
+                            &bandwidth_tracker,
+                        ).await;
                     }
                     
                     // Process swarm events
-                    _ = async {
-                        let mut swarm_guard = swarm.write().await;
-                        if let Some(swarm) = swarm_guard.as_mut() {
-                            if let Some(event) = swarm.next().await {
-                                Self::handle_swarm_event_static(
-                                    event,
-                                    &event_sender,
-                                    &stats,
-                                    &connected_peers,
-                                    &bandwidth_tracker,
-                                ).await;
-                            }
-                        }
-                    } => {}
+                    Some(event) = swarm_event_rx.recv() => {
+                        Self::handle_wrapped_swarm_event(
+                            event,
+                            &event_sender,
+                            &stats,
+                            &connected_peers,
+                            &bandwidth_tracker,
+                        ).await;
+                    }
                     
-                    // Periodic rate limiter cleanup
+                    // Periodic cleanups
                     _ = rate_limit_cleanup_interval.tick() => {
-                        debug!("Cleaning up rate limiter entries");
                         rate_limiter.cleanup();
-                        
-                        // Log rate limiter metrics
                         let metrics = rate_limiter.metrics();
-                        info!("Rate limiter metrics - Total requests: {}, Rejected: {}, Banned IPs: {}",
+                        info!("Rate limiter metrics - Total: {}, Rejected: {}, Banned: {}",
                               metrics.total_requests, metrics.rejected_requests, metrics.banned_ips);
                     }
                     
-                    // Periodic ban cleanup
                     _ = ban_cleanup_interval.tick() => {
-                        debug!("Cleaning up expired bans");
                         let now = Instant::now();
                         banned_peers.write().await.retain(|_, ban_time| *ban_time > now);
                     }
@@ -687,39 +711,27 @@ impl P2PNetwork {
         });
         
         *self.network_task.write().await = Some(task);
-        
         Ok(())
     }
     
-    /// Handle a network command (static version for async context)
-    async fn handle_command_static(
-        command: NetworkCommand,
-        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
+    /// Handle commands using channels
+    async fn handle_command_with_channels(
+        cmd: NetworkCommand,
+        swarm_cmd_tx: &mpsc::Sender<SwarmCommand>,
         event_sender: &mpsc::Sender<NetworkEvent>,
         stats: &Arc<RwLock<NetworkStats>>,
         connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
-        bandwidth_tracker: &Arc<RwLock<BandwidthTracker>>,
+        bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
     ) {
-        match command {
+        match cmd {
             NetworkCommand::ConnectToPeer(addr_str) => {
                 // Parse the address and attempt to connect
                 if let Ok(addr) = addr_str.parse::<Multiaddr>() {
-                    let mut swarm_guard = swarm.write().await;
-                    if let Some(swarm) = swarm_guard.as_mut() {
-                        match swarm.dial(addr.clone()) {
-                        Ok(_) => {
-                                debug!("Dialing peer at {}", addr);
-                                let mut stats_guard = stats.write().await;
-                                stats_guard.connection_attempts += 1;
-                        }
-                        Err(e) => {
-                                warn!("Failed to dial peer at {}: {}", addr, e);
-                                let _ = event_sender.send(NetworkEvent::Error {
-                                    peer_id: None,
-                                    error: format!("Failed to dial: {}", e),
-                                }).await;
-                            }
-                        }
+                    let mut swarm_guard = swarm_cmd_tx.send(SwarmCommand::Dial(addr)).await;
+                    if let Ok(_) = swarm_guard {
+                        debug!("Dialing peer at {}", addr);
+                        let mut stats_guard = stats.write().await;
+                        stats_guard.connection_attempts += 1;
                     }
                 } else {
                     warn!("Invalid peer address format: {}", addr_str);
@@ -731,22 +743,34 @@ impl P2PNetwork {
             }
             
             NetworkCommand::Broadcast(message) => {
-                Self::broadcast_message_static(
-                    message,
-                    swarm,
-                    stats,
-                    bandwidth_tracker,
-                ).await;
+                let topic = match &message {
+                    Message::Block { .. } | Message::NewBlock { .. } => TopicHash::from_raw("blocks"),
+                    Message::Transaction { .. } => TopicHash::from_raw("transactions"),
+                    Message::Headers { .. } => TopicHash::from_raw("headers"),
+                    Message::Status { .. } | Message::GetStatus => TopicHash::from_raw("status"),
+                    Message::GetMempool { .. } | Message::Mempool { .. } => TopicHash::from_raw("mempool"),
+                    _ => TopicHash::from_raw("general"),
+                };
+                
+                if let Ok(data) = bincode::serialize(&message) {
+                    let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
+                    
+                    // Update stats
+                    let mut stats_guard = stats.write().await;
+                    stats_guard.messages_sent += 1;
+                    stats_guard.bytes_sent += data.len() as u64;
+                    
+                    // Track bandwidth
+                    bandwidth_tracker.lock().unwrap().record_sent(data.len());
+                }
             }
             
             NetworkCommand::SendToPeer { peer_id, message } => {
-                Self::send_to_peer_static(
-                    peer_id,
-                    message,
-                    swarm,
-                    stats,
-                    bandwidth_tracker,
-                ).await;
+                // For direct messages, we'd need to implement a custom protocol
+                // For now, we'll use gossipsub for all messages
+                let topic = TopicHash::from_raw("messages");
+                let data = bincode::serialize(&(peer_id, message)).unwrap_or_default();
+                let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
             }
             
             NetworkCommand::AnnounceBlock { block, height, total_difficulty } => {
@@ -756,10 +780,12 @@ impl P2PNetwork {
                     total_difficulty,
                 };
                 
-                Self::broadcast_message_static(
-                    message,
-                    swarm,
+                Self::handle_command_with_channels(
+                    NetworkCommand::Broadcast(message),
+                    swarm_cmd_tx,
+                    event_sender,
                     stats,
+                    connected_peers,
                     bandwidth_tracker,
                 ).await;
                 
@@ -772,10 +798,12 @@ impl P2PNetwork {
                     transaction: bincode::serialize(&transaction).unwrap_or_default(),
                 };
                 
-                Self::broadcast_message_static(
-                    message,
-                    swarm,
+                Self::handle_command_with_channels(
+                    NetworkCommand::Broadcast(message),
+                    swarm_cmd_tx,
+                    event_sender,
                     stats,
+                    connected_peers,
                     bandwidth_tracker,
                 ).await;
                 
@@ -783,320 +811,215 @@ impl P2PNetwork {
                 stats_guard.transactions_announced += 1;
             }
             
-            _ => {
-                // Handle other commands as needed
-                debug!("Unhandled network command: {:?}", command);
-            }
-        }
-    }
-    
-    /// Broadcast a message to all connected peers (static version)
-    async fn broadcast_message_static(
-        message: Message,
-        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
-        stats: &Arc<RwLock<NetworkStats>>,
-        bandwidth_tracker: &Arc<RwLock<BandwidthTracker>>,
-    ) {
-        let mut swarm_guard = swarm.write().await;
-        if let Some(swarm) = swarm_guard.as_mut() {
-            // Serialize the message
-            let encoded = match bincode::serialize(&message) {
-                Ok(data) => data,
-                Err(e) => {
-                    warn!("Failed to serialize message: {}", e);
-                    return;
-                }
-            };
-            
-            // Determine the topic
-            let topic_name = match &message {
-                Message::Block { .. } | Message::NewBlock { .. } => "blocks",
-                Message::Transaction { .. } => "transactions",
-                Message::GetHeaders { .. } | Message::Headers { .. } => "headers",
-                Message::Status { .. } | Message::GetStatus => "status",
-                Message::GetMempool { .. } | Message::Mempool { .. } => "mempool",
-                _ => "status", // Default
-            };
-            
-            let topic = gossipsub::IdentTopic::new(topic_name.to_string());
-            
-            // Publish the message
-            match swarm.behaviour_mut().gossipsub.publish(topic, encoded.clone()) {
-                Ok(msg_id) => {
-                    debug!("Published message with ID: {:?}", msg_id);
-                    let mut stats_guard = stats.write().await;
-                    stats_guard.messages_sent += 1;
-                    
-                    let mut bandwidth_guard = bandwidth_tracker.write().await;
-                    bandwidth_guard.record_sent(encoded.len() as u64);
-                }
-                Err(e) => {
-                    warn!("Failed to publish message: {}", e);
-                }
-            }
-        }
-    }
-    
-    /// Send a message to a specific peer (static version)
-    async fn send_to_peer_static(
-        peer_id: PeerId,
-        message: Message,
-        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
-        stats: &Arc<RwLock<NetworkStats>>,
-        bandwidth_tracker: &Arc<RwLock<BandwidthTracker>>,
-    ) {
-        // For now, we'll broadcast the message since direct peer messaging
-        // requires a different protocol setup
-        debug!("Sending message to peer {} (via broadcast)", peer_id);
-        Self::broadcast_message_static(message, swarm, stats, bandwidth_tracker).await;
-    }
-    
-    /// Handle swarm events (static version)
-    async fn handle_swarm_event_static<THandlerErr>(
-        event: SwarmEvent<SupernovaBehaviourEvent, THandlerErr>,
-        event_sender: &mpsc::Sender<NetworkEvent>,
-        stats: &Arc<RwLock<NetworkStats>>,
-        connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
-        bandwidth_tracker: &Arc<RwLock<BandwidthTracker>>,
-    ) where THandlerErr: std::fmt::Display + std::fmt::Debug {
-        match event {
-            SwarmEvent::Behaviour(SupernovaBehaviourEvent::Gossipsub(GossipsubEvent::Message { 
-                propagation_source,
-                message_id,
-                message,
-            })) => {
-                // Deserialize the message
-                match bincode::deserialize::<Message>(&message.data) {
-                    Ok(msg) => {
-                        // Process the message
-                        let mut stats_guard = stats.write().await;
-                        stats_guard.messages_received += 1;
-                        drop(stats_guard);
-                        
-                        let mut bandwidth_guard = bandwidth_tracker.write().await;
-                        bandwidth_guard.record_received(message.data.len() as u64);
-                        drop(bandwidth_guard);
-                        
-                        Self::handle_protocol_message_static(
-                            &propagation_source,
-                            msg,
-                            event_sender,
-                            stats,
-                        ).await;
-                    }
-                    Err(e) => {
-                        warn!("Failed to deserialize message from {}: {}", propagation_source, e);
-                        let mut stats_guard = stats.write().await;
-                        stats_guard.invalid_messages += 1;
-                    }
-                }
-            }
-            SwarmEvent::NewListenAddr { address, .. } => {
-                info!("Listening on {}", address);
-                let _ = event_sender.send(NetworkEvent::Listening(address)).await;
-            }
-            SwarmEvent::ConnectionEstablished { 
-                peer_id, 
-                endpoint, 
-                ..
-            } => {
-                info!("Connected to {}", peer_id);
-                
-                // Extract IP address from endpoint
-                let ip_address = match &endpoint {
-                    ConnectedPoint::Dialer { address, .. } => {
-                        extract_ip_from_multiaddr(address)
-                    }
-                    ConnectedPoint::Listener { send_back_addr, .. } => {
-                        extract_ip_from_multiaddr(send_back_addr)
-                    }
+            NetworkCommand::RequestHeaders { start_height, end_height, preferred_peer } => {
+                let message = Message::GetHeaders {
+                    start_height,
+                    end_height,
                 };
                 
-                // Create peer info
-                let is_inbound = matches!(endpoint, ConnectedPoint::Listener { .. });
-                let peer_info = PeerInfo {
-                    peer_id: peer_id.clone(),
-                    addresses: vec![], // Will be populated later
-                    state: PeerState::Connected,
-                    is_inbound,
-                    protocol_version: Some(1),
-                    user_agent: Some("supernova/1.0.0".to_string()),
-                    height: Some(0),
-                    best_hash: None,
-                    ping_ms: None,
-                    last_seen: Instant::now(),
-                    reputation: 100,
-                    first_seen: Instant::now(),
-                    failed_attempts: 0,
-                    total_difficulty: None,
-                    network_info: None,
-                    verified: false,
-                    metadata: PeerMetadata::default(),
+                if let Some(peer_id) = preferred_peer {
+                    Self::handle_command_with_channels(
+                        NetworkCommand::SendToPeer {
+                            peer_id,
+                            message,
+                        },
+                        swarm_cmd_tx,
+                        event_sender,
+                        stats,
+                        connected_peers,
+                        bandwidth_tracker,
+                    ).await;
+                } else {
+                    Self::handle_command_with_channels(
+                        NetworkCommand::Broadcast(message),
+                        swarm_cmd_tx,
+                        event_sender,
+                        stats,
+                        connected_peers,
+                        bandwidth_tracker,
+                    ).await;
+                }
+            }
+            
+            NetworkCommand::RequestBlocks { block_hashes, preferred_peer } => {
+                let message = Message::GetBlocksByHash { block_hashes };
+                
+                if let Some(peer_id) = preferred_peer {
+                    Self::handle_command_with_channels(
+                        NetworkCommand::SendToPeer {
+                            peer_id,
+                            message,
+                        },
+                        swarm_cmd_tx,
+                        event_sender,
+                        stats,
+                        connected_peers,
+                        bandwidth_tracker,
+                    ).await;
+                } else {
+                    Self::handle_command_with_channels(
+                        NetworkCommand::Broadcast(message),
+                        swarm_cmd_tx,
+                        event_sender,
+                        stats,
+                        connected_peers,
+                        bandwidth_tracker,
+                    ).await;
+                }
+            }
+            
+            NetworkCommand::RequestBlocksByHeight { start_height, end_height, preferred_peer } => {
+                let message = Message::GetBlocksByHeight {
+                    start_height,
+                    end_height,
                 };
                 
-                // Store peer info
-                connected_peers.write().await.insert(peer_id.clone(), peer_info.clone());
-                
-                // Notify about the new peer
-                let _ = event_sender.send(NetworkEvent::PeerConnected(peer_info)).await;
-                
-                // Update statistics
-                let mut stats_guard = stats.write().await;
-                stats_guard.peers_connected += 1;
-                if endpoint.is_dialer() {
-                    stats_guard.outbound_connections += 1;
+                if let Some(peer_id) = preferred_peer {
+                    Self::handle_command_with_channels(
+                        NetworkCommand::SendToPeer {
+                            peer_id,
+                            message,
+                        },
+                        swarm_cmd_tx,
+                        event_sender,
+                        stats,
+                        connected_peers,
+                        bandwidth_tracker,
+                    ).await;
                 } else {
-                    stats_guard.inbound_connections += 1;
-                }
-                stats_guard.connection_attempts += 1;
-            }
-            SwarmEvent::ConnectionClosed { 
-                peer_id, 
-                cause, 
-                ..
-            } => {
-                info!("Disconnected from {}: {:?}", peer_id, cause);
-                
-                // Remove peer info
-                connected_peers.write().await.remove(&peer_id);
-                
-                // Notify about the disconnected peer
-                let _ = event_sender.send(NetworkEvent::PeerDisconnected(peer_id)).await;
-                
-                // Update statistics
-                let mut stats_guard = stats.write().await;
-                stats_guard.peers_connected = stats_guard.peers_connected.saturating_sub(1);
-            }
-            SwarmEvent::OutgoingConnectionError { 
-                peer_id, 
-                error, 
-                ..
-            } => {
-                if let Some(peer_id) = peer_id {
-                    warn!("Failed to connect to {}: {}", peer_id, error);
-                } else {
-                    warn!("Failed to connect: {}", error);
-                }
-                
-                let _ = event_sender.send(NetworkEvent::Error {
-                    peer_id,
-                    error: format!("Connection failed: {}", error),
-                }).await;
-            }
-            // Other events would be handled in a full implementation
-            _ => {}
-        }
-    }
-    
-    /// Handle a protocol message (static version)
-    async fn handle_protocol_message_static(
-        peer_id: &PeerId,
-        message: Message,
-        event_sender: &mpsc::Sender<NetworkEvent>,
-        stats: &Arc<RwLock<NetworkStats>>,
-    ) {
-        match message {
-            Message::NewBlock { block_data, height, total_difficulty } => {
-                debug!("Received new block at height {} from {}", height, peer_id);
-                
-                let mut stats_guard = stats.write().await;
-                stats_guard.blocks_received += 1;
-                drop(stats_guard);
-                
-                // Try to deserialize the block
-                match bincode::deserialize::<Block>(&block_data) {
-                    Ok(block) => {
-                        // Notify about the new block
-                        let _ = event_sender.send(NetworkEvent::NewBlock {
-                            block,
-                            height,
-                            total_difficulty,
-                            from_peer: Some(peer_id.clone()),
-                        }).await;
-                    }
-                    Err(e) => {
-                        warn!("Failed to deserialize block from {}: {}", peer_id, e);
-                        let mut stats_guard = stats.write().await;
-                        stats_guard.invalid_messages += 1;
-                    }
+                    Self::handle_command_with_channels(
+                        NetworkCommand::Broadcast(message),
+                        swarm_cmd_tx,
+                        event_sender,
+                        stats,
+                        connected_peers,
+                        bandwidth_tracker,
+                    ).await;
                 }
             }
-            Message::Transaction { transaction } => {
-                debug!("Received transaction from {}", peer_id);
-                
-                let mut stats_guard = stats.write().await;
-                stats_guard.transactions_announced += 1;
-                drop(stats_guard);
-                
-                // Try to deserialize the transaction
-                match bincode::deserialize::<Transaction>(&transaction) {
-                    Ok(tx) => {
-                        // Notify about the new transaction
-                        let _ = event_sender.send(NetworkEvent::NewTransaction {
-                            transaction: tx,
-                            fee_rate: 0, // Would be calculated in a real implementation
-                            from_peer: Some(peer_id.clone()),
-                        }).await;
-                    }
-                    Err(e) => {
-                        warn!("Failed to deserialize transaction from {}: {}", peer_id, e);
-                        let mut stats_guard = stats.write().await;
-                        stats_guard.invalid_messages += 1;
-                    }
-                }
-            }
-            Message::Headers { headers, total_difficulty } => {
-                debug!("Received {} headers from {}", headers.len(), peer_id);
-                
-                let mut stats_guard = stats.write().await;
-                stats_guard.headers_received += 1;
-                drop(stats_guard);
-                
-                // Try to deserialize the headers
-                let mut deserialized_headers = Vec::new();
-                for header_data in headers {
-                    match bincode::deserialize::<BlockHeader>(&header_data) {
-                        Ok(header) => {
-                            deserialized_headers.push(header);
-                        }
-                        Err(e) => {
-                            warn!("Failed to deserialize header from {}: {}", peer_id, e);
-                            let mut stats_guard = stats.write().await;
-                            stats_guard.invalid_messages += 1;
-                        }
-                    }
-                }
-                
-                // Notify about the headers
-                if !deserialized_headers.is_empty() {
-                    let _ = event_sender.send(NetworkEvent::BlockHeaders {
-                        headers: deserialized_headers,
-                        total_difficulty,
-                        from_peer: Some(peer_id.clone()),
-                    }).await;
-                }
-            }
-            Message::Status { version, height, best_hash, total_difficulty, head_timestamp } => {
-                debug!("Received status from {}: height={}, total_difficulty={}", 
-                      peer_id, height, total_difficulty);
-                
-                // Notify about the peer status
-                let _ = event_sender.send(NetworkEvent::PeerStatus {
-                    peer_id: peer_id.clone(),
+            
+            NetworkCommand::AnnounceStatus { version, height, best_hash, total_difficulty } => {
+                let message = Message::Status {
                     version,
                     height,
                     best_hash,
                     total_difficulty,
-                }).await;
-            }
-            _ => {
-                // Handle other message types
-                debug!("Received message from {}: {:?}", peer_id, message);
+                    head_timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                };
                 
-                let _ = event_sender.send(NetworkEvent::MessageReceived {
-                    peer_id: peer_id.clone(),
-                    message,
-                }).await;
+                Self::handle_command_with_channels(
+                    NetworkCommand::Broadcast(message),
+                    swarm_cmd_tx,
+                    event_sender,
+                    stats,
+                    connected_peers,
+                    bandwidth_tracker,
+                ).await;
+            }
+            
+            NetworkCommand::BanPeer { peer_id, reason, duration } => {
+                connected_peers.write().await.remove(&peer_id);
+                let _ = event_sender.send(NetworkEvent::PeerBanned(peer_id)).await;
+            }
+            
+            NetworkCommand::AddTrustedPeer(peer_id) => {
+                let _ = event_sender.send(NetworkEvent::PeerAddedToTrusted(peer_id)).await;
+            }
+            
+            NetworkCommand::RemoveTrustedPeer(peer_id) => {
+                let _ = event_sender.send(NetworkEvent::PeerRemovedFromTrusted(peer_id)).await;
+            }
+            
+            NetworkCommand::Start => {
+                let _ = event_sender.send(NetworkEvent::Started).await;
+            }
+            
+            NetworkCommand::Stop => {
+                let _ = event_sender.send(NetworkEvent::Stopped).await;
+            }
+            
+            _ => {
+                // Handle other commands as needed
+                debug!("Unhandled network command: {:?}", cmd);
+            }
+        }
+    }
+    
+    /// Handle wrapped swarm events
+    async fn handle_wrapped_swarm_event(
+        event: SwarmEventWrapper,
+        event_sender: &mpsc::Sender<NetworkEvent>,
+        stats: &Arc<RwLock<NetworkStats>>,
+        connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
+        bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
+    ) {
+        match event {
+            SwarmEventWrapper::ConnectionEstablished { peer_id, endpoint } => {
+                let peer_info = PeerInfo {
+                    peer_id,
+                    state: PeerState::Connected,
+                    addresses: vec![],
+                    first_seen: Instant::now(),
+                    last_seen: Instant::now(),
+                    is_inbound: true, // We'll assume inbound for now
+                    protocol_version: None,
+                    user_agent: None,
+                    height: None,
+                    best_hash: None,
+                    total_difficulty: None,
+                    network_info: None,
+                    reputation: 0,
+                    failed_attempts: 0,
+                    ping_ms: None,
+                    verified: false,
+                    metadata: peer::PeerMetadata::default(),
+                };
+                
+                connected_peers.write().await.insert(peer_id, peer_info.clone());
+                stats.write().await.peers_connected += 1;
+                
+                let _ = event_sender.send(NetworkEvent::PeerConnected(peer_info)).await;
+                info!("Peer connected: {} at {}", peer_id, endpoint);
+            }
+            SwarmEventWrapper::ConnectionClosed { peer_id } => {
+                connected_peers.write().await.remove(&peer_id);
+                stats.write().await.peers_connected = stats.write().await.peers_connected.saturating_sub(1);
+                
+                let _ = event_sender.send(NetworkEvent::PeerDisconnected(peer_id)).await;
+                info!("Peer disconnected: {}", peer_id);
+            }
+            SwarmEventWrapper::IncomingConnection { local_addr } => {
+                debug!("Incoming connection on {}", local_addr);
+            }
+            SwarmEventWrapper::Message { peer_id, topic, data } => {
+                // Update stats
+                stats.write().await.messages_received += 1;
+                stats.write().await.bytes_received += data.len() as u64;
+                
+                // Track bandwidth
+                bandwidth_tracker.lock().unwrap().record_received(data.len());
+                
+                // Update peer info
+                if let Some(peer_info) = connected_peers.write().await.get_mut(&peer_id) {
+                    peer_info.metadata.transactions_received += 1;
+                    peer_info.last_seen = Instant::now();
+                }
+                
+                // Deserialize and forward the message
+                if let Ok(message) = bincode::deserialize::<Message>(&data) {
+                    let _ = event_sender.send(NetworkEvent::MessageReceived {
+                        peer_id,
+                        message,
+                    }).await;
+                }
+            }
+            SwarmEventWrapper::Discovered { peers } => {
+                for peer_id in peers {
+                    debug!("Discovered peer: {}", peer_id);
+                }
             }
         }
     }
@@ -1149,104 +1072,33 @@ impl P2PNetwork {
     
     /// Enable or disable identity verification requirement
     pub fn set_require_verification(&mut self, require: bool) {
-        self.require_verification = require;
+        self.require_identity_verification = require;
         info!("Identity verification requirement {}", if require { "enabled" } else { "disabled" });
     }
     
     /// Generate a new identity verification challenge for a peer
     pub async fn generate_challenge(&self, peer_id: &PeerId) -> IdentityChallenge {
-        // Generate 32 bytes of random data
-        let mut challenge_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut challenge_bytes);
+        // Use the identity verification system to create a challenge
+        let challenge = self.identity_system.create_challenge(peer_id).await;
         
-        // Create challenge
-        let challenge = IdentityChallenge {
-            challenge: challenge_bytes.to_vec(),
-            difficulty: self.challenge_difficulty,
-            issued_at: Instant::now(),
-            timeout: Duration::from_secs(CHALLENGE_TIMEOUT_SECS),
-        };
-        
-        // Store challenge
-        self.identity_challenges.write().await.insert(peer_id.clone(), challenge.clone());
-        
-        // Update verification status
-        self.verification_status.write().await.insert(
-            peer_id.clone(), 
-            IdentityVerificationStatus::ChallengeIssued(Instant::now())
-        );
-        
-        debug!("Generated identity challenge for peer {}", peer_id);
-        challenge
+        // Convert to our IdentityChallenge type
+        IdentityChallenge {
+            challenge: challenge.nonce.to_vec(),
+            difficulty: challenge.difficulty,
+            issued_at: challenge.created_at,
+            timeout: challenge.expires_in,
+        }
     }
     
     /// Verify a challenge response
     pub async fn verify_challenge(&self, peer_id: &PeerId, solution: &[u8]) -> bool {
-        // Get the challenge
-        let challenge = {
-            let challenges = self.identity_challenges.read().await;
-            challenges.get(peer_id).cloned()
-        };
-        
-        let challenge = match challenge {
-            Some(c) => c,
-            None => {
-                warn!("No challenge found for peer {}", peer_id);
-                return false;
-            }
-        };
-        
-        // Check if challenge has expired
-        if challenge.issued_at.elapsed() > challenge.timeout {
-            warn!("Challenge for peer {} has expired", peer_id);
-            self.verification_status.write().await.insert(
-                peer_id.clone(),
-                IdentityVerificationStatus::VerificationFailed("Challenge expired".to_string())
-            );
-            return false;
-        }
-        
-        // Verify the solution (hash of challenge + solution should have required leading zeros)
-        let mut hasher = Sha256::new();
-        hasher.update(&challenge.challenge);
-        hasher.update(solution);
-        let hash = hasher.finalize();
-        
-        // Count leading zero bits
-        let leading_zeros = count_leading_zero_bits(&hash);
-        let success = leading_zeros >= challenge.difficulty;
-        
-        // Update verification status
-        if success {
-            debug!("Peer {} passed identity verification challenge", peer_id);
-            self.verification_status.write().await.insert(
-                peer_id.clone(),
-                IdentityVerificationStatus::Verified(Instant::now())
-            );
-            
-            // Remove challenge
-            self.identity_challenges.write().await.remove(peer_id);
-        } else {
-            warn!("Peer {} failed identity verification challenge", peer_id);
-            self.verification_status.write().await.insert(
-                peer_id.clone(),
-                IdentityVerificationStatus::VerificationFailed(
-                    format!("Insufficient difficulty: got {} bits, required {}", 
-                           leading_zeros, challenge.difficulty)
-                )
-            );
-        }
-        
-        success
+        // Use the identity verification system to verify the challenge
+        self.identity_system.verify_challenge(peer_id, solution).await
     }
     
     /// Check if a peer has been verified
     pub async fn is_peer_verified(&self, peer_id: &PeerId) -> bool {
-        let status = self.verification_status.read().await;
-        match status.get(peer_id) {
-            Some(IdentityVerificationStatus::Verified(_)) => true,
-            _ => false,
-        }
+        self.identity_system.is_verified(peer_id).await
     }
 
     /// Get network information for API
@@ -1269,12 +1121,12 @@ impl P2PNetwork {
         let listening = !listening_addresses.is_empty();
         
         let rates = {
-            let bandwidth = self.bandwidth_tracker.read().await;
-            bandwidth.get_rates(1)
+            let bandwidth = self.bandwidth_tracker.lock().unwrap().get_rates(1);
+            (bandwidth.0, bandwidth.1)
         };
         
         let (bytes_sent, bytes_received) = {
-            let bandwidth = self.bandwidth_tracker.read().await;
+            let bandwidth = self.bandwidth_tracker.lock().unwrap();
             (bandwidth.bytes_sent, bandwidth.bytes_received)
         };
         
@@ -1312,7 +1164,7 @@ impl P2PNetwork {
     
     /// Get peers for API
     pub async fn get_peers(&self) -> Result<Vec<crate::api::types::PeerInfo>, Box<dyn Error>> {
-        let peers = self.peer_manager.get_connected_peers();
+        let peers = self.peer_manager.get_connected_peers().await;
         
         let mut api_peers = Vec::new();
         for peer_info in peers {
@@ -1449,7 +1301,7 @@ impl P2PNetwork {
     
     /// Get bandwidth usage for API
     pub async fn get_bandwidth_usage(&self, period: u64) -> Result<BandwidthUsage, Box<dyn Error>> {
-        let bandwidth = self.bandwidth_tracker.read().await;
+        let bandwidth = self.bandwidth_tracker.lock().unwrap();
         let (upload_rate, download_rate) = bandwidth.get_rates(period);
         
         Ok(BandwidthUsage {
@@ -1545,15 +1397,52 @@ impl P2PNetwork {
     
     /// Handle incoming pong
     pub async fn handle_pong(&self, peer_id: &PeerId, nonce: u64) {
-        // Update peer latency information
-        // In a full implementation, we would track ping times
-        debug!("Received pong from {} with nonce {}", peer_id, nonce);
-        
-        // Update last seen time
-        let mut connected_peers = self.connected_peers.write().await;
-        if let Some(peer_info) = connected_peers.get_mut(peer_id) {
+        // Update peer latency
+        if let Some(peer_info) = self.connected_peers.write().await.get_mut(peer_id) {
+            // In a real implementation, we'd calculate latency based on ping timestamp
+            peer_info.ping_ms = Some(50); // Placeholder
             peer_info.last_seen = Instant::now();
-            // TODO: Calculate and store ping time
+        }
+        
+        debug!("Received pong from {} with nonce {}", peer_id, nonce);
+    }
+    
+    /// Static method to broadcast a message
+    async fn broadcast_message_static(
+        message: Message,
+        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
+        stats: &Arc<RwLock<NetworkStats>>,
+        bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
+    ) {
+        // In the channel-based architecture, we can't directly access the swarm
+        // This is a placeholder implementation
+        debug!("Broadcasting message: {:?}", message);
+        
+        // Update stats
+        if let Ok(data) = bincode::serialize(&message) {
+            stats.write().await.messages_sent += 1;
+            stats.write().await.bytes_sent += data.len() as u64;
+            bandwidth_tracker.lock().unwrap().record_sent(data.len());
+        }
+    }
+    
+    /// Static method to send a message to a specific peer
+    async fn send_to_peer_static(
+        peer_id: PeerId,
+        message: Message,
+        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
+        stats: &Arc<RwLock<NetworkStats>>,
+        bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
+    ) {
+        // In the channel-based architecture, we can't directly access the swarm
+        // This is a placeholder implementation
+        debug!("Sending message to {}: {:?}", peer_id, message);
+        
+        // Update stats
+        if let Ok(data) = bincode::serialize(&message) {
+            stats.write().await.messages_sent += 1;
+            stats.write().await.bytes_sent += data.len() as u64;
+            bandwidth_tracker.lock().unwrap().record_sent(data.len());
         }
     }
     
@@ -1684,49 +1573,59 @@ impl P2PNetwork {
     pub async fn perform_peer_rotation(&self) -> Result<(), Box<dyn Error>> {
         info!("Starting peer rotation for eclipse prevention");
         
-        // Check if rotation is needed
-        if !self.eclipse_prevention.check_rotation_needed().await {
-            debug!("Peer rotation not needed at this time");
-            return Ok(());
-        }
+        // Get current peer count
+        let peer_count = self.get_peer_count().await;
         
-        // Get peers to disconnect
-        let rotation_candidates = self.eclipse_prevention.get_rotation_candidates().await;
-        info!("Rotating {} peers", rotation_candidates.len());
-        
-        // Disconnect selected peers
-        if let Some(sender) = self.command_sender.read().await.as_ref() {
-            for peer_id in rotation_candidates {
+        // Simple rotation logic: if we have too many peers, disconnect some
+        if peer_count > 50 {
+            // Get peers to disconnect (lowest scores)
+            let peers_to_disconnect = self.peer_manager.get_peers_to_disconnect(5).await;
+            
+            info!("Rotating {} peers", peers_to_disconnect.len());
+            
+            // Disconnect selected peers
+            for peer_id in peers_to_disconnect {
                 info!("Disconnecting peer {} for rotation", peer_id);
-                sender.send(NetworkCommand::DisconnectPeer(peer_id)).await?;
+                if let Err(e) = self.disconnect_from_peer(&peer_id).await {
+                    warn!("Failed to disconnect peer {}: {}", peer_id, e);
+                }
             }
         }
-        
-        // Connect to new diverse peers
-        // In production, this would use peer discovery to find new peers
-        // that improve network diversity
         
         Ok(())
     }
     
     /// Get eclipse attack risk level
     pub async fn get_eclipse_risk_level(&self) -> EclipseRiskLevel {
-        self.eclipse_prevention.get_eclipse_risk_level().await
+        // Simple risk assessment based on network diversity
+        let connected_peers = self.connected_peers.read().await;
+        let diversity = self.calculate_network_diversity(&connected_peers).await;
+        
+        if diversity < 0.3 {
+            EclipseRiskLevel::High
+        } else if diversity < 0.6 {
+            EclipseRiskLevel::Medium
+        } else {
+            EclipseRiskLevel::Low
+        }
     }
     
     /// Handle identity challenge response
     pub async fn handle_identity_challenge_response(&self, peer_id: &PeerId, solution: &[u8]) -> bool {
-        self.eclipse_prevention.verify_pow_challenge(peer_id, solution).await
+        self.identity_system.verify_challenge(peer_id, solution).await
     }
     
     /// Update peer behavior score based on actions
     pub async fn update_peer_behavior(&self, peer_id: &PeerId, delta: f64) {
-        self.eclipse_prevention.update_behavior_score(peer_id, delta).await;
+        if let Err(e) = self.peer_manager.update_peer_score(peer_id, delta).await {
+            warn!("Failed to update peer score: {}", e);
+        }
     }
     
     /// Record peer advertisements for eclipse detection
     pub async fn record_peer_advertisements(&self, from_peer: PeerId, advertised_peers: Vec<PeerId>) {
-        self.eclipse_prevention.record_peer_advertisement(from_peer, advertised_peers).await;
+        // Simple implementation: just log for now
+        debug!("Peer {} advertised {} peers", from_peer, advertised_peers.len());
     }
     
     /// Check if an incoming connection should be allowed
@@ -1756,47 +1655,36 @@ impl P2PNetwork {
     
     /// Configure rate limiting
     pub async fn configure_rate_limiting(&mut self, config: RateLimitConfig) {
-        self.rate_limiter = Arc::new(NetworkRateLimiter::new(config));
+        self.rate_limiter = Arc::new(RateLimiter::new(config));
     }
     
     /// Create P2P network instance for compatibility
     pub fn new_simple() -> Self {
         let (event_sender, _) = mpsc::channel(1);
+        let storage: Arc<dyn crate::storage::Storage> = Arc::new(crate::storage::MemoryStorage::new());
         
         Self {
-            swarm: Arc::new(RwLock::new(None)),
             local_peer_id: PeerId::random(),
-            protocol: Protocol::new(identity::Keypair::generate_ed25519()).unwrap(),
-            command_sender: Arc::new(RwLock::new(None)),
-            command_receiver: Arc::new(RwLock::new(None)),
-            event_sender,
-            peer_manager: Arc::new(PeerManager::new()),
-            connection_manager: Arc::new(RwLock::new(ConnectionManager::new(
-                Arc::new(PeerManager::new()),
-                Arc::new(PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 10)),
-                MAX_INBOUND_CONNECTIONS,
-                MAX_OUTBOUND_CONNECTIONS,
-            ))),
-            diversity_manager: Arc::new(PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 10)),
-            eclipse_prevention: Arc::new(EclipsePreventionSystem::new(EclipsePreventionConfig::default())),
-            rate_limiter: Arc::new(NetworkRateLimiter::new(RateLimitConfig::default())),
-            message_handler: MessageHandler::new(),
-            discovery: Arc::new(RwLock::new(None)),
-            stats: Arc::new(RwLock::new(NetworkStats::default())),
-            genesis_hash: [0; 32],
-            network_id: "supernova".to_string(),
+            swarm: Arc::new(RwLock::new(None)),
+            swarm_cmd_tx: Arc::new(RwLock::new(None)),
             bootstrap_nodes: Vec::new(),
-            trusted_peers: Arc::new(RwLock::new(HashSet::new())),
-            network_task: Arc::new(RwLock::new(None)),
+            event_sender,
+            command_receiver: Arc::new(RwLock::new(None)),
+            stats: Arc::new(RwLock::new(NetworkStats::default())),
             running: Arc::new(RwLock::new(false)),
-            identity_challenges: Arc::new(RwLock::new(HashMap::new())),
-            verification_status: Arc::new(RwLock::new(HashMap::new())),
-            challenge_difficulty: DEFAULT_CHALLENGE_DIFFICULTY,
-            require_verification: true,
             connected_peers: Arc::new(RwLock::new(HashMap::new())),
+            discovery: Arc::new(RwLock::new(None)),
+            network_task: Arc::new(RwLock::new(None)),
+            bandwidth_tracker: Arc::new(Mutex::new(BandwidthTracker::new())),
+            rate_limiter: Arc::new(RateLimiter::new(RateLimitConfig::default())),
             banned_peers: Arc::new(RwLock::new(HashMap::new())),
-            message_routes: Arc::new(RwLock::new(HashMap::new())),
-            bandwidth_tracker: Arc::new(RwLock::new(BandwidthTracker::new())),
+            trusted_peers: Arc::new(RwLock::new(HashSet::new())),
+            network_id: "supernova".to_string(),
+            peer_manager: Arc::new(PeerManager::new(storage.clone(), ConnectionLimits::default())),
+            challenge_difficulty: DEFAULT_CHALLENGE_DIFFICULTY,
+            require_identity_verification: true,
+            identity_system: Arc::new(IdentityVerificationSystem::new(DEFAULT_CHALLENGE_DIFFICULTY, true)),
+            storage,
         }
     }
     
@@ -1835,7 +1723,10 @@ impl P2PNetwork {
     
     /// Broadcast a transaction to all peers
     pub fn broadcast_transaction(&self, tx: &Transaction) {
-        let message = Message::Transaction(tx.clone());
+        let tx_bytes = bincode::serialize(tx).unwrap_or_default();
+        let message = Message::Transaction {
+            transaction: tx_bytes,
+        };
         
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
@@ -1894,7 +1785,7 @@ fn build_transport(
     let noise = noise::Config::new(&id_keys)?;
     let yamux_config = yamux::Config::default();
 
-    let transport = tcp::Transport::new(tcp::Config::default().nodelay(true))
+    let transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true))
         .upgrade(upgrade::Version::V1)
         .authenticate(noise)
         .multiplex(yamux_config)
@@ -1962,7 +1853,7 @@ fn solve_pow_challenge(challenge: &[u8], difficulty: u8) -> Vec<u8> {
     loop {
         // Convert nonce to bytes
         let mut nonce_bytes = [0u8; 8];
-        BigEndian::write_u64(&mut nonce_bytes, nonce);
+        nonce_bytes.as_mut().write_u64::<BigEndian>(nonce).unwrap();
         
         // Hash challenge + nonce
         let mut hasher = Sha256::new();

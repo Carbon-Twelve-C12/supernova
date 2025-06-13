@@ -80,10 +80,10 @@ impl BackupMetrics {
 
     /// Record verification
     pub fn record_verification(duration_secs: f64, success: bool) {
-        histogram!("backup_verification_duration_seconds").record(duration_secs);
+        histogram!("backup_verification_duration_seconds", duration_secs);
         
         if !success {
-            counter!("backup_verification_failures_total").increment(1);
+            counter!("backup_verification_failures_total", 1);
         }
     }
 }
@@ -138,24 +138,8 @@ pub fn init_metrics() -> Result<(), Box<dyn std::error::Error>> {
     
     Ok(())
 }
-
-/// Helper to increment a counter
-pub fn increment_counter(name: &str, value: u64) {
-    counter!(name).increment(value);
-}
-
-/// Helper to set a gauge
-pub fn set_gauge(name: &str, value: f64) {
-    gauge!(name).set(value);
-}
-
-/// Helper to record a histogram value
-pub fn record_histogram(name: &str, value: f64) {
-    histogram!(name).record(value);
-}
-
 /// API metrics for tracking API performance
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ApiMetrics {
     /// Total API requests
     pub total_requests: metrics::Counter,

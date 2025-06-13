@@ -1,6 +1,8 @@
 pub mod connection;
 pub mod message;
 pub mod peer;
+pub mod peer_manager;
+pub mod identity_verification;
 pub mod protocol;
 pub mod sync;
 pub mod peer_diversity;
@@ -497,10 +499,10 @@ impl MessageSizeHint for ProtocolMessage {
             ProtocolMessage::Ping(_) => 8,
             ProtocolMessage::Pong(_) => 8,
             ProtocolMessage::GetHeaders { .. } => 32,
-            ProtocolMessage::Headers(_) => 1024, // Estimate
+            ProtocolMessage::Headers { headers, .. } => headers.len() as u64 * 80, // 80 bytes per header
             ProtocolMessage::GetBlocks(_) => 256,
             ProtocolMessage::Block(_) => 1024 * 1024, // 1MB estimate
-            ProtocolMessage::Transaction { transaction: _ } => 512, // 512 bytes estimate
+            ProtocolMessage::Transaction { transaction } => transaction.len() as u64, // 512 bytes estimate
             ProtocolMessage::GetData(_) => 256,
             _ => 64, // Default estimate
         }

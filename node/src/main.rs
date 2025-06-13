@@ -41,10 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Load configuration
-    let config = NodeConfig::load_from_file(&args.config)
-        .unwrap_or_else(|_| {
-            info!("Using default configuration");
-            NodeConfig::default()
+    let config = NodeConfig::load()
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to load configuration: {}", e);
+            std::process::exit(1);
         });
     
     // Check if this is a testnet deployment

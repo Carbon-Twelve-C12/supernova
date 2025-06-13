@@ -1,6 +1,7 @@
 use super::{NOVA_BLOCK_REWARD, HALVING_INTERVAL, MAX_HALVINGS, ENV_BONUS_RENEWABLE, ENV_BONUS_EFFICIENCY, ENV_BONUS_MAX_TOTAL};
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnvironmentalProfile {
     pub renewable_percentage: f64,  // 0.0 to 1.0
     pub efficiency_score: f64,      // 0.0 to 1.0

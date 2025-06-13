@@ -233,7 +233,7 @@ pub struct NetworkRateLimiter {
 }
 
 /// Rate limiting metrics
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RateLimitMetrics {
     pub total_requests: u64,
     pub rejected_requests: u64,
@@ -430,6 +430,23 @@ impl NetworkRateLimiter {
         
         debug!("Rate limiter cleanup completed");
     }
+
+    /// Get current rate limit metrics as JSON
+    pub fn get_metrics_json(&self) -> serde_json::Value {
+        let metrics = self.metrics.read().unwrap();
+        serde_json::json!({
+            "total_requests": metrics.total_requests,
+            "rejected_requests": metrics.rejected_requests,
+            "active_connections": metrics.active_connections,
+            "rate_limited_peers": metrics.rate_limited_peers,
+            "peak_connections": metrics.peak_connections,
+            "rejection_rate": if metrics.total_requests > 0 {
+                metrics.rejected_requests as f64 / metrics.total_requests as f64
+            } else {
+                0.0
+            }
+        })
+    }
 }
 
 impl Clone for NetworkRateLimiter {
@@ -463,23 +480,6 @@ impl ConnectionPermit {
     pub fn record_failure(self) {
         self.rate_limiter.record_failure();
     }
-}
-
-/// Get current rate limit metrics
-pub fn get_metrics(&self) -> serde_json::Value {
-    let metrics = self.metrics.read().unwrap();
-    serde_json::json!({
-        "total_requests": metrics.total_requests,
-        "rejected_requests": metrics.rejected_requests,
-        "active_connections": metrics.active_connections,
-        "rate_limited_peers": metrics.rate_limited_peers,
-        "peak_connections": metrics.peak_connections,
-        "rejection_rate": if metrics.total_requests > 0 {
-            metrics.rejected_requests as f64 / metrics.total_requests as f64
-        } else {
-            0.0
-        }
-    })
 }
 
 #[cfg(test)]

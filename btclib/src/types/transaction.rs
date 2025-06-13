@@ -191,6 +191,12 @@ impl TransactionInput {
     pub fn sequence(&self) -> u32 {
         self.sequence
     }
+
+    /// Set the quantum signature for this input
+    pub fn set_quantum_signature(&mut self, signature: Vec<u8>) {
+        // part of witness structure
+        self.signature_script = signature;
+    }
 }
 
 impl TransactionOutput {

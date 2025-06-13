@@ -53,12 +53,12 @@ impl ChainStateNodeMethods for ChainState {
         self.contains_block(hash)
     }
     
-    fn get_block(&self, hash: &[u8; 32]) -> Option<Block> {
+    fn get_block(&self, _hash: &[u8; 32]) -> Option<Block> {
         // This would need to be implemented based on actual ChainState API
         None
     }
     
-    fn get_block_by_height(&self, height: u64) -> Option<Block> {
+    fn get_block_by_height(&self, _height: u64) -> Option<Block> {
         // This would need to be implemented based on actual ChainState API
         None
     }
@@ -73,7 +73,7 @@ impl ChainStateNodeMethods for ChainState {
         0
     }
     
-    fn validate_block(&self, block: &Block) -> bool {
+    fn validate_block(&self, _block: &Block) -> bool {
         // Basic validation - expand as needed
         true
     }
@@ -167,7 +167,7 @@ impl TransactionPoolNodeMethods for TransactionPool {
 /// Extension trait for Arc<TransactionPool> to provide missing methods
 impl TransactionPoolNodeMethods for Arc<TransactionPool> {
     fn get_memory_usage(&self) -> usize {
-        self.as_ref().get_memory_usage()
+        self.as_ref().get_memory_usage().try_into().unwrap()
     }
     
     fn size_in_bytes(&self) -> usize {

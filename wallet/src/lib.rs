@@ -7,6 +7,7 @@ pub mod cli;
 use std::path::PathBuf;
 use thiserror::Error;
 use bitcoin::network::Network;
+use btclib::storage::utxo_set::UtxoSet;
 
 pub use core::Wallet;
 pub use hdwallet::{HDWallet, HDAddress, AccountType};
@@ -28,6 +29,7 @@ pub enum WalletError {
 pub struct WalletManager {
     hd_wallet: HDWallet,
     transaction_history: TransactionHistory,
+    utxo_set: UtxoSet,
 }
 
 impl WalletManager {
@@ -35,12 +37,14 @@ impl WalletManager {
         let wallet_path = wallet_dir.join("wallet.json");
         let history_path = wallet_dir.join("history.json");
 
+        let utxo_set = UtxoSet::new_in_memory(1000);
         let hd_wallet = HDWallet::new(network, wallet_path)?;
         let transaction_history = TransactionHistory::new(history_path)?;
 
         Ok(Self {
             hd_wallet,
             transaction_history,
+            utxo_set,
         })
     }
 
@@ -50,10 +54,12 @@ impl WalletManager {
 
         let hd_wallet = HDWallet::load(wallet_path)?;
         let transaction_history = TransactionHistory::new(history_path)?;
+        let utxo_set = UtxoSet::new_in_memory(1000);
 
         Ok(Self {
             hd_wallet,
             transaction_history,
+            utxo_set,
         })
     }
 
@@ -63,10 +69,12 @@ impl WalletManager {
 
         let hd_wallet = HDWallet::from_mnemonic(mnemonic, network, wallet_path)?;
         let transaction_history = TransactionHistory::new(history_path)?;
+        let utxo_set = UtxoSet::new_in_memory(1000);
 
         Ok(Self {
             hd_wallet,
             transaction_history,
+            utxo_set,
         })
     }
 
@@ -87,11 +95,11 @@ impl WalletManager {
     }
 
     pub fn get_balance(&self, account_name: &str) -> Result<u64, WalletError> {
-        self.hd_wallet.get_balance(account_name).map_err(WalletError::HDWallet)
+        self.hd_wallet.get_balance(account_name, &self.utxo_set).map_err(WalletError::HDWallet)
     }
 
     pub fn get_total_balance(&self) -> Result<u64, WalletError> {
-        self.hd_wallet.get_total_balance().map_err(WalletError::HDWallet)
+        self.hd_wallet.get_total_balance(&self.utxo_set).map_err(WalletError::HDWallet)
     }
 
     pub fn list_accounts(&self) -> Vec<(u32, &hdwallet::HDAccount)> {

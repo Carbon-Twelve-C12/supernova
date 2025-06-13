@@ -202,21 +202,21 @@ pub type ApiResult<T> = Result<T>;
 
 /// Convert common error types to API errors with security considerations
 impl From<std::io::Error> for ApiError {
-    fn from(err: std::io::Error) -> Self {
+    fn from(_err: std::io::Error) -> Self {
         // Don't expose internal I/O error details
         Self::internal_error("Storage operation failed")
     }
 }
 
 impl From<serde_json::Error> for ApiError {
-    fn from(err: serde_json::Error) -> Self {
+    fn from(_err: serde_json::Error) -> Self {
         // Don't expose JSON parsing details that could reveal structure
         Self::bad_request("Invalid request format")
     }
 }
 
 impl From<bincode::Error> for ApiError {
-    fn from(err: bincode::Error) -> Self {
+    fn from(_err: bincode::Error) -> Self {
         // Don't expose serialization details
         Self::internal_error("Data processing error")
     }
@@ -239,6 +239,8 @@ impl From<crate::node::NodeError> for ApiError {
             crate::node::NodeError::LightningError(_) => Self::service_unavailable("Lightning Network unavailable"),
             crate::node::NodeError::IoError(_) => Self::internal_error("I/O operation failed"),
             crate::node::NodeError::General(msg) => Self::internal_error(&msg),
+            crate::node::NodeError::MempoolError(e) => Self::bad_request(&e.to_string()),
+            crate::node::NodeError::TestnetError(e) => Self::bad_request(&e),
         }
     }
 }
@@ -265,7 +267,7 @@ impl Default for SecurityMiddleware {
 
 impl SecurityMiddleware {
     /// Validate request for security compliance
-    pub fn validate_request(&self, request_size: usize, client_ip: &str) -> Result<()> {
+    pub fn validate_request(&self, request_size: usize, _client_ip: &str) -> Result<()> {
         // Check request size limit
         if request_size > self.max_request_size {
             return Err(ApiError::bad_request("Request too large"));

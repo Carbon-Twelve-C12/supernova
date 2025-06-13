@@ -58,7 +58,7 @@ pub struct NodeApiFacade {
     // Core components that need to be accessed by API
     config: Arc<crate::config::NodeConfig>,
     chain_state: Arc<std::sync::RwLock<crate::storage::ChainState>>,
-    blockchain_db: Arc<std::sync::RwLock<crate::storage::BlockchainDB>>,
+    blockchain_db: Arc<crate::storage::BlockchainDB>,
     network: Arc<crate::network::P2PNetwork>,
     mempool: Arc<crate::mempool::TransactionPool>,
     performance_monitor: Arc<crate::metrics::performance::PerformanceMonitor>,
@@ -124,12 +124,12 @@ impl NodeApiFacade {
     }
     
     /// Get node status
-    pub fn get_status(&self) -> Result<crate::api::types::NodeStatus, String> {
+    pub async fn get_status(&self) -> Result<crate::api::types::NodeStatus, String> {
         Ok(crate::api::types::NodeStatus {
             state: if self.is_synced() { "synced".to_string() } else { "syncing".to_string() },
             height: self.get_height(),
             best_block_hash: hex::encode(self.get_best_block_hash()),
-            peer_count: self.network.get_peer_count(),
+            peer_count: self.network.get_peer_count().await,
             mempool_size: self.mempool.size(),
             is_mining: false, // TODO: Get from mining manager
             hashrate: 0, // TODO: Get from mining manager
@@ -164,9 +164,9 @@ impl NodeApiFacade {
     }
     
     /// Get network statistics
-    pub fn get_network_stats(&self) -> serde_json::Value {
+    pub async fn get_network_stats(&self) -> serde_json::Value {
         serde_json::json!({
-            "peer_count": self.network.get_peer_count(),
+            "peer_count": self.network.get_peer_count().await,
             "inbound_connections": 0, // TODO: Get from network manager
             "outbound_connections": 0, // TODO: Get from network manager
             "bytes_sent": 0, // TODO: Get from network manager
