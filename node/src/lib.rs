@@ -4,7 +4,7 @@ pub mod config;
 pub mod environmental;
 pub mod logging;
 pub mod mempool;
-// pub mod miner; // TODO: Implement
+pub mod miner;
 pub mod network;
 pub mod node;
 // pub mod rpc; // TODO: Implement
@@ -25,6 +25,6 @@ pub use crate::storage::{
     BackupManager, BackupOperation, BlockchainDB, ChainState, CheckpointConfig, 
     CheckpointManager, CheckpointType, RecoveryManager, StorageError, UtxoSet
 };
-// pub use crate::mining::{SecureDifficultyAdjuster, DifficultySecurityConfig}; // TODO: Implement mining module
+pub use crate::miner::{BlockProducer, ProofOfWork};
 pub use crate::testnet::{NodeTestnetManager, TestnetNodeConfig, TestnetStats, FaucetStatus, FaucetDistributionResult};
 pub use btclib::validation::{BlockValidator, TransactionValidator};
