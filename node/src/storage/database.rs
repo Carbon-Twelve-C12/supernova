@@ -155,7 +155,7 @@ impl Default for BlockchainDBConfig {
     fn default() -> Self {
         Self {
             cache_size: 512 * 1024 * 1024, // 512MB
-            use_compression: true,
+            use_compression: false,
             flush_interval_ms: Some(1000), // 1 second
             max_pending_blocks: 5000,
             pending_block_expiry: Duration::from_secs(3600), // 1 hour
@@ -361,7 +361,7 @@ impl BlockchainDB {
             .path(&path_buf)
             .cache_capacity(db_config.cache_size as u64)
             .flush_every_ms(db_config.flush_interval_ms)
-            .use_compression(db_config.use_compression)
+            .use_compression(false)
             .mode(sled::Mode::HighThroughput); // Optimize for throughput
             
         let db = config.open()?;

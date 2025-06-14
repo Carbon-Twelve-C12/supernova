@@ -301,7 +301,7 @@ enum SwarmEventWrapper {
 
 impl SwarmEventWrapper {
     /// Convert a SwarmEvent to a wrapper that can be sent across threads
-    fn from_event(event: SwarmEvent<SupernovaBehaviour>) -> Result<Self, Box<dyn Error>> {
+    fn from_event(event: SwarmEvent<SupernovaBehaviourEvent, Box<dyn Error + Send>>) -> Result<Self, Box<dyn Error>> {
         match event {
             SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                 Ok(SwarmEventWrapper::ConnectionEstablished {
@@ -318,20 +318,30 @@ impl SwarmEventWrapper {
             SwarmEvent::Behaviour(behaviour_event) => {
                 // Handle behaviour-specific events
                 match behaviour_event {
-                    SupernovaBehaviourEvent::Gossipsub(gossipsub::Event::Message {
-                        propagation_source,
-                        message,
-                        ..
-                    }) => {
-                        Ok(SwarmEventWrapper::Message {
-                            peer_id: propagation_source,
-                            topic: message.topic.to_string(),
-                            data: message.data,
-                        })
+                    SupernovaBehaviourEvent::Gossipsub(gossipsub_event) => {
+                        match gossipsub_event {
+                            gossipsub::Event::Message {
+                                propagation_source,
+                                message,
+                                ..
+                            } => {
+                                Ok(SwarmEventWrapper::Message {
+                                    peer_id: propagation_source,
+                                    topic: message.topic.to_string(),
+                                    data: message.data,
+                                })
+                            }
+                            _ => Err("Unhandled gossipsub event".into()),
+                        }
                     }
-                    SupernovaBehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
-                        let peers: Vec<PeerId> = list.into_iter().map(|(peer_id, _)| peer_id).collect();
-                        Ok(SwarmEventWrapper::Discovered { peers })
+                    SupernovaBehaviourEvent::Mdns(mdns_event) => {
+                        match mdns_event {
+                            mdns::Event::Discovered(list) => {
+                                let peers: Vec<PeerId> = list.into_iter().map(|(peer_id, _)| peer_id).collect();
+                                Ok(SwarmEventWrapper::Discovered { peers })
+                            }
+                            _ => Err("Unhandled mdns event".into()),
+                        }
                     }
                     _ => Err("Unhandled behaviour event".into()),
                 }
@@ -565,10 +575,46 @@ impl P2PNetwork {
             let id_keys = identity::Keypair::generate_ed25519();
             
             // Build transport
-            let transport = build_transport(id_keys)?;
+            let transport = build_transport(id_keys.clone())?;
+            
+            // Create individual behaviours
+            let gossipsub_config = gossipsub::ConfigBuilder::default()
+                .validation_mode(gossipsub::ValidationMode::Strict)
+                .message_id_fn(|msg| {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    msg.data.hash(&mut hasher);
+                    gossipsub::MessageId::from(hasher.finish().to_string())
+                })
+                .build()
+                .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
+            
+            let gossipsub = Gossipsub::new(
+                gossipsub::MessageAuthenticity::Signed(id_keys.clone()),
+                gossipsub_config,
+            ).map_err(|e| format!("Failed to create gossipsub: {}", e))?;
+            
+            let store = MemoryStore::new(self.local_peer_id.clone());
+            let kademlia = Kademlia::new(self.local_peer_id.clone(), store);
+            
+            let mdns = Mdns::new(
+                mdns::Config::default(),
+                self.local_peer_id.clone(),
+            )?;
+            
+            let identify = Identify::new(
+                identify::Config::new("/supernova/1.0.0".to_string(), id_keys.public())
+                    .with_agent_version("supernova/1.0.0".to_string()),
+            );
             
             // Create behaviour
-            let behaviour = SupernovaBehaviour::new(self.local_peer_id.clone())?;
+            let behaviour = SupernovaBehaviour::new(
+                self.local_peer_id.clone(),
+                gossipsub,
+                kademlia,
+                mdns,
+                identify,
+            );
             
             // Create swarm
             let swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, self.local_peer_id.clone())
@@ -639,9 +685,52 @@ impl P2PNetwork {
                         // Handle swarm events
                         event = swarm.next() => {
                             if let Some(event) = event {
-                                // Wrap and send the event
-                                if let Ok(wrapped) = SwarmEventWrapper::from_event(event) {
-                                    let _ = swarm_event_tx.send(wrapped).await;
+                                // Handle the event and create wrapper
+                                match event {
+                                    SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                                        let wrapped = SwarmEventWrapper::ConnectionEstablished {
+                                            peer_id,
+                                            endpoint: endpoint.get_remote_address().to_string(),
+                                        };
+                                        let _ = swarm_event_tx.send(wrapped).await;
+                                    }
+                                    SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                                        let wrapped = SwarmEventWrapper::ConnectionClosed { peer_id };
+                                        let _ = swarm_event_tx.send(wrapped).await;
+                                    }
+                                    SwarmEvent::IncomingConnection { local_addr, .. } => {
+                                        let wrapped = SwarmEventWrapper::IncomingConnection { local_addr };
+                                        let _ = swarm_event_tx.send(wrapped).await;
+                                    }
+                                    SwarmEvent::Behaviour(behaviour_event) => {
+                                        match behaviour_event {
+                                            SupernovaBehaviourEvent::Gossipsub(gossipsub_event) => {
+                                                match gossipsub_event {
+                                                    gossipsub::Event::Message { propagation_source, message, .. } => {
+                                                        let wrapped = SwarmEventWrapper::Message {
+                                                            peer_id: propagation_source,
+                                                            topic: message.topic.to_string(),
+                                                            data: message.data,
+                                                        };
+                                                        let _ = swarm_event_tx.send(wrapped).await;
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            SupernovaBehaviourEvent::Mdns(mdns_event) => {
+                                                match mdns_event {
+                                                    mdns::Event::Discovered(list) => {
+                                                        let peers: Vec<PeerId> = list.into_iter().map(|(peer_id, _)| peer_id).collect();
+                                                        let wrapped = SwarmEventWrapper::Discovered { peers };
+                                                        let _ = swarm_event_tx.send(wrapped).await;
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -723,13 +812,43 @@ impl P2PNetwork {
         connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
         bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
     ) {
+        // Helper to broadcast a message
+        async fn broadcast_message(
+            message: &Message,
+            swarm_cmd_tx: &mpsc::Sender<SwarmCommand>,
+            stats: &Arc<RwLock<NetworkStats>>,
+            bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
+        ) {
+            let topic = match message {
+                Message::Block { .. } | Message::NewBlock { .. } => TopicHash::from_raw("blocks"),
+                Message::Transaction { .. } => TopicHash::from_raw("transactions"),
+                Message::Headers { .. } => TopicHash::from_raw("headers"),
+                Message::Status { .. } | Message::GetStatus => TopicHash::from_raw("status"),
+                Message::GetMempool { .. } | Message::Mempool { .. } => TopicHash::from_raw("mempool"),
+                _ => TopicHash::from_raw("general"),
+            };
+            
+            if let Ok(data) = bincode::serialize(&message) {
+                let data_len = data.len();
+                let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
+                
+                // Update stats
+                let mut stats_guard = stats.write().await;
+                stats_guard.messages_sent += 1;
+                stats_guard.bytes_sent += data_len as u64;
+                
+                // Track bandwidth
+                bandwidth_tracker.lock().unwrap().record_sent(data_len as u64);
+            }
+        }
         match cmd {
             NetworkCommand::ConnectToPeer(addr_str) => {
                 // Parse the address and attempt to connect
                 if let Ok(addr) = addr_str.parse::<Multiaddr>() {
+                    let addr_str = addr.to_string();
                     let mut swarm_guard = swarm_cmd_tx.send(SwarmCommand::Dial(addr)).await;
                     if let Ok(_) = swarm_guard {
-                        debug!("Dialing peer at {}", addr);
+                        debug!("Dialing peer at {}", addr_str);
                         let mut stats_guard = stats.write().await;
                         stats_guard.connection_attempts += 1;
                     }
@@ -743,33 +862,14 @@ impl P2PNetwork {
             }
             
             NetworkCommand::Broadcast(message) => {
-                let topic = match &message {
-                    Message::Block { .. } | Message::NewBlock { .. } => TopicHash::from_raw("blocks"),
-                    Message::Transaction { .. } => TopicHash::from_raw("transactions"),
-                    Message::Headers { .. } => TopicHash::from_raw("headers"),
-                    Message::Status { .. } | Message::GetStatus => TopicHash::from_raw("status"),
-                    Message::GetMempool { .. } | Message::Mempool { .. } => TopicHash::from_raw("mempool"),
-                    _ => TopicHash::from_raw("general"),
-                };
-                
-                if let Ok(data) = bincode::serialize(&message) {
-                    let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
-                    
-                    // Update stats
-                    let mut stats_guard = stats.write().await;
-                    stats_guard.messages_sent += 1;
-                    stats_guard.bytes_sent += data.len() as u64;
-                    
-                    // Track bandwidth
-                    bandwidth_tracker.lock().unwrap().record_sent(data.len());
-                }
+                broadcast_message(&message, swarm_cmd_tx, stats, bandwidth_tracker).await;
             }
             
             NetworkCommand::SendToPeer { peer_id, message } => {
                 // For direct messages, we'd need to implement a custom protocol
                 // For now, we'll use gossipsub for all messages
                 let topic = TopicHash::from_raw("messages");
-                let data = bincode::serialize(&(peer_id, message)).unwrap_or_default();
+                let data = bincode::serialize(&(peer_id.to_string(), message)).unwrap_or_default();
                 let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
             }
             
@@ -780,14 +880,7 @@ impl P2PNetwork {
                     total_difficulty,
                 };
                 
-                Self::handle_command_with_channels(
-                    NetworkCommand::Broadcast(message),
-                    swarm_cmd_tx,
-                    event_sender,
-                    stats,
-                    connected_peers,
-                    bandwidth_tracker,
-                ).await;
+                broadcast_message(&message, swarm_cmd_tx, stats, bandwidth_tracker).await;
                 
                 let mut stats_guard = stats.write().await;
                 stats_guard.blocks_announced += 1;
@@ -798,14 +891,7 @@ impl P2PNetwork {
                     transaction: bincode::serialize(&transaction).unwrap_or_default(),
                 };
                 
-                Self::handle_command_with_channels(
-                    NetworkCommand::Broadcast(message),
-                    swarm_cmd_tx,
-                    event_sender,
-                    stats,
-                    connected_peers,
-                    bandwidth_tracker,
-                ).await;
+                broadcast_message(&message, swarm_cmd_tx, stats, bandwidth_tracker).await;
                 
                 let mut stats_guard = stats.write().await;
                 stats_guard.transactions_announced += 1;
@@ -818,26 +904,12 @@ impl P2PNetwork {
                 };
                 
                 if let Some(peer_id) = preferred_peer {
-                    Self::handle_command_with_channels(
-                        NetworkCommand::SendToPeer {
-                            peer_id,
-                            message,
-                        },
-                        swarm_cmd_tx,
-                        event_sender,
-                        stats,
-                        connected_peers,
-                        bandwidth_tracker,
-                    ).await;
+                    // Handle SendToPeer directly without recursion
+                    let topic = TopicHash::from_raw("messages");
+                    let data = bincode::serialize(&(peer_id.to_string(), message)).unwrap_or_default();
+                    let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
                 } else {
-                    Self::handle_command_with_channels(
-                        NetworkCommand::Broadcast(message),
-                        swarm_cmd_tx,
-                        event_sender,
-                        stats,
-                        connected_peers,
-                        bandwidth_tracker,
-                    ).await;
+                    broadcast_message(&message, swarm_cmd_tx, stats, bandwidth_tracker).await;
                 }
             }
             
@@ -845,26 +917,12 @@ impl P2PNetwork {
                 let message = Message::GetBlocksByHash { block_hashes };
                 
                 if let Some(peer_id) = preferred_peer {
-                    Self::handle_command_with_channels(
-                        NetworkCommand::SendToPeer {
-                            peer_id,
-                            message,
-                        },
-                        swarm_cmd_tx,
-                        event_sender,
-                        stats,
-                        connected_peers,
-                        bandwidth_tracker,
-                    ).await;
+                    // Handle SendToPeer directly without recursion
+                    let topic = TopicHash::from_raw("messages");
+                    let data = bincode::serialize(&(peer_id.to_string(), message)).unwrap_or_default();
+                    let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
                 } else {
-                    Self::handle_command_with_channels(
-                        NetworkCommand::Broadcast(message),
-                        swarm_cmd_tx,
-                        event_sender,
-                        stats,
-                        connected_peers,
-                        bandwidth_tracker,
-                    ).await;
+                    broadcast_message(&message, swarm_cmd_tx, stats, bandwidth_tracker).await;
                 }
             }
             
@@ -875,26 +933,12 @@ impl P2PNetwork {
                 };
                 
                 if let Some(peer_id) = preferred_peer {
-                    Self::handle_command_with_channels(
-                        NetworkCommand::SendToPeer {
-                            peer_id,
-                            message,
-                        },
-                        swarm_cmd_tx,
-                        event_sender,
-                        stats,
-                        connected_peers,
-                        bandwidth_tracker,
-                    ).await;
+                    // Handle SendToPeer directly without recursion
+                    let topic = TopicHash::from_raw("messages");
+                    let data = bincode::serialize(&(peer_id.to_string(), message)).unwrap_or_default();
+                    let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
                 } else {
-                    Self::handle_command_with_channels(
-                        NetworkCommand::Broadcast(message),
-                        swarm_cmd_tx,
-                        event_sender,
-                        stats,
-                        connected_peers,
-                        bandwidth_tracker,
-                    ).await;
+                    broadcast_message(&message, swarm_cmd_tx, stats, bandwidth_tracker).await;
                 }
             }
             
@@ -910,14 +954,7 @@ impl P2PNetwork {
                         .as_secs(),
                 };
                 
-                Self::handle_command_with_channels(
-                    NetworkCommand::Broadcast(message),
-                    swarm_cmd_tx,
-                    event_sender,
-                    stats,
-                    connected_peers,
-                    bandwidth_tracker,
-                ).await;
+                broadcast_message(&message, swarm_cmd_tx, stats, bandwidth_tracker).await;
             }
             
             NetworkCommand::BanPeer { peer_id, reason, duration } => {
@@ -1000,7 +1037,7 @@ impl P2PNetwork {
                 stats.write().await.bytes_received += data.len() as u64;
                 
                 // Track bandwidth
-                bandwidth_tracker.lock().unwrap().record_received(data.len());
+                bandwidth_tracker.lock().unwrap().record_received(data.len() as u64);
                 
                 // Update peer info
                 if let Some(peer_info) = connected_peers.write().await.get_mut(&peer_id) {
@@ -1422,7 +1459,7 @@ impl P2PNetwork {
         if let Ok(data) = bincode::serialize(&message) {
             stats.write().await.messages_sent += 1;
             stats.write().await.bytes_sent += data.len() as u64;
-            bandwidth_tracker.lock().unwrap().record_sent(data.len());
+            bandwidth_tracker.lock().unwrap().record_sent(data.len() as u64);
         }
     }
     
@@ -1442,7 +1479,7 @@ impl P2PNetwork {
         if let Ok(data) = bincode::serialize(&message) {
             stats.write().await.messages_sent += 1;
             stats.write().await.bytes_sent += data.len() as u64;
-            bandwidth_tracker.lock().unwrap().record_sent(data.len());
+            bandwidth_tracker.lock().unwrap().record_sent(data.len() as u64);
         }
     }
     

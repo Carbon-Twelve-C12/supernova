@@ -806,7 +806,7 @@ mod tests {
                 total_emissions: 1000.0,
                 emissions_per_transaction: 0.01,
                 renewable_percentage: 50.0,
-                timestamp: Utc::now(),
+                timestamp: Utc::now().timestamp() as u64,
             })
         }
         
