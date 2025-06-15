@@ -56,6 +56,12 @@ pub struct ApiErrorResponse {
     pub details: Option<serde_json::Value>,
 }
 
+/// Standard error response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ErrorResponse {
+    pub error: String,
+}
+
 //
 // Blockchain data types
 //

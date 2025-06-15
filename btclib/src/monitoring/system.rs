@@ -3,12 +3,14 @@ use prometheus::{
     core::{AtomicF64, AtomicI64, GenericGauge, GenericGaugeVec}
 };
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::thread;
 use tokio::time::interval;
 use tokio::task::JoinHandle;
 use crate::monitoring::MetricsError;
 use tracing::{info, warn, error, debug};
 use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ComponentExt};
+use serde::{Serialize, Deserialize};
 
 /// System metrics collector
 pub struct SystemMetrics {
@@ -210,9 +212,9 @@ impl SystemMetrics {
                     }
                     
                     // Collect temperature information
-                    for (i, component) in sys.components().iter().enumerate() {
-                        let label = format!("{} ({})", component.label(), i);
-                        temperature.with_label_values(&[&label]).set(component.temperature().into());
+                    for component in sys.components() {
+                        let label = component.label();
+                        temperature.with_label_values(&[label]).set(component.temperature().into());
                     }
                     
                     // Collect uptime

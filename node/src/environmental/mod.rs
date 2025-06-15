@@ -1,4 +1,4 @@
-use sysinfo::{System, SystemExt, DiskExt, CpuExt};
+use sysinfo::{System, Disks, Networks};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -7,6 +7,8 @@ use tracing::{debug, info, warn, error};
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use thiserror::Error;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use crate::api::types::environmental::{
     EnvironmentalImpact, EnergyUsage, CarbonFootprint, ResourceUtilization,
@@ -368,7 +370,8 @@ impl EnvironmentalMonitor {
         let mut total_disk = 0.0;
         let mut used_disk = 0.0;
         
-        for disk in system.disks() {
+        let disks = Disks::new_with_refreshed_list();
+        for disk in &disks {
             total_disk += disk.total_space() as f64;
             used_disk += (disk.total_space() - disk.available_space()) as f64;
         }

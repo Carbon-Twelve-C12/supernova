@@ -8,10 +8,13 @@ use std::time::Instant;
 use libp2p::PeerId;
 use tokio::sync::RwLock as TokioRwLock;
 use sysinfo::System;
-use sysinfo::SystemExt;
-use crate::node::Node;
+use btclib::types::block::Block;
+use btclib::types::transaction::Transaction;
+use crate::node::{Node, NodeError};
 use crate::api::ApiConfig;
 use crate::adapters::method_adapters::{BlockNodeMethods, TransactionPoolNodeMethods};
+use crate::mempool::TransactionPool;
+use crate::storage::ChainState;
 
 /// Thread-safe wrapper for Node that can be shared across threads
 pub struct ThreadSafeNode {
@@ -104,17 +107,17 @@ impl NodeApiFacade {
     pub fn get_system_info(&self) -> Result<crate::api::types::SystemInfo, String> {
         let mut sys = System::new_all();
         
-        let load_avg = sys.load_average();
+        let load_avg = System::load_average();
         
         Ok(crate::api::types::SystemInfo {
-            os: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+            os: System::long_os_version().unwrap_or_else(|| "Unknown".to_string()),
             arch: std::env::consts::ARCH.to_string(),
             cpu_count: sys.cpus().len() as u32,
             total_memory: sys.total_memory(),
             used_memory: sys.used_memory(),
             total_swap: sys.total_swap(),
             used_swap: sys.used_swap(),
-            uptime: sys.uptime(),
+            uptime: System::uptime(),
             load_average: crate::api::types::LoadAverage {
                 one: load_avg.one,
                 five: load_avg.five,

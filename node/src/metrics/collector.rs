@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
@@ -6,9 +6,11 @@ use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{info, warn, error, debug};
 use metrics::{gauge, counter, histogram};
+use serde::{Serialize, Deserialize};
+use chrono::{DateTime, Utc};
 
 use crate::metrics::registry::MetricsRegistry;
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 use crate::metrics::types::SystemMetrics;
 
 /// Configuration options for the metrics collector
@@ -58,7 +60,7 @@ pub struct MetricsCollector {
     /// Configuration for the collector
     config: MetricsCollectorConfig,
     /// Tracks if the collector is running
-    running: Arc<Mutex<bool>>,
+    running: Arc<StdMutex<bool>>,
     /// Handle to the running collection task
     task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     /// System metrics storage
@@ -72,7 +74,7 @@ impl MetricsCollector {
     pub fn new(config: MetricsCollectorConfig, metrics_registry: Arc<MetricsRegistry>) -> Self {
         Self {
             config,
-            running: Arc::new(Mutex::new(false)),
+            running: Arc::new(StdMutex::new(false)),
             task_handle: Arc::new(Mutex::new(None)),
             system_metrics: Arc::new(SystemMetrics::default()),
             metrics_registry,
@@ -81,7 +83,7 @@ impl MetricsCollector {
 
     /// Start the metrics collector
     pub async fn start(&self) -> Result<(), String> {
-        let mut running = self.running.lock().await;
+        let mut running = self.running.lock().unwrap();
         if *running {
             return Err("Metrics collector is already running".to_string());
         }
@@ -101,7 +103,7 @@ impl MetricsCollector {
             loop {
                 tokio::select! {
                     _ = basic_interval.tick() => {
-                        if !*running_clone.lock().await {
+                        if !*running_clone.lock().unwrap() {
                             break;
                         }
                         
@@ -127,7 +129,7 @@ impl MetricsCollector {
 
     /// Stop the metrics collector
     pub async fn stop(&self) -> Result<(), String> {
-        let mut running = self.running.lock().await;
+        let mut running = self.running.lock().unwrap();
         if !*running {
             return Err("Metrics collector is not running".to_string());
         }
@@ -174,11 +176,8 @@ impl MetricsCollector {
         sys.refresh_cpu();
         sys.refresh_processes();
         
-        // Collect extended info if due
-        if collect_extended {
-            sys.refresh_disks_list();
-            sys.refresh_networks_list();
-        }
+        // We no longer need to refresh disks and networks on System
+        // as they are now separate types that refresh on creation
 
         // Memory metrics
         if metrics_types.memory {
@@ -197,7 +196,6 @@ impl MetricsCollector {
 
         // CPU metrics
         if metrics_types.cpu {
-            use sysinfo::{SystemExt, CpuExt};
             let cpu_count = sys.cpus().len() as u64;
             let global_cpu_usage = sys.global_cpu_info().cpu_usage();
             
@@ -227,7 +225,6 @@ impl MetricsCollector {
 
         // Process metrics
         if metrics_types.process {
-            use sysinfo::ProcessExt;
             // Get the current process
             let pid = std::process::id() as usize;
             if let Some(process) = sys.process(sysinfo::Pid::from(pid)) {
@@ -250,8 +247,10 @@ impl MetricsCollector {
 
         // Disk metrics (only when extended collection is due)
         if metrics_types.disk && collect_extended {
-            use sysinfo::DiskExt;
-            for disk in sys.disks() {
+            use sysinfo::Disks;
+            let disks = Disks::new_with_refreshed_list();
+            
+            for disk in &disks {
                 let name = disk.name().to_string_lossy().to_string();
                 let total_space = disk.total_space();
                 let available_space = disk.available_space();
@@ -308,8 +307,10 @@ impl MetricsCollector {
 
         // Network metrics (only when extended collection is due)
         if metrics_types.network && collect_extended {
-            use sysinfo::NetworkExt;
-            for (interface_name, network) in sys.networks() {
+            use sysinfo::Networks;
+            let mut networks = Networks::new_with_refreshed_list();
+            
+            for (interface_name, network) in &networks {
                 let received_bytes = network.total_received();
                 let transmitted_bytes = network.total_transmitted();
                 let received_packets = network.total_packets_received();
@@ -366,7 +367,7 @@ impl MetricsCollector {
         }
 
         // Record general uptime
-        let uptime = sys.uptime();
+        let uptime = System::uptime();
         gauge!("system.uptime_sec", uptime as f64);
     }
 }

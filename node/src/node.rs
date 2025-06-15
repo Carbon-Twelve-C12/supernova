@@ -26,7 +26,7 @@ use tracing::{info, error, warn, debug};
 use crate::metrics::performance::{PerformanceMonitor, MetricType};
 use thiserror::Error;
 use libp2p::PeerId;
-use sysinfo::{System, SystemExt, DiskExt, CpuExt};
+use sysinfo::System;
 use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -37,6 +37,7 @@ use btclib::types::transaction::Transaction;
 use btclib::types::block::Block;
 use hex;
 use uuid;
+use static_assertions::const_assert_eq;
 
 /// Node status information for internal use
 #[derive(Debug, Serialize, Deserialize)]
@@ -133,11 +134,6 @@ pub struct Node {
     testnet_manager: Option<Arc<NodeTestnetManager>>,
     /// Lightning Network manager
     lightning_manager: Option<Arc<RwLock<LightningManager>>>,
-    /// Lightning event handler
-    lightning_event_handler: Option<LightningEventHandler>,
-    /// Lightning event processing task
-    lightning_event_task: Option<JoinHandle<()>>,
-    pub api_server: Option<ApiServer>,
     pub api_config: ApiConfig,
     pub peer_id: PeerId,
     pub start_time: Instant,
@@ -211,55 +207,53 @@ impl Node {
         };
         
         // Initialize Lightning Network if enabled
-        let (lightning_manager, lightning_event_handler, lightning_event_task) = 
-            if config.node.enable_lightning {
-                // Create Lightning configuration
-                let lightning_config = LightningConfig {
-                    default_channel_capacity: 10_000_000, // 0.1 BTC
-                    min_channel_capacity: 100_000,        // 0.001 BTC
-                    max_channel_capacity: 1_000_000_000,  // 10 BTC
-                    cltv_expiry_delta: 144,               // ~1 day
-                    fee_base_msat: 1000,                  // 1 sat base fee
-                    fee_proportional_millionths: 100,     // 0.01% proportional fee
-                    use_quantum_signatures: config.node.enable_quantum_security,
-                    quantum_scheme: if config.node.enable_quantum_security {
-                        Some(QuantumScheme::Dilithium)
-                    } else {
-                        None
-                    },
-                    quantum_security_level: 3,
-                };
-                
-                // Create Lightning wallet
-                let lightning_wallet = LightningWallet::new(
-                    vec![0u8; 32], // TODO: Use proper seed from node wallet
-                    config.node.enable_quantum_security,
-                    if config.node.enable_quantum_security {
-                        Some(QuantumScheme::Dilithium)
-                            } else {
-                        None
-                    },
-                ).map_err(|e| NodeError::LightningError(e.to_string()))?;
-                
-                // Create Lightning manager
-                let (lightning_manager, event_receiver) = LightningManager::new(
-                    lightning_config,
-                    lightning_wallet,
-                ).map_err(|e| NodeError::General(format!("Lightning manager error: {}", e)))?;
-                
-                // Create event handler
-                let (event_handler, event_receiver_2) = LightningEventHandler::new();
-                
-                // Spawn event processing task
-                let manager_clone = Arc::new(RwLock::new(lightning_manager));
-                let manager_for_task = Arc::clone(&manager_clone);
-                let event_task = tokio::spawn(async move {
-                    Self::process_lightning_events(manager_for_task, event_receiver).await;
-                });
-                
-                (Some(manager_clone), Some(event_handler), Some(event_task))
+        let lightning_manager = if config.node.enable_lightning {
+            // Create Lightning configuration
+            let lightning_config = LightningConfig {
+                default_channel_capacity: 10_000_000, // 0.1 BTC
+                min_channel_capacity: 100_000,        // 0.001 BTC
+                max_channel_capacity: 1_000_000_000,  // 10 BTC
+                cltv_expiry_delta: 144,               // ~1 day
+                fee_base_msat: 1000,                  // 1 sat base fee
+                fee_proportional_millionths: 100,     // 0.01% proportional fee
+                use_quantum_signatures: config.node.enable_quantum_security,
+                quantum_scheme: if config.node.enable_quantum_security {
+                    Some(QuantumScheme::Dilithium)
+                } else {
+                    None
+                },
+                quantum_security_level: 3,
+            };
+            
+            // Create Lightning wallet
+            let lightning_wallet = LightningWallet::new(
+                vec![0u8; 32], // TODO: Use proper seed from node wallet
+                config.node.enable_quantum_security,
+                if config.node.enable_quantum_security {
+                    Some(QuantumScheme::Dilithium)
+                } else {
+                    None
+                },
+            ).map_err(|e| NodeError::LightningError(e.to_string()))?;
+            
+            // Create Lightning manager
+            let (lightning_manager, event_receiver) = LightningManager::new(
+                lightning_config,
+                lightning_wallet,
+            ).map_err(|e| NodeError::General(format!("Lightning manager error: {}", e)))?;
+            
+            // Create event handler and spawn processing task in the background
+            let manager_clone = Arc::new(RwLock::new(lightning_manager));
+            let manager_for_task = Arc::clone(&manager_clone);
+            
+            // Spawn event processing task in the background
+            tokio::spawn(async move {
+                Self::process_lightning_events(manager_for_task, event_receiver).await;
+            });
+            
+            Some(manager_clone)
         } else {
-                (None, None, None)
+            None
         };
 
         Ok(Self {
@@ -270,9 +264,6 @@ impl Node {
             network,
             testnet_manager,
             lightning_manager,
-            lightning_event_handler,
-            lightning_event_task,
-            api_server: None,
             api_config: ApiConfig::default(),
             peer_id: PeerId::random(),
             start_time: Instant::now(),
@@ -449,20 +440,19 @@ impl Node {
 
     /// Get system info
     pub fn get_system_info(&self) -> Result<SystemInfo, NodeError> {
-        use sysinfo::{System, SystemExt};
         let mut sys = System::new_all();
         
-        let load_avg = sys.load_average();
+        let load_avg = System::load_average();
         
         Ok(SystemInfo {
-            os: sys.long_os_version().unwrap_or_else(|| "Unknown".to_string()),
+            os: System::long_os_version().unwrap_or_else(|| "Unknown".to_string()),
             arch: std::env::consts::ARCH.to_string(),
             cpu_count: sys.cpus().len() as u32,
             total_memory: sys.total_memory(),
             used_memory: sys.used_memory(),
             total_swap: sys.total_swap(),
             used_swap: sys.used_swap(),
-            uptime: sys.uptime(),
+            uptime: System::uptime(),
             load_average: LoadAverage {
                 one: load_avg.one,
                 five: load_avg.five,
@@ -491,7 +481,7 @@ impl Node {
     
     /// Get metrics
     pub fn get_metrics(&self, period: u64) -> Result<NodeMetrics, NodeError> {
-        use sysinfo::{System, SystemExt, DiskExt, CpuExt};
+        use sysinfo::{System, Disks};
         let mut sys = System::new_all();
         sys.refresh_all();
         
@@ -502,22 +492,25 @@ impl Node {
         let memory_usage = sys.used_memory();
         
         // Calculate disk usage (simplified - just get first disk)
-        let disk_usage = sys.disks().first()
+        let disks = Disks::new_with_refreshed_list();
+        let disk_usage = disks.list().first()
             .map(|disk| disk.total_space() - disk.available_space())
             .unwrap_or(0);
         
         // Get mempool size in bytes
-        let mempool_bytes = self.mempool.get_memory_usage();
+        let mempool_bytes = self.mempool.get_memory_usage() as usize;
         
         // Get sync progress
         let sync_progress = if self.network.is_syncing() {
-            self.network.get_sync_progress()
+            // Calculate actual sync progress
+            // For now, return 0.5 as a placeholder
+            0.5
         } else {
             1.0
         };
         
-        // Get network stats
-        let network_stats = self.network.get_stats_sync();
+        // Get network traffic
+        let (bytes_sent, bytes_received) = (0, 0); // TODO: Get from network stats
         
         Ok(NodeMetrics {
             uptime: self.start_time.elapsed().as_secs(),
@@ -526,8 +519,8 @@ impl Node {
             mempool_size: self.mempool.size(),
             mempool_bytes,
             sync_progress,
-            network_bytes_sent: 0, // TODO: Get from bandwidth tracker
-            network_bytes_received: 0, // TODO: Get from bandwidth tracker
+            network_bytes_sent: bytes_sent,
+            network_bytes_received: bytes_received,
             cpu_usage,
             memory_usage,
             disk_usage,

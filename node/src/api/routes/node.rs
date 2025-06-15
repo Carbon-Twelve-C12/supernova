@@ -1,358 +1,406 @@
-use crate::api::error::{ApiError, ApiResult};
-use crate::api::types::{
-    NodeInfo, SystemInfo, LogEntry, NodeStatus, NodeVersion, 
-    NodeConfiguration, BackupInfo, NodeMetrics, DebugInfo,
-};
-use crate::node::Node;
-use actix_web::{web, HttpResponse};
-use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
-use std::sync::Arc;
-use serde_json;
+//! Node API routes
+//!
+//! This module implements the HTTP routes for node management, monitoring,
+//! and configuration operations.
 
-/// Configure node API routes
+use actix_web::{web, HttpResponse, Responder};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tracing::{info, warn, error};
+use utoipa::{IntoParams, ToSchema};
+
+use crate::api::types::*;
+use crate::api_facade::ApiFacade;
+use super::NodeData;
+
+/// Configure node routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/node")
-            .route("/info", web::get().to(get_node_info))
-            .route("/system", web::get().to(get_system_info))
-            .route("/logs", web::get().to(get_logs))
-            .route("/status", web::get().to(get_node_status))
-            .route("/version", web::get().to(get_node_version))
-            .route("/metrics", web::get().to(get_node_metrics))
-            .route("/config", web::get().to(get_node_config))
-            .route("/config", web::put().to(update_node_config))
-            .route("/backup", web::post().to(create_backup))
-            .route("/backup", web::get().to(get_backup_info))
-            .route("/restart", web::post().to(restart_node))
-            .route("/shutdown", web::post().to(shutdown_node))
-            .route("/debug", web::get().to(get_debug_info)),
-    );
+    cfg
+        .route("/info", web::get().to(get_node_info))
+        .route("/status", web::get().to(get_node_status))
+        .route("/config", web::get().to(get_config))
+        .route("/config", web::put().to(update_config))
+        .route("/restart", web::post().to(restart_node))
+        .route("/shutdown", web::post().to(shutdown_node))
+        .route("/metrics", web::get().to(get_metrics))
+        .route("/system", web::get().to(get_system_info))
+        .route("/logs", web::get().to(get_logs))
+        .route("/version", web::get().to(get_version))
+        .route("/backup", web::post().to(create_backup))
+        .route("/backup", web::get().to(get_backup_info))
+        .route("/debug", web::get().to(get_debug_info));
 }
 
-/// Get general node information
+/// Get node information
 ///
-/// Returns general information about the node.
+/// Returns basic information about the node including version, network, and status
 #[utoipa::path(
     get,
     path = "/api/v1/node/info",
     responses(
         (status = 200, description = "Node information retrieved successfully", body = NodeInfo),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
 pub async fn get_node_info(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real node info retrieval
-    let info = node.get_info()?;
-    
-    Ok(HttpResponse::Ok().json(info))
-}
-
-/// Get system information
-///
-/// Returns information about the system the node is running on.
-#[utoipa::path(
-    get,
-    path = "/api/v1/node/system",
-    responses(
-        (status = 200, description = "System information retrieved successfully", body = SystemInfo),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
-pub async fn get_system_info(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real system info retrieval
-    let info = node.get_system_info()?;
-    
-    Ok(HttpResponse::Ok().json(info))
-}
-
-/// Get node logs
-///
-/// Returns logs from the node's operation.
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetLogsParams {
-    /// Optional log level filter (default: "info")
-    #[param(default = "info")]
-    level: Option<String>,
-    
-    /// Optional component filter
-    component: Option<String>,
-    
-    /// Maximum number of log entries to retrieve (default: 100)
-    #[param(default = "100")]
-    limit: Option<u32>,
-    
-    /// Log entry offset for pagination (default: 0)
-    #[param(default = "0")]
-    offset: Option<u32>,
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/node/logs",
-    params(
-        GetLogsParams
-    ),
-    responses(
-        (status = 200, description = "Logs retrieved successfully", body = Vec<LogEntry>),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
-)]
-pub async fn get_logs(
-    params: web::Query<GetLogsParams>,
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    let level = params.level.clone().unwrap_or_else(|| "info".to_string());
-    let component = params.component.clone();
-    let limit = params.limit.unwrap_or(100) as usize;
-    let offset = params.offset.unwrap_or(0) as usize;
-    
-    // TODO: Implement real logs retrieval
-    let logs = node.get_logs(&level, component.as_deref(), limit, offset)?;
-    
-    Ok(HttpResponse::Ok().json(logs))
+    node: NodeData,
+) -> impl Responder {
+    match node.get_node_info() {
+        Ok(info) => HttpResponse::Ok().json(info),
+        Err(e) => {
+            error!("Failed to get node info: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to get node info: {}", e),
+            })
+        }
+    }
 }
 
 /// Get node status
-///
-/// Returns the current status of the node.
 #[utoipa::path(
     get,
     path = "/api/v1/node/status",
     responses(
         (status = 200, description = "Node status retrieved successfully", body = NodeStatus),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
 pub async fn get_node_status(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real node status retrieval
+    node: NodeData,
+) -> impl Responder {
     let status = node.get_status().await;
-    
-    Ok(HttpResponse::Ok().json(status))
+    HttpResponse::Ok().json(status)
 }
 
-/// Get node version information
-///
-/// Returns version information for the node and its components.
+/// Get system information
+#[utoipa::path(
+    get,
+    path = "/api/v1/node/system",
+    responses(
+        (status = 200, description = "System information retrieved successfully", body = SystemInfo),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
+)]
+pub async fn get_system_info(
+    node: NodeData,
+) -> impl Responder {
+    match node.get_system_info() {
+        Ok(info) => HttpResponse::Ok().json(info),
+        Err(e) => {
+            error!("Failed to get system info: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to get system info: {}", e),
+            })
+        }
+    }
+}
+
+/// Query parameters for logs endpoint
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
+pub struct LogsQuery {
+    /// Log level filter
+    #[param(example = "info")]
+    pub level: Option<String>,
+    /// Component filter
+    pub component: Option<String>,
+    /// Maximum number of logs to return
+    #[param(example = 100)]
+    pub limit: Option<usize>,
+    /// Offset for pagination
+    #[param(example = 0)]
+    pub offset: Option<usize>,
+}
+
+/// Get logs
+#[utoipa::path(
+    get,
+    path = "/api/v1/node/logs",
+    params(LogsQuery),
+    responses(
+        (status = 200, description = "Logs retrieved successfully", body = Vec<LogEntry>),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
+)]
+pub async fn get_logs(
+    node: NodeData,
+    query: web::Query<LogsQuery>,
+) -> impl Responder {
+    let level = query.level.as_deref().unwrap_or("info");
+    let limit = query.limit.unwrap_or(100);
+    let offset = query.offset.unwrap_or(0);
+    
+    match node.get_logs(level, query.component.as_deref(), limit, offset) {
+        Ok(logs) => HttpResponse::Ok().json(logs),
+        Err(e) => {
+            error!("Failed to get logs: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to get logs: {}", e),
+            })
+        }
+    }
+}
+
+/// Get version info
 #[utoipa::path(
     get,
     path = "/api/v1/node/version",
     responses(
-        (status = 200, description = "Node version information retrieved successfully", body = NodeVersion),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 200, description = "Version information retrieved successfully", body = VersionInfo),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
-pub async fn get_node_version(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real node version retrieval
-    let version = node.get_version()?;
-    
-    Ok(HttpResponse::Ok().json(version))
+pub async fn get_version(
+    node: NodeData,
+) -> impl Responder {
+    match node.get_version() {
+        Ok(version) => HttpResponse::Ok().json(version),
+        Err(e) => {
+            error!("Failed to get version info: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to get version info: {}", e),
+            })
+        }
+    }
 }
 
-/// Get node performance metrics
-///
-/// Returns performance metrics for the node.
-#[derive(Debug, Deserialize, IntoParams)]
-struct GetNodeMetricsParams {
-    /// Time period in seconds for which to retrieve metrics (default: 300 - 5 minutes)
-    #[param(default = "300")]
-    period: Option<u64>,
+/// Query parameters for metrics endpoint
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
+pub struct MetricsQuery {
+    /// Time period in seconds
+    #[param(example = 3600)]
+    pub period: Option<u64>,
 }
 
+/// Get metrics
 #[utoipa::path(
     get,
     path = "/api/v1/node/metrics",
-    params(
-        GetNodeMetricsParams
-    ),
+    params(MetricsQuery),
     responses(
-        (status = 200, description = "Node metrics retrieved successfully", body = NodeMetrics),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 200, description = "Metrics retrieved successfully", body = NodeMetrics),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
-pub async fn get_node_metrics(
-    params: web::Query<GetNodeMetricsParams>,
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    let period = params.period.unwrap_or(300);
+pub async fn get_metrics(
+    node: NodeData,
+    query: web::Query<MetricsQuery>,
+) -> impl Responder {
+    let period = query.period.unwrap_or(60);
     
-    // TODO: Implement real node metrics retrieval
-    let metrics = node.get_metrics(period)?;
-    
-    Ok(HttpResponse::Ok().json(metrics))
+    match node.get_metrics(period) {
+        Ok(metrics) => HttpResponse::Ok().json(metrics),
+        Err(e) => {
+            error!("Failed to get metrics: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to get metrics: {}", e),
+            })
+        }
+    }
 }
 
-/// Get node configuration
-///
-/// Returns the current configuration of the node.
+/// Get configuration
 #[utoipa::path(
     get,
     path = "/api/v1/node/config",
     responses(
-        (status = 200, description = "Node configuration retrieved successfully", body = NodeConfiguration),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 200, description = "Configuration retrieved successfully", body = serde_json::Value),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
-pub async fn get_node_config(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real node configuration retrieval
-    let config = node.get_config()?;
-    
-    Ok(HttpResponse::Ok().json(config))
+pub async fn get_config(
+    node: NodeData,
+) -> impl Responder {
+    match node.get_config() {
+        Ok(config) => HttpResponse::Ok().json(config),
+        Err(e) => {
+            error!("Failed to get config: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to get config: {}", e),
+            })
+        }
+    }
 }
 
-/// Update node configuration
-///
-/// Updates the configuration of the node.
+/// Update configuration
 #[utoipa::path(
     put,
     path = "/api/v1/node/config",
-    request_body = NodeConfiguration,
+    request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Node configuration updated successfully", body = NodeConfiguration),
-        (status = 400, description = "Invalid configuration", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 200, description = "Configuration updated successfully", body = serde_json::Value),
+        (status = 400, description = "Invalid configuration"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
-pub async fn update_node_config(
-    request: web::Json<NodeConfiguration>,
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real node configuration update
-    let config_value = serde_json::to_value(&request.0).map_err(|e| ApiError::bad_request(format!("Invalid configuration: {}", e)))?;
-    let updated_config = node.update_config(config_value)?;
-    
-    Ok(HttpResponse::Ok().json(updated_config))
+pub async fn update_config(
+    node: NodeData,
+    new_config: web::Json<serde_json::Value>,
+) -> impl Responder {
+    match node.update_config(new_config.into_inner()) {
+        Ok(config) => {
+            info!("Configuration updated successfully");
+            HttpResponse::Ok().json(config)
+        }
+        Err(e) => {
+            warn!("Failed to update config: {}", e);
+            HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!("Failed to update config: {}", e),
+            })
+        }
+    }
 }
 
-/// Create a node backup
-///
-/// Creates a backup of the node's data.
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct CreateBackupRequest {
-    /// Optional destination path for the backup (default: system-determined location)
-    destination: Option<String>,
-    
-    /// Whether to include wallet data (default: true)
-    #[schema(default = true)]
-    include_wallet: Option<bool>,
-    
-    /// Whether to encrypt the backup (default: true)
-    #[schema(default = true)]
-    encrypt: Option<bool>,
+/// Backup request parameters
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BackupRequest {
+    /// Destination path for the backup
+    pub destination: Option<String>,
+    /// Whether to include wallet data
+    pub include_wallet: bool,
+    /// Whether to encrypt the backup
+    pub encrypt: bool,
 }
 
+/// Create backup
 #[utoipa::path(
     post,
     path = "/api/v1/node/backup",
-    request_body = CreateBackupRequest,
+    request_body = BackupRequest,
     responses(
         (status = 200, description = "Backup created successfully", body = BackupInfo),
-        (status = 400, description = "Invalid request parameters", body = ApiError),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
 pub async fn create_backup(
-    request: web::Json<CreateBackupRequest>,
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    let destination = request.destination.clone();
-    let include_wallet = request.include_wallet.unwrap_or(true);
-    let encrypt = request.encrypt.unwrap_or(true);
+    node: NodeData,
+    request: web::Json<BackupRequest>,
+) -> impl Responder {
+    let include_wallet = request.include_wallet;
+    let encrypt = request.encrypt;
     
-    // TODO: Implement real backup creation
-    let backup_info = node.create_backup(destination.as_deref(), include_wallet, encrypt)?;
-    
-    Ok(HttpResponse::Ok().json(backup_info))
+    match node.create_backup(request.destination.as_deref(), include_wallet, encrypt) {
+        Ok(backup) => {
+            info!("Backup created: {}", backup.id);
+            HttpResponse::Ok().json(backup)
+        }
+        Err(e) => {
+            error!("Failed to create backup: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to create backup: {}", e),
+            })
+        }
+    }
 }
 
-/// Get backup information
-///
-/// Returns information about available backups.
+/// Get backup info
 #[utoipa::path(
     get,
     path = "/api/v1/node/backup",
     responses(
         (status = 200, description = "Backup information retrieved successfully", body = Vec<BackupInfo>),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
 pub async fn get_backup_info(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real backup info retrieval
-    let backup_info = node.get_backup_info()?;
-    
-    Ok(HttpResponse::Ok().json(backup_info))
+    node: NodeData,
+) -> impl Responder {
+    match node.get_backup_info() {
+        Ok(backups) => HttpResponse::Ok().json(backups),
+        Err(e) => {
+            error!("Failed to get backup info: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to get backup info: {}", e),
+            })
+        }
+    }
 }
 
-/// Restart the node
-///
-/// Initiates a node restart operation.
+/// Restart node
 #[utoipa::path(
     post,
     path = "/api/v1/node/restart",
     responses(
-        (status = 200, description = "Node restart initiated successfully"),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 200, description = "Node restart initiated"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
 pub async fn restart_node(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real node restart
-    node.restart()?;
+    node: NodeData,
+) -> impl Responder {
+    info!("Node restart requested");
     
-    Ok(HttpResponse::Ok().finish())
+    match node.restart() {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "message": "Node restart initiated"
+        })),
+        Err(e) => {
+            error!("Failed to restart node: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to restart node: {}", e),
+            })
+        }
+    }
 }
 
-/// Shutdown the node
-///
-/// Initiates a node shutdown operation.
+/// Shutdown node
 #[utoipa::path(
     post,
     path = "/api/v1/node/shutdown",
     responses(
-        (status = 200, description = "Node shutdown initiated successfully"),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 200, description = "Node shutdown initiated"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
 pub async fn shutdown_node(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real node shutdown
-    node.shutdown()?;
+    node: NodeData,
+) -> impl Responder {
+    warn!("Node shutdown requested");
     
-    Ok(HttpResponse::Ok().finish())
+    match node.shutdown() {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "message": "Node shutdown initiated"
+        })),
+        Err(e) => {
+            error!("Failed to shutdown node: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to shutdown node: {}", e),
+            })
+        }
+    }
 }
 
-/// Get debug information
-///
-/// Returns debug information for troubleshooting.
+/// Get debug info
 #[utoipa::path(
     get,
     path = "/api/v1/node/debug",
     responses(
         (status = 200, description = "Debug information retrieved successfully", body = DebugInfo),
-        (status = 500, description = "Internal server error", body = ApiError)
-    )
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "node"
 )]
 pub async fn get_debug_info(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
-    // TODO: Implement real debug info retrieval
-    let debug_info = node.get_debug_info()?;
-    
-    Ok(HttpResponse::Ok().json(debug_info))
+    node: NodeData,
+) -> impl Responder {
+    match node.get_debug_info() {
+        Ok(debug) => HttpResponse::Ok().json(debug),
+        Err(e) => {
+            error!("Failed to get debug info: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to get debug info: {}", e),
+            })
+        }
+    }
 } 

@@ -94,10 +94,10 @@ impl Modify for SecurityAddon {
         node::get_system_info,
         node::get_logs,
         node::get_node_status,
-        node::get_node_version,
-        node::get_node_metrics,
-        node::get_node_config,
-        node::update_node_config,
+        node::get_version,
+        node::get_metrics,
+        node::get_config,
+        node::update_config,
         node::create_backup,
         node::get_backup_info,
         node::restart_node,
@@ -177,12 +177,11 @@ impl Modify for SecurityAddon {
             types::SystemInfo,
             types::LogEntry,
             types::NodeStatus,
-            types::NodeVersion,
-            types::NodeConfiguration,
+            types::VersionInfo,
             types::BackupInfo,
             types::NodeMetrics,
             types::DebugInfo,
-            node::CreateBackupRequest,
+            node::BackupRequest,
             
             // Faucet types
             faucet::FaucetStatusResponse,
@@ -192,7 +191,7 @@ impl Modify for SecurityAddon {
             faucet::RecentTransactionsResponse,
             
             // Error types
-            types::ApiErrorResponse,
+            types::ErrorResponse,
         )
     ),
     modifiers(&SecurityAddon),

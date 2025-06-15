@@ -16,6 +16,7 @@ pub mod adapters; // Architectural bridge adapters
 pub mod testnet;
 pub mod thread_safety_fix;
 pub mod thread_safety_test;
+pub mod api_facade;
 
 // Re-exports for convenience
 pub use crate::config::NodeConfig;
