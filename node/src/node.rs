@@ -298,15 +298,8 @@ impl Node {
                 .map_err(|e| NodeError::TestnetError(e))?;
         }
         
-        // Start API server if enabled
-        let config = self.config.read().unwrap();
-        if config.api.enabled {
-            tracing::info!("Starting API server on {}:{}", config.api.bind_address, config.api.port);
-            // Note: API server initialization would go here, but it requires
-            // Arc<Node> which creates a circular dependency. This needs architectural changes.
-            // For now, the API server must be started separately after node creation.
-            tracing::warn!("API server is enabled but not implemented in the current architecture");
-        }
+        // Note: API server must be started separately after node creation
+        // due to circular dependency (API server needs Arc<Node>)
         
         tracing::info!("Node started successfully");
         Ok(())

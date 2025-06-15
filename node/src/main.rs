@@ -1,6 +1,6 @@
 use node::{Node, NodeError};
 use node::config::NodeConfig;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use clap::Parser;
 use std::sync::Arc;
 use tokio::signal;
@@ -76,8 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start the node
     node.start().await?;
     
-    // Start API server if enabled
-    if config.api.enabled {
+    // Start API server if configured (check if bind_address and port are set)
+    let api_server_handle = if !config.api.bind_address.is_empty() && config.api.port > 0 {
         info!("Starting API server on {}:{}", config.api.bind_address, config.api.port);
         let api_server = node::api::create_api_server(
             Arc::clone(&node),
@@ -85,15 +85,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.api.port,
         );
         
-        // Spawn API server in background
-        tokio::spawn(async move {
-            if let Err(e) = api_server.start().await {
-                error!("API server error: {}", e);
+        // Start the API server and get the server handle
+        match api_server.start().await {
+            Ok(server) => {
+                info!("API server started on port {}", config.api.port);
+                // Spawn the server to run in the background
+                let server_handle = tokio::spawn(server);
+                Some(server_handle)
             }
-        });
-        
-        info!("API server started on port {}", config.api.port);
-    }
+            Err(e) => {
+                error!("Failed to start API server: {}", e);
+                None
+            }
+        }
+    } else {
+        warn!("API server disabled (no bind address or port configured)");
+        None
+    };
     
     info!("Node started successfully");
     info!("Press Ctrl+C to stop the node");
@@ -106,6 +114,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => {
             error!("Unable to listen for shutdown signal: {}", err);
         }
+    }
+
+    // Stop the API server if running
+    if let Some(handle) = api_server_handle {
+        handle.abort();
     }
 
     // Stop the node
