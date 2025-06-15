@@ -10,7 +10,9 @@ use serde_json::Value;
 use std::sync::Arc;
 use crate::node::Node;
 use types::{JsonRpcRequest, JsonRpcResponse, JsonRpcError, ErrorCode};
-use crate::api::docs::openapi::JsonRpcDoc;
+use crate::api::docs::jsonrpc::JsonRpcDoc;
+use serde::{Deserialize, Serialize};
+use crate::api::error::{ApiError, ApiResult};
 
 /// JSON-RPC request handler
 pub async fn handle_jsonrpc(

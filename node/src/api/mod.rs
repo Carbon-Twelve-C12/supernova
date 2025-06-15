@@ -21,7 +21,7 @@ pub mod lightning_api;
 // pub mod node;            // Missing file
 pub mod metrics;
 pub mod faucet_wrapper;
-pub mod jsonrpc;
+// pub mod jsonrpc;         // Temporarily disabled due to compilation issues
 
 pub use error::{ApiError, Result};
 pub use types::*;
