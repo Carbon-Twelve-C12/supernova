@@ -71,10 +71,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Create and start node
-    let node = Arc::new(Node::new(config).await?);
+    let node = Arc::new(Node::new(config.clone()).await?);
     
     // Start the node
     node.start().await?;
+    
+    // Start API server if enabled
+    if config.api.enabled {
+        info!("Starting API server on {}:{}", config.api.bind_address, config.api.port);
+        let api_server = node::api::create_api_server(
+            Arc::clone(&node),
+            &config.api.bind_address,
+            config.api.port,
+        );
+        
+        // Spawn API server in background
+        tokio::spawn(async move {
+            if let Err(e) = api_server.start().await {
+                error!("API server error: {}", e);
+            }
+        });
+        
+        info!("API server started on port {}", config.api.port);
+    }
     
     info!("Node started successfully");
     info!("Press Ctrl+C to stop the node");
