@@ -285,19 +285,54 @@
         // Fetch and display network stats
         async function updateStats() {
             try {
-                const response = await fetch('https://api.testnet.supernovanetwork.xyz/getblockchaininfo');
-                const data = await response.json();
+                // Fetch node info
+                const nodeResponse = await fetch('http://146.190.225.136:8332/api/v1/node/info');
+                const nodeData = await nodeResponse.json();
                 
-                document.getElementById('blockHeight').textContent = data.blocks || '0';
-                document.getElementById('networkNodes').textContent = data.connections || '0';
+                // Fetch blockchain info
+                const blockchainResponse = await fetch('http://146.190.225.136:8332/api/v1/blockchain/info');
+                const blockchainData = await blockchainResponse.json();
+                
+                // Update stats
+                document.getElementById('blockHeight').textContent = blockchainData.height || nodeData.height || '0';
+                document.getElementById('networkNodes').textContent = nodeData.connections || '1';
+                
+                // Calculate and update block time if we have timestamps
+                if (blockchainData.latest_block_time && blockchainData.genesis_time) {
+                    const timeDiff = blockchainData.latest_block_time - blockchainData.genesis_time;
+                    const blockTime = blockchainData.height > 0 ? Math.round(timeDiff / blockchainData.height / 60) : 2.5;
+                    document.querySelector('.stat-item:nth-child(3) h3').textContent = blockTime + ' min';
+                }
+                
+                // Update block reward based on height
+                const blockReward = calculateBlockReward(blockchainData.height || 0);
+                document.querySelector('.stat-item:nth-child(4) h3').textContent = blockReward + ' NOVA';
+                
             } catch (error) {
                 console.error('Failed to fetch network stats:', error);
+                // Try alternative endpoint through nginx proxy
+                try {
+                    const response = await fetch('/api/v1/node/info');
+                    const data = await response.json();
+                    document.getElementById('blockHeight').textContent = data.height || '0';
+                    document.getElementById('networkNodes').textContent = data.connections || '1';
+                } catch (proxyError) {
+                    console.error('Failed to fetch through proxy:', proxyError);
+                }
             }
         }
+        
+        // Calculate block reward based on halving schedule
+        function calculateBlockReward(height) {
+            const initialReward = 50;
+            const halvingInterval = 210000;
+            const halvings = Math.floor(height / halvingInterval);
+            return initialReward / Math.pow(2, halvings);
+        }
 
-        // Update stats every 30 seconds
+        // Update stats every 10 seconds for more responsive UI
         updateStats();
-        setInterval(updateStats, 30000);
+        setInterval(updateStats, 10000);
     </script>
 </body>
 </html> 
