@@ -29,12 +29,18 @@ pub fn create_genesis_block(chain_id: &str) -> Block {
         _ => Utc::now().timestamp() as u64,
     };
     
+    // Use easier difficulty for testnet
+    let difficulty_bits = match chain_id {
+        "mainnet" => 0x1d00ffff, // Standard difficulty
+        _ => 0x207fffff, // Very easy difficulty for testnet/devnet
+    };
+    
     let genesis_header = BlockHeader::new(
         1, // version
         [0u8; 32], // prev_block_hash (all zeros for genesis)
         [0u8; 32], // merkle_root (will be calculated)
         timestamp,
-        0x1d00ffff, // difficulty bits (standard for genesis)
+        difficulty_bits,
         0, // nonce
     );
     

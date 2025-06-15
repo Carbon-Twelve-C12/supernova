@@ -32,6 +32,10 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Database/runtime data
+data/
+checkpoints/
+
 deployment/OPERATIONAL_PROCEDURES.md
 deployment/PRODUCTION_DEPLOYMENT_SUMMARY.md
 Makefile

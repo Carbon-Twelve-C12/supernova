@@ -123,13 +123,18 @@ impl BlockHeader {
         let target = bits_to_target(self.bits);
         let hash_val = self.hash();
         
-        // Convert hash to a u256 for comparison with target
-        // For simplicity, we're doing a basic comparison here
-        // In a real implementation, this would be more sophisticated
-        hash_val[0] <= target[0] &&
-        hash_val[1] <= target[1] &&
-        hash_val[2] <= target[2] &&
-        hash_val[3] <= target[3]
+        // Compare as 256-bit little-endian integers
+        // Start from the most significant byte (last element in little-endian)
+        for i in (0..32).rev() {
+            if hash_val[i] < target[i] {
+                return true;
+            } else if hash_val[i] > target[i] {
+                return false;
+            }
+            // If equal, continue to next byte
+        }
+        // If all bytes are equal, hash meets target
+        true
     }
     
     /// Increment the nonce for mining
@@ -215,14 +220,25 @@ fn bits_to_target(bits: u32) -> [u8; 32] {
     let coefficient = bits & 0x00FFFFFF;
     
     // Calculate the target based on the formula target = coefficient * 2^(8*(exponent-3))
-    if exponent >= 3 {
-        // Set the coefficient in the correct position
-        let pos = exponent - 3;
-        if pos < 29 {
-            let value = coefficient as u32;
-            target[pos] = (value & 0xFF) as u8;
-            target[pos + 1] = ((value >> 8) & 0xFF) as u8;
-            target[pos + 2] = ((value >> 16) & 0xFF) as u8;
+    if exponent <= 3 {
+        // Handle special case where exponent <= 3
+        let shift = 8 * (3 - exponent);
+        let value = coefficient >> shift;
+        target[31] = (value & 0xFF) as u8;
+        if value > 0xFF {
+            target[30] = ((value >> 8) & 0xFF) as u8;
+        }
+        if value > 0xFFFF {
+            target[29] = ((value >> 16) & 0xFF) as u8;
+        }
+    } else {
+        // Normal case: place coefficient at the correct position
+        // Target is stored in little-endian, so we need to place bytes from the end
+        let pos = 32 - (exponent - 3);
+        if pos >= 3 {
+            target[pos - 1] = (coefficient & 0xFF) as u8;
+            target[pos - 2] = ((coefficient >> 8) & 0xFF) as u8;
+            target[pos - 3] = ((coefficient >> 16) & 0xFF) as u8;
         }
     }
     
