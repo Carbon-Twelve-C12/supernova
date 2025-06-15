@@ -148,7 +148,7 @@ impl ApiServer {
         // Set up the HTTP server
         let server = HttpServer::new(move || {
             App::new()
-//                 .app_data(node_data.clone())
+                .app_data(node_data.clone())
                 .app_data(metrics_data.clone())
                 // Configure JSON extractor limits
                 .app_data(web::JsonConfig::default().limit(4096))
