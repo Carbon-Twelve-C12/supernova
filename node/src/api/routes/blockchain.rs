@@ -24,15 +24,13 @@ use super::NodeData;
 
 /// Configure blockchain routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/blockchain")
-            .route("/info", web::get().to(get_blockchain_info))
-            .route("/block/{height}", web::get().to(get_block_by_height))
-            .route("/block/hash/{hash}", web::get().to(get_block_by_hash))
-            .route("/transaction/{txid}", web::get().to(get_transaction))
-            .route("/submit", web::post().to(submit_transaction))
-            .route("/stats", web::get().to(get_blockchain_stats)),
-    );
+    cfg
+        .route("/info", web::get().to(get_blockchain_info))
+        .route("/block/{height}", web::get().to(get_block_by_height))
+        .route("/block/hash/{hash}", web::get().to(get_block_by_hash))
+        .route("/transaction/{txid}", web::get().to(get_transaction))
+        .route("/submit", web::post().to(submit_transaction))
+        .route("/stats", web::get().to(get_blockchain_stats));
 }
 
 /// Get blockchain information
