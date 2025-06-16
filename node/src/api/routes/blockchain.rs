@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use bincode;
 
-use crate::node::Node;
+use crate::api_facade::ApiFacade;
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::types::{
     ApiResponse, BlockInfo, TransactionInfo, BlockchainInfo, BlockHeightParams, BlockHashParams, TxHashParams, SubmitTxRequest,
@@ -47,9 +47,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     )
 )]
 pub async fn get_blockchain_info(
-    node: web::Data<Arc<Node>>,
+    facade: web::Data<Arc<ApiFacade>>,
 ) -> ApiResult<BlockchainInfo> {
-    let storage = node.storage();
+    let storage = facade.storage();
     let height = storage.get_height()
         .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
     
@@ -75,7 +75,7 @@ pub async fn get_blockchain_info(
     // Calculate total work (simplified - sum of difficulties)
     let total_work = format!("0x{:x}", (difficulty * height as f64) as u128);
     
-    let config = node.config();
+    let config = facade.config();
     let network_id = config.read().unwrap().network.network_id.clone();
     
     let info = BlockchainInfo {
@@ -107,10 +107,10 @@ pub async fn get_blockchain_info(
 )]
 pub async fn get_block_by_height(
     path: web::Path<u64>,
-    node: web::Data<Arc<Node>>,
+    facade: web::Data<Arc<ApiFacade>>,
 ) -> ApiResult<BlockInfo> {
     let height = path.into_inner();
-    let storage = node.storage();
+    let storage = facade.storage();
     
     let block_hash = storage.get_block_hash_by_height(height)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block hash: {}", e)))?
@@ -120,7 +120,7 @@ pub async fn get_block_by_height(
         .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    let confirmations = node.chain_state().read().unwrap().get_height().saturating_sub(height) + 1;
+    let confirmations = facade.chain_state().read().unwrap().get_height().saturating_sub(height) + 1;
     
     // Calculate actual block weight
     let block_size = bincode::serialize(&block).unwrap_or_default().len();
@@ -173,7 +173,7 @@ pub async fn get_block_by_height(
 )]
 pub async fn get_block_by_hash(
     path: web::Path<String>,
-    node: web::Data<Arc<Node>>,
+    facade: web::Data<Arc<ApiFacade>>,
 ) -> ApiResult<BlockInfo> {
     let hash_str = path.into_inner();
     let hash = hex::decode(&hash_str)
@@ -186,7 +186,7 @@ pub async fn get_block_by_hash(
     let mut block_hash = [0u8; 32];
     block_hash.copy_from_slice(&hash);
     
-    let storage = node.storage();
+    let storage = facade.storage();
     let block = storage.get_block(&block_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
@@ -195,7 +195,7 @@ pub async fn get_block_by_hash(
         .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
         .unwrap_or(0);
     
-    let confirmations = node.chain_state().read().unwrap().get_height().saturating_sub(height) + 1;
+    let confirmations = facade.chain_state().read().unwrap().get_height().saturating_sub(height) + 1;
     
     // Calculate actual block weight
     let block_size = bincode::serialize(&block).unwrap_or_default().len();
@@ -248,7 +248,7 @@ pub async fn get_block_by_hash(
 )]
 pub async fn get_transaction(
     path: web::Path<String>,
-    node: web::Data<Arc<Node>>,
+    facade: web::Data<Arc<ApiFacade>>,
 ) -> ApiResult<TransactionInfo> {
     let txid_str = path.into_inner();
     let txid = hex::decode(&txid_str)
@@ -261,10 +261,10 @@ pub async fn get_transaction(
     let mut tx_hash = [0u8; 32];
     tx_hash.copy_from_slice(&txid);
     
-    let storage = node.storage();
+    let storage = facade.storage();
     
     // First check mempool
-    if let Some(mempool_tx) = node.mempool().get_transaction(&tx_hash) {
+    if let Some(mempool_tx) = facade.mempool().get_transaction(&tx_hash) {
         let tx_info = TransactionInfo {
             txid: txid_str.clone(),
             hash: txid_str,
@@ -319,7 +319,7 @@ pub async fn get_transaction(
             .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Block not found"))?;
         
-        let confirmations = node.chain_state().read().unwrap().get_height().saturating_sub(block_height) + 1;
+        let confirmations = facade.chain_state().read().unwrap().get_height().saturating_sub(block_height) + 1;
         let block_time = block.timestamp();
         
         (Some(hex::encode(block_hash)), Some(block_height), confirmations, Some(block_time), Some(block_time))
@@ -396,7 +396,7 @@ pub async fn get_transaction(
 )]
 pub async fn submit_transaction(
     request: web::Json<SubmitTxRequest>,
-    node: web::Data<Arc<Node>>,
+    facade: web::Data<Arc<ApiFacade>>,
 ) -> ApiResult<TransactionSubmissionResponse> {
     // Parse the raw transaction
     let tx_data = hex::decode(&request.raw_tx)
@@ -409,10 +409,10 @@ pub async fn submit_transaction(
     let txid = hex::encode(tx.hash());
     
     // Add to mempool with default fee rate
-    match node.mempool().add_transaction(tx.clone(), 1000) {
+    match facade.mempool().add_transaction(tx.clone(), 1000) {
         Ok(()) => {
             // Broadcast to network
-            node.broadcast_transaction(&tx);
+            facade.broadcast_transaction(&tx);
             
             Ok(TransactionSubmissionResponse {
                 txid: Some(txid),
@@ -451,9 +451,9 @@ pub async fn submit_transaction(
     )
 )]
 pub async fn get_blockchain_stats(
-    node: web::Data<Arc<Node>>,
+    facade: web::Data<Arc<ApiFacade>>,
 ) -> ApiResult<BlockchainStats> {
-    let storage = node.storage();
+    let storage = facade.storage();
     let height = storage.get_height()
         .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
     
@@ -492,8 +492,8 @@ pub async fn get_blockchain_stats(
         total_blocks: height + 1,
         difficulty,
         hashrate,
-        mempool_size: node.mempool().size(),
-        mempool_bytes: node.mempool().size_in_bytes(),
+        mempool_size: facade.mempool().size(),
+        mempool_bytes: facade.mempool().size_in_bytes(),
         utxo_set_size,
         chain_size_bytes,
     };

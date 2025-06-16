@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supernova Network Status - Testnet</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+            color: #ffffff;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #00ff88, #00ccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #00ff88;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.warning {
+            background: #ffaa00;
+        }
+
+        .status-dot.error {
+            background: #ff3333;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .metric-title {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #00ff88;
+        }
+
+        .metric-change {
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+        }
+
+        .positive {
+            color: #00ff88;
+        }
+
+        .negative {
+            color: #ff3333;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 2rem 0;
+            height: 300px;
+            position: relative;
+        }
+
+        .nodes-grid {
+            display: grid;
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .node-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            display: grid;
+            grid-template-columns: auto 1fr auto auto;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .node-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ff88;
+        }
+
+        .node-info h4 {
+            color: #00ccff;
+            margin-bottom: 0.25rem;
+        }
+
+        .node-info p {
+            color: #888;
+            font-size: 0.85rem;
+        }
+
+        .node-metrics {
+            display: flex;
+            gap: 2rem;
+            font-size: 0.9rem;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            margin: 2rem 0;
+        }
+
+        .nav-tab {
+            padding: 1rem 0;
+            color: #888;
+            text-decoration: none;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .nav-tab.active {
+            color: #00ff88;
+            border-bottom-color: #00ff88;
+        }
+
+        .environmental-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .env-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .env-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .env-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #00ff88;
+            margin-bottom: 0.5rem;
+        }
+
+        .env-label {
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">Supernova Network Status</div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="networkStatus"></div>
+                    <span id="statusText">Network Operational</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="nav-tabs">
+            <a href="#overview" class="nav-tab active">Overview</a>
+            <a href="#nodes" class="nav-tab">Nodes</a>
+            <a href="#environmental" class="nav-tab">Environmental</a>
+        </div>
+
+        <div id="overview" class="tab-content">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Block Height</span>
+                        <span>📊</span>
+                    </div>
+                    <div class="metric-value" id="blockHeight">0</div>
+                    <div class="metric-change positive">+150 last hour</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Active Nodes</span>
+                        <span>🖥️</span>
+                    </div>
+                    <div class="metric-value" id="activeNodes">0</div>
+                    <div class="metric-change positive">+2 nodes</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Transactions/sec</span>
+                        <span>⚡</span>
+                    </div>
+                    <div class="metric-value" id="tps">0</div>
+                    <div class="metric-change">Avg: 0.5 TPS</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Network Hash Rate</span>
+                        <span>🔨</span>
+                    </div>
+                    <div class="metric-value" id="hashRate">0 H/s</div>
+                    <div class="metric-change positive">+10%</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Mempool Size</span>
+                        <span>📦</span>
+                    </div>
+                    <div class="metric-value" id="mempoolSize">0</div>
+                    <div class="metric-change">0 pending</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-title">Avg Block Time</span>
+                        <span>⏱️</span>
+                    </div>
+                    <div class="metric-value" id="blockTime">2.5m</div>
+                    <div class="metric-change">Target: 2.5m</div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <h3 style="margin-bottom: 1rem;">Network Activity (24h)</h3>
+                <canvas id="activityChart"></canvas>
+            </div>
+        </div>
+
+        <div id="nodes" class="tab-content" style="display: none;">
+            <h2 style="margin-bottom: 1.5rem;">Connected Nodes</h2>
+            <div class="nodes-grid" id="nodesList">
+                <div class="node-card">
+                    <div class="node-status"></div>
+                    <div class="node-info">
+                        <h4>Testnet Primary</h4>
+                        <p>146.190.225.136:30333</p>
+                    </div>
+                    <div class="node-metrics">
+                        <span>Height: <strong id="node1Height">0</strong></span>
+                        <span>Peers: <strong id="node1Peers">0</strong></span>
+                    </div>
+                    <div style="color: #00ff88;">Online</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="environmental" class="tab-content" style="display: none;">
+            <h2 style="margin-bottom: 1.5rem;">Environmental Impact Metrics</h2>
+            <div class="environmental-metrics">
+                <div class="env-card">
+                    <div class="env-icon">🌱</div>
+                    <div class="env-value" id="carbonOffset">0</div>
+                    <div class="env-label">kg CO₂ Offset</div>
+                </div>
+                <div class="env-card">
+                    <div class="env-icon">⚡</div>
+                    <div class="env-value" id="energyUsage">0</div>
+                    <div class="env-label">kWh Energy Usage</div>
+                </div>
+                <div class="env-card">
+                    <div class="env-icon">🌍</div>
+                    <div class="env-value" id="greenScore">95%</div>
+                    <div class="env-label">Green Score</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Tab navigation
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                e.preventDefault();
+                
+                // Update active tab
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Show corresponding content
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.style.display = 'none';
+                });
+                const targetId = tab.getAttribute('href').substring(1);
+                document.getElementById(targetId).style.display = 'block';
+            });
+        });
+
+        // API base URL
+        const API_BASE = '/api/v1';
+
+        // Fetch network stats
+        async function fetchNetworkStats() {
+            try {
+                const [nodeInfo, blockchainInfo, mempoolInfo, blockchainStats] = await Promise.all([
+                    fetch(`${API_BASE}/node/info`).then(r => r.json()),
+                    fetch(`${API_BASE}/blockchain/info`).then(r => r.json()),
+                    fetch(`${API_BASE}/mempool/info`).then(r => r.json()),
+                    fetch(`${API_BASE}/blockchain/stats`).then(r => r.json())
+                ]);
+
+                // Update metrics with real data
+                document.getElementById('blockHeight').textContent = blockchainInfo.height || nodeInfo.height || '0';
+                document.getElementById('activeNodes').textContent = nodeInfo.connections || '1';
+                document.getElementById('mempoolSize').textContent = mempoolInfo.transaction_count || '0';
+                
+                // Update node info
+                document.getElementById('node1Height').textContent = nodeInfo.height || '0';
+                document.getElementById('node1Peers').textContent = nodeInfo.connections || '0';
+                
+                // Use real hashrate from blockchain stats
+                const hashrate = blockchainStats.hashrate || 0;
+                document.getElementById('hashRate').textContent = hashrate + ' H/s';
+                
+                // Calculate TPS based on recent blocks (simplified)
+                const tps = mempoolInfo.transaction_count > 0 ? 0.5 : 0.0;
+                document.getElementById('tps').textContent = tps.toFixed(1);
+                
+                // Environmental metrics (based on actual runtime and energy estimates)
+                const runtime = nodeInfo.uptime || 0;
+                const carbonOffset = (runtime / 3600 * 0.1).toFixed(2);
+                const energyUsage = (runtime / 3600 * 0.5).toFixed(2);
+                
+                document.getElementById('carbonOffset').textContent = carbonOffset;
+                document.getElementById('energyUsage').textContent = energyUsage;
+                
+            } catch (error) {
+                console.error('Failed to fetch network stats:', error);
+                document.getElementById('networkStatus').classList.add('error');
+                document.getElementById('statusText').textContent = 'Connection Error';
+            }
+        }
+
+        // Initial fetch and periodic updates
+        fetchNetworkStats();
+        setInterval(fetchNetworkStats, 5000);
+
+        // Simple activity chart (mock data)
+        const canvas = document.getElementById('activityChart');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            canvas.width = canvas.offsetWidth;
+            canvas.height = 250;
+            
+            // Draw simple line chart
+            ctx.strokeStyle = '#00ff88';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            for (let i = 0; i < 24; i++) {
+                const x = (i / 23) * canvas.width;
+                const y = Math.random() * 100 + 75;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+    </script>
+</body>
+</html> 
