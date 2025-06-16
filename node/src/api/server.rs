@@ -15,6 +15,7 @@ use tracing::{info, error, warn};
 
 use crate::node::Node;
 use crate::metrics::ApiMetrics;
+use crate::api_facade::ApiFacade;
 use super::routes;
 use super::docs::ApiDoc;
 use super::middleware::{auth, rate_limiting, logging};
@@ -67,8 +68,8 @@ impl Default for ApiConfig {
 
 /// API server
 pub struct ApiServer {
-    /// Node instance
-    node: Arc<Node>,
+    /// Node facade (thread-safe)
+    node_facade: Arc<ApiFacade>,
     /// Server configuration
     config: ApiConfig,
     /// Bind address 
@@ -82,6 +83,9 @@ pub struct ApiServer {
 impl ApiServer {
     /// Create a new API server instance
     pub fn new(node: Arc<Node>, bind_address: &str, port: u16) -> Self {
+        // Create thread-safe facade
+        let node_facade = Arc::new(ApiFacade::new(&*node));
+        
         // Warn about default API key usage
         let config = ApiConfig::default();
         if config.api_keys.as_ref().map(|keys| keys.iter().any(|k| k.contains("CHANGE-ME"))).unwrap_or(false) {
@@ -89,7 +93,7 @@ impl ApiServer {
         }
         
         Self {
-            node,
+            node_facade,
             config,
             bind_address: bind_address.to_string(),
             port,
@@ -107,7 +111,7 @@ impl ApiServer {
     
     /// Start the API server
     pub async fn start(self) -> std::io::Result<Server> {
-        let node_data = web::Data::new(self.node);
+        let node_data = web::Data::new(self.node_facade);
         let metrics_data = web::Data::new(self.metrics.clone());
         let config = self.config.clone();
         let rate_limit = config.rate_limit.unwrap_or(100);

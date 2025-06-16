@@ -12,7 +12,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use bincode;
 
-use crate::node::Node;
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::types::{
     ApiResponse, BlockInfo, TransactionInfo, BlockchainInfo, BlockHeightParams, BlockHashParams, TxHashParams, SubmitTxRequest,
@@ -21,6 +20,7 @@ use crate::api::types::{
 use crate::storage::StorageError;
 use btclib::types::transaction::{Transaction, TransactionError};
 use btclib::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
+use super::NodeData;
 
 /// Configure blockchain routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -47,7 +47,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     )
 )]
 pub async fn get_blockchain_info(
-    node: web::Data<Arc<Node>>,
+    node: NodeData,
 ) -> ApiResult<BlockchainInfo> {
     let storage = node.storage();
     let height = storage.get_height()
@@ -107,7 +107,7 @@ pub async fn get_blockchain_info(
 )]
 pub async fn get_block_by_height(
     path: web::Path<u64>,
-    node: web::Data<Arc<Node>>,
+    node: NodeData,
 ) -> ApiResult<BlockInfo> {
     let height = path.into_inner();
     let storage = node.storage();
@@ -173,7 +173,7 @@ pub async fn get_block_by_height(
 )]
 pub async fn get_block_by_hash(
     path: web::Path<String>,
-    node: web::Data<Arc<Node>>,
+    node: NodeData,
 ) -> ApiResult<BlockInfo> {
     let hash_str = path.into_inner();
     let hash = hex::decode(&hash_str)
@@ -248,7 +248,7 @@ pub async fn get_block_by_hash(
 )]
 pub async fn get_transaction(
     path: web::Path<String>,
-    node: web::Data<Arc<Node>>,
+    node: NodeData,
 ) -> ApiResult<TransactionInfo> {
     let txid_str = path.into_inner();
     let txid = hex::decode(&txid_str)
@@ -396,7 +396,7 @@ pub async fn get_transaction(
 )]
 pub async fn submit_transaction(
     request: web::Json<SubmitTxRequest>,
-    node: web::Data<Arc<Node>>,
+    node: NodeData,
 ) -> ApiResult<TransactionSubmissionResponse> {
     // Parse the raw transaction
     let tx_data = hex::decode(&request.raw_tx)
@@ -451,7 +451,7 @@ pub async fn submit_transaction(
     )
 )]
 pub async fn get_blockchain_stats(
-    node: web::Data<Arc<Node>>,
+    node: NodeData,
 ) -> ApiResult<BlockchainStats> {
     let storage = node.storage();
     let height = storage.get_height()
