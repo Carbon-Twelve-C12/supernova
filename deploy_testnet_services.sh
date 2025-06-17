@@ -2,7 +2,8 @@
 
 # Deploy Supernova testnet services
 
-SERVER="supernova@146.190.225.136"
+# Set TESTNET_SERVER in your environment before running
+SERVER=${TESTNET_SERVER:-"supernova@testnet.supernovanetwork.xyz"}
 
 echo "=== Deploying Supernova Testnet Services ==="
 

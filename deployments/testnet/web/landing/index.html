@@ -286,11 +286,11 @@
         async function updateStats() {
             try {
                 // Fetch node info
-                const nodeResponse = await fetch('http://146.190.225.136:8332/api/v1/node/info');
+                const nodeResponse = await fetch('https://api.testnet.supernovanetwork.xyz/node/info');
                 const nodeData = await nodeResponse.json();
                 
                 // Fetch blockchain info
-                const blockchainResponse = await fetch('http://146.190.225.136:8332/api/v1/blockchain/info');
+                const blockchainResponse = await fetch('https://api.testnet.supernovanetwork.xyz/blockchain/info');
                 const blockchainData = await blockchainResponse.json();
                 
                 // Update stats

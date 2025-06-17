@@ -12,8 +12,10 @@ echo "P2P Port: $BASE_PORT"
 echo "API Port: $API_PORT"
 echo "Data Dir: $DATA_DIR"
 
-# Get the testnet node's peer ID first
-TESTNET_NODE="/ip4/146.190.225.136/tcp/30333"
+# Get the testnet node's peer ID from environment or use default
+# Set TESTNET_NODE_IP in your environment to connect to testnet
+TESTNET_IP=${TESTNET_NODE_IP:-"testnet.supernovanetwork.xyz"}
+TESTNET_NODE="/ip4/${TESTNET_IP}/tcp/30333"
 
 # Build if needed
 cargo build --release
@@ -28,4 +30,4 @@ cargo build --release
   --bootnodes "$TESTNET_NODE"
 
 # To connect to specific peer ID, add:
-# --bootnodes "/ip4/146.190.225.136/tcp/30333/p2p/PEER_ID_HERE" 
+# --bootnodes "/ip4/TESTNET_IP/tcp/30333/p2p/PEER_ID_HERE" 
