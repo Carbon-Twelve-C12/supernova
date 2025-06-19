@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supernova API Documentation - Testnet</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+            color: #ffffff;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #00ff88, #00ccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .nav-link {
+            color: #888;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            color: #00ff88;
+        }
+
+        .api-header {
+            text-align: center;
+            padding: 3rem 0;
+        }
+
+        .api-header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(45deg, #00ff88, #00ccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .api-base {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid #00ff88;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            margin: 2rem 0;
+        }
+
+        .endpoint-section {
+            margin: 3rem 0;
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            color: #00ff88;
+            margin-bottom: 1.5rem;
+        }
+
+        .endpoint {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .method {
+            background: #00ff88;
+            color: #000;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        .endpoint-path {
+            font-family: 'Courier New', monospace;
+            color: #00ccff;
+        }
+
+        .endpoint-description {
+            color: #ccc;
+            margin-bottom: 1rem;
+        }
+
+        .code-block {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+
+        .response-example {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            color: #00ff88;
+        }
+
+        .params-table {
+            width: 100%;
+            margin: 1rem 0;
+            border-collapse: collapse;
+        }
+
+        .params-table th {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .params-table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .rate-limit-info {
+            background: rgba(255, 170, 0, 0.1);
+            border: 1px solid #ffaa00;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 2rem 0;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">Supernova API</div>
+                <nav class="nav-links">
+                    <a href="https://explorer.testnet.supernovanetwork.xyz" class="nav-link">Explorer</a>
+                    <a href="https://status.testnet.supernovanetwork.xyz" class="nav-link">Status</a>
+                    <a href="https://testnet.supernovanetwork.xyz" class="nav-link">Testnet Home</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="api-header">
+            <h1>Supernova Testnet API</h1>
+            <p>Programmatic access to Supernova blockchain data</p>
+        </div>
+
+        <div class="api-base">
+            <strong>Base URL:</strong> https://api.testnet.supernovanetwork.xyz
+        </div>
+
+        <div class="rate-limit-info">
+            <strong>⚠️ Rate Limits:</strong> 100 requests per minute per IP address
+        </div>
+
+        <section class="endpoint-section">
+            <h2 class="section-title">Blockchain Endpoints</h2>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/blockchain/info</span>
+                </div>
+                <p class="endpoint-description">Returns current blockchain information</p>
+                <div class="code-block">
+curl https://api.testnet.supernovanetwork.xyz/blockchain/info
+                </div>
+                <p><strong>Response:</strong></p>
+                <div class="response-example">
+{
+  "height": 12345,
+  "best_block_hash": "00000000...",
+  "difficulty": 1.5,
+  "total_work": "0x1234",
+  "network": "supernova-testnet",
+  "version": "1.0.0"
+}
+                </div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/blockchain/block/{height_or_hash}</span>
+                </div>
+                <p class="endpoint-description">Get block details by height or hash</p>
+                <div class="code-block">
+curl https://api.testnet.supernovanetwork.xyz/blockchain/block/12345
+                </div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/blockchain/transaction/{txid}</span>
+                </div>
+                <p class="endpoint-description">Get transaction details by transaction ID</p>
+                <div class="code-block">
+curl https://api.testnet.supernovanetwork.xyz/blockchain/transaction/abc123...
+                </div>
+            </div>
+        </section>
+
+        <section class="endpoint-section">
+            <h2 class="section-title">Account Endpoints</h2>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/account/{address}/balance</span>
+                </div>
+                <p class="endpoint-description">Get account balance</p>
+                <div class="code-block">
+curl https://api.testnet.supernovanetwork.xyz/account/snova1abc.../balance
+                </div>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/account/{address}/transactions</span>
+                </div>
+                <p class="endpoint-description">Get account transaction history</p>
+                <table class="params-table">
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                    </tr>
+                    <tr>
+                        <td>limit</td>
+                        <td>integer</td>
+                        <td>Number of transactions to return (max: 100)</td>
+                    </tr>
+                    <tr>
+                        <td>offset</td>
+                        <td>integer</td>
+                        <td>Pagination offset</td>
+                    </tr>
+                </table>
+            </div>
+        </section>
+
+        <section class="endpoint-section">
+            <h2 class="section-title">Network Endpoints</h2>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/network/peers</span>
+                </div>
+                <p class="endpoint-description">Get list of connected peers</p>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/node/status</span>
+                </div>
+                <p class="endpoint-description">Get node synchronization status</p>
+            </div>
+        </section>
+
+        <section class="endpoint-section">
+            <h2 class="section-title">Environmental Endpoints</h2>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/environmental/impact</span>
+                </div>
+                <p class="endpoint-description">Get network environmental impact metrics</p>
+            </div>
+
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method">GET</span>
+                    <span class="endpoint-path">/environmental/carbon</span>
+                </div>
+                <p class="endpoint-description">Get carbon offset statistics</p>
+            </div>
+        </section>
+    </main>
+</body>
+</html> 
