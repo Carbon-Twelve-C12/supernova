@@ -61,3 +61,20 @@ deployment/*PLAN*
 deployments/testnet/*GUIDE*
 deployments/testnet/*SUMMARY*
 deployments/testnet/*START*
+
+# Temporary scripts and utilities
+*_dns*.sh
+*_cloudflare*.sh
+fix_*.sh
+monitor_*.sh
+verify_*.sh
+
+# Temporary/duplicate files
+*\ 2.*
+*\ copy.*
+*.tmp
+*.temp
+
+# Migration and planning docs
+*MIGRATION*.md
+*_PLAN.md
