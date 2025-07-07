@@ -337,37 +337,84 @@ The system follows a modular architecture with the following main components (al
 ### Architecture Diagram
 
 ```mermaid
-graph TD
-    subgraph "Supernova Blockchain Architecture"
-        A[Node Core] --> B[Blockchain State]
-        A --> C[P2P Network]
-        A --> D[Mempool]
-        A --> E[Mining Manager]
-        A --> F[Lightning Network]
-        A --> G[Environmental Tracking]
-        
-        B --> H[Storage Layer<br/>- BlockchainDB<br/>- ChainState<br/>- UTXO Management]
-        
-        C --> I[libp2p Network<br/>- Gossipsub<br/>- Kademlia DHT<br/>- Peer Discovery]
-        
-        D --> J[Transaction Pool<br/>- Fee Prioritization<br/>- RBF Support<br/>- Double-spend Detection]
-        
-        E --> K[Mining Workers<br/>- Multi-threaded<br/>- Green Mining<br/>- Quantum-resistant]
-        
-        F --> L[Lightning Manager<br/>- Channel Management<br/>- Payment Routing<br/>- Invoice Handling]
-        
-        G --> M[Emissions Tracker<br/>- Carbon Tracking<br/>- Renewable Energy<br/>- Green Rewards]
-        
-        A --> N[API Server<br/>- REST API<br/>- WebSocket<br/>- Swagger Docs]
-        
-        N --> O[API Endpoints<br/>- Blockchain<br/>- Mining<br/>- Lightning<br/>- Environmental]
-    end
+flowchart TD
+    A[Users/Applications] --> B[CLI Interface]
+    A --> C[Wallet]
+    D[P2P Network] --> E[Node]
+    F[Environmental Oracles] --> E
+    G[External Miners] --> E
+    E --> D
     
-    style A fill:#f9f,stroke:#333,stroke-width:4px
-    style E fill:#9f9,stroke:#333,stroke-width:2px
-    style F fill:#99f,stroke:#333,stroke-width:2px
-    style G fill:#9ff,stroke:#333,stroke-width:2px
+    B --> H[btclib Core]
+    C --> H
+    E --> H
+    I[Miner] --> H
+    J[quantum_validation] --> H
+    
+    H --> K[blockchain]
+    H --> L[consensus]
+    H --> M[validation]
+    H --> N[mempool]
+    H --> O[crypto]
+    H --> P[quantum]
+    H --> Q[signature]
+    H --> R[environmental]
+    H --> S[lightning]
+    H --> T[network]
+    H --> U[security]
+    H --> V[api]
+    
+    O --> P
+    P --> Q
+    R --> W[emissions]
+    R --> X[treasury]
+    R --> Y[oracle_consensus]
+    S --> Z[quantum_htlc]
+    S --> AA[quantum_channels]
+    S --> BB[green_routing]
+    T --> CC[p2p]
+    T --> U
+    T --> V
+    
+    C -.-> E
+    E -.-> N
+    N -.-> I
+    I -.-> E
+    E -.-> M
+    M -.-> J
+    
+    G -.-> F
+    F -.-> Y
+    Y -.-> W
+    W -.-> X
+    X -.-> I
+    
+    C -.-> AA
+    AA -.-> BB
+    BB -.-> K
+    
+    style P fill:#ffebee
+    style Q fill:#ffebee
+    style Z fill:#ffebee
+    style AA fill:#ffebee
+    style R fill:#e8f5e8
+    style W fill:#e8f5e8
+    style X fill:#e8f5e8
+    style Y fill:#e8f5e8
+    style S fill:#fff8e1
+    style BB fill:#fff8e1
+    style U fill:#fff3e0
+    style V fill:#fff3e0
+    style CC fill:#fff3e0
+    style M fill:#f3e5f5
+    style E fill:#f3e5f5
+    style H fill:#f3e5f5
 ```
+
+This comprehensive diagram shows:
+- **Solid arrows**: Component dependencies and connections
+- **Dotted arrows**: Data flow (transactions, environmental data, Lightning payments)
+- **Color coding**: Pink (quantum), Green (environmental), Yellow (Lightning), Orange (security), Purple (core validation)
 
 ## Contributor Information
 

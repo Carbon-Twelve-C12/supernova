@@ -203,17 +203,17 @@ Supernova has achieved **100% implementation completion** with all major compone
    - Open registration for validators
    - Launch bug bounty program
 
-2. **External Audits** (Q2 2025)
+2. **External Audits** (Q3 2025)
    - Security audit by third party
    - Performance optimization
    - Code review
 
-3. **Mainnet Preparation** (Q3 2025)
+3. **Mainnet Preparation** (Q4 2025)
    - Final optimizations
    - Genesis block preparation
    - Launch coordination
 
-4. **Ecosystem Development** (Q4 2025)
+4. **Ecosystem Development** (Q4 2025 - Q1 2026)
    - DeFi integrations
    - Developer SDK
    - Cross-chain bridges

@@ -19,7 +19,7 @@ Supernova is a production-grade Proof-of-Work blockchain written in Rust. It is 
 
 For a more detailed breakdown of the project's status, architecture, and goals, please see the [Supernova Overview](docs/supernova_overview.md) document.
 
-Our primary goal is to provide a secure, scalable, and sustainable platform for the next generation of decentralized applications. We achieve this through a series of core technical innovations.
+Our primary goal is to provide a secure, scalable, and sustainable platform for the next generation of decentralized applications. 
 
 ---
 
@@ -90,6 +90,8 @@ graph TD
     style G fill:#9f9,stroke:#333,stroke-width:2px
     style H fill:#ff9,stroke:#333,stroke-width:2px
 ```
+
+> **Note**: This diagram focuses on Supernova's quantum-resistant components. For a comprehensive view of the entire system architecture including data flows, environmental systems, and component dependencies, see the [Architecture Overview](docs/supernova_overview.md#architecture-overview) in our detailed documentation.
 
 ---
 

@@ -13,7 +13,7 @@ This document provides detailed information about supernova's token economics, i
 - **Smallest Unit**: 1 attonova (0.000000000000000001 NOVA)
 - **Consensus Mechanism**: Environmentally-aware Proof of Work
 - **Environmental Feature**: Carbon-negative by design
-- **Launch Date**: Q3 2025
+- **Launch Date**: Q4 2025
 
 ### 1.2 Token Utility
 
