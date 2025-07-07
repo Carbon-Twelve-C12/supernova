@@ -52,8 +52,8 @@ mod testnet_readiness_tests {
         // Test difficulty adjustment interval
         let difficulty_interval = 2016;
         let adjustment_days = (difficulty_interval * block_time_seconds) / (24 * 60 * 60);
-        assert!(adjustment_days >= 13 && adjustment_days <= 15,
-                "Difficulty should adjust approximately every 2 weeks");
+        assert!(adjustment_days >= 3 && adjustment_days <= 4,
+                "Difficulty should adjust approximately every 3.5 days");
         
         println!("✅ Consensus rules: PASSED");
     }

@@ -50,9 +50,9 @@ This document outlines the formal specification of the supernova blockchain cons
 
 1. **Genesis Block**: The first block must match the predefined genesis block for the network.
 
-2. **Difficulty Adjustment**: The difficulty target is adjusted every 2016 blocks to maintain an average block time of 10 minutes, with adjustments capped at 4x changes up or down.
+2. **Difficulty Adjustment**: The difficulty target is adjusted every 2016 blocks to maintain an average block time of 2.5 minutes, with adjustments capped at 4x changes up or down.
 
-3. **Subsidy Schedule**: The block subsidy (newly created NOVA) follows the predefined schedule, starting at 50 NOVA and halving every 420,000 blocks.
+3. **Subsidy Schedule**: The block subsidy (newly created NOVA) follows the predefined schedule, starting at 50 NOVA and halving every 840,000 blocks.
 
 4. **Coinbase Maturity**: Newly created NOVA in coinbase transactions cannot be spent for 100 blocks.
 

@@ -305,10 +305,27 @@ impl LightningNetwork {
         
         // Find a route to the destination
         let route = {
+            // Convert invoice route hints to router route hints
+            let router_hints: Vec<router::RouteHint> = invoice.route_hints().iter()
+                .map(|hint| {
+                    // Convert u64 channel ID to [u8; 32] by using it as a seed
+                    let mut channel_id_bytes = [0u8; 32];
+                    channel_id_bytes[0..8].copy_from_slice(&hint.channel_id.to_le_bytes());
+                    
+                    router::RouteHint {
+                        node_id: router::NodeId::new(hint.node_id.clone()),
+                        channel_id: channel::ChannelId::from_bytes(channel_id_bytes),
+                        base_fee_msat: hint.base_fee_msat,
+                        fee_rate_millionths: hint.fee_rate_millionths,
+                        cltv_expiry_delta: hint.cltv_expiry_delta,
+                    }
+                })
+                .collect();
+            
             self.router.find_route(
                 invoice.destination(),
                 invoice.amount_msat(),
-                &[], // TODO: Convert invoice::RouteHint to router::RouteHint
+                &router_hints,
             )?
         };
         

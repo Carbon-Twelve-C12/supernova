@@ -78,3 +78,21 @@ verify_*.sh
 # Migration and planning docs
 *MIGRATION*.md
 *_PLAN.md
+
+# Sensitive deployment and setup files - NEVER commit these
+DEPLOYMENT_SECURITY.md
+PROMPT_FOR_SUPERNOVA_WEB.md
+SuperNova Overview.textClipping
+TESTNET_SETUP.md
+complete_nginx_setup.sh
+deploy_testnet_web.sh
+deploy_web_files.sh
+test_subdomains.sh
+test_testnet.sh
+
+# Additional sensitive patterns
+*_SECURITY.md
+PROMPT_FOR_*.md
+deploy_*.sh
+test_*.sh
+*.textClipping

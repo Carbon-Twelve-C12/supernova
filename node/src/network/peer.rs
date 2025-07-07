@@ -40,6 +40,8 @@ pub struct PeerInfo {
     pub first_seen: Instant,
     /// When the peer was last seen
     pub last_seen: Instant,
+    /// When we last sent data to this peer
+    pub last_sent: Option<Instant>,
     /// Connection direction (true if inbound)
     pub is_inbound: bool,
     /// Protocol version reported by the peer
@@ -62,6 +64,12 @@ pub struct PeerInfo {
     pub ping_ms: Option<u64>,
     /// Whether the peer has been verified (basic handshake complete)
     pub verified: bool,
+    /// Service flags (bitfield indicating supported services)
+    pub services: u64,
+    /// Total bytes sent to this peer
+    pub bytes_sent: u64,
+    /// Total bytes received from this peer
+    pub bytes_received: u64,
     /// Extended information about the peer
     pub metadata: PeerMetadata,
 }
@@ -222,6 +230,7 @@ impl PeerManager {
                 addresses: vec![addr],
                 first_seen: now,
                 last_seen: now,
+                last_sent: None,
                 is_inbound: false,
                 protocol_version: None,
                 user_agent: None,
@@ -233,6 +242,9 @@ impl PeerManager {
                 failed_attempts: 0,
                 ping_ms: None,
                 verified: false,
+                services: 0,
+                bytes_sent: 0,
+                bytes_received: 0,
                 metadata: PeerMetadata::default(),
             };
             self.peers.insert(peer_id.clone(), peer_info);
@@ -532,6 +544,7 @@ mod tests {
             addresses: vec![],
             first_seen: now,
             last_seen: now,
+            last_sent: None,
             is_inbound,
             protocol_version: Some(1),
             user_agent: Some("test-agent".to_string()),
@@ -548,6 +561,9 @@ mod tests {
             failed_attempts: 0,
             ping_ms: Some(100),
             verified: true,
+            services: 0,
+            bytes_sent: 0,
+            bytes_received: 0,
             metadata: PeerMetadata::default(),
         }
     }

@@ -426,9 +426,9 @@ sybil_protection_level = "high"
 # Consensus parameters
 max_future_block_time_secs = 7200
 median_time_span = 11
-difficulty_adjustment_window = 720
-target_timespan_seconds = 86400
-target_spacing_seconds = 120
+difficulty_adjustment_window = 2016
+target_timespan_seconds = 302400
+target_spacing_seconds = 150
 min_difficulty = 1.0
 retargeting_factor = 0.25
 

@@ -262,9 +262,9 @@ impl Default for TestNetConfig {
     fn default() -> Self {
         Self {
             network_name: "supernova-testnet".to_string(),
-            target_block_time_secs: 10, // 10 seconds between blocks (fast for testing)
+            target_block_time_secs: 150, // 2.5 minutes between blocks (matches mainnet)
             initial_difficulty: 100_000, // Low initial difficulty for easier mining
-            difficulty_adjustment_window: 20, // Adjust every 20 blocks (faster adjustments)
+            difficulty_adjustment_window: 2016, // Adjust every 2016 blocks (~3.5 days)
             max_difficulty_adjustment_factor: 4.0, // Allow up to 4x difficulty change
             genesis_config: GenesisConfig {
                 timestamp: 1672531200, // June 1, 2025
@@ -324,7 +324,7 @@ impl Default for TestNetConfig {
             },
             auto_mining: Some(AutoMiningConfig {
                 enabled: false,
-                block_interval_secs: 30,
+                block_interval_secs: 150, // 2.5 minutes to match target block time
                 max_transactions_per_block: 1000,
                 mining_nodes: vec![0],
             }),
@@ -447,7 +447,7 @@ pub mod presets {
     pub fn create_performance_testnet() -> TestNetConfig {
         let mut config = TestNetConfig::default();
         config.network_name = "supernova-perftest".to_string();
-        config.target_block_time_secs = 30; // 30 seconds for more stable timing
+        config.target_block_time_secs = 150; // 2.5 minutes for stable timing matching mainnet
         
         // Disable network simulation for optimal performance
         if let Some(sim_config) = config.network_simulation.as_mut() {

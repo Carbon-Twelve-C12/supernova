@@ -5,8 +5,8 @@ use std::time::{Instant, Duration};
 use std::sync::atomic::{AtomicBool, Ordering};
 use super::reward::{calculate_mining_reward, EnvironmentalProfile};
 
-pub const BLOCK_MAX_SIZE: usize = 1_000_000; // 1MB
-pub const TEMPLATE_REFRESH_INTERVAL: Duration = Duration::from_secs(10); // Refresh template every 10 seconds
+pub const BLOCK_MAX_SIZE: usize = 4_000_000; // 4MB (increased for 2.5-minute blocks)
+pub const TEMPLATE_REFRESH_INTERVAL: Duration = Duration::from_secs(30); // Refresh template every 30 seconds for 2.5-minute blocks
 
 #[async_trait]
 pub trait MempoolInterface: Send + Sync {
@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(block.transactions().len(), 4, "Block should have 4 transactions (coinbase + 3 from mempool)");
         
         // Check that coinbase has the correct reward (50 NOVA at height 1)
-        let expected_reward = super::reward::calculate_base_reward(1);
+        let expected_reward = crate::mining::reward::calculate_base_reward(1);
         assert_eq!(block.transactions()[0].outputs()[0].amount(), expected_reward);
     }
     

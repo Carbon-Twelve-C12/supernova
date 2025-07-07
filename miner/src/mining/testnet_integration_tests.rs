@@ -1,7 +1,8 @@
 use super::*;
 use super::reward::{calculate_mining_reward, EnvironmentalProfile};
+use super::HALVING_INTERVAL;
 use super::environmental_verification::{EnvironmentalVerifier, RECCertificate, EfficiencyAudit};
-use crate::difficulty::DifficultyAdjuster;
+use crate::difficulty::{DifficultyAdjuster, DIFFICULTY_ADJUSTMENT_INTERVAL};
 
 #[cfg(test)]
 mod testnet_integration_tests {
@@ -102,7 +103,7 @@ mod testnet_integration_tests {
     #[tokio::test]
     async fn test_testnet_launch_scenario() {
         let mut sim = TestnetSimulator::new();
-        await sim.setup_environmental_system().await;
+        sim.setup_environmental_system().await;
         
         // Register different types of miners
         sim.register_green_miner("green_miner_1", 1.0, 0.8).await;  // 100% renewable, 80% efficient
@@ -169,7 +170,7 @@ mod testnet_integration_tests {
     #[tokio::test]
     async fn test_environmental_certificate_expiry() {
         let mut sim = TestnetSimulator::new();
-        await sim.setup_environmental_system().await;
+        sim.setup_environmental_system().await;
         
         // Register a green miner
         sim.register_green_miner("temp_green", 1.0, 0.0).await;
@@ -217,7 +218,7 @@ mod testnet_integration_tests {
     #[tokio::test]
     async fn test_stress_test_many_miners() {
         let mut sim = TestnetSimulator::new();
-        await sim.setup_environmental_system().await;
+        sim.setup_environmental_system().await;
         
         // Register 100 miners with varying environmental profiles
         for i in 0..100 {

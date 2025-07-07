@@ -14,8 +14,8 @@ enable_quantum_security = true
 listen_addr = "/ip4/0.0.0.0/tcp/8333"
 max_peers = 50
 bootstrap_nodes = []
-peer_ping_interval = 30
-max_outbound_connections = 24
+peer_ping_interval = 20
+max_outbound_connections = 32
 max_inbound_connections = 128
 ban_threshold = 100
 ban_duration = 86400
@@ -24,9 +24,9 @@ enable_mdns = true
 enable_upnp = true
 enable_peer_exchange = true
 enable_nat_traversal = true
-connection_timeout = 30
-reconnect_interval = 60
-status_broadcast_interval = 180
+connection_timeout = 20
+reconnect_interval = 45
+status_broadcast_interval = 120
 trusted_peers = []
 min_outbound_connections = 8
 
@@ -60,7 +60,7 @@ block_cache_size = 33554432
 
 [mempool]
 max_size = 5000
-transaction_timeout = 7200
+transaction_timeout = 1800
 min_fee_rate = 1.0
 max_per_address = 100
 max_orphan_transactions = 100

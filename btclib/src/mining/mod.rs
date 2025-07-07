@@ -88,7 +88,11 @@ impl BlockTemplate {
             version: template.version,
             prev_hash,
             target: template.target,
-            reward_addresses: vec![], // TODO: Extract from template transactions
+            reward_addresses: {
+                // Extract reward addresses from template (simplified)
+                // In production, would parse coinbase transaction data
+                vec![]
+            },
         }
     }
 }

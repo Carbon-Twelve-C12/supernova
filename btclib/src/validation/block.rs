@@ -128,7 +128,7 @@ pub struct BlockValidationConfig {
 impl Default for BlockValidationConfig {
     fn default() -> Self {
         Self {
-            max_block_size: 1_000_000, // 1MB
+            max_block_size: 4_000_000, // 4MB (increased for 2.5-minute blocks)
             max_block_weight: 4_000_000, // 4M weight units
             max_future_time_offset: 7200, // 2 hours
             min_block_version: 1,

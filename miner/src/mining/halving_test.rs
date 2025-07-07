@@ -63,7 +63,7 @@ mod halving_tests {
     #[test]
     fn test_block_time_calculations() {
         // With 2.5 minute blocks and 840,000 blocks per halving
-        let minutes_per_halving = 840_000 * 2.5;
+        let minutes_per_halving = 840_000.0 * 2.5;
         let hours_per_halving = minutes_per_halving / 60.0;
         let days_per_halving = hours_per_halving / 24.0;
         let years_per_halving = days_per_halving / 365.25;
@@ -82,7 +82,7 @@ mod halving_tests {
     #[test]
     fn test_daily_emission_rate() {
         // Test daily emission rates from tokenomics
-        let blocks_per_day = 24 * 60 / 2.5; // 576 blocks per day with 2.5 minute blocks
+        let blocks_per_day = 24.0 * 60.0 / 2.5; // 576 blocks per day with 2.5 minute blocks
         
         let test_cases = vec![
             (0, 28_800.0),           // Year 1-4: ~28,800 NOVA/day
@@ -109,7 +109,7 @@ mod halving_tests {
     #[test]
     fn test_cumulative_supply_over_time() {
         // Test cumulative supply matches tokenomics projections
-        let blocks_per_year = (365.25 * 24 * 60 / 2.5) as u64;
+        let blocks_per_year = (365.25 * 24.0 * 60.0 / 2.5) as u64;
         
         let test_cases = vec![
             (blocks_per_year * 4, 8_400_000),      // After 4 years

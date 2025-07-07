@@ -22,7 +22,7 @@ username = "supernova"
 password = "testnet123"
 
 [blockchain]
-# Target block time in seconds
+# Target block time in seconds (2.5 minutes)
 target_block_time = 150
 # Initial mining difficulty
 initial_difficulty = "0x1d00ffff"

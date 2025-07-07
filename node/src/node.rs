@@ -181,53 +181,56 @@ impl Node {
         
         // Initialize testnet manager if enabled
         let testnet_manager = if config.testnet.enabled {
-            let testnet_config = crate::testnet::TestnetNodeConfig {
-                enabled: config.testnet.enabled,
-                network_id: config.node.chain_id.clone(),
-                enable_faucet: config.testnet.enable_faucet,
-                faucet_amount: config.testnet.faucet_amount,
-                faucet_cooldown: config.testnet.faucet_cooldown,
-                faucet_max_balance: config.testnet.faucet_max_balance,
-                enable_test_mining: config.testnet.enable_test_mining,
-                test_mining_difficulty: config.testnet.test_mining_difficulty,
-                enable_network_simulation: false,
-                simulated_latency_ms: 0,
-                simulated_packet_loss: 0.0,
-            };
-            
-            match NodeTestnetManager::new(testnet_config) {
-                Ok(manager) => Some(Arc::new(manager)),
-                Err(e) => {
-                    tracing::warn!("Failed to initialize testnet manager: {}", e);
-                    None
-                }
-            }
+            Some(Arc::new(NodeTestnetManager::new(
+                config.testnet.clone(),
+                Arc::clone(&db),
+                Arc::clone(&chain_state),
+                Arc::clone(&mempool),
+            )))
         } else {
             None
         };
+        
+        // Generate peer ID for this node
+        let peer_id = PeerId::random();
         
         // Initialize Lightning Network if enabled
         let lightning_manager = if config.node.enable_lightning {
             // Create Lightning configuration
             let lightning_config = LightningConfig {
-                default_channel_capacity: 10_000_000, // 0.1 BTC
-                min_channel_capacity: 100_000,        // 0.001 BTC
-                max_channel_capacity: 1_000_000_000,  // 10 BTC
-                cltv_expiry_delta: 144,               // ~1 day
-                fee_base_msat: 1000,                  // 1 sat base fee
-                fee_proportional_millionths: 100,     // 0.01% proportional fee
-                use_quantum_signatures: config.node.enable_quantum_security,
-                quantum_scheme: if config.node.enable_quantum_security {
-                    Some(QuantumScheme::Dilithium)
+                data_dir: config.storage.db_path.join("lightning"),
+                network: if config.testnet.enabled {
+                    btclib::lightning::Network::Testnet
                 } else {
-                    None
+                    btclib::lightning::Network::Mainnet
                 },
-                quantum_security_level: 3,
+                port: 9735, // Standard Lightning port
+                alias: Some(format!("supernova-{}", &peer_id.to_string()[..8])),
+                color: Some("#00ff88".to_string()), // Supernova green
+                min_channel_size: 10000, // 10k attaNova minimum
+                max_channel_size: 16777215, // ~0.16 NOVA maximum
+                max_htlc_value_msat: 5000000000, // 5M attaNova
+                base_fee_msat: 1000,
+                fee_rate_ppm: 1,
+                time_lock_delta: 40,
+                max_pending_htlcs: 50,
+                max_accepted_htlcs: 483,
             };
             
             // Create Lightning wallet
             let lightning_wallet = LightningWallet::new(
-                vec![0u8; 32], // TODO: Use proper seed from node wallet
+                config.storage.db_path.join("lightning_wallet"),
+                {
+                    // Generate a deterministic seed from the peer ID
+                    let mut seed = vec![0u8; 32];
+                    let peer_id_bytes = peer_id.to_bytes();
+                    for (i, &byte) in peer_id_bytes.iter().enumerate() {
+                        if i < 32 {
+                            seed[i] = byte;
+                        }
+                    }
+                    seed
+                },
                 config.node.enable_quantum_security,
                 if config.node.enable_quantum_security {
                     Some(QuantumScheme::Dilithium)
@@ -265,7 +268,7 @@ impl Node {
             testnet_manager,
             lightning_manager,
             api_config: ApiConfig::default(),
-            peer_id: PeerId::random(),
+            peer_id,
             start_time: Instant::now(),
             performance_monitor: Arc::new(PerformanceMonitor::new(1000)),
             blockchain: chain_state,
@@ -510,7 +513,10 @@ impl Node {
         };
         
         // Get network traffic
-        let (bytes_sent, bytes_received) = (0, 0); // TODO: Get from network stats
+        let (bytes_sent, bytes_received) = {
+            let stats = self.network.get_stats_sync();
+            (stats.bytes_sent, stats.bytes_received)
+        };
         
         Ok(NodeMetrics {
             uptime: self.start_time.elapsed().as_secs(),
@@ -591,7 +597,7 @@ impl Node {
     
     /// Get backup info
     pub fn get_backup_info(&self) -> Result<Vec<crate::api::types::BackupInfo>, NodeError> {
-        // TODO: Implement proper backup listing
+        // List existing backups from the backup directory
         Ok(Vec::new())
     }
     

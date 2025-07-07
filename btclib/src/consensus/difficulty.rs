@@ -2,8 +2,40 @@ use std::cmp::{min, max};
 use thiserror::Error;
 use crate::consensus::timestamp_validation::{TimestampValidator, TimestampValidationError};
 
-/// Target time between blocks in seconds (10 minutes)
-pub const BLOCK_TIME_TARGET: u64 = 600;
+/// Target time between blocks for mainnet in seconds (2.5 minutes)
+pub const MAINNET_BLOCK_TIME_TARGET: u64 = 150;
+
+/// Target time between blocks for testnet in seconds (2.5 minutes)
+pub const TESTNET_BLOCK_TIME_TARGET: u64 = 150;
+
+/// Legacy constant for backward compatibility (mainnet default)
+pub const BLOCK_TIME_TARGET: u64 = MAINNET_BLOCK_TIME_TARGET;
+
+/// Network types for block time configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkType {
+    Mainnet,
+    Testnet,
+    Regtest,
+}
+
+/// Get the target block time for a specific network
+pub fn get_target_block_time(network: NetworkType) -> u64 {
+    match network {
+        NetworkType::Mainnet => MAINNET_BLOCK_TIME_TARGET,
+        NetworkType::Testnet => TESTNET_BLOCK_TIME_TARGET,
+        NetworkType::Regtest => 30, // Fast blocks for testing
+    }
+}
+
+/// Get the difficulty adjustment interval for a specific network
+pub fn get_difficulty_adjustment_interval(network: NetworkType) -> u64 {
+    match network {
+        NetworkType::Mainnet => 2016, // ~3.5 days with 2.5-minute blocks
+        NetworkType::Testnet => 2016, // ~3.5 days with 2.5-minute blocks
+        NetworkType::Regtest => 144,  // ~1.2 hours with 30-second blocks
+    }
+}
 
 /// Type alias for DifficultyAdjuster (same as DifficultyAdjustment)
 pub type DifficultyAdjuster = DifficultyAdjustment;
@@ -66,9 +98,16 @@ pub struct DifficultyAdjustmentConfig {
 
 impl Default for DifficultyAdjustmentConfig {
     fn default() -> Self {
+        Self::for_network(NetworkType::Mainnet)
+    }
+}
+
+impl DifficultyAdjustmentConfig {
+    /// Create a configuration for a specific network
+    pub fn for_network(network: NetworkType) -> Self {
         Self {
-            adjustment_interval: 2016, // About 2 weeks with 10-minute blocks
-            target_block_time: 600,    // 10 minutes in seconds
+            adjustment_interval: get_difficulty_adjustment_interval(network),
+            target_block_time: get_target_block_time(network),
             max_target: 0x1e0fffff,    // Minimum difficulty
             min_target: 0x1b00ffff,    // Maximum difficulty
             dampening_factor: 4.0,     // Reduce oscillations
@@ -88,10 +127,15 @@ pub struct DifficultyAdjustment {
 }
 
 impl DifficultyAdjustment {
-    /// Create a new difficulty adjustment manager with default configuration
+    /// Create a new difficulty adjustment manager with default configuration (mainnet)
     pub fn new() -> Self {
+        Self::for_network(NetworkType::Mainnet)
+    }
+    
+    /// Create a new difficulty adjustment manager for a specific network
+    pub fn for_network(network: NetworkType) -> Self {
         Self {
-            config: DifficultyAdjustmentConfig::default(),
+            config: DifficultyAdjustmentConfig::for_network(network),
             timestamp_validator: TimestampValidator::new(),
         }
     }
@@ -403,8 +447,8 @@ mod tests {
         // Initial target
         let current_target = 0x1e00ffff;
         
-        // Block timestamps (10 minutes apart)
-        let timestamps = vec![1000, 1600, 2200, 2800];
+        // Block timestamps (2.5 minutes apart)
+        let timestamps = vec![1000, 1150, 1300, 1450];
         
         // Block at height 10 (not divisible by adjustment_interval)
         let heights = vec![7, 8, 9, 10];
@@ -420,7 +464,7 @@ mod tests {
         let adjuster = DifficultyAdjustment::with_config(
             DifficultyAdjustmentConfig {
                 adjustment_interval: 4,  // Adjust every 4 blocks for testing
-                target_block_time: 600,  // 10 minutes
+                target_block_time: 150,  // 2.5 minutes
                 ..DifficultyAdjustmentConfig::default()
             }
         );
@@ -428,8 +472,8 @@ mod tests {
         // Initial target
         let current_target = 0x1e00ffff;
         
-        // Block timestamps (16 minutes apart instead of 10)
-        let timestamps = vec![1000, 1960, 2920, 3880, 4840];
+        // Block timestamps (4 minutes apart instead of 2.5)
+        let timestamps = vec![1000, 1240, 1480, 1720, 1960];
         
         // Block at height 4 (divisible by adjustment_interval)
         let heights = vec![0, 1, 2, 3, 4];
@@ -445,23 +489,23 @@ mod tests {
         let adjuster = DifficultyAdjustment::with_config(
             DifficultyAdjustmentConfig {
                 adjustment_interval: 5,
-                target_block_time: 600,
+                target_block_time: 150,
                 use_weighted_timespan: true,
                 ..DifficultyAdjustmentConfig::default()
             }
         );
         
         // Normal intervals with one outlier
-        let timestamps = vec![1000, 1600, 2200, 3800, 4400, 5000];
+        let timestamps = vec![1000, 1150, 1300, 1900, 2050, 2200];
         
         let result = adjuster.calculate_timespan(&timestamps).unwrap();
         
         // The weighted calculation should reduce the impact of the outlier
-        // Regular timespan: 5000 - 1000 = 4000
-        // Block intervals: [600, 600, 1600, 600, 600]
-        // After removing outliers and scaling: closer to 5*600 = 3000
-        assert!(result < 4000);
-        assert!(result > 3000);
+        // Regular timespan: 2200 - 1000 = 1200
+        // Block intervals: [150, 150, 600, 150, 150]
+        // After removing outliers and scaling: closer to 5*150 = 750
+        assert!(result < 1200);
+        assert!(result > 750);
     }
     
     #[test]
@@ -497,7 +541,7 @@ mod tests {
         let adjuster = DifficultyAdjustment::with_config(
             DifficultyAdjustmentConfig {
                 adjustment_interval: 4,
-                target_block_time: 600,
+                target_block_time: 150,
                 max_upward_adjustment: 2.0,  // Max 2x easier
                 max_downward_adjustment: 2.0, // Max 2x harder
                 ..DifficultyAdjustmentConfig::default()

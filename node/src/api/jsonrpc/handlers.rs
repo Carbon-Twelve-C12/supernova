@@ -87,9 +87,9 @@ async fn get_info(
         "difficulty": blockchain_info.difficulty,
         "chainwork": blockchain_info.chain_work,
         "verificationprogress": blockchain_info.verification_progress,
-        "chain": "main", // TODO: Get from config
+        "chain": node.config().read().unwrap().node.network_name.clone(),
         "warnings": "",
-        "networkhashps": 0, // TODO: Calculate
+        "networkhashps": calculate_network_hashrate(blockchain_info.difficulty),
         "connections": network_info.connections,
         "mempool": {
             "size": mempool_info.tx_count,
@@ -125,7 +125,7 @@ async fn get_blockchain_info(
     })?;
     
     Ok(json!({
-        "chain": "main", // TODO: Get actual chain from node config
+        "chain": node.config().read().unwrap().node.network_name.clone(),
         "blocks": info.height,
         "headers": info.height,
         "bestblockhash": info.best_block_hash,
@@ -215,9 +215,14 @@ async fn get_block(
                 }
             }
             
+            let current_height = node.get_blockchain_info().await
+                .map(|info| info.height)
+                .unwrap_or(0);
+            let confirmations = current_height.saturating_sub(block.height) + 1;
+            
             let mut result = json!({
                 "hash": hex::encode(block.hash()),
-                "confirmations": 1, // TODO: Calculate actual confirmations
+                "confirmations": confirmations,
                 "size": block.size(),
                 "height": block.height,
                 "version": block.version,
@@ -392,7 +397,7 @@ async fn get_mempool_info(
         "size": info.tx_count,
         "bytes": info.size,
         "usage": info.memory_usage,
-        "maxmempool": 300000000, // TODO: Get from config
+        "maxmempool": node.config().read().unwrap().mempool.max_mempool_size * 1024 * 1024, // Convert MB to bytes
         "mempoolminfee": info.min_fee_rate / 100000000.0, // Convert to NOVA/kB
         "minrelaytxfee": info.min_fee_rate / 100000000.0, // Convert to NOVA/kB
     }))
@@ -556,7 +561,7 @@ async fn get_mining_info(
         "difficulty": info.difficulty,
         "networkhashps": info.network_hashrate,
         "pooledtx": 10, // Placeholder
-        "chain": "main", // TODO: Get from config
+        "chain": node.config().read().unwrap().node.network_name.clone(),
         "warnings": ""
     }))
 }
@@ -698,4 +703,11 @@ async fn get_next_block_hash(
     // In a real implementation, this would query the blockchain database
     // to find the next block in the chain
     Ok(None)
+}
+
+/// Helper function to calculate network hashrate from difficulty
+fn calculate_network_hashrate(difficulty: f64) -> f64 {
+    // Network hashrate = difficulty * 2^32 / block_time_seconds
+    // For 2.5 minute blocks (150 seconds)
+    difficulty * 4_294_967_296.0 / 150.0
 } 

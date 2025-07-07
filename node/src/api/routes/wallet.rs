@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use tracing::{debug, info, warn, error};
 use utoipa::{IntoParams, ToSchema};
+use hex;
+use sha2::Digest;
 
 /// Configure wallet API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -53,12 +55,20 @@ pub async fn get_wallet_info(
 ) -> ApiResult<impl Responder> {
     debug!("Get wallet info: {:?}", query);
     
-    // TODO: Implement wallet info retrieval
-    let wallet_info = serde_json::json!({
-        "status": "active",
-        "balance": 0,
-        "addresses": 0
-    });
+    // Since wallet is not fully integrated, return mock data
+    // In production, this would query the actual wallet manager
+    let wallet_info = WalletInfo {
+        name: "default".to_string(),
+        balance: 0,
+        confirmed_balance: 0,
+        unconfirmed_balance: 0,
+        address_count: 1,
+        tx_count: 0,
+        encrypted: true,
+        locked: false,
+        master_fingerprint: Some("d34db33f".to_string()),
+        version: 1,
+    };
     
     Ok(HttpResponse::Ok().json(ApiResponse::success(wallet_info)))
 }
@@ -95,12 +105,18 @@ pub async fn get_wallet_balance(
 ) -> ApiResult<impl Responder> {
     debug!("Get wallet balance: {:?}", query);
     
-    // TODO: Implement wallet balance retrieval
-    let balance_info = serde_json::json!({
-        "confirmed": 0,
-        "unconfirmed": 0,
-        "total": 0
-    });
+    let min_conf = query.min_conf.unwrap_or(1);
+    let include_watchonly = query.include_watchonly.unwrap_or(false);
+    
+    // Since wallet is not fully integrated, return mock data
+    // In production, this would calculate actual balances from UTXOs
+    let balance_info = BalanceInfo {
+        total: 0,
+        confirmed: 0,
+        unconfirmed: 0,
+        immature: 0,
+        spendable: 0,
+    };
     
     Ok(HttpResponse::Ok().json(ApiResponse::success(balance_info)))
 }
@@ -123,12 +139,22 @@ pub async fn create_backup(
 ) -> ApiResult<impl Responder> {
     debug!("Create wallet backup");
     
-    // TODO: Implement wallet backup creation
-    let backup_response = serde_json::json!({
-        "backup_id": "backup_123",
-        "created_at": "2024-01-01T00:00:00Z",
-        "size": 1024
-    });
-    
-    Ok(HttpResponse::Ok().json(ApiResponse::success(backup_response)))
+    // Use the node's backup functionality
+    match node.create_backup(None, true, false) {
+        Ok(backup_info) => {
+            // BackupResponse has different fields than BackupInfo, so we need to map them
+            let backup_response = BackupResponse {
+                backup_data: format!("backup-{}", backup_info.id), // Mock encrypted backup data
+                timestamp: backup_info.timestamp,
+                version: 1, // API version
+                checksum: hex::encode(sha2::Sha256::digest(backup_info.id.as_bytes())), // Mock checksum
+            };
+            
+            Ok(HttpResponse::Ok().json(ApiResponse::success(backup_response)))
+        }
+        Err(e) => {
+            error!("Failed to create backup: {}", e);
+            Err(ApiError::internal_error(format!("Backup creation failed: {}", e)))
+        }
+    }
 } 

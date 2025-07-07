@@ -73,6 +73,7 @@ pub struct Miner {
     shared_template: Option<Arc<tokio::sync::Mutex<BlockTemplate>>>,
     template_refresh_signal: Arc<AtomicBool>,
     environmental_profile: Option<EnvironmentalProfile>,
+    current_height: Arc<AtomicU64>,
 }
 
 impl Miner {
@@ -86,6 +87,7 @@ impl Miner {
         let stop_signal = Arc::new(AtomicBool::new(false));
         let metrics = Arc::new(MiningMetrics::new());
         let template_refresh_signal = Arc::new(AtomicBool::new(false));
+        let current_height = Arc::new(AtomicU64::new(0));
 
         let mut workers = Vec::with_capacity(num_threads);
         for i in 0..num_threads {
@@ -95,6 +97,8 @@ impl Miner {
                 AtomicU32::new(initial_target),
                 i,
                 Arc::clone(&mempool),
+                Arc::clone(&current_height),
+                None, // environmental_profile will be set later
             )));
         }
 
@@ -110,6 +114,7 @@ impl Miner {
             shared_template: None,
             template_refresh_signal,
             environmental_profile: None,
+            current_height,
         }, rx)
     }
 
@@ -121,6 +126,9 @@ impl Miner {
     ) -> Result<(), String> {
         info!("Starting mining with {} workers at height {}", self.num_threads, _current_height);
         self.metrics.active_workers.store(self.num_threads as u64, Ordering::Relaxed);
+        
+        // Update current height for all workers
+        self.current_height.store(_current_height, Ordering::Relaxed);
 
         let template = BlockTemplate::new(
             _version,

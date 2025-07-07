@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing;
 use crate::mining::MempoolInterface;
+use crate::mining::reward::EnvironmentalProfile;
 use std::time::{Instant, Duration};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
@@ -76,6 +77,8 @@ pub struct MiningWorker {
     pub(crate) mempool: Arc<dyn MempoolInterface + Send + Sync>,
     pub metrics: Arc<MiningMetrics>,
     pub pause_signal: Arc<AtomicBool>,
+    pub(crate) current_height: Arc<AtomicU64>,
+    pub(crate) environmental_profile: Option<EnvironmentalProfile>,
 }
 
 impl MiningWorker {
@@ -85,6 +88,8 @@ impl MiningWorker {
         target: AtomicU32,
         worker_id: usize,
         mempool: Arc<dyn MempoolInterface + Send + Sync>,
+        current_height: Arc<AtomicU64>,
+        environmental_profile: Option<EnvironmentalProfile>,
     ) -> Self {
         Self {
             stop_signal,
@@ -94,6 +99,8 @@ impl MiningWorker {
             mempool,
             metrics: Arc::new(MiningMetrics::new()),
             pause_signal: Arc::new(AtomicBool::new(false)),
+            current_height,
+            environmental_profile,
         }
     }
 
@@ -115,14 +122,17 @@ impl MiningWorker {
         prev_block_hash: [u8; 32],
         reward_address: Vec<u8>,
     ) -> Result<(), String> {
+        let block_height = self.current_height.load(Ordering::Relaxed) + 1;
+        let env_profile = self.environmental_profile.as_ref();
+        
         let mut template = BlockTemplate::new(
             version,
             prev_block_hash,
             self.target.load(Ordering::Relaxed) as u32,
             reward_address.clone(),
             self.mempool.as_ref(),
-            1, // TODO: Get actual block height
-            None, // TODO: Get environmental profile
+            block_height,
+            env_profile,
         ).await;
 
         let mut block = template.create_block();
@@ -161,14 +171,17 @@ impl MiningWorker {
             }
 
             if !self.pause_signal.load(Ordering::Relaxed) {
+                // Update block height in case it changed
+                let block_height = self.current_height.load(Ordering::Relaxed) + 1;
+                
                 template = BlockTemplate::new(
                     version,
                     prev_block_hash,
                     self.target.load(Ordering::Relaxed) as u32,
                     reward_address.clone(),
                     self.mempool.as_ref(),
-            1, // TODO: Get actual block height
-            None, // TODO: Get environmental profile
+                    block_height,
+                    env_profile,
                 ).await;
                 block = template.create_block();
             }
@@ -287,6 +300,8 @@ mod tests {
             AtomicU32::new(u32::MAX), // Easiest possible target for fast test completion
             0,
             mempool,
+            Arc::new(AtomicU64::new(0)),
+            None,
         );
 
         let mining_handle = tokio::spawn(async move {
@@ -318,6 +333,8 @@ mod tests {
             AtomicU32::new(u32::MAX),
             0,
             mempool,
+            Arc::new(AtomicU64::new(0)),
+            None,
         );
 
         let metrics = worker.get_metrics();

@@ -691,10 +691,19 @@ impl P2PNetwork {
             }
             Message::GetHeaders { start_height, count } => {
                 debug!("Received GetHeaders request: start={}, count={}", start_height, count);
-                // TODO: Implement headers response from local blockchain
-                // For now, just send an empty response
+                
+                // Get headers from chain sync
+                let headers = {
+                    let sync = self.chain_sync.lock().unwrap();
+                    sync.get_headers_range(start_height, count).await
+                        .unwrap_or_else(|e| {
+                            warn!("Failed to get headers: {}", e);
+                            Vec::new()
+                        })
+                };
+                
                 let response = Message::Headers {
-                    headers: Vec::new(),
+                    headers,
                     start_height,
                 };
                 self.send_message_to_peer(peer_id, response).await;
@@ -718,8 +727,19 @@ impl P2PNetwork {
             }
             Message::GetBlock { hash } => {
                 debug!("Received GetBlock request for hash {:?}", hash);
-                // TODO: Implement block response from local blockchain
-                // For now, just log the request
+                
+                // Get block from chain sync
+                let block_response = {
+                    let sync = self.chain_sync.lock().unwrap();
+                    sync.get_block_by_hash(&hash).await
+                };
+                
+                if let Ok(Some((height, block_data))) = block_response {
+                    let response = Message::Block { height, block: block_data };
+                    self.send_message_to_peer(peer_id, response).await;
+                } else {
+                    debug!("Block not found for hash {:?}", hash);
+                }
             }
             Message::Block { height, block } => {
                 info!("Received block at height {} from peer {}", height, peer_id);
@@ -743,8 +763,19 @@ impl P2PNetwork {
             }
             Message::GetBlocks { start, end } => {
                 debug!("Received GetBlocks request: start={}, end={}", start, end);
-                // TODO: Implement blocks response from local blockchain
-                // For now, just log the request
+                
+                // Get blocks from chain sync
+                let blocks = {
+                    let sync = self.chain_sync.lock().unwrap();
+                    sync.get_blocks_range(start, end).await
+                        .unwrap_or_else(|e| {
+                            warn!("Failed to get blocks: {}", e);
+                            Vec::new()
+                        })
+                };
+                
+                let response = Message::Blocks { blocks };
+                self.send_message_to_peer(peer_id, response).await;
             }
             Message::Blocks { blocks } => {
                 info!("Received {} blocks from peer {}", blocks.len(), peer_id);
@@ -797,7 +828,26 @@ impl P2PNetwork {
                         // Process discovered peers
                         for peer_info in peers {
                             debug!("Discovered peer via exchange: {}", peer_info.address);
-                            // TODO: Add to peer database for future connections
+                            
+                            // Parse address and add to peer manager for future connections
+                            if let Ok(addr) = peer_info.address.parse::<String>() {
+                                // Extract IP and port from address string (format: "ip:port")
+                                if let Some((ip_str, port_str)) = addr.split_once(':') {
+                                    if let (Ok(ip), Ok(port)) = (ip_str.parse::<IpAddr>(), port_str.parse::<u16>()) {
+                                        // Create a new peer ID from the address (in real implementation, 
+                                        // this would be provided in the peer info)
+                                        let new_peer_id = PeerId::random();
+                                        
+                                        // Add to peer manager's known peers for future connections
+                                        self.peer_manager.add_known_peer(new_peer_id, ip, port);
+                                        
+                                        // Consider dialing if we need more connections
+                                        if self.peer_manager.should_connect_to_more_peers() {
+                                            self.try_dial_peer(new_peer_id).await;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

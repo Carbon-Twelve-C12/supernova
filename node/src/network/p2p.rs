@@ -1001,6 +1001,7 @@ impl P2PNetwork {
                     addresses: vec![],
                     first_seen: Instant::now(),
                     last_seen: Instant::now(),
+                    last_sent: None,
                     is_inbound: true, // We'll assume inbound for now
                     protocol_version: None,
                     user_agent: None,
@@ -1012,6 +1013,9 @@ impl P2PNetwork {
                     failed_attempts: 0,
                     ping_ms: None,
                     verified: false,
+                    services: 0,
+                    bytes_sent: 0,
+                    bytes_received: 0,
                     metadata: peer::PeerMetadata::default(),
                 };
                 
@@ -1138,54 +1142,108 @@ impl P2PNetwork {
         self.identity_system.is_verified(peer_id).await
     }
 
-    /// Get network information for API
+    /// Get network info for API
     pub async fn get_network_info(&self) -> Result<NetworkInfo, Box<dyn Error>> {
         let stats = self.get_stats().await;
+        let bandwidth = self.bandwidth_tracker.lock().unwrap();
+        let rates = bandwidth.get_rates(60);
+        let (bytes_sent, bytes_received) = (bandwidth.bytes_sent, bandwidth.bytes_received);
         
-        // Get listening addresses from swarm
-        let listening_addresses = {
-            let swarm_guard = self.swarm.read().await;
-            if let Some(swarm) = swarm_guard.as_ref() {
-                swarm.listeners().cloned().map(|addr| addr.to_string()).collect()
-            } else {
-                vec![]
-            }
+        // Collect information from connected peers
+        let connected_peers = self.connected_peers.read().await;
+        let peer_count = connected_peers.len();
+        
+        // Determine if we're listening
+        let swarm_guard = self.swarm.read().await;
+        let listening = if let Some(swarm) = swarm_guard.as_ref() {
+            !swarm.listeners().collect::<Vec<_>>().is_empty()
+        } else {
+            false
         };
         
-        let connected_peers_count = stats.peers_connected;
-        let inbound_count = stats.inbound_connections;
-        let outbound_count = stats.outbound_connections;
-        let listening = !listening_addresses.is_empty();
+        // Lock swarm to collect local addresses
+        let swarm_guard = self.swarm.read().await;
+        let local_addresses = if let Some(swarm) = swarm_guard.as_ref() {
+            swarm.listeners()
+                .map(|addr| crate::api::types::NetworkAddress {
+                    address: addr.to_string(),
+                    port: 0, // Port will be extracted from the address string in practice
+                    score: 0,
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        drop(swarm_guard);
         
-        let rates = {
-            let bandwidth = self.bandwidth_tracker.lock().unwrap().get_rates(1);
-            (bandwidth.0, bandwidth.1)
+        // Try to detect external IP from connected peers
+        let external_ip = self.detect_external_ip(&connected_peers).await;
+        
+        // Calculate average ping time from connected peers
+        let ping_times: Vec<f64> = connected_peers.values()
+            .filter_map(|peer| peer.ping_ms.map(|ms| ms as f64))
+            .collect();
+        
+        let avg_ping_time = if !ping_times.is_empty() {
+            ping_times.iter().sum::<f64>() / ping_times.len() as f64
+        } else {
+            0.0
         };
         
-        let (bytes_sent, bytes_received) = {
-            let bandwidth = self.bandwidth_tracker.lock().unwrap();
-            (bandwidth.bytes_sent, bandwidth.bytes_received)
-        };
+        // Count connections by direction
+        let inbound_count = connected_peers.values()
+            .filter(|peer| peer.is_inbound)
+            .count();
+        let outbound_count = peer_count - inbound_count;
         
         Ok(NetworkInfo {
-            version: "1.0.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             protocol_version: 1,
-            connections: connected_peers_count as u32,
+            connections: peer_count as u32,
             inbound_connections: inbound_count as u32,
             outbound_connections: outbound_count as u32,
             network: self.network_id.clone(),
             is_listening: listening,
             accepts_incoming: listening,
-            local_addresses: vec![], // TODO: Populate from swarm
-            external_ip: None, // TODO: Detect external IP
+            local_addresses,
+            external_ip,
             network_stats: crate::api::types::NetworkStats {
                 total_bytes_sent: bytes_sent,
                 total_bytes_received: bytes_received,
                 upload_rate: rates.0,
                 download_rate: rates.1,
-                ping_time: 0.0, // TODO: Calculate average ping
+                ping_time: avg_ping_time,
             },
         })
+    }
+    
+    /// Detect external IP from connected peers
+    async fn detect_external_ip(&self, connected_peers: &HashMap<PeerId, PeerInfo>) -> Option<String> {
+        // Try to infer external IP from peer connections
+        // In a real P2P network, peers often report what IP they see us as
+        for peer in connected_peers.values() {
+            // If we have inbound connections, use the first valid IP we find
+            if peer.is_inbound {
+                for addr in &peer.addresses {
+                    if let Some(ip) = extract_ip_from_multiaddr(addr) {
+                        // Filter out local/private IPs
+                        match ip {
+                            IpAddr::V4(ipv4) => {
+                                if !ipv4.is_private() && !ipv4.is_loopback() {
+                                    return Some(ip.to_string());
+                                }
+                            }
+                            IpAddr::V6(ipv6) => {
+                                if !ipv6.is_loopback() && !ipv6.is_unspecified() {
+                                    return Some(ip.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
     
     /// Get connection count for API
@@ -1204,9 +1262,9 @@ impl P2PNetwork {
         let peers = self.peer_manager.get_connected_peers().await;
         
         let mut api_peers = Vec::new();
-        for peer_info in peers {
+        for (idx, peer_info) in peers.into_iter().enumerate() {
             let api_peer = crate::api::types::PeerInfo {
-                id: 0, // TODO: Generate proper peer ID
+                id: idx as u64, // Use index as numeric ID
                 address: if let Some(addr) = peer_info.addresses.first() {
                     addr.to_string()
                 } else {
@@ -1214,15 +1272,15 @@ impl P2PNetwork {
                 },
                 direction: if peer_info.is_inbound { "inbound".to_string() } else { "outbound".to_string() },
                 connected_time: peer_info.first_seen.elapsed().as_secs(),
-                last_send: 0, // TODO: Track last send time
+                last_send: peer_info.last_sent.map(|t| t.elapsed().as_secs()).unwrap_or(0),
                 last_recv: peer_info.last_seen.elapsed().as_secs(),
-                bytes_sent: 0, // TODO: Track per-peer bandwidth
-                bytes_received: 0, // TODO: Track per-peer bandwidth
+                bytes_sent: peer_info.bytes_sent,
+                bytes_received: peer_info.bytes_received,
                 ping_time: peer_info.ping_ms.map(|ms| ms as f64),
                 version: peer_info.protocol_version.unwrap_or(0).to_string(),
                 user_agent: peer_info.user_agent.clone().unwrap_or_else(|| "unknown".to_string()),
                 height: peer_info.height.unwrap_or(0),
-                services: "".to_string(), // TODO: Implement service flags
+                services: self.format_service_flags(peer_info.services),
                 banned: matches!(peer_info.state, PeerState::Banned),
                 reputation_score: peer_info.reputation as f64,
             };
@@ -1240,8 +1298,14 @@ impl P2PNetwork {
         
         let connected_peers = self.connected_peers.read().await;
         if let Some(peer_info) = connected_peers.get(&peer_id) {
+            // Generate a numeric ID based on peer_id hash
+            let id = {
+                let hash = &peer_info.peer_id.to_bytes()[..8];
+                u64::from_be_bytes(hash.try_into().unwrap_or([0; 8]))
+            };
+            
             let api_peer = crate::api::types::PeerInfo {
-                id: 0, // TODO: Generate proper peer ID
+                id,
                 address: if let Some(addr) = peer_info.addresses.first() {
                     addr.to_string()
                 } else {
@@ -1249,15 +1313,15 @@ impl P2PNetwork {
                 },
                 direction: if peer_info.is_inbound { "inbound".to_string() } else { "outbound".to_string() },
                 connected_time: peer_info.first_seen.elapsed().as_secs(),
-                last_send: 0, // TODO: Track last send time
+                last_send: peer_info.last_sent.map(|t| t.elapsed().as_secs()).unwrap_or(0),
                 last_recv: peer_info.last_seen.elapsed().as_secs(),
-                bytes_sent: 0, // TODO: Track per-peer bandwidth
-                bytes_received: 0, // TODO: Track per-peer bandwidth
+                bytes_sent: peer_info.bytes_sent,
+                bytes_received: peer_info.bytes_received,
                 ping_time: peer_info.ping_ms.map(|ms| ms as f64),
                 version: peer_info.protocol_version.unwrap_or(0).to_string(),
                 user_agent: peer_info.user_agent.clone().unwrap_or_else(|| "unknown".to_string()),
                 height: peer_info.height.unwrap_or(0),
-                services: "".to_string(), // TODO: Implement service flags
+                services: self.format_service_flags(peer_info.services),
                 banned: matches!(peer_info.state, PeerState::Banned),
                 reputation_score: peer_info.reputation as f64,
             };
@@ -1266,6 +1330,25 @@ impl P2PNetwork {
         } else {
             Ok(None)
         }
+    }
+    
+    /// Format service flags for display
+    fn format_service_flags(&self, services: u64) -> String {
+        let mut flags = Vec::new();
+        
+        // Common Bitcoin-style service flags
+        if services & 0x01 != 0 { flags.push("NETWORK"); }
+        if services & 0x02 != 0 { flags.push("GETUTXO"); }
+        if services & 0x04 != 0 { flags.push("BLOOM"); }
+        if services & 0x08 != 0 { flags.push("WITNESS"); }
+        if services & 0x400 != 0 { flags.push("NETWORK_LIMITED"); }
+        
+        // Supernova-specific flags
+        if services & 0x1000 != 0 { flags.push("QUANTUM"); }
+        if services & 0x2000 != 0 { flags.push("LIGHTNING"); }
+        if services & 0x4000 != 0 { flags.push("ENVIRONMENTAL"); }
+        
+        flags.join(",")
     }
     
     /// Add peer for API

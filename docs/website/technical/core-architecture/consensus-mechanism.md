@@ -50,7 +50,7 @@ function QRH(header, nonce) {
 
 ### Block Time
 
-Supernova targets an average block time of 2 minutes, providing a balance between:
+Supernova targets an average block time of 2.5 minutes, providing a balance between:
 - Fast transaction confirmation
 - Minimized orphan block rate
 - Reduced blockchain bloat
@@ -58,7 +58,7 @@ Supernova targets an average block time of 2 minutes, providing a balance betwee
 
 ### Difficulty Adjustment
 
-The network difficulty is adjusted after every 720 blocks (approximately 1 day) based on:
+The network difficulty is adjusted after every 2016 blocks (approximately 3.5 days) based on:
 
 1. **Average block time**: Actual vs. target block time over the period
 2. **Hashrate distribution**: Analysis of timestamp distributions to detect manipulation
@@ -71,8 +71,8 @@ new_difficulty = current_difficulty * (target_time_span / actual_time_span) * da
 ```
 
 Where:
-- `target_time_span` = 720 blocks * 120 seconds = 86400 seconds (1 day)
-- `actual_time_span` = time difference between block heights (current - 720)
+- `target_time_span` = 2016 blocks * 150 seconds = 302400 seconds (3.5 days)
+- `actual_time_span` = time difference between block heights (current - 2016)
 - `damping_factor` = adjustment limiter preventing changes greater than 25% in either direction
 
 ### Block Rewards and Emissions Schedule
@@ -80,13 +80,13 @@ Where:
 Supernova implements a disinflationary emissions schedule with the following characteristics:
 
 - **Initial block reward**: 50 NOVA per block
-- **Halving period**: Every 1,050,000 blocks (approximately 4 years)
+- **Halving period**: Every 840,000 blocks (approximately 4 years)
 - **Maximum supply**: 42,000,000 NOVA (reached after approximately 132 years)
 
 The block reward at any given height is calculated as:
 
 ```
-block_reward = 50 * (1/2)^(floor(height/1050000))
+block_reward = 50 * (1/2)^(floor(height/840000))
 ```
 
 A small percentage (2%) of transaction fees are allocated to the Environmental Treasury for funding carbon offset initiatives and renewable energy projects.

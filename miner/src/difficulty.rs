@@ -20,7 +20,7 @@ pub const NOVA_BLOCK_REWARD: u64 = 50; // Initial block reward in NOVA
 pub const BLOCK_TIME_TARGET: Duration = Duration::from_secs(150); // Target 2.5 minutes per block
 pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 2016; // Number of blocks between adjustments
 pub const DIFFICULTY_ADJUSTMENT_FACTOR: u32 = 4; // Maximum adjustment factor
-pub const MOVING_AVERAGE_WINDOW: usize = 144; // 144 blocks (24 hours with 10 min blocks)
+pub const MOVING_AVERAGE_WINDOW: usize = 576; // 576 blocks (24 hours with 2.5 min blocks)
 pub const TIMESTAMP_MEDIAN_TIMESPAN: usize = 11; // Median timespan for timestamp validation
 
 // Maximum time a block timestamp can be in the future

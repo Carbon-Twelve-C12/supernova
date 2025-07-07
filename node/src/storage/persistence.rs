@@ -224,6 +224,38 @@ impl ChainState {
         0x1f00ffff // A reasonably low difficulty for testing
     }
 
+    /// Get the current network difficulty as a float
+    pub fn get_current_difficulty(&self) -> f64 {
+        // Convert target bits to difficulty
+        let target = self.get_difficulty_target();
+        
+        // Bitcoin difficulty formula: difficulty = max_target / current_target
+        // Max target is 0x1d00ffff (difficulty 1)
+        let max_target = 0x00000000ffff0000000000000000000000000000000000000000000000000000u128;
+        
+        // Convert compact bits to full target
+        let exponent = (target >> 24) & 0xff;
+        let mantissa = target & 0x00ffffff;
+        
+        if mantissa == 0 || exponent == 0 {
+            return 1.0; // Minimum difficulty
+        }
+        
+        // Calculate actual target value
+        let current_target = if exponent <= 3 {
+            (mantissa >> (8 * (3 - exponent))) as u128
+        } else {
+            (mantissa as u128) << (8 * (exponent - 3))
+        };
+        
+        if current_target == 0 {
+            return 1.0; // Prevent division by zero
+        }
+        
+        // Calculate difficulty
+        (max_target as f64) / (current_target as f64)
+    }
+
     pub async fn process_block(&mut self, block: Block) -> Result<bool, StorageError> {
         let block_hash = block.hash();
         let prev_hash = block.prev_block_hash();

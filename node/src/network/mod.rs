@@ -58,7 +58,8 @@ pub async fn initialize_network(
     // Load or generate node identity
     let keypair = if let Some(key_path) = &config.key_path {
         // Load from file if it exists
-        libp2p::identity::Keypair::generate_ed25519() // TODO: Implement key loading
+                    // For now, generate a new key (would load from file in production)
+            libp2p::identity::Keypair::generate_ed25519()
     } else {
         // Generate a new keypair
         libp2p::identity::Keypair::generate_ed25519()

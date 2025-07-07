@@ -675,16 +675,26 @@ impl ChainState {
     
     /// Get the genesis block hash (adapter for node compatibility)
     pub fn get_genesis_hash(&self) -> [u8; 32] {
-        // Get the block at height 0
-        match self.get_header_by_height(0) {
-            Ok(Some(header)) => header.hash(),
-            _ => {
-                log::error!("Genesis block not found!");
-                [0u8; 32]
-            }
+        // Get the hash at height 0
+        if let Some(header) = self.get_header_by_height(0).ok().flatten() {
+            header.hash()
+        } else {
+            // If we can't get genesis, return zero hash
+            [0; 32]
         }
     }
     
+    /// Get the current difficulty target from the best chain tip
+    pub fn get_difficulty_target(&self) -> u32 {
+        // Get the current tip header
+        if let Ok(tip_hash) = self.get_tip() {
+            if let Ok(Some(header)) = self.get_header(&tip_hash) {
+                return header.bits();
+            }
+        }
+        // Return default difficulty if we can't get the tip
+        0x1d00ffff // Default Bitcoin difficulty
+    }
 }
 
 // Implement Clone for ChainState to support sharing across async tasks

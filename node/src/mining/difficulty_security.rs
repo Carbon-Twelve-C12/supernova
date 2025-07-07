@@ -72,10 +72,10 @@ impl Default for DifficultySecurityConfig {
         Self {
             min_difficulty_target: 0x1e0fffff,  // Genesis difficulty
             max_difficulty_target: 0x1a00ffff,  // Very high difficulty
-            adjustment_interval: 2016,          // ~2 weeks at 10 minutes per block
+            adjustment_interval: 2016,          // ~3.5 days at 2.5 minutes per block
             target_block_time: 150,             // 2.5 minutes
             max_adjustment_factor: 4.0,         // Maximum 4x adjustment
-            min_blocks_for_calculation: 144,    // 1 day of blocks
+            min_blocks_for_calculation: 576,    // 1 day of blocks at 2.5 minutes each
             enable_anti_manipulation: true,
             require_chainwork_progress: true,
             max_timestamp_variance: 7200,       // 2 hours

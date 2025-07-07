@@ -263,13 +263,17 @@ pub async fn get_transaction(
     
     // First check mempool
     if let Some(mempool_tx) = node.mempool().get_transaction(&tx_hash) {
+        let serialized_size = bincode::serialize(&mempool_tx).unwrap_or_default().len() as u64;
+        let vsize = serialized_size; // Simplified - in reality would consider witness data
+        let weight = serialized_size * 4; // Simplified weight calculation
+        
         let tx_info = TransactionInfo {
             txid: txid_str.clone(),
             hash: txid_str,
             version: mempool_tx.version(),
-            size: bincode::serialize(&mempool_tx).unwrap_or_default().len() as u64,
-            vsize: 0, // TODO: Calculate virtual size
-            weight: 0, // TODO: Calculate weight
+            size: serialized_size,
+            vsize,
+            weight,
             locktime: mempool_tx.lock_time(),
             inputs: mempool_tx.inputs().iter().map(|input| {
                 serde_json::json!({
@@ -460,7 +464,7 @@ pub async fn get_blockchain_stats(
         if let Ok(Some(hash)) = storage.get_block_hash_by_height(height) {
             if let Ok(Some(block)) = storage.get_block(&hash) {
                 let diff = calculate_difficulty_from_bits(block.header().bits());
-                let hr = calculate_hashrate(diff, 600); // Assuming 10 minute block time
+                let hr = calculate_hashrate(diff, 150); // 2.5 minute block time
                 (diff, hr)
             } else {
                 (1.0, 0)

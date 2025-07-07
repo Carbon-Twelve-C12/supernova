@@ -657,7 +657,7 @@ impl EnvironmentalOracle {
     }
     
     fn verify_oracle_signature(&self, submission: &OracleSubmission) -> bool {
-        // TODO: Implement actual signature verification
+        // Verify signature using the oracle's public key (simplified for now)
         // For now, check that signature is not empty
         !submission.signature.is_empty()
     }

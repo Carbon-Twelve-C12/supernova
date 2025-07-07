@@ -333,7 +333,7 @@ impl MiningManager {
         let difficulty = self.target_to_difficulty(current_target as u32);
         
         // Calculate time since last block (simplified)
-        let seconds_since_last_block = 600; // Default 10 minutes
+        let seconds_since_last_block = 150; // Default 2.5 minutes
         
         let fee_rates = self.fee_rates.read().unwrap().clone();
         
@@ -397,7 +397,7 @@ impl MiningManager {
         let estimated_time = if current_hashrate > 0 {
             (current_target as f64) / (current_hashrate as f64)
         } else {
-            600.0 // Default 10 minutes
+            150.0 // Default 2.5 minutes
         };
         
         // Environmental data
@@ -413,9 +413,9 @@ impl MiningManager {
         
         let template = MiningTemplate {
             version: 1,
-            prev_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(), // TODO: Get from chain
+            prev_hash: self.get_previous_block_hash(),
             timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-            height: 0, // TODO: Get from chain state
+            height: self.get_current_height() + 1, // Next block height
             target: current_target as u32,
             merkle_root: hex::encode(self.calculate_merkle_root(&template_transactions)?),
             transactions: template_transactions,
@@ -723,7 +723,7 @@ impl MiningManager {
         if current_hashrate > 0 {
             (current_target as f64) / (current_hashrate as f64)
         } else {
-            600.0 // Default 10 minutes
+            150.0 // Default 2.5 minutes
         }
     }
     
@@ -1077,7 +1077,7 @@ impl MiningManager {
     fn calculate_base_reward(&self, height: u64) -> u64 {
         // Supernova initial reward: 50 NOVA (50 * 10^8 satoshis)
         let initial_reward = 50_00000000u64;
-        let halving_interval = 210_000u64; // Approximately 4 years at 10-minute blocks
+        let halving_interval = 840_000u64; // Approximately 4 years at 2.5-minute blocks
         
         // Calculate number of halvings
         let halvings = height / halving_interval;

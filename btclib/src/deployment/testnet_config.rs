@@ -570,9 +570,9 @@ impl TestnetDeploymentManager {
                 oracle_minimum: 3,
             },
             network_params: NetworkGenesisParams {
-                block_time_seconds: 10,
-                max_block_size: 1_000_000,
-                difficulty_adjustment_interval: 144,
+                block_time_seconds: 150, // 2.5 minutes
+                max_block_size: 4_000_000, // 4MB for increased throughput
+                difficulty_adjustment_interval: 2016, // ~3.5 days with 2.5-minute blocks
             },
         }
     }

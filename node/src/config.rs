@@ -93,6 +93,7 @@ pub struct GeneralConfig {
     pub network_name: String,
     pub enable_lightning: bool,
     pub enable_quantum_security: bool,
+    pub enable_mining: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -196,8 +197,8 @@ impl Default for NetworkConfig {
             listen_addr: "/ip4/0.0.0.0/tcp/8000".to_string(),
             max_peers: 50,
             bootstrap_nodes: vec![],
-            peer_ping_interval: Duration::from_secs(30),
-            max_outbound_connections: 24,
+            peer_ping_interval: Duration::from_secs(20), // Faster pings for 2.5-min blocks
+            max_outbound_connections: 32, // More connections for faster propagation
             max_inbound_connections: 128,
             ban_threshold: 100,
             ban_duration: Duration::from_secs(24 * 60 * 60),
@@ -209,9 +210,9 @@ impl Default for NetworkConfig {
             enable_upnp: true,
             enable_peer_exchange: true,
             enable_nat_traversal: true,
-            connection_timeout: Duration::from_secs(30),
-            reconnect_interval: Duration::from_secs(60),
-            status_broadcast_interval: Duration::from_secs(180),
+            connection_timeout: Duration::from_secs(20), // Faster connection timeout
+            reconnect_interval: Duration::from_secs(45), // Faster reconnection
+            status_broadcast_interval: Duration::from_secs(120), // More frequent status updates
             trusted_peers: vec![],
             min_outbound_connections: 8,
             peer_diversity: PeerDiversityConfig::default(),
@@ -236,7 +237,7 @@ impl Default for MempoolConfig {
     fn default() -> Self {
         Self {
             max_size: 5000,
-            transaction_timeout: Duration::from_secs(3600 * 2),
+            transaction_timeout: Duration::from_secs(1800), // 30 minutes (reduced for faster blocks)
             min_fee_rate: 1.0,
             max_per_address: 100,
             max_orphan_transactions: 100,
@@ -270,6 +271,7 @@ impl Default for GeneralConfig {
             network_name: "Supernova".to_string(),
             enable_lightning: true,
             enable_quantum_security: true,
+            enable_mining: true,
         }
     }
 }

@@ -90,6 +90,15 @@ impl NodeApiFacade {
     
     /// Get node information
     pub fn get_info(&self) -> Result<crate::api::types::NodeInfo, String> {
+        let connections = std::thread::spawn({
+            let network = self.network.clone();
+            move || {
+                futures::executor::block_on(async {
+                    network.get_peer_count().await
+                })
+            }
+        }).join().unwrap_or(0);
+        
         Ok(crate::api::types::NodeInfo {
             node_id: self.peer_id.to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -97,7 +106,7 @@ impl NodeApiFacade {
             network: self.config.network.network_id.clone(),
             height: self.get_height(),
             best_block_hash: hex::encode(self.get_best_block_hash()),
-            connections: 0, // TODO: Make this method async to get actual peer count
+            connections: connections as u32,
             synced: self.is_synced(),
             uptime: self.start_time.elapsed().as_secs(),
         })
@@ -128,16 +137,20 @@ impl NodeApiFacade {
     
     /// Get node status
     pub async fn get_status(&self) -> Result<crate::api::types::NodeStatus, String> {
+        let chain_state = self.chain_state.read().unwrap();
+        let difficulty = chain_state.get_current_difficulty();
+        let network_hashrate = self.estimate_network_hashrate(difficulty);
+        
         Ok(crate::api::types::NodeStatus {
             state: if self.is_synced() { "synced".to_string() } else { "syncing".to_string() },
             height: self.get_height(),
             best_block_hash: hex::encode(self.get_best_block_hash()),
             peer_count: self.network.get_peer_count().await,
             mempool_size: self.mempool.size(),
-            is_mining: false, // TODO: Get from mining manager
-            hashrate: 0, // TODO: Get from mining manager
-            difficulty: 1.0, // TODO: Get from blockchain
-            network_hashrate: 0, // TODO: Calculate network hashrate
+            is_mining: false, // Mining manager not implemented yet
+            hashrate: 0, // Mining manager not implemented yet
+            difficulty,
+            network_hashrate,
         })
     }
     
@@ -168,34 +181,45 @@ impl NodeApiFacade {
     
     /// Get network statistics
     pub async fn get_network_stats(&self) -> serde_json::Value {
+        let stats = self.network.get_stats().await;
+        
         serde_json::json!({
-            "peer_count": self.network.get_peer_count().await,
-            "inbound_connections": 0, // TODO: Get from network manager
-            "outbound_connections": 0, // TODO: Get from network manager
-            "bytes_sent": 0, // TODO: Get from network manager
-            "bytes_received": 0, // TODO: Get from network manager
+            "peer_count": stats.peers_connected,
+            "inbound_connections": stats.inbound_connections,
+            "outbound_connections": stats.outbound_connections,
+            "bytes_sent": stats.bytes_sent,
+            "bytes_received": stats.bytes_received,
         })
     }
     
     /// Get mempool statistics
     pub fn get_mempool_stats(&self) -> serde_json::Value {
+        let info = self.mempool.get_info();
+        let fee_stats = TransactionPoolNodeMethods::get_fee_stats(&*self.mempool);
+        
         serde_json::json!({
             "size": self.mempool.size(),
             "bytes": TransactionPoolNodeMethods::get_memory_usage(&*self.mempool),
-            "fee_histogram": [], // TODO: Get fee histogram
-            "min_fee_rate": 1.0, // TODO: Get from mempool
-            "max_fee_rate": 100.0, // TODO: Get from mempool
+            "fee_histogram": self.mempool.get_fee_histogram(),
+            "min_fee_rate": fee_stats.0,
+            "avg_fee_rate": fee_stats.1,
+            "max_fee_rate": fee_stats.2,
         })
     }
     
     /// Get blockchain statistics
     pub fn get_blockchain_stats(&self) -> serde_json::Value {
+        let chain_state = self.chain_state.read().unwrap();
+        let height = chain_state.get_height();
+        let difficulty = chain_state.get_current_difficulty();
+        let chain_work = format!("{}", height * (difficulty as u64)); // Simplified calculation
+        
         serde_json::json!({
-            "height": self.get_height(),
+            "height": height,
             "best_block_hash": hex::encode(self.get_best_block_hash()),
-            "difficulty": 1.0, // TODO: Get from blockchain
-            "total_work": "0", // TODO: Get from blockchain
-            "chain_work": "0", // TODO: Get from blockchain
+            "difficulty": difficulty,
+            "total_work": chain_work.clone(),
+            "chain_work": chain_work,
         })
     }
     
@@ -249,6 +273,14 @@ impl NodeApiFacade {
     /// Pay invoice (async)
     pub async fn pay_invoice(&self, invoice_str: &str) -> Result<String, String> {
         Err("Lightning Network not initialized".to_string())
+    }
+    
+    /// Estimate network hashrate from difficulty
+    fn estimate_network_hashrate(&self, difficulty: f64) -> u64 {
+        // Network hashrate = difficulty * 2^32 / block_time_seconds
+        // For 2.5 minute blocks (150 seconds)
+        let hashrate = (difficulty * 4_294_967_296.0 / 150.0) as u64;
+        hashrate
     }
 }
 

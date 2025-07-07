@@ -86,6 +86,9 @@ pub struct ChainSync {
     /// Best peers for downloading
     best_peers: Vec<(PeerId, u64)>, // (peer_id, height)
     
+    /// Peer reputation scores
+    peer_scores: HashMap<PeerId, i32>,
+    
     /// Block validator
     validator: Arc<BlockValidator>,
     
@@ -110,9 +113,9 @@ impl ChainSync {
         storage: Arc<dyn BlockStorage>,
         chain_state: Arc<RwLock<BlockchainState>>,
     ) -> Self {
-        // Get current height from chain state
-        let height = chain_state.read().unwrap().get_height();
-        let last_checkpoint_height = height - (height % CHECKPOINT_INTERVAL);
+        // Get current height from storage
+        let height = storage.get_current_height().unwrap_or(0);
+        let last_checkpoint_height = storage.get_last_checkpoint_height().unwrap_or(0);
         
         Self {
             height,
@@ -124,6 +127,7 @@ impl ChainSync {
             sync_state: SyncState::Idle,
             command_sender,
             best_peers: Vec::new(),
+            peer_scores: HashMap::new(),
             validator,
             storage,
             chain_state,
@@ -260,8 +264,8 @@ impl ChainSync {
         if valid_headers.is_empty() {
             warn!("No valid headers found in batch from peer {}", peer_id);
             
-            // Consider downgrading peer's reputation
-            // TODO: Implement peer reputation system
+            // Downgrade peer reputation for sending invalid headers
+            self.adjust_peer_score(&peer_id, -5);
             
             return Ok(());
         }
@@ -384,13 +388,32 @@ impl ChainSync {
                 Err(e) => {
                     error!("Failed to validate block at height {}: {}", current_height, e);
                     
-                    // Handle invalid block
-                    // TODO: Apply penalties for peers that sent invalid blocks
+                    // Handle invalid block by penalizing the peer that sent it
+                    if let Some((block_hash, _)) = self.pending_blocks.get(&current_height)
+                        .map(|b| (b.hash(), b)) {
+                        
+                        // Find which peer sent this block
+                        if let Some((peer_id, _, _)) = self.pending_block_requests.get(&block_hash).cloned() {
+                            warn!("Peer {} sent invalid block at height {}", peer_id, current_height);
+                            
+                            // Apply reputation penalty
+                            self.adjust_peer_score(&peer_id, -10);
+                            
+                            // Ban the peer if reputation is too low
+                            if self.get_peer_score(&peer_id) < -50 {
+                                warn!("Banning peer {} due to low reputation score", peer_id);
+                                self.command_sender
+                                    .send(NetworkCommand::BanPeer(peer_id, "Too many invalid blocks".to_string()))
+                                    .await
+                                    .ok();
+                            }
+                        }
+                    }
                     
                     // For now, just remove the block and try to redownload
                     self.pending_blocks.remove(&current_height);
                     
-                    // Request the block again
+                    // Request the block again from a different peer
                     self.request_block_at_height(current_height).await?;
                     
                     break;
@@ -596,8 +619,14 @@ impl ChainSync {
                 } else {
                     error!("Block request for height {} failed after {} retries", height, MAX_RETRIES);
                     
-                    // If we've retried too many times, consider this peer unreliable
-                    // TODO: Implement peer reliability scoring
+                    // Penalize peer for repeated failures
+                    self.adjust_peer_score(&peer_id, -3);
+                    
+                    // If peer's reliability is too low, reduce its priority
+                    if self.get_peer_score(&peer_id) < -20 {
+                        warn!("Peer {} has low reliability score, deprioritizing", peer_id);
+                        self.deprioritize_peer(&peer_id);
+                    }
                     
                     // For now, just try again with a longer timeout to recover
                     sleep(RETRY_DELAY * 2).await;
@@ -734,13 +763,17 @@ impl ChainSync {
 
     /// Get the best peer for requesting data (highest height)
     fn get_best_peer(&self) -> Option<(PeerId, u64)> {
-        self.best_peers.first().copied()
+        // Filter peers by reputation score
+        self.best_peers.iter()
+            .filter(|(peer_id, _)| self.get_peer_score(peer_id) > -10)
+            .next()
+            .copied()
     }
 
     /// Get the best peer excluding specified peers
     fn get_best_peer_excluding(&self, exclude: &[PeerId]) -> Option<(PeerId, u64)> {
         self.best_peers.iter()
-            .filter(|(peer_id, _)| !exclude.contains(peer_id))
+            .filter(|(peer_id, _)| !exclude.contains(peer_id) && self.get_peer_score(peer_id) > -10)
             .next()
             .copied()
     }
@@ -906,6 +939,27 @@ impl ChainSync {
                     }
                 }
             }
+        }
+    }
+
+    /// Adjust peer reputation score
+    fn adjust_peer_score(&mut self, peer_id: &PeerId, delta: i32) {
+        let score = self.peer_scores.entry(*peer_id).or_insert(0);
+        *score = (*score + delta).clamp(-100, 100);
+        debug!("Adjusted peer {} reputation: {} (delta: {})", peer_id, *score, delta);
+    }
+    
+    /// Get peer reputation score
+    fn get_peer_score(&self, peer_id: &PeerId) -> i32 {
+        self.peer_scores.get(peer_id).copied().unwrap_or(0)
+    }
+    
+    /// Deprioritize a peer in the best_peers list
+    fn deprioritize_peer(&mut self, peer_id: &PeerId) {
+        if let Some(pos) = self.best_peers.iter().position(|(id, _)| id == peer_id) {
+            // Move peer to the end of the list
+            let peer_info = self.best_peers.remove(pos);
+            self.best_peers.push(peer_info);
         }
     }
 }
