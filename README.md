@@ -26,7 +26,7 @@ Our primary goal is to provide a secure, scalable, and sustainable platform for 
 ## Key Innovations
 
 ### 1. **End-to-End Quantum Resistance**
-Supernova is engineered with a deep, architectural commitment to post-quantum security. We have replaced classical cryptographic primitives (ECDSA, secp256k1) with NIST-standardized post-quantum schemes across the entire protocol stack.
+Supernova is engineered with an architectural commitment to post-quantum security. We have replaced classical cryptographic primitives (ECDSA, secp256k1) with NIST-standardized post-quantum schemes across the entire protocol stack.
 -   **Primary Signatures:** **ML-DSA (Dilithium)** for general on-chain transactions.
 -   **Stateless Signatures:** **SPHINCS+** for high-security applications like wallet recovery.
 -   **Key Exchange:** **ML-KEM (Kyber)** for securing the P2P communication layer.
