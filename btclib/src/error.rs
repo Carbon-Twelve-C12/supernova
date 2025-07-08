@@ -481,13 +481,20 @@ mod tests {
         let a: u64 = u64::MAX - 10;
         let b: u64 = 20;
         
-        let result = (|| -> SupernovaResult<u64> {
-            Ok(safe_add!(a, b))
+        // Test that overflow is properly caught
+        let result = a.checked_add(b);
+        assert!(result.is_none());
+        
+        // Test the safe_add functionality (macro from errors module)
+        // We'll test it properly by importing and using it
+        use crate::errors::supernovaError;
+        let result = (|| -> Result<u64, supernovaError> {
+            Ok(crate::safe_add!(a, b))
         })();
         
         assert!(result.is_err());
         match result.unwrap_err() {
-            SupernovaError::Transaction(TransactionError::FeeOverflow) => {},
+            supernovaError::ArithmeticOverflow(_) => {},
             _ => panic!("Wrong error type"),
         }
     }

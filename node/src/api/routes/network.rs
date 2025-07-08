@@ -1,9 +1,13 @@
+//! Network API routes
+//!
+//! This module implements API endpoints for network operations.
+
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::types::{
     NetworkInfo, PeerInfo, PeerConnectionStatus, BandwidthUsage, 
     PeerAddRequest, PeerAddResponse, NodeAddress, ConnectionCount,
 };
-use crate::network::P2PNetwork;
+use crate::api_facade::ApiFacade;
 use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -36,8 +40,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     )
 )]
 pub async fn get_network_info(
-    network: web::Data<Arc<P2PNetwork>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let network = node.network();
     match network.get_network_info().await {
         Ok(info) => Ok(HttpResponse::Ok().json(info)),
         Err(e) => Ok(HttpResponse::InternalServerError().json(
@@ -58,8 +63,9 @@ pub async fn get_network_info(
     )
 )]
 pub async fn get_connection_count(
-    network: web::Data<Arc<P2PNetwork>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let network = node.network();
     match network.get_connection_count().await {
         Ok(count) => Ok(HttpResponse::Ok().json(count)),
         Err(e) => Ok(HttpResponse::InternalServerError().json(
@@ -95,8 +101,9 @@ struct GetPeersParams {
 )]
 pub async fn get_peers(
     params: web::Query<GetPeersParams>,
-    network: web::Data<Arc<P2PNetwork>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let network = node.network();
     let connection_state = params.connection_state.as_ref().map(|s| s.clone());
     let verbose = params.verbose.unwrap_or(false);
     
@@ -130,8 +137,9 @@ pub async fn get_peers(
 )]
 pub async fn get_peer(
     path: web::Path<String>,
-    network: web::Data<Arc<P2PNetwork>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let network = node.network();
     let peer_id = path.into_inner();
     
     match network.get_peer(&peer_id).await {
@@ -160,8 +168,9 @@ pub async fn get_peer(
 )]
 pub async fn add_peer(
     request: web::Json<PeerAddRequest>,
-    network: web::Data<Arc<P2PNetwork>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let network = node.network();
     let address = &request.address;
     let permanent = request.permanent.unwrap_or(false);
     
@@ -190,8 +199,9 @@ pub async fn add_peer(
 )]
 pub async fn remove_peer(
     path: web::Path<String>,
-    network: web::Data<Arc<P2PNetwork>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let network = node.network();
     let peer_id = path.into_inner();
     
     match network.remove_peer(&peer_id).await {
@@ -237,8 +247,9 @@ struct GetBandwidthParams {
 )]
 pub async fn get_bandwidth_usage(
     params: web::Query<GetBandwidthParams>,
-    network: web::Data<Arc<P2PNetwork>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let network = node.network();
     let period = params.period.unwrap_or(3600);
     
     match network.get_bandwidth_usage(period).await {

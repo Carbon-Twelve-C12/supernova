@@ -10,7 +10,7 @@ use crate::node::{Node, NodeError};
 use crate::api::types::*;
 use crate::storage::{BlockchainDB, ChainState};
 use crate::mempool::TransactionPool;
-use crate::network::P2PNetwork;
+use crate::network::NetworkProxy;
 use btclib::types::transaction::Transaction;
 use btclib::types::block::Block;
 use sysinfo::{System, Disks};
@@ -25,8 +25,8 @@ pub struct ApiFacade {
     chain_state: Arc<StdRwLock<ChainState>>,
     /// Transaction mempool
     mempool: Arc<TransactionPool>,
-    /// Network
-    network: Arc<P2PNetwork>,
+    /// Network proxy (thread-safe)
+    network: Arc<NetworkProxy>,
     /// Peer ID
     peer_id: libp2p::PeerId,
     /// Start time
@@ -47,7 +47,7 @@ impl ApiFacade {
             db: node.db(),
             chain_state: node.chain_state(),
             mempool: node.mempool(),
-            network: node.network(),
+            network: node.network_proxy(),
             peer_id: node.peer_id.clone(),
             start_time: node.start_time,
             lightning_manager: node.lightning(),
@@ -72,6 +72,11 @@ impl ApiFacade {
     /// Get config
     pub fn config(&self) -> Arc<StdRwLock<crate::config::NodeConfig>> {
         Arc::clone(&self.config)
+    }
+    
+    /// Get network proxy
+    pub fn network(&self) -> Arc<NetworkProxy> {
+        Arc::clone(&self.network)
     }
     
     /// Get node info
@@ -186,7 +191,7 @@ impl ApiFacade {
             .unwrap_or(0);
         
         let peer_count = self.network.peer_count_sync();
-        let network_stats = self.network.get_network_stats();
+        let network_stats = self.network.get_stats_sync();
         
         Ok(NodeMetrics {
             uptime: self.start_time.elapsed().as_secs(),
@@ -292,7 +297,7 @@ impl ApiFacade {
         });
         
         // Get network stats
-        let network_stats_raw = self.network.get_network_stats();
+        let network_stats_raw = self.network.get_stats_sync();
         let network_stats = serde_json::json!({
             "peer_count": self.network.peer_count_sync(),
             "bytes_sent": network_stats_raw.bytes_sent,
@@ -316,10 +321,28 @@ impl ApiFacade {
         let lightning_enabled = self.lightning_manager.is_some();
         let lightning_stats = if let Some(ln_manager) = &self.lightning_manager {
             let manager = ln_manager.read().unwrap();
+            // Get info from the manager which includes peer count
+            let info = manager.get_info().unwrap_or_else(|_| {
+                // Return default info if error
+                btclib::lightning::manager::LightningInfo {
+                    node_id: String::new(),
+                    num_channels: 0,
+                    num_pending_channels: 0,
+                    num_inactive_channels: 0,
+                    total_balance_msat: 0,
+                    total_outbound_capacity_msat: 0,
+                    total_inbound_capacity_msat: 0,
+                    num_peers: 0,
+                    synced_to_chain: false,
+                    synced_to_graph: false,
+                    block_height: 0,
+                }
+            });
+            
             serde_json::json!({
                 "enabled": true,
-                "channels": manager.list_channels().len(),
-                "peers": manager.list_peers().len(),
+                "channels": info.num_channels,
+                "peers": info.num_peers,
             })
         } else {
             serde_json::json!({

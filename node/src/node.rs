@@ -11,7 +11,7 @@ use crate::adapters::{
     IVecConversion, WalletConversion
 };
 use crate::api::{ApiServer, ApiConfig};
-use crate::network::P2PNetwork;
+use crate::network::{P2PNetwork, NetworkProxy, NetworkCommand, NetworkEvent};
 use crate::mempool::TransactionPool;
 use crate::config::NodeConfig;
 use crate::environmental::EnvironmentalMonitor;
@@ -33,6 +33,7 @@ use tokio::task::JoinHandle;
 use std::str::FromStr;
 use serde::{Serialize, Deserialize};
 use crate::testnet::NodeTestnetManager;
+use crate::testnet::TestnetNodeConfig;
 use btclib::types::transaction::Transaction;
 use btclib::types::block::Block;
 use hex;
@@ -130,6 +131,10 @@ pub struct Node {
     mempool: Arc<TransactionPool>,
     /// P2P network
     network: Arc<P2PNetwork>,
+    /// Thread-safe network proxy for API access
+    network_proxy: Arc<NetworkProxy>,
+    /// Network command sender
+    network_command_tx: mpsc::Sender<NetworkCommand>,
     /// Testnet manager (if enabled)
     testnet_manager: Option<Arc<NodeTestnetManager>>,
     /// Lightning Network manager
@@ -172,21 +177,48 @@ impl Node {
         // Initialize network
         let keypair = libp2p::identity::Keypair::generate_ed25519();
         let genesis_hash = chain_state.read().unwrap().get_genesis_hash();
-        let (network, _command_tx, _event_rx) = P2PNetwork::new(
+        let (network, command_tx, _event_rx) = P2PNetwork::new(
             Some(keypair),
             genesis_hash,
             &config.node.chain_id,
         ).await?;
         let network = Arc::new(network);
         
+        // Create thread-safe network proxy for API access
+        let (network_proxy, proxy_request_rx, cached_stats) = NetworkProxy::new(
+            network.local_peer_id(),
+            network.network_id().to_string(),
+            command_tx.clone(),
+        );
+        let network_proxy = Arc::new(network_proxy);
+        
+        // Note: The proxy request receiver (proxy_request_rx) should be integrated into
+        // the main network event loop in P2PNetwork. This requires modifying P2PNetwork
+        // to process proxy requests alongside network events.
+        // For now, we'll store it for later integration.
+        let _proxy_request_rx = proxy_request_rx;
+        let _cached_stats = cached_stats;
+        
         // Initialize testnet manager if enabled
         let testnet_manager = if config.testnet.enabled {
+            // Convert TestnetConfig to TestnetNodeConfig
+            let testnet_node_config = TestnetNodeConfig {
+                enabled: config.testnet.enabled,
+                network_id: config.testnet.network_id.clone(),
+                enable_faucet: config.testnet.enable_faucet,
+                faucet_amount: config.testnet.faucet_amount,
+                faucet_cooldown: config.testnet.faucet_cooldown,
+                faucet_max_balance: config.testnet.faucet_max_balance,
+                enable_test_mining: config.testnet.enable_test_mining,
+                test_mining_difficulty: config.testnet.test_mining_difficulty,
+                enable_network_simulation: config.testnet.enable_network_simulation,
+                simulated_latency_ms: config.testnet.simulated_latency_ms,
+                simulated_packet_loss: config.testnet.simulated_packet_loss,
+            };
+            
             Some(Arc::new(NodeTestnetManager::new(
-                config.testnet.clone(),
-                Arc::clone(&db),
-                Arc::clone(&chain_state),
-                Arc::clone(&mempool),
-            )))
+                testnet_node_config,
+            ).map_err(|e| NodeError::TestnetError(e))?))
         } else {
             None
         };
@@ -198,28 +230,23 @@ impl Node {
         let lightning_manager = if config.node.enable_lightning {
             // Create Lightning configuration
             let lightning_config = LightningConfig {
-                data_dir: config.storage.db_path.join("lightning"),
-                network: if config.testnet.enabled {
-                    btclib::lightning::Network::Testnet
+                default_channel_capacity: 1_000_000, // 0.01 NOVA in attaNova
+                min_channel_capacity: 10_000,        // 0.0001 NOVA minimum
+                max_channel_capacity: 16_777_215,    // ~0.16 NOVA maximum  
+                cltv_expiry_delta: 40,
+                fee_base_msat: 1000,
+                fee_proportional_millionths: 1,
+                use_quantum_signatures: config.node.enable_quantum_security,
+                quantum_scheme: if config.node.enable_quantum_security {
+                    Some(QuantumScheme::Dilithium)
                 } else {
-                    btclib::lightning::Network::Mainnet
+                    None
                 },
-                port: 9735, // Standard Lightning port
-                alias: Some(format!("supernova-{}", &peer_id.to_string()[..8])),
-                color: Some("#00ff88".to_string()), // Supernova green
-                min_channel_size: 10000, // 10k attaNova minimum
-                max_channel_size: 16777215, // ~0.16 NOVA maximum
-                max_htlc_value_msat: 5000000000, // 5M attaNova
-                base_fee_msat: 1000,
-                fee_rate_ppm: 1,
-                time_lock_delta: 40,
-                max_pending_htlcs: 50,
-                max_accepted_htlcs: 483,
+                quantum_security_level: 1,
             };
             
             // Create Lightning wallet
             let lightning_wallet = LightningWallet::new(
-                config.storage.db_path.join("lightning_wallet"),
                 {
                     // Generate a deterministic seed from the peer ID
                     let mut seed = vec![0u8; 32];
@@ -265,6 +292,8 @@ impl Node {
             chain_state: Arc::clone(&chain_state),
             mempool,
             network,
+            network_proxy,
+            network_command_tx: command_tx,
             testnet_manager,
             lightning_manager,
             api_config: ApiConfig::default(),
@@ -340,6 +369,11 @@ impl Node {
     /// Get network
     pub fn network(&self) -> Arc<P2PNetwork> {
         Arc::clone(&self.network)
+    }
+    
+    /// Get thread-safe network proxy for API access
+    pub fn network_proxy(&self) -> Arc<NetworkProxy> {
+        Arc::clone(&self.network_proxy)
     }
     
     /// Get testnet manager

@@ -12,6 +12,7 @@ pub mod advanced;
 pub mod discovery;
 pub mod rate_limiter;
 pub mod behaviour;
+pub mod network_proxy;
 
 #[cfg(test)]
 pub mod eclipse_prevention_tests;
@@ -34,6 +35,8 @@ pub use protocol::{ProtocolError, Message as ProtocolMessage};
 pub use p2p::{NetworkCommand, NetworkEvent, NetworkStats as P2PNetworkStats, P2PNetwork, NetworkHealth};
 pub use discovery::DiscoveryEvent;
 pub use rate_limiter::{NetworkRateLimiter, RateLimitConfig, RateLimitError};
+pub use behaviour::SupernovaBehaviour;
+pub use network_proxy::NetworkProxy;
 
 /// Maximum number of peers to connect to
 pub const MAX_PEERS: usize = 50;

@@ -525,6 +525,11 @@ impl P2PNetwork {
         self.local_peer_id.clone()
     }
     
+    /// Get the network ID
+    pub fn network_id(&self) -> &str {
+        &self.network_id
+    }
+    
     /// Add a bootstrap node
     pub fn add_bootstrap_node(&mut self, peer_id: PeerId, addr: Multiaddr) {
         self.bootstrap_nodes.push(addr);

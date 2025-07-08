@@ -229,11 +229,11 @@ impl ChainState {
         // Convert target bits to difficulty
         let target = self.get_difficulty_target();
         
-        // Bitcoin difficulty formula: difficulty = max_target / current_target
-        // Max target is 0x1d00ffff (difficulty 1)
-        let max_target = 0x00000000ffff0000000000000000000000000000000000000000000000000000u128;
+        // Bitcoin difficulty calculation
+        // The maximum target (difficulty 1) is 0x1d00ffff in compact form
+        // This represents: 0x00000000ffff0000000000000000000000000000000000000000000000000000
         
-        // Convert compact bits to full target
+        // Convert compact bits to actual target value
         let exponent = (target >> 24) & 0xff;
         let mantissa = target & 0x00ffffff;
         
@@ -241,19 +241,23 @@ impl ChainState {
             return 1.0; // Minimum difficulty
         }
         
-        // Calculate actual target value
-        let current_target = if exponent <= 3 {
-            (mantissa >> (8 * (3 - exponent))) as u128
+        // Calculate actual target value as f64 to avoid overflow
+        let current_target: f64 = if exponent <= 3 {
+            (mantissa >> (8 * (3 - exponent))) as f64
         } else {
-            (mantissa as u128) << (8 * (exponent - 3))
+            (mantissa as f64) * 2f64.powi((8 * (exponent - 3)) as i32)
         };
         
-        if current_target == 0 {
+        if current_target == 0.0 {
             return 1.0; // Prevent division by zero
         }
         
+        // Max target for difficulty 1 (0x1d00ffff)
+        // This is 0xffff * 2^(8*(0x1d-3)) = 65535 * 2^208
+        let max_target: f64 = 65535.0 * 2f64.powi(208);
+        
         // Calculate difficulty
-        (max_target as f64) / (current_target as f64)
+        max_target / current_target
     }
 
     pub async fn process_block(&mut self, block: Block) -> Result<bool, StorageError> {

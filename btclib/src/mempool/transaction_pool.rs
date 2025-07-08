@@ -361,6 +361,26 @@ impl TransactionPool {
         self.transactions.len()
     }
     
+    /// Get fee histogram for the mempool
+    pub fn get_fee_histogram(&self) -> Vec<(u64, usize)> {
+        // Create buckets for fee rates (in sats/byte)
+        let buckets = vec![1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+        let mut histogram = Vec::new();
+        
+        for &bucket in &buckets {
+            let count = self.transactions.iter()
+                .filter(|entry| entry.fee_rate >= bucket && 
+                    (bucket == *buckets.last().unwrap() || entry.fee_rate < buckets[buckets.iter().position(|&b| b == bucket).unwrap() + 1]))
+                .count();
+            
+            if count > 0 {
+                histogram.push((bucket, count));
+            }
+        }
+        
+        histogram
+    }
+    
     /// Get the fee for a transaction by its hash (hex string)
     pub fn get_transaction_fee(&self, tx_hash_hex: &str) -> Option<u64> {
         // Parse hex string to bytes

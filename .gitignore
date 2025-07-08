@@ -96,3 +96,4 @@ PROMPT_FOR_*.md
 deploy_*.sh
 test_*.sh
 *.textClipping
+build_output.txt
