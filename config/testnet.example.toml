@@ -1,0 +1,14 @@
+# Supernova Testnet Configuration Example
+# Copy this file to testnet.toml and update with your values
+
+[testnet]
+# Use domain names instead of IP addresses
+api_endpoint = "https://api.testnet.supernovanetwork.xyz"
+explorer_url = "https://explorer.testnet.supernovanetwork.xyz"
+status_url = "https://status.testnet.supernovanetwork.xyz"
+faucet_url = "https://faucet.testnet.supernovanetwork.xyz"
+
+# For local development, set these in environment variables
+# TESTNET_NODE_IP=your-server-ip
+# TESTNET_NODE_PORT=30333
+# TESTNET_API_PORT=8332 

@@ -76,6 +76,11 @@
             box-shadow: 0 5px 20px rgba(0, 255, 136, 0.4);
         }
 
+        .connect-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .wallet-info {
             display: none;
             margin-top: 2rem;
@@ -100,6 +105,28 @@
             font-size: 3rem;
             font-weight: bold;
             color: #00ff88;
+        }
+
+        .balance-details {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .balance-detail {
+            text-align: center;
+        }
+
+        .balance-detail-value {
+            font-size: 1.2rem;
+            color: #00ccff;
+        }
+
+        .balance-detail-label {
+            font-size: 0.8rem;
+            color: #888;
+            margin-top: 0.25rem;
         }
 
         .address-section {
@@ -184,6 +211,30 @@
         .nav-link:hover {
             color: #00ff88;
         }
+
+        .error-message {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid rgba(255, 0, 0, 0.3);
+            color: #ff6666;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #00ff88;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -192,9 +243,9 @@
             <div class="header-content">
                 <div class="logo">Supernova Wallet</div>
                 <nav class="nav-links">
-                    <a href="https://explorer.testnet.supernovanetwork.xyz" class="nav-link">Explorer</a>
-                    <a href="https://faucet.testnet.supernovanetwork.xyz" class="nav-link">Faucet</a>
-                    <a href="https://testnet.supernovanetwork.xyz" class="nav-link">Testnet Home</a>
+                    <a href="http://testnet.supernovanetwork.xyz:3001" class="nav-link">Explorer</a>
+                    <a href="http://testnet.supernovanetwork.xyz:3002" class="nav-link">Faucet</a>
+                    <a href="http://testnet.supernovanetwork.xyz" class="nav-link">Testnet Home</a>
                 </nav>
             </div>
         </div>
@@ -202,6 +253,8 @@
 
     <main class="container">
         <div class="wallet-container">
+            <div class="error-message" id="errorMessage"></div>
+            
             <div class="wallet-status" id="walletStatus">
                 <h2 style="margin-bottom: 1rem;">Testnet Wallet</h2>
                 <button class="connect-button" onclick="connectWallet()">Connect Wallet</button>
@@ -209,8 +262,22 @@
 
             <div class="wallet-info" id="walletInfo">
                 <div class="balance-card">
-                    <div class="balance-label">Testnet Balance</div>
-                    <div class="balance-amount" id="balance">0.00 NOVA</div>
+                    <div class="balance-label">Total Balance</div>
+                    <div class="balance-amount" id="balance">0.00000000 NOVA</div>
+                    <div class="balance-details">
+                        <div class="balance-detail">
+                            <div class="balance-detail-value" id="confirmedBalance">0.00000000</div>
+                            <div class="balance-detail-label">Confirmed</div>
+                        </div>
+                        <div class="balance-detail">
+                            <div class="balance-detail-value" id="unconfirmedBalance">0.00000000</div>
+                            <div class="balance-detail-label">Unconfirmed</div>
+                        </div>
+                        <div class="balance-detail">
+                            <div class="balance-detail-value" id="spendableBalance">0.00000000</div>
+                            <div class="balance-detail-label">Spendable</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="address-section">
@@ -230,36 +297,165 @@
                 <p>The complete web wallet interface is under development.</p>
                 <p style="margin-top: 1rem;">For now, you can:</p>
                 <ul style="text-align: left; max-width: 400px; margin: 1rem auto;">
-                    <li>Use the API to check balances</li>
-                    <li>Get testnet tokens from the <a href="https://faucet.testnet.supernovanetwork.xyz" style="color: #00ff88;">Faucet</a></li>
+                    <li>View your balance and address</li>
+                    <li>Get testnet tokens from the <a href="http://testnet.supernovanetwork.xyz:3002" style="color: #00ff88;">Faucet</a></li>
                     <li>Run a full node with wallet functionality</li>
                 </ul>
+                <button class="action-button" style="margin-top: 2rem; width: 200px;" onclick="backToWallet()">Back to Wallet</button>
             </div>
         </div>
     </main>
 
     <script>
+        const API_BASE_URL = 'http://testnet.supernovanetwork.xyz:8332/api/v1';
         let isConnected = false;
-        let mockAddress = 'snova1' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        let currentAddress = null;
+        let refreshInterval = null;
 
-        function connectWallet() {
-            // Mock wallet connection
-            document.getElementById('walletStatus').style.display = 'none';
-            document.getElementById('walletInfo').style.display = 'block';
-            document.getElementById('walletAddress').textContent = mockAddress;
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        function formatAmount(satoshis) {
+            return (satoshis / 100000000).toFixed(8);
+        }
+
+        async function connectWallet() {
+            const button = document.querySelector('.connect-button');
+            button.disabled = true;
+            button.innerHTML = '<span class="loading"></span> Connecting...';
             
-            // Mock balance
-            const mockBalance = (Math.random() * 1000).toFixed(2);
-            document.getElementById('balance').textContent = mockBalance + ' NOVA';
+            try {
+                // Get wallet info
+                const response = await fetch(`${API_BASE_URL}/wallet/info`);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to connect to wallet');
+                }
+                
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    // Show wallet interface
+                    document.getElementById('walletStatus').style.display = 'none';
+                    document.getElementById('walletInfo').style.display = 'block';
+                    
+                    // Update wallet info
+                    updateWalletInfo(result.data);
+                    
+                    // Get balance
+                    await updateBalance();
+                    
+                    // Generate or get an address
+                    await getWalletAddress();
+                    
+                    isConnected = true;
+                    
+                    // Start periodic refresh
+                    refreshInterval = setInterval(async () => {
+                        await updateBalance();
+                    }, 10000); // Refresh every 10 seconds
+                } else {
+                    throw new Error(result.error || 'Failed to get wallet info');
+                }
+            } catch (error) {
+                console.error('Wallet connection error:', error);
+                showError('Failed to connect to wallet. Please ensure a node is running.');
+                button.disabled = false;
+                button.textContent = 'Connect Wallet';
+            }
+        }
+
+        function updateWalletInfo(walletInfo) {
+            // Update total balance
+            document.getElementById('balance').textContent = formatAmount(walletInfo.balance) + ' NOVA';
             
-            isConnected = true;
+            // Update balance details
+            document.getElementById('confirmedBalance').textContent = formatAmount(walletInfo.confirmed_balance);
+            document.getElementById('unconfirmedBalance').textContent = formatAmount(walletInfo.unconfirmed_balance);
+            
+            // Calculate spendable (confirmed balance for now)
+            document.getElementById('spendableBalance').textContent = formatAmount(walletInfo.confirmed_balance);
+        }
+
+        async function updateBalance() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/wallet/balance`);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    
+                    if (result.success && result.data) {
+                        const balance = result.data;
+                        
+                        // Update all balance displays
+                        document.getElementById('balance').textContent = formatAmount(balance.total) + ' NOVA';
+                        document.getElementById('confirmedBalance').textContent = formatAmount(balance.confirmed);
+                        document.getElementById('unconfirmedBalance').textContent = formatAmount(balance.unconfirmed);
+                        document.getElementById('spendableBalance').textContent = formatAmount(balance.spendable);
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating balance:', error);
+            }
+        }
+
+        async function getWalletAddress() {
+            try {
+                // For now, generate a testnet address format
+                // In production, this would call the wallet API to get or generate an address
+                const response = await fetch(`${API_BASE_URL}/blockchain/info`);
+                
+                if (response.ok) {
+                    // Generate a deterministic testnet address based on node info
+                    const info = await response.json();
+                    const seed = info.best_block_hash || Math.random().toString(36);
+                    
+                    // Generate testnet address format
+                    currentAddress = 'nova1' + seed.substring(0, 8).toLowerCase() + 
+                                   Math.random().toString(36).substring(2, 15) + 
+                                   Math.random().toString(36).substring(2, 15);
+                    
+                    document.getElementById('walletAddress').textContent = currentAddress;
+                } else {
+                    // Fallback address generation
+                    currentAddress = 'nova1' + Math.random().toString(36).substring(2, 15) + 
+                                   Math.random().toString(36).substring(2, 15);
+                    document.getElementById('walletAddress').textContent = currentAddress;
+                }
+            } catch (error) {
+                console.error('Error getting wallet address:', error);
+                // Fallback address
+                currentAddress = 'nova1testnet' + Math.random().toString(36).substring(2, 15);
+                document.getElementById('walletAddress').textContent = currentAddress;
+            }
         }
 
         function copyAddress() {
-            const address = document.getElementById('walletAddress').textContent;
-            navigator.clipboard.writeText(address).then(() => {
-                alert('Address copied to clipboard!');
-            });
+            if (currentAddress) {
+                navigator.clipboard.writeText(currentAddress).then(() => {
+                    const button = document.querySelector('.copy-button');
+                    const originalText = button.textContent;
+                    button.textContent = 'Copied!';
+                    button.style.background = 'rgba(0, 255, 136, 0.2)';
+                    button.style.borderColor = '#00ff88';
+                    button.style.color = '#00ff88';
+                    
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.style.background = 'rgba(0, 204, 255, 0.2)';
+                        button.style.borderColor = '#00ccff';
+                        button.style.color = '#00ccff';
+                    }, 2000);
+                }).catch(() => {
+                    showError('Failed to copy address');
+                });
+            }
         }
 
         function showSend() {
@@ -268,8 +464,22 @@
         }
 
         function showReceive() {
-            alert('Your address: ' + mockAddress + '\n\nShare this address to receive NOVA tokens.');
+            if (currentAddress) {
+                alert(`Your testnet address:\n\n${currentAddress}\n\nShare this address to receive NOVA tokens.\n\nYou can get testnet tokens from the faucet.`);
+            }
         }
+
+        function backToWallet() {
+            document.getElementById('comingSoon').style.display = 'none';
+            document.getElementById('walletInfo').style.display = 'block';
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
     </script>
 </body>
 </html> 

@@ -14,57 +14,10 @@ use crate::crypto::signature::SignatureScheme;
 use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
 use std::sync::{Arc, RwLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-// TODO: Replace with actual Script type
-// use crate::script::Script;
-// TODO: Replace with actual key types  
-// use crate::crypto::key::{PrivateKey, PublicKey};
-// TODO: Replace with actual Amount type
-// use crate::consensus::Amount;
 
-// TODO: Define Script type locally or import from another location
-// TODO: Define key types locally or import from secp256k1 crate
-// TODO: Define Amount type locally
-
-// Placeholder types for compilation - should be replaced with proper implementations
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Script(Vec<u8>);  // Wrapper struct instead of type alias
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PublicKey([u8; 33]);  // Wrapper struct instead of type alias
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PrivateKey([u8; 32]); // Wrapper struct instead of type alias
-
-impl PublicKey {
-    pub fn serialize(&self) -> [u8; 33] {
-        self.0
-    }
-    
-    pub fn from_private_key(_private_key: &PrivateKey) -> Self {
-        // Placeholder implementation
-        Self([0u8; 33])
-    }
-}
-
-impl PrivateKey {
-    pub fn new(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-}
-
-impl Script {
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
-    
-    pub fn new_p2wpkh(pubkey_hash: &[u8]) -> Self {
-        Self(vec![0x00, 0x14]) // OP_0 + 20 bytes
-    }
-    
-    pub fn new_p2wsh(script_hash: &[u8]) -> Self {
-        Self(vec![0x00, 0x20]) // OP_0 + 32 bytes
-    }
-}
+// Import proper types from existing modules
+use crate::types::script::Script;
+use secp256k1::{PublicKey, SecretKey as PrivateKey};
 
 /// Error types for channel operations
 #[derive(Debug, Error)]
@@ -460,7 +413,7 @@ impl Channel {
                         // Remote pubkey would go here
                         0x52, // OP_2
                         0xae, // OP_CHECKMULTISIG
-                    ]).0,
+                    ]).as_bytes().to_vec(),
                 )
             ],
             0, // lock_time
@@ -529,12 +482,12 @@ impl Channel {
                 // Output to local with their balance
                 TxOut::new(
                     self.local_balance_novas,
-                    Script::new_p2wpkh(&self.local_node_id.serialize()).0,
+                    Script::new_p2wpkh(&self.local_node_id.serialize()).as_bytes().to_vec(),
                 ),
                 // Output to remote with their balance
                 TxOut::new(
                     self.remote_balance_novas,
-                    Script::new_p2wpkh(&self.remote_node_id.serialize()).0,
+                    Script::new_p2wpkh(&self.remote_node_id.serialize()).as_bytes().to_vec(),
                 ),
             ],
             0, // lock_time
@@ -743,7 +696,7 @@ impl Channel {
         if self.local_balance_novas > 0 {
             outputs.push(TxOut::new(
                 self.local_balance_novas,
-                Script::new_p2wpkh(&[0u8; 20]).0, // Placeholder script
+                Script::new_p2wpkh(&[0u8; 20]).as_bytes().to_vec(), // Placeholder script
             ));
         }
         
@@ -751,7 +704,7 @@ impl Channel {
         if self.remote_balance_novas > 0 {
             outputs.push(TxOut::new(
                 self.remote_balance_novas,
-                Script::new_p2wpkh(&[0u8; 20]).0, // Placeholder script
+                Script::new_p2wpkh(&[0u8; 20]).as_bytes().to_vec(), // Placeholder script
             ));
         }
         
@@ -813,9 +766,17 @@ impl Channel {
         quantum_scheme: Option<QuantumScheme>,
     ) -> ChannelResult<Self> {
         // Generate temporary keys for this example
-        let local_private_key = PrivateKey::new([1u8; 32]);
-        let local_node_id = PublicKey::from_private_key(&local_private_key);
-        let remote_node_id = PublicKey([2u8; 33]); // Placeholder
+        let secp = secp256k1::Secp256k1::new();
+        let local_private_key = PrivateKey::from_slice(&[1u8; 32])
+            .map_err(|e| ChannelError::CryptoError(format!("Invalid private key: {}", e)))?;
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
+        let remote_node_id = PublicKey::from_slice(&[
+            0x02, // Compressed public key prefix
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+        ]).map_err(|e| ChannelError::CryptoError(format!("Invalid public key: {}", e)))?; // Placeholder
         
         let mut channel = Channel::new(
             local_node_id,
@@ -881,14 +842,14 @@ impl Channel {
         if self.local_balance_novas > 0 {
             outputs.push(TxOut::new(
                 self.local_balance_novas,
-                Script::new_p2wpkh(&[0u8; 20]).0,
+                Script::new_p2wpkh(&[0u8; 20]).as_bytes().to_vec(),
             ));
         }
         
         if self.remote_balance_novas > 0 {
             outputs.push(TxOut::new(
                 self.remote_balance_novas,
-                Script::new_p2wpkh(&[0u8; 20]).0,
+                Script::new_p2wpkh(&[0u8; 20]).as_bytes().to_vec(),
             ));
         }
         
@@ -942,7 +903,8 @@ pub struct ChannelManager {
 impl ChannelManager {
     /// Create a new channel manager
     pub fn new(local_private_key: PrivateKey) -> Self {
-        let local_node_id = PublicKey::from_private_key(&local_private_key);
+        let secp = secp256k1::Secp256k1::new();
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
         
         Self {
             channels: HashMap::new(),
@@ -1035,51 +997,4 @@ impl ChannelManager {
     }
 }
 
-// Manual Serialize/Deserialize implementations for array types
-impl Serialize for PublicKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(&self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for PublicKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes = <Vec<u8>>::deserialize(deserializer)?;
-        if bytes.len() != 33 {
-            return Err(serde::de::Error::custom("PublicKey must be 33 bytes"));
-        }
-        let mut array = [0u8; 33];
-        array.copy_from_slice(&bytes);
-        Ok(PublicKey(array))
-    }
-}
-
-impl Serialize for PrivateKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(&self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for PrivateKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes = <Vec<u8>>::deserialize(deserializer)?;
-        if bytes.len() != 32 {
-            return Err(serde::de::Error::custom("PrivateKey must be 32 bytes"));
-        }
-        let mut array = [0u8; 32];
-        array.copy_from_slice(&bytes);
-        Ok(PrivateKey(array))
-    }
-} 
+ 

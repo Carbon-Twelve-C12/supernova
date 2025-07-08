@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Utils Example Usage</title>
+</head>
+<body>
+    <h1>Example: How to use api-utils.js in Supernova web interfaces</h1>
+    
+    <div id="errorMessage" style="color: red; display: none;"></div>
+    <div id="successMessage" style="color: green; display: none;"></div>
+    <div id="connectionStatus"></div>
+    
+    <!-- Include the shared utilities -->
+    <script src="api-utils.js"></script>
+    
+    <script>
+        // Example 1: Making API calls with retry logic
+        async function fetchBlockchainInfo() {
+            try {
+                const info = await apiCall('/blockchain/info');
+                console.log('Blockchain info:', info);
+                showSuccess('Successfully fetched blockchain info');
+            } catch (error) {
+                showError(`Failed to fetch blockchain info: ${error.message}`);
+            }
+        }
+        
+        // Example 2: Using the connection monitor
+        const monitor = new ConnectionMonitor('connectionStatus');
+        monitor.start();
+        
+        // Example 3: Formatting utilities
+        console.log('Format number:', formatNumber(1234567));
+        console.log('Format amount:', formatAmount(123456789));
+        console.log('Format hashrate:', formatHashrate(1234567890));
+        console.log('Format address:', formatAddress('nova1abcdefghijklmnopqrstuvwxyz123456'));
+        
+        // Example 4: Making multiple API calls with error handling
+        async function updateDashboard() {
+            try {
+                // Fetch multiple endpoints in parallel
+                const [blockchain, mempool, network] = await Promise.all([
+                    apiCall('/blockchain/info'),
+                    apiCall('/mempool/info'),
+                    apiCall('/network/info')
+                ]);
+                
+                // Update UI with data
+                console.log('Dashboard data:', { blockchain, mempool, network });
+                
+            } catch (error) {
+                showError('Failed to update dashboard');
+                console.error('Dashboard update error:', error);
+            }
+        }
+        
+        // Run examples
+        fetchBlockchainInfo();
+        updateDashboard();
+    </script>
+</body>
+</html> 

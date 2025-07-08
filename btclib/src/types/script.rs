@@ -55,6 +55,36 @@ impl Script {
         bytes.push(0x87); // OP_EQUAL
         Self { bytes }
     }
+    
+    /// Create a P2WPKH (Pay to Witness Public Key Hash) script
+    pub fn new_p2wpkh(pubkey_hash: &[u8]) -> Self {
+        let mut bytes = Vec::new();
+        bytes.push(0x00); // OP_0 (witness version)
+        bytes.push(0x14); // Push 20 bytes
+        if pubkey_hash.len() >= 20 {
+            bytes.extend_from_slice(&pubkey_hash[..20]);
+        } else {
+            bytes.extend_from_slice(pubkey_hash);
+            // Pad with zeros if needed
+            bytes.resize(22, 0);
+        }
+        Self { bytes }
+    }
+    
+    /// Create a P2WSH (Pay to Witness Script Hash) script
+    pub fn new_p2wsh(script_hash: &[u8]) -> Self {
+        let mut bytes = Vec::new();
+        bytes.push(0x00); // OP_0 (witness version)
+        bytes.push(0x20); // Push 32 bytes
+        if script_hash.len() >= 32 {
+            bytes.extend_from_slice(&script_hash[..32]);
+        } else {
+            bytes.extend_from_slice(script_hash);
+            // Pad with zeros if needed
+            bytes.resize(34, 0);
+        }
+        Self { bytes }
+    }
 }
 
 impl Default for Script {

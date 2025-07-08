@@ -66,27 +66,53 @@ document.addEventListener('DOMContentLoaded', function() {
         submitBtn.innerHTML = '<span class="loading"></span> Requesting...';
         
         try {
-            // Simulate API call (replace with actual API endpoint)
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Make API call to request tokens
+            const response = await fetch(`${API_BASE_URL}/send`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    address: address
+                })
+            });
             
-            // Mock transaction ID
-            const txId = '0x' + Math.random().toString(16).substr(2, 64);
+            const data = await response.json();
             
-            showResult('success', `
-                Success! ${amount} NOVA sent to ${address.substring(0, 12)}...${address.substring(address.length - 8)}
-                <br><br>
-                Transaction ID: <code>${txId}</code>
-            `);
-            
-            // Reset form
-            faucetForm.reset();
-            initCaptcha();
-            
-            // Refresh transactions
-            loadRecentTransactions();
+            if (response.ok) {
+                // Success response
+                showResult('success', `
+                    Success! ${formatAmount(data.amount)} NOVA sent to ${formatAddress(data.recipient)}
+                    <br><br>
+                    Transaction ID: <code>${data.txid}</code>
+                `);
+                
+                // Reset form
+                faucetForm.reset();
+                initCaptcha();
+                
+                // Refresh transactions
+                setTimeout(loadRecentTransactions, 1000);
+            } else {
+                // Handle various error cases
+                let errorMessage = 'Failed to send tokens.';
+                
+                if (response.status === 429) {
+                    errorMessage = data.message || 'Rate limit exceeded. Please try again later.';
+                } else if (response.status === 400) {
+                    errorMessage = data.message || 'Invalid address format.';
+                } else if (response.status === 503) {
+                    errorMessage = 'Faucet is temporarily unavailable. Please try again later.';
+                } else if (data && data.message) {
+                    errorMessage = data.message;
+                }
+                
+                showResult('error', errorMessage);
+            }
             
         } catch (error) {
-            showResult('error', 'Failed to send tokens. Please try again later.');
+            console.error('Faucet request error:', error);
+            showResult('error', 'Network error. Please check your connection and try again.');
         } finally {
             submitBtn.disabled = false;
             submitBtn.textContent = originalText;
@@ -104,32 +130,96 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     /**
+     * Format amount from satoshis to NOVA
+     */
+    function formatAmount(satoshis) {
+        return (satoshis / 100000000).toFixed(8);
+    }
+    
+    /**
+     * Format address for display
+     */
+    function formatAddress(address) {
+        if (!address || address.length < 12) return address;
+        return `${address.substring(0, 12)}...${address.substring(address.length - 8)}`;
+    }
+    
+    /**
+     * Format timestamp to relative time
+     */
+    function formatTime(timestamp) {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        
+        if (diffMins < 1) return 'just now';
+        if (diffMins < 60) return `${diffMins} min ago`;
+        
+        const diffHours = Math.floor(diffMins / 60);
+        if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+        
+        const diffDays = Math.floor(diffHours / 24);
+        return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    }
+    
+    /**
      * Load recent transactions
      */
     async function loadRecentTransactions() {
         const tbody = document.getElementById('recent-transactions');
         
         try {
-            // Mock data for demonstration
-            const mockTransactions = [
-                { time: '2 min ago', address: 'nova1qxy...8dk3', amount: '10', tx: '0xa1b2...c3d4' },
-                { time: '5 min ago', address: 'nova1abc...def9', amount: '25', tx: '0xe5f6...7890' },
-                { time: '12 min ago', address: 'nova1ghi...jkl2', amount: '50', tx: '0xm3n4...o5p6' },
-                { time: '23 min ago', address: 'nova1mno...pqr7', amount: '15', tx: '0xq7r8...s9t0' },
-                { time: '45 min ago', address: 'nova1stu...vwx4', amount: '30', tx: '0xu1v2...w3x4' }
-            ];
+            // Fetch recent transactions from API
+            const response = await fetch(`${API_BASE_URL}/transactions`);
             
-            tbody.innerHTML = mockTransactions.map(tx => `
-                <tr>
-                    <td>${tx.time}</td>
-                    <td>${tx.address}</td>
-                    <td>${tx.amount} NOVA</td>
-                    <td><a href="#" style="color: #00ff88;">${tx.tx}</a></td>
-                </tr>
-            `).join('');
+            if (response.ok) {
+                const data = await response.json();
+                const transactions = data.transactions || [];
+                
+                if (transactions.length > 0) {
+                    tbody.innerHTML = transactions.slice(0, 5).map(tx => `
+                        <tr>
+                            <td>${formatTime(tx.timestamp)}</td>
+                            <td>${formatAddress(tx.recipient)}</td>
+                            <td>${formatAmount(tx.amount)} NOVA</td>
+                            <td><a href="/explorer/tx/${tx.txid}" style="color: #00ff88;">${tx.txid.substring(0, 8)}...</a></td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #8899a6;">No recent transactions</td></tr>';
+                }
+            } else {
+                throw new Error('Failed to fetch transactions');
+            }
             
         } catch (error) {
+            console.error('Error loading recent transactions:', error);
             tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #8899a6;">Unable to load recent transactions</td></tr>';
         }
     }
+    
+    // Load faucet status on page load
+    async function loadFaucetStatus() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/status`);
+            
+            if (response.ok) {
+                const status = await response.json();
+                
+                // Update UI based on faucet status
+                if (!status.is_online) {
+                    showResult('error', 'Faucet is currently offline. Please try again later.');
+                    faucetForm.querySelector('button[type="submit"]').disabled = true;
+                }
+                
+                // Could also display balance, cooldown period, etc.
+            }
+        } catch (error) {
+            console.error('Error loading faucet status:', error);
+        }
+    }
+    
+    // Load faucet status on page load
+    loadFaucetStatus();
 }); 

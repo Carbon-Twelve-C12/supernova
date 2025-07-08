@@ -362,43 +362,124 @@
             });
         });
 
-        // API base URL
-        const API_BASE = '/api/v1';
+        // API base URL - testnet uses HTTP on port 8332
+        const API_BASE = 'http://testnet.supernovanetwork.xyz:8332/api/v1';
+
+        // Format large numbers
+        function formatNumber(num) {
+            return new Intl.NumberFormat().format(num);
+        }
+
+        // Format hashrate
+        function formatHashrate(hashrate) {
+            if (hashrate === 0) return '0 H/s';
+            const units = ['H/s', 'KH/s', 'MH/s', 'GH/s', 'TH/s'];
+            let unitIndex = 0;
+            let value = hashrate;
+            
+            while (value >= 1000 && unitIndex < units.length - 1) {
+                value /= 1000;
+                unitIndex++;
+            }
+            
+            return value.toFixed(2) + ' ' + units[unitIndex];
+        }
+
+        // Calculate average block time
+        let blockTimes = [];
+        let lastBlockHeight = 0;
+        let lastBlockTime = Date.now();
 
         // Fetch network stats
         async function fetchNetworkStats() {
             try {
-                const [nodeInfo, blockchainInfo, mempoolInfo, blockchainStats] = await Promise.all([
-                    fetch(`${API_BASE}/node/info`).then(r => r.json()),
-                    fetch(`${API_BASE}/blockchain/info`).then(r => r.json()),
-                    fetch(`${API_BASE}/mempool/info`).then(r => r.json()),
-                    fetch(`${API_BASE}/blockchain/stats`).then(r => r.json())
+                // Parallel fetch all required data
+                const [nodeResponse, blockchainResponse, mempoolResponse, statsResponse, networkResponse] = await Promise.all([
+                    fetch(`${API_BASE}/node/info`).then(r => r.ok ? r.json() : null).catch(() => null),
+                    fetch(`${API_BASE}/blockchain/info`).then(r => r.ok ? r.json() : null).catch(() => null),
+                    fetch(`${API_BASE}/mempool/info`).then(r => r.ok ? r.json() : null).catch(() => null),
+                    fetch(`${API_BASE}/blockchain/stats`).then(r => r.ok ? r.json() : null).catch(() => null),
+                    fetch(`${API_BASE}/network/info`).then(r => r.ok ? r.json() : null).catch(() => null)
                 ]);
 
-                // Update metrics with real data
-                document.getElementById('blockHeight').textContent = blockchainInfo.height || nodeInfo.height || '0';
-                document.getElementById('activeNodes').textContent = nodeInfo.connections || '1';
-                document.getElementById('mempoolSize').textContent = mempoolInfo.transaction_count || '0';
+                // Update network status
+                const isConnected = nodeResponse || blockchainResponse;
+                const statusDot = document.getElementById('networkStatus');
+                const statusText = document.getElementById('statusText');
                 
-                // Update node info
-                document.getElementById('node1Height').textContent = nodeInfo.height || '0';
-                document.getElementById('node1Peers').textContent = nodeInfo.connections || '0';
+                if (isConnected) {
+                    statusDot.classList.remove('error', 'warning');
+                    statusText.textContent = 'Network Operational';
+                } else {
+                    statusDot.classList.add('error');
+                    statusText.textContent = 'Connection Error';
+                    return;
+                }
+
+                // Update block height
+                const currentHeight = blockchainResponse?.height || nodeResponse?.height || 0;
+                document.getElementById('blockHeight').textContent = formatNumber(currentHeight);
                 
-                // Use real hashrate from blockchain stats
-                const hashrate = blockchainStats.hashrate || 0;
-                document.getElementById('hashRate').textContent = hashrate + ' H/s';
+                // Calculate block time change
+                if (lastBlockHeight > 0 && currentHeight > lastBlockHeight) {
+                    const timeDiff = (Date.now() - lastBlockTime) / 1000 / 60; // minutes
+                    const blockDiff = currentHeight - lastBlockHeight;
+                    const avgTime = timeDiff / blockDiff;
+                    blockTimes.push(avgTime);
+                    
+                    // Keep only last 10 measurements
+                    if (blockTimes.length > 10) blockTimes.shift();
+                    
+                    lastBlockHeight = currentHeight;
+                    lastBlockTime = Date.now();
+                } else if (lastBlockHeight === 0) {
+                    lastBlockHeight = currentHeight;
+                    lastBlockTime = Date.now();
+                }
+
+                // Update active nodes
+                const connections = networkResponse?.connections || nodeResponse?.connections || 0;
+                document.getElementById('activeNodes').textContent = formatNumber(connections + 1); // +1 for self
+
+                // Update TPS (transactions per second)
+                const mempoolSize = mempoolResponse?.transaction_count || 0;
+                const tps = mempoolSize > 0 ? (mempoolSize / 150).toFixed(2) : '0.00'; // Estimate based on 2.5 min blocks
+                document.getElementById('tps').textContent = tps;
+
+                // Update hashrate
+                const hashrate = statsResponse?.hashrate || 0;
+                document.getElementById('hashRate').textContent = formatHashrate(hashrate);
+
+                // Update mempool size
+                document.getElementById('mempoolSize').textContent = formatNumber(mempoolSize);
+
+                // Update average block time
+                if (blockTimes.length > 0) {
+                    const avgBlockTime = blockTimes.reduce((a, b) => a + b, 0) / blockTimes.length;
+                    document.getElementById('blockTime').textContent = avgBlockTime.toFixed(1) + 'm';
+                }
+
+                // Update node info in nodes tab
+                document.getElementById('node1Height').textContent = formatNumber(currentHeight);
+                document.getElementById('node1Peers').textContent = formatNumber(connections);
+
+                // Update environmental metrics
+                const uptime = nodeResponse?.uptime || 0;
+                const uptimeHours = uptime / 3600;
                 
-                // Calculate TPS based on recent blocks (simplified)
-                const tps = mempoolInfo.transaction_count > 0 ? 0.5 : 0.0;
-                document.getElementById('tps').textContent = tps.toFixed(1);
-                
-                // Environmental metrics (based on actual runtime and energy estimates)
-                const runtime = nodeInfo.uptime || 0;
-                const carbonOffset = (runtime / 3600 * 0.1).toFixed(2);
-                const energyUsage = (runtime / 3600 * 0.5).toFixed(2);
+                // Estimate based on efficient mining hardware (50W average)
+                const energyUsage = (uptimeHours * 0.05).toFixed(2); // kWh
+                const carbonOffset = (energyUsage * 0.4).toFixed(2); // kg CO2 (assuming grid average)
                 
                 document.getElementById('carbonOffset').textContent = carbonOffset;
                 document.getElementById('energyUsage').textContent = energyUsage;
+                
+                // Green score based on network efficiency
+                const greenScore = Math.min(95, 100 - (hashrate / 1000000)); // Simple calculation
+                document.getElementById('greenScore').textContent = Math.max(50, greenScore).toFixed(0) + '%';
+
+                // Update metric changes
+                updateMetricChanges(currentHeight, connections, hashrate);
                 
             } catch (error) {
                 console.error('Failed to fetch network stats:', error);
@@ -407,30 +488,132 @@
             }
         }
 
-        // Initial fetch and periodic updates
-        fetchNetworkStats();
-        setInterval(fetchNetworkStats, 5000);
+        // Track metric changes
+        let previousMetrics = {
+            height: 0,
+            nodes: 0,
+            hashrate: 0,
+            timestamp: Date.now()
+        };
 
-        // Simple activity chart (mock data)
-        const canvas = document.getElementById('activityChart');
-        if (canvas) {
+        function updateMetricChanges(height, nodes, hashrate) {
+            const now = Date.now();
+            const timeDiff = (now - previousMetrics.timestamp) / 1000 / 3600; // hours
+            
+            if (timeDiff >= 1 || previousMetrics.height === 0) {
+                // Update height change
+                const heightChange = height - previousMetrics.height;
+                const heightChangeEl = document.querySelector('#blockHeight').nextElementSibling.nextElementSibling;
+                if (heightChange > 0) {
+                    heightChangeEl.textContent = `+${heightChange} last hour`;
+                    heightChangeEl.classList.add('positive');
+                    heightChangeEl.classList.remove('negative');
+                }
+                
+                // Update nodes change
+                const nodesChange = nodes - previousMetrics.nodes;
+                const nodesChangeEl = document.querySelector('#activeNodes').nextElementSibling.nextElementSibling;
+                if (nodesChange !== 0) {
+                    nodesChangeEl.textContent = nodesChange > 0 ? `+${nodesChange} nodes` : `${nodesChange} nodes`;
+                    nodesChangeEl.classList.toggle('positive', nodesChange > 0);
+                    nodesChangeEl.classList.toggle('negative', nodesChange < 0);
+                }
+                
+                // Update hashrate change
+                const hashrateChange = hashrate > 0 && previousMetrics.hashrate > 0 
+                    ? ((hashrate - previousMetrics.hashrate) / previousMetrics.hashrate * 100).toFixed(1)
+                    : 0;
+                const hashrateChangeEl = document.querySelector('#hashRate').nextElementSibling.nextElementSibling;
+                if (hashrateChange !== 0) {
+                    hashrateChangeEl.textContent = hashrateChange > 0 ? `+${hashrateChange}%` : `${hashrateChange}%`;
+                    hashrateChangeEl.classList.toggle('positive', hashrateChange > 0);
+                    hashrateChangeEl.classList.toggle('negative', hashrateChange < 0);
+                }
+                
+                // Update stored metrics
+                previousMetrics = { height, nodes, hashrate, timestamp: now };
+            }
+        }
+
+        // Draw activity chart with real data
+        let chartData = [];
+        function updateActivityChart() {
+            const canvas = document.getElementById('activityChart');
+            if (!canvas) return;
+            
             const ctx = canvas.getContext('2d');
             canvas.width = canvas.offsetWidth;
             canvas.height = 250;
             
-            // Draw simple line chart
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Add current data point
+            if (chartData.length === 0 || Date.now() - chartData[chartData.length - 1].time > 60000) {
+                chartData.push({
+                    time: Date.now(),
+                    value: parseInt(document.getElementById('mempoolSize').textContent.replace(/,/g, '')) || 0
+                });
+                
+                // Keep only last 24 hours of data
+                const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+                chartData = chartData.filter(d => d.time > cutoff);
+            }
+            
+            if (chartData.length < 2) return;
+            
+            // Find min/max values
+            const values = chartData.map(d => d.value);
+            const maxValue = Math.max(...values, 10);
+            const minValue = 0;
+            
+            // Draw grid lines
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 5; i++) {
+                const y = (i / 5) * canvas.height;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            // Draw line chart
             ctx.strokeStyle = '#00ff88';
             ctx.lineWidth = 2;
             ctx.beginPath();
             
-            for (let i = 0; i < 24; i++) {
-                const x = (i / 23) * canvas.width;
-                const y = Math.random() * 100 + 75;
+            chartData.forEach((point, i) => {
+                const x = (i / (chartData.length - 1)) * canvas.width;
+                const y = canvas.height - ((point.value - minValue) / (maxValue - minValue)) * canvas.height;
+                
                 if (i === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
-            }
+            });
             ctx.stroke();
+            
+            // Draw gradient fill
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, 'rgba(0, 255, 136, 0.3)');
+            gradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.closePath();
+            ctx.fill();
         }
+
+        // Initial fetch and periodic updates
+        fetchNetworkStats().then(() => {
+            updateActivityChart();
+        });
+        
+        // Update every 5 seconds
+        setInterval(() => {
+            fetchNetworkStats();
+            updateActivityChart();
+        }, 5000);
     </script>
 </body>
 </html> 
