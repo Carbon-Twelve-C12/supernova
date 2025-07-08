@@ -1,0 +1,59 @@
+# Environmental Oracle Service Dockerfile
+FROM rust:1.75-slim-bookworm as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY btclib ./btclib
+COPY node ./node
+
+# Build the oracle service
+RUN cargo build --release --bin supernova-oracle --features environmental
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 -s /bin/bash oracle
+
+# Copy binary from builder
+COPY --from=builder /build/target/release/supernova-oracle /usr/local/bin/supernova-oracle
+
+# Create data directories
+RUN mkdir -p /home/oracle/data /home/oracle/config /home/oracle/logs \
+    && chown -R oracle:oracle /home/oracle
+
+USER oracle
+WORKDIR /home/oracle
+
+# Oracle service ports
+EXPOSE 8390 9100
+
+# Environment variables
+ENV UPDATE_INTERVAL=300
+ENV CARBON_API_ENDPOINT=https://api.carbonintensity.org.uk
+ENV RENEWABLE_API_ENDPOINT=https://api.electricitymap.org
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8390/health || exit 1
+
+# Default command
+CMD ["supernova-oracle", "--config=/home/oracle/config/oracle.toml"] 

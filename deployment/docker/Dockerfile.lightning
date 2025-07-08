@@ -1,0 +1,56 @@
+# Lightning Network Node Dockerfile
+FROM rust:1.75-slim-bookworm as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY btclib ./btclib
+COPY node ./node
+COPY cli ./cli
+COPY miner ./miner
+COPY wallet ./wallet
+
+# Build the node with lightning features
+RUN cargo build --release --bin supernova-node --features lightning
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 -s /bin/bash lightning
+
+# Copy binary from builder
+COPY --from=builder /build/target/release/supernova-node /usr/local/bin/supernova-lightning
+
+# Create data directories
+RUN mkdir -p /home/lightning/data /home/lightning/config /home/lightning/logs \
+    && chown -R lightning:lightning /home/lightning
+
+USER lightning
+WORKDIR /home/lightning
+
+# Lightning Network ports
+EXPOSE 9735 8380 9100
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8380/health || exit 1
+
+# Default command
+CMD ["supernova-lightning", "--lightning-enabled", "--config=/home/lightning/config/lightning.toml"] 

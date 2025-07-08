@@ -199,8 +199,8 @@ services:
   # Block explorer
   explorer:
     build:
-      context: ../..
-      dockerfile: deployment/docker/Dockerfile.explorer
+      context: ./web/explorer
+      dockerfile: ../../../deployment/docker/Dockerfile.explorer
     container_name: supernova-explorer
     hostname: explorer
     environment:

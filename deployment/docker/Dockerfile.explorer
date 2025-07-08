@@ -1,0 +1,51 @@
+# Block Explorer Service Dockerfile
+FROM node:20-alpine as builder
+
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Copy explorer web application
+COPY deployments/testnet/web/explorer ./
+
+# Install dependencies and build
+RUN npm install && npm run build
+
+# Runtime stage
+FROM node:20-alpine
+
+# Install runtime dependencies
+RUN apk add --no-cache curl
+
+# Create non-root user
+RUN adduser -D -u 1000 explorer
+
+WORKDIR /app
+
+# Copy built application from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production && npm cache clean --force
+
+# Change ownership
+RUN chown -R explorer:explorer /app
+
+USER explorer
+
+# Explorer port
+EXPOSE 3001
+
+# Environment variables
+ENV NODE_ENV=production
+ENV API_URL=http://localhost:8332
+ENV PORT=3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:3001/health || exit 1
+
+# Default command
+CMD ["node", "dist/server.js"] 

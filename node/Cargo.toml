@@ -9,6 +9,15 @@ description = "Supernova blockchain node - carbon-negative, quantum-secure"
 name = "supernova-node"
 path = "src/main.rs"
 
+[[bin]]
+name = "supernova-oracle"
+path = "src/bin/oracle.rs"
+
+[features]
+default = []
+lightning = ["btclib/lightning"]
+environmental = []
+
 [dependencies]
 btclib = { path = "../btclib", features = ["lightning"] }
 tokio = { version = "1.28", features = ["full"] }
