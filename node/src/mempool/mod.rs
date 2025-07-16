@@ -5,6 +5,7 @@ pub mod validator;
 pub mod prioritization;
 pub mod atomic_pool;
 pub mod secure_pool;
+pub mod mev_protection;
 
 pub use pool::{TransactionPool, MempoolConfig};
 pub use error::{MempoolError, MempoolResult};
@@ -16,6 +17,11 @@ pub use prioritization::{
     TransactionPrioritizer,
     PrioritizationConfig,
     PrioritizedTransaction,
+};
+pub use mev_protection::{
+    MEVProtection,
+    MEVProtectionConfig,
+    MEVProtectionStats,
 };
 
 // Re-export commonly used types

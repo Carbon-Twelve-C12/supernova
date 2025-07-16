@@ -428,7 +428,7 @@ impl Channel {
             if change_amount > 0 {
                 let change_output = TxOut::new(
                     change_amount,
-                    change_script.0,
+                    change_script.as_bytes().to_vec(),
                 );
                 
                 // Add change output to transaction

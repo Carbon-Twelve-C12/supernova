@@ -38,7 +38,7 @@ libp2p = { version = "0.52", features = ["tcp", "noise", "yamux", "dns", "gossip
 futures = "0.3"
 async-trait = "0.1"
 blake3 = "1.3"
-secp256k1 = { version = "0.27", features = ["rand"] }
+secp256k1 = { version = "0.27", features = ["rand", "serde"] }
 ripemd = "0.1"
 toml = "0.8"
 rayon = "1.7"

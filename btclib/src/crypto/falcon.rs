@@ -8,6 +8,22 @@ use sha2::{Sha256, Digest};
 
 use crate::validation::SecurityLevel;
 
+/// Constant-time comparison for byte slices
+fn constant_time_eq(a: &[u8], b: &[u8]) -> Result<bool, FalconError> {
+    if a.len() != b.len() {
+        return Ok(false);
+    }
+    
+    // Use bitwise operations to avoid early returns based on data
+    let mut result = 0u8;
+    for i in 0..a.len() {
+        result |= a[i] ^ b[i];
+    }
+    
+    // Convert to bool in constant time
+    Ok(result == 0)
+}
+
 /// Type alias for Falcon public key
 pub type FalconPublicKey = Vec<u8>;
 
@@ -327,7 +343,8 @@ impl FalconKeyPair {
         let expected_checksum = checksum_hasher.finalize();
         
         let checksum_start = signature.len() - 4;
-        if signature[checksum_start..] != expected_checksum[..4] {
+        // Use constant-time comparison for checksum
+        if !constant_time_eq(&signature[checksum_start..], &expected_checksum[..4])? {
             return Ok(false);
         }
         
@@ -350,23 +367,16 @@ impl FalconKeyPair {
             let content_digest = content_hash.finalize();
             
             // Simplified verification - in production this would be the actual Falcon algorithm
-            return Ok(verification_hash[..8] == content_digest[..8]);
+            // Use constant-time comparison for security
+            return constant_time_eq(&verification_hash[..8], &content_digest[..8]);
         }
         
         // Full verification with secret key available
         let expected_signature = self.sign(message)?;
         
         // Constant-time comparison to prevent timing attacks
-        if signature.len() != expected_signature.len() {
-            return Ok(false);
-        }
-        
-        let mut result = 0u8;
-        for (a, b) in signature.iter().zip(expected_signature.iter()) {
-            result |= a ^ b;
-        }
-        
-        Ok(result == 0)
+        // Use constant-time comparison to prevent timing attacks
+        constant_time_eq(signature, &expected_signature)
     }
 }
 

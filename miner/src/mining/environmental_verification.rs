@@ -1,5 +1,6 @@
 use super::reward::EnvironmentalProfile;
-use std::collections::HashMap;
+use super::fraud_detection::{FraudDetector, FraudDetectionConfig};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,8 @@ use serde::{Deserialize, Serialize};
 pub struct EnvironmentalVerifier {
     verified_miners: Arc<RwLock<HashMap<String, VerifiedMinerProfile>>>,
     rec_registry: Arc<RwLock<RECRegistry>>,
+    consumed_certificates: Arc<RwLock<ConsumedCertificates>>,
+    fraud_detector: Arc<FraudDetector>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,11 +49,58 @@ pub struct RECRegistry {
     trusted_issuers: Vec<String>,
 }
 
+/// Tracks consumed certificates to prevent double-claiming
+#[derive(Default)]
+pub struct ConsumedCertificates {
+    /// Maps certificate_id to (miner_id, consumption_timestamp)
+    consumed: HashMap<String, (String, u64)>,
+    /// Maps miner_id to set of consumed certificate_ids
+    by_miner: HashMap<String, HashSet<String>>,
+}
+
+impl ConsumedCertificates {
+    /// Check if a certificate has been consumed
+    pub fn is_consumed(&self, certificate_id: &str) -> bool {
+        self.consumed.contains_key(certificate_id)
+    }
+    
+    /// Mark a certificate as consumed by a miner
+    pub fn consume(&mut self, certificate_id: String, miner_id: String, timestamp: u64) -> Result<(), VerificationError> {
+        if self.is_consumed(&certificate_id) {
+            return Err(VerificationError::CertificateAlreadyConsumed(certificate_id));
+        }
+        
+        self.consumed.insert(certificate_id.clone(), (miner_id.clone(), timestamp));
+        self.by_miner
+            .entry(miner_id)
+            .or_insert_with(HashSet::new)
+            .insert(certificate_id);
+        
+        Ok(())
+    }
+    
+    /// Get all certificates consumed by a miner
+    pub fn get_miner_certificates(&self, miner_id: &str) -> Option<&HashSet<String>> {
+        self.by_miner.get(miner_id)
+    }
+}
+
 impl EnvironmentalVerifier {
     pub fn new() -> Self {
+        let fraud_config = FraudDetectionConfig::default();
+        
         Self {
             verified_miners: Arc::new(RwLock::new(HashMap::new())),
-            rec_registry: Arc::new(RwLock::new(RECRegistry::default())),
+            rec_registry: Arc::new(RwLock::new(RECRegistry {
+                trusted_issuers: vec![
+                    "US-EPA".to_string(),
+                    "EU-ETS".to_string(),
+                    "GREEN-E".to_string(),
+                ],
+                ..Default::default()
+            })),
+            consumed_certificates: Arc::new(RwLock::new(ConsumedCertificates::default())),
+            fraud_detector: Arc::new(FraudDetector::new(fraud_config)),
         }
     }
     
@@ -62,6 +112,15 @@ impl EnvironmentalVerifier {
         rec_certificates: Vec<RECCertificate>,
         efficiency_audit: Option<EfficiencyAudit>,
     ) -> Result<VerifiedMinerProfile, VerificationError> {
+        // First check if any certificates are already consumed
+        let consumed = self.consumed_certificates.read().await;
+        for cert in &rec_certificates {
+            if consumed.is_consumed(&cert.certificate_id) {
+                return Err(VerificationError::CertificateAlreadyConsumed(cert.certificate_id.clone()));
+            }
+        }
+        drop(consumed);
+        
         // Verify REC certificates
         let verified_recs = self.verify_rec_certificates(&rec_certificates).await?;
         
@@ -83,11 +142,37 @@ impl EnvironmentalVerifier {
             rec_coverage: renewable_percentage,
         };
         
+        // Run fraud detection analysis
+        let suspicious_activities = self.fraud_detector.analyze_claim(
+            &miner_id,
+            &verified_profile,
+            &verified_recs,
+            efficiency_audit.as_ref(),
+        ).await;
+        
+        // If high fraud risk, reject the claim
+        let risk_score = self.fraud_detector.get_risk_score(&miner_id).await;
+        if risk_score > 0.8 {
+            return Err(VerificationError::FraudDetected(format!(
+                "High fraud risk detected: {:.2}. Activities: {:?}",
+                risk_score,
+                suspicious_activities
+            )));
+        }
+        
+        // Mark certificates as consumed
+        let mut consumed = self.consumed_certificates.write().await;
+        let timestamp = current_timestamp();
+        for cert in &verified_recs {
+            consumed.consume(cert.certificate_id.clone(), miner_id.clone(), timestamp)?;
+        }
+        drop(consumed);
+        
         let miner_profile = VerifiedMinerProfile {
             miner_id: miner_id.clone(),
             environmental_profile: verified_profile,
-            verification_timestamp: current_timestamp(),
-            verification_expiry: current_timestamp() + 30 * 24 * 3600, // 30 days
+            verification_timestamp: timestamp,
+            verification_expiry: timestamp + 30 * 24 * 3600, // 30 days
             rec_certificates: verified_recs,
             efficiency_audit,
         };
@@ -204,6 +289,16 @@ impl EnvironmentalVerifier {
         let mut registry = self.rec_registry.write().await;
         registry.certificates.insert(certificate.certificate_id.clone(), certificate);
     }
+    
+    /// Get fraud report for a miner
+    pub async fn get_fraud_report(&self, miner_id: &str) -> Option<super::fraud_detection::FraudReport> {
+        self.fraud_detector.get_fraud_report(miner_id).await
+    }
+    
+    /// Get fraud risk score for a miner
+    pub async fn get_fraud_risk_score(&self, miner_id: &str) -> f64 {
+        self.fraud_detector.get_risk_score(miner_id).await
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -216,6 +311,12 @@ pub enum VerificationError {
     
     #[error("Invalid certificate")]
     InvalidCertificate,
+    
+    #[error("Certificate with ID {0} has already been consumed")]
+    CertificateAlreadyConsumed(String),
+    
+    #[error("Fraud detected: {0}")]
+    FraudDetected(String),
 }
 
 fn current_timestamp() -> u64 {

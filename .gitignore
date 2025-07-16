@@ -47,6 +47,11 @@ Makefile
 makefile
 *.mk
 
+# Security audit and sensitive documentation
+docs/SUPERNOVA_COMPREHENSIVE_SECURITY_AUDIT.md
+deployment/security/DDOS_PROTECTION_GUIDE.md
+deployment/security/kernel_ddos_protection.sh
+
 # Exclude all target directories
 **/target/
 

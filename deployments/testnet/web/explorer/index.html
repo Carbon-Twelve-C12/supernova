@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supernova Block Explorer - Testnet</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+            color: #ffffff;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #00ff88, #00ccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .search-bar {
+            flex: 1;
+            max-width: 600px;
+            margin: 0 2rem;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            font-size: 0.9rem;
+        }
+
+        .search-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #00ff88;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .section {
+            margin: 3rem 0;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: #00ff88;
+        }
+
+        .blocks-list, .txs-list {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .list-header {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            font-weight: 600;
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .list-item {
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr 1fr;
+            gap: 1rem;
+            transition: background 0.2s;
+        }
+
+        .list-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .hash {
+            color: #00ccff;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            text-overflow: ellipsis;
+            overflow: hidden;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #888;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .nav-link {
+            color: #888;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            color: #00ff88;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">Supernova Explorer</div>
+                <div class="search-bar">
+                    <input type="text" class="search-input" placeholder="Search by Address / Txn Hash / Block Height" id="searchInput">
+                </div>
+                <nav class="nav-links">
+                    <a href="/" class="nav-link active">Explorer</a>
+                    <a href="http://testnet.supernovanetwork.xyz" class="nav-link">Testnet Home</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="blockHeight">0</div>
+                <div class="stat-label">Block Height</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalTxs">0</div>
+                <div class="stat-label">Total Transactions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="hashRate">0 H/s</div>
+                <div class="stat-label">Network Hash Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="difficulty">0</div>
+                <div class="stat-label">Difficulty</div>
+            </div>
+        </div>
+
+        <section class="section">
+            <h2 class="section-title">Latest Blocks</h2>
+            <div class="blocks-list">
+                <div class="list-header">
+                    <div>Height</div>
+                    <div>Hash</div>
+                    <div>Time</div>
+                    <div>Transactions</div>
+                </div>
+                <div id="blocksList">
+                    <div class="loading">Loading blocks...</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Latest Transactions</h2>
+            <div class="txs-list">
+                <div class="list-header">
+                    <div>Hash</div>
+                    <div>From → To</div>
+                    <div>Amount</div>
+                    <div>Time</div>
+                </div>
+                <div id="txsList">
+                    <div class="loading">Loading transactions...</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // API base URL - testnet uses HTTP on port 8332
+        const API_BASE = 'http://testnet.supernovanetwork.xyz:8332/api';
+
+        // Search functionality
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const query = e.target.value.trim();
+                if (query) {
+                    search(query);
+                }
+            }
+        });
+
+        function search(query) {
+            // Determine search type
+            if (query.length === 64) {
+                // Transaction hash
+                window.location.href = `/tx/${query}`;
+            } else if (query.match(/^\d+$/)) {
+                // Block height
+                window.location.href = `/block/${query}`;
+            } else {
+                // Address
+                window.location.href = `/address/${query}`;
+            }
+        }
+
+        // Helper functions
+        function formatTime(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleTimeString();
+        }
+
+        function formatAddress(addr) {
+            if (!addr) return 'N/A';
+            return addr.slice(0, 6) + '...' + addr.slice(-4);
+        }
+
+        function formatAmount(amount) {
+            return (amount / 100000000).toFixed(8);
+        }
+
+        function formatNumber(num) {
+            return new Intl.NumberFormat().format(num);
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Update blockchain info
+        async function updateBlockchainInfo() {
+            try {
+                // Get blockchain info
+                const infoResponse = await fetch(`${API_BASE}/v1/blockchain/info`);
+                const info = await infoResponse.json();
+                
+                // Get blockchain stats for hashrate
+                const statsResponse = await fetch(`${API_BASE}/v1/blockchain/stats`);
+                const stats = await statsResponse.json();
+                
+                // Update UI with real data
+                document.getElementById('blockHeight').textContent = formatNumber(info.height);
+                document.getElementById('totalTxs').textContent = formatNumber(stats.total_transactions);
+                document.getElementById('difficulty').textContent = info.difficulty.toFixed(2);
+                document.getElementById('hashRate').textContent = formatNumber(stats.hashrate) + ' H/s';
+                
+            } catch (error) {
+                console.error('Error updating blockchain info:', error);
+            }
+        }
+
+        // Update blocks list
+        async function updateBlocks() {
+            try {
+                // Get current height
+                const infoResponse = await fetch(`${API_BASE}/v1/blockchain/info`);
+                const info = await infoResponse.json();
+                const currentHeight = info.height;
+                
+                // Fetch last 10 blocks
+                const blocksContainer = document.getElementById('blocksList');
+                blocksContainer.innerHTML = '<div class="loading">Loading blocks...</div>';
+                
+                const blocks = [];
+                const startHeight = Math.max(0, currentHeight - 9);
+                
+                // Fetch blocks in parallel
+                const blockPromises = [];
+                for (let height = currentHeight; height >= startHeight && height >= 0; height--) {
+                    blockPromises.push(
+                        fetch(`${API_BASE}/v1/blockchain/block/${height}`)
+                            .then(response => response.json())
+                            .catch(error => {
+                                console.error(`Error fetching block ${height}:`, error);
+                                return null;
+                            })
+                    );
+                }
+                
+                const fetchedBlocks = await Promise.all(blockPromises);
+                const validBlocks = fetchedBlocks.filter(block => block !== null);
+                
+                if (validBlocks.length > 0) {
+                    blocksContainer.innerHTML = validBlocks.map(block => `
+                        <div class="list-item">
+                            <div>${block.height}</div>
+                            <div class="hash">${block.hash}</div>
+                            <div>${formatTime(block.time)}</div>
+                            <div>${block.transaction_count}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    blocksContainer.innerHTML = '<div class="loading">No blocks yet</div>';
+                }
+            } catch (error) {
+                console.error('Error updating blocks:', error);
+                document.getElementById('blocksList').innerHTML = '<div class="loading">Failed to load blocks</div>';
+            }
+        }
+
+        // Update mempool transactions
+        async function updateMempool() {
+            try {
+                // Get mempool transactions
+                const txResponse = await fetch(`${API_BASE}/v1/mempool/transactions?limit=10`);
+                const transactions = await txResponse.json();
+                
+                const txsList = document.getElementById('txsList');
+                if (transactions && transactions.length > 0) {
+                    txsList.innerHTML = transactions.map(tx => `
+                        <div class="list-item">
+                            <div class="hash">${tx.txid}</div>
+                            <div class="hash">Pending</div>
+                            <div>${formatAmount(tx.fee)} NOVA</div>
+                            <div>${formatTime(tx.time)}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    txsList.innerHTML = '<div class="loading">No transactions yet</div>';
+                }
+            } catch (error) {
+                console.error('Error updating mempool:', error);
+                document.getElementById('txsList').innerHTML = '<div class="loading">No transactions yet</div>';
+            }
+        }
+
+        // Initial load
+        updateBlockchainInfo();
+        updateBlocks();
+        updateMempool();
+
+        // Refresh every 10 seconds
+        setInterval(() => {
+            updateBlockchainInfo();
+            updateBlocks();
+            updateMempool();
+        }, 10000);
+    </script>
+</body>
+</html> 

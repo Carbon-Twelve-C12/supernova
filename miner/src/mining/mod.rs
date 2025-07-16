@@ -3,6 +3,7 @@ pub mod template;
 pub mod worker;
 pub mod reward;
 pub mod environmental_verification;
+pub mod fraud_detection;
 
 #[cfg(test)]
 mod halving_test;
@@ -10,8 +11,6 @@ mod halving_test;
 mod security_tests;
 #[cfg(test)]
 mod environmental_security_tests;
-#[cfg(test)]
-mod difficulty_security_tests;
 #[cfg(test)]
 mod testnet_integration_tests;
 

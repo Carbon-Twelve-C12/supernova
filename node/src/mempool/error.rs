@@ -15,6 +15,9 @@ pub enum MempoolError {
     #[error("Transaction already exists: {0}")]
     TransactionExists(String),
     
+    #[error("Duplicate transaction")]
+    DuplicateTransaction,
+    
     #[error("Transaction not found: {0}")]
     TransactionNotFound(String),
     

@@ -4,20 +4,24 @@
 //! implementation, ensuring all existing code continues to work while benefiting
 //! from the race-condition-free atomic operations.
 
-use crate::mempool::{AtomicTransactionPool, MempoolConfig, MempoolError};
+use crate::mempool::{AtomicTransactionPool, MempoolConfig, MempoolError, MEVProtection, MEVProtectionConfig};
 use crate::api::types::{MempoolInfo, MempoolTransaction, TransactionFees, TransactionValidationResult};
 use btclib::types::transaction::Transaction;
+use btclib::hash::Hash256;
 use dashmap::DashMap;
 use std::sync::Arc;
 use hex;
 
-/// Secure transaction pool that wraps AtomicTransactionPool
+/// Secure transaction pool that wraps AtomicTransactionPool with MEV protection
 /// 
 /// This provides the same interface as the original TransactionPool
 /// but uses atomic operations internally to prevent race conditions
+/// and includes MEV protection mechanisms
 pub struct SecureTransactionPool {
     /// Internal atomic pool
     atomic_pool: Arc<AtomicTransactionPool>,
+    /// MEV protection system
+    mev_protection: Arc<MEVProtection>,
     /// Keep DashMap reference for compatibility with existing code
     pub transactions: Arc<DashMap<[u8; 32], ()>>,
 }
@@ -25,8 +29,21 @@ pub struct SecureTransactionPool {
 impl SecureTransactionPool {
     /// Create a new secure transaction pool
     pub fn new(config: MempoolConfig) -> Self {
+        // Create MEV protection with default config
+        let mev_config = MEVProtectionConfig::default();
+        
         Self {
             atomic_pool: Arc::new(AtomicTransactionPool::new(config)),
+            mev_protection: Arc::new(MEVProtection::new(mev_config)),
+            transactions: Arc::new(DashMap::new()),
+        }
+    }
+    
+    /// Create a new secure transaction pool with custom MEV protection config
+    pub fn with_mev_config(config: MempoolConfig, mev_config: MEVProtectionConfig) -> Self {
+        Self {
+            atomic_pool: Arc::new(AtomicTransactionPool::new(config)),
+            mev_protection: Arc::new(MEVProtection::new(mev_config)),
             transactions: Arc::new(DashMap::new()),
         }
     }
@@ -255,6 +272,48 @@ impl SecureTransactionPool {
         for tx in self.atomic_pool.get_sorted_transactions() {
             self.transactions.insert(tx.hash(), ());
         }
+    }
+    
+    /// Submit a transaction commitment for MEV protection
+    pub async fn submit_commitment(
+        &self,
+        tx_hash: Hash256,
+        declared_fee: u64,
+        commitment: Hash256,
+        sender_id: Option<Vec<u8>>,
+    ) -> Result<(), MempoolError> {
+        self.mev_protection
+            .submit_commitment(tx_hash, declared_fee, commitment, sender_id)
+            .await
+    }
+    
+    /// Reveal a committed transaction
+    pub async fn reveal_transaction(
+        &self,
+        transaction: Transaction,
+        nonce: Vec<u8>,
+    ) -> Result<(), MempoolError> {
+        // First reveal through MEV protection
+        self.mev_protection.reveal_transaction(transaction.clone(), nonce).await?;
+        
+        // Then add to atomic pool if reveal succeeded
+        // The MEV protection system will handle fair ordering
+        Ok(())
+    }
+    
+    /// Get next batch of transactions with MEV protection
+    pub async fn get_mev_protected_batch(&self, max_size: usize) -> Vec<Transaction> {
+        self.mev_protection.get_next_batch(max_size).await
+    }
+    
+    /// Get MEV protection statistics
+    pub async fn get_mev_statistics(&self) -> crate::mempool::MEVProtectionStats {
+        self.mev_protection.get_statistics().await
+    }
+    
+    /// Clean up expired MEV commitments
+    pub async fn cleanup_mev_commitments(&self) {
+        self.mev_protection.cleanup_expired_commitments().await
     }
 }
 

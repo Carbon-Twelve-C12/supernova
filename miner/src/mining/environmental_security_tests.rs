@@ -39,17 +39,22 @@ mod environmental_security_tests {
         ).await;
         assert!(result1.is_ok());
         
-        // Second miner tries to use the same certificate (should still work in this simple implementation)
-        // In production, certificates should be marked as "used" or have ownership verification
+        // Second miner tries to use the same certificate (should fail due to consumption tracking)
         let result2 = verifier.verify_miner_profile(
             "miner2".to_string(),
             EnvironmentalProfile::default(),
             vec![cert.clone()],
             None,
         ).await;
-        assert!(result2.is_ok());
         
-        // TODO: In production, implement certificate ownership/usage tracking
+        // Verify that certificate reuse is prevented
+        assert!(result2.is_err());
+        match result2 {
+            Err(VerificationError::CertificateAlreadyConsumed(id)) => {
+                assert_eq!(id, "CERT-001");
+            }
+            _ => panic!("Expected CertificateAlreadyConsumed error"),
+        }
     }
     
     #[tokio::test]

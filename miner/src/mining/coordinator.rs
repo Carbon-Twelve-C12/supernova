@@ -2,7 +2,6 @@ use btclib::types::block::Block;
 use super::worker::MiningWorker;
 use super::template::{BlockTemplate, MempoolInterface};
 use super::reward::EnvironmentalProfile;
-use crate::difficulty::DifficultyAdjuster;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering};
 use tokio::sync::mpsc;
@@ -63,7 +62,7 @@ pub struct MiningStats {
 #[derive(Clone)]
 pub struct Miner {
     workers: Vec<Arc<MiningWorker>>,
-    difficulty_adjuster: DifficultyAdjuster,
+    current_difficulty_target: Arc<AtomicU32>,
     stop_signal: Arc<AtomicBool>,
     block_sender: mpsc::Sender<Block>,
     num_threads: usize,
@@ -104,7 +103,7 @@ impl Miner {
 
         (Self {
             workers,
-            difficulty_adjuster: DifficultyAdjuster::new(initial_target),
+            current_difficulty_target: Arc::new(AtomicU32::new(initial_target)),
             stop_signal,
             block_sender: tx,
             num_threads,
@@ -133,7 +132,7 @@ impl Miner {
         let template = BlockTemplate::new(
             _version,
             _prev_block_hash,
-            self.difficulty_adjuster.get_current_target(),
+            self.current_difficulty_target.load(Ordering::Relaxed),
             self.reward_address.clone(),
             self.mempool.as_ref(),
             _current_height,
@@ -228,25 +227,18 @@ impl Miner {
         self.template_refresh_signal.store(true, Ordering::Relaxed);
     }
     
-    pub fn adjust_difficulty(&mut self, height: u64, timestamp: u64, blocks_since_adjustment: u64) -> u32 {
-        match self.difficulty_adjuster.adjust_difficulty(height, timestamp, blocks_since_adjustment) {
-            Ok(new_target) => {
-                for worker in &self.workers {
-                    worker.update_target(new_target);
-                }
-                new_target
-            },
-            Err(e) => {
-                error!("Failed to adjust difficulty: {}", e);
-                // Return current target on error
-                self.difficulty_adjuster.get_current_target()
-            }
+    /// Update difficulty target (should be called by node with secure difficulty adjustment)
+    pub fn update_difficulty_target(&self, new_target: u32) {
+        self.current_difficulty_target.store(new_target, Ordering::Relaxed);
+        for worker in &self.workers {
+            worker.update_target(new_target);
         }
+        info!("Updated mining difficulty target to: 0x{:08x}", new_target);
     }
 
     // Helper method to get current target
     pub fn get_current_target(&self) -> u32 {
-        self.difficulty_adjuster.get_current_target()
+        self.current_difficulty_target.load(Ordering::Relaxed)
     }
 
     // Helper method to get metrics
@@ -376,11 +368,13 @@ mod tests {
     async fn test_difficulty_adjustment() {
         let mempool = Arc::new(MockMempool);
         let reward_address = vec![1, 2, 3, 4];
-        let (mut miner, _rx) = Miner::new(1, 0x1d00ffff, mempool, reward_address);
+        let (miner, _rx) = Miner::new(1, 0x1d00ffff, mempool, reward_address);
         let initial_target = miner.get_current_target();
 
-        miner.adjust_difficulty(2016, 60 * 1008, 2016);
-        assert!(miner.get_current_target() < initial_target);
+        // Test difficulty update (simulating node calling with new target)
+        let new_target = initial_target / 2; // Simulate difficulty increase
+        miner.update_difficulty_target(new_target);
+        assert_eq!(miner.get_current_target(), new_target);
     }
 
     #[tokio::test]

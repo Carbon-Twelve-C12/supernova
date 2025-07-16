@@ -18,6 +18,18 @@ pub const MAX_OPS_PER_SCRIPT: usize = 201;
 /// Maximum stack size
 pub const MAX_STACK_SIZE: usize = 1000;
 
+/// Maximum gas for script execution (prevents DoS)
+pub const MAX_SCRIPT_GAS: u64 = 100_000;
+
+/// Base gas cost per operation
+pub const BASE_GAS_COST: u64 = 10;
+
+/// Gas cost for cryptographic operations
+pub const CRYPTO_GAS_COST: u64 = 100;
+
+/// Gas cost for hash operations
+pub const HASH_GAS_COST: u64 = 50;
+
 /// Maximum script element size
 pub const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
 
@@ -58,6 +70,8 @@ pub enum ScriptError {
     InvalidPubkeyEncoding,
     /// Element too large
     ElementTooLarge,
+    /// Gas limit exceeded (DoS prevention)
+    GasExhausted { used: u64, limit: u64 },
 }
 
 /// Stack for script execution
@@ -141,7 +155,7 @@ impl ExecutionStack {
     }
 }
 
-/// Script interpreter
+/// Script interpreter with gas limits for DoS prevention
 pub struct ScriptInterpreter {
     /// Main stack
     stack: ExecutionStack,
@@ -151,6 +165,10 @@ pub struct ScriptInterpreter {
     cond_stack: Vec<bool>,
     /// Operation count
     op_count: usize,
+    /// Gas used for execution (prevents DoS via complex scripts)
+    gas_used: u64,
+    /// Maximum gas allowed
+    gas_limit: u64,
 }
 
 impl ScriptInterpreter {
@@ -161,6 +179,20 @@ impl ScriptInterpreter {
             alt_stack: ExecutionStack::new(),
             cond_stack: Vec::new(),
             op_count: 0,
+            gas_used: 0,
+            gas_limit: MAX_SCRIPT_GAS,
+        }
+    }
+    
+    /// Create a new script interpreter with custom gas limit
+    pub fn with_gas_limit(gas_limit: u64) -> Self {
+        Self {
+            stack: ExecutionStack::new(),
+            alt_stack: ExecutionStack::new(),
+            cond_stack: Vec::new(),
+            op_count: 0,
+            gas_used: 0,
+            gas_limit,
         }
     }
     
@@ -279,6 +311,10 @@ impl ScriptInterpreter {
             
             // Execute opcode if we're in an executing branch
             if executing {
+                // Consume gas before executing opcode
+                let gas_cost = self.get_opcode_gas_cost(&opcode);
+                self.consume_gas(gas_cost)?;
+                
                 self.execute_opcode(opcode, checker)?;
             } else {
                 // Still need to track conditionals even when not executing
@@ -312,6 +348,34 @@ impl ScriptInterpreter {
             Ok(false)
         } else {
             Ok(self.is_true(&self.stack.peek()?))
+        }
+    }
+    
+    /// Get gas cost for an opcode
+    fn get_opcode_gas_cost(&self, opcode: &Opcode) -> u64 {
+        match opcode {
+            // Cryptographic operations are expensive
+            Opcode::OP_CHECKSIG | Opcode::OP_CHECKSIGVERIFY => CRYPTO_GAS_COST,
+            
+            // Hash operations are moderately expensive
+            Opcode::OP_RIPEMD160 | Opcode::OP_SHA256 | 
+            Opcode::OP_HASH160 | Opcode::OP_HASH256 => HASH_GAS_COST,
+            
+            // All other operations have base cost
+            _ => BASE_GAS_COST,
+        }
+    }
+    
+    /// Consume gas for operation
+    fn consume_gas(&mut self, amount: u64) -> Result<(), ScriptError> {
+        self.gas_used = self.gas_used.saturating_add(amount);
+        if self.gas_used > self.gas_limit {
+            Err(ScriptError::GasExhausted {
+                used: self.gas_used,
+                limit: self.gas_limit,
+            })
+        } else {
+            Ok(())
         }
     }
     
