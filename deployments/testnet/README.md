@@ -1,5 +1,7 @@
 # supernova Testnet Deployment
 
+> **Important Notice**: Testnet web interfaces (Explorer, Faucet, Wallet, Status Dashboard) have been migrated to the supernova-web repository for better separation of concerns and independent deployment.
+
 This directory contains configuration files and scripts for deploying a supernova testnet environment. The testnet is designed to provide a sandbox for testing the supernova blockchain network before deploying to mainnet.
 
 ## Quick Start (Recommended)
@@ -119,6 +121,7 @@ If you prefer to set up manually:
 Once the testnet is running, you can access the following services:
 
 - **Faucet Web Interface**: http://localhost:8080
+  - **Note**: Web interfaces have been moved to [supernova-web](https://github.com/Carbon-Twelve-C12/supernova-web) repository
 - **Prometheus**: http://localhost:9090
 - **Grafana**: http://localhost:3000 (username: admin, password: supernova)
 - **Node RPC**:

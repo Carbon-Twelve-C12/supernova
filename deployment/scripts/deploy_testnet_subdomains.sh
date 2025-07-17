@@ -1,5 +1,20 @@
 #!/bin/bash
 
+# NOTICE: Testnet web files have been migrated to the supernova-web repository
+# This script is deprecated and will be removed in a future version
+# Please use the deployment process in the supernova-web repository instead
+
+echo "⚠️  WARNING: Testnet web files have been moved to the supernova-web repository"
+echo "This deployment script is deprecated."
+echo "Please clone https://github.com/Carbon-Twelve-C12/supernova-web and use its deployment process."
+echo ""
+echo "To deploy testnet web interfaces:"
+echo "1. Clone the supernova-web repository"
+echo "2. Follow the deployment instructions in that repository"
+echo ""
+echo "This script will be removed in a future version."
+exit 1
+
 # Deploy Supernova Testnet Subdomain Web Files
 set -e
 

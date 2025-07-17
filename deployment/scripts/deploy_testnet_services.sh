@@ -11,11 +11,11 @@ echo "=== Deploying Supernova Testnet Services ==="
 echo "1. Copying nginx configuration..."
 scp nginx_testnet_config.conf $SERVER:/tmp/
 
-# Copy web files
-echo "2. Copying web files..."
-scp -r deployments/testnet/web/faucet $SERVER:/tmp/
-scp -r deployments/testnet/web/explorer $SERVER:/tmp/ 2>/dev/null || echo "Explorer not found, skipping..."
-scp -r deployments/testnet/web/status $SERVER:/tmp/ 2>/dev/null || echo "Status page not found, skipping..."
+# Web files have been moved to supernova-web repository
+echo "2. Web files migration notice..."
+echo "⚠️  NOTE: Testnet web interfaces (faucet, explorer, status) have been moved to:"
+echo "   https://github.com/Carbon-Twelve-C12/supernova-web"
+echo "   Skipping web file deployment - use supernova-web repository instead"
 
 # SSH and set up everything
 ssh $SERVER << 'EOF'

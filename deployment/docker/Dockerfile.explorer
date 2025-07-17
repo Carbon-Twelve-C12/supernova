@@ -1,3 +1,7 @@
+# DEPRECATED: Explorer has been moved to supernova-web repository
+# This Dockerfile is no longer maintained
+# Please see: https://github.com/Carbon-Twelve-C12/supernova-web
+
 # Block Explorer Service Dockerfile
 FROM node:20-alpine as builder
 
@@ -6,6 +10,7 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
+# NOTE: The following COPY will fail as explorer files have been moved
 # Copy explorer web application
 COPY deployments/testnet/web/explorer ./
 

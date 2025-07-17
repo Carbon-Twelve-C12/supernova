@@ -126,8 +126,8 @@ fi
 echo
 echo "=== Test Complete ==="
 
-# Create a simple HTML test page
-cat > deployments/testnet/web/test-results.html << 'EOF'
+# Create a simple HTML test page (output to current directory since web folder moved)
+cat > test-results.html << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -223,5 +223,6 @@ cat > deployments/testnet/web/test-results.html << 'EOF'
 EOF
 
 echo
-echo "Test results page created at: deployments/testnet/web/test-results.html"
+echo "Test results page created at: test-results.html"
+echo "NOTE: Web interfaces have been moved to https://github.com/Carbon-Twelve-C12/supernova-web"
 echo "Open this file in a browser to see interactive test results." 
