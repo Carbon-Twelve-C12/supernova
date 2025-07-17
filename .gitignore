@@ -51,6 +51,7 @@ makefile
 docs/SUPERNOVA_COMPREHENSIVE_SECURITY_AUDIT.md
 deployment/security/DDOS_PROTECTION_GUIDE.md
 deployment/security/kernel_ddos_protection.sh
+docs/supernova_whitepaper_v1.html
 
 # Exclude all target directories
 **/target/
