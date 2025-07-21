@@ -6,6 +6,8 @@ use crate::atomic_swap::{
 };
 use crate::atomic_swap::monitor::{CrossChainMonitor, MonitorConfig, SwapSummary, SwapEvent};
 use crate::atomic_swap::error::{AtomicSwapError, HTLCError};
+use crate::atomic_swap::cache::{AtomicSwapCache, CacheConfig};
+use crate::atomic_swap::metrics::{RpcTimer, SWAPS_INITIATED, record_swap_state_transition, record_error};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -250,46 +252,42 @@ pub struct PrivacyMetrics {
     pub privacy_adoption_rate: f64,
 }
 
-/// Implementation of the atomic swap RPC service
+/// RPC implementation for atomic swaps
 pub struct AtomicSwapRpcImpl {
-    /// Active swap sessions
-    swaps: Arc<RwLock<HashMap<[u8; 32], SwapSession>>>,
-    
-    /// Swap event history
-    events: Arc<RwLock<HashMap<[u8; 32], Vec<SwapEvent>>>>,
-    
-    /// Cross-chain monitor
-    monitor: Arc<CrossChainMonitor>,
-    
-    /// Configuration
     config: crate::atomic_swap::AtomicSwapConfig,
-    
-    /// Bitcoin RPC client (if available)
+    swaps: Arc<RwLock<HashMap<[u8; 32], SwapSession>>>,
+    event_history: Arc<RwLock<HashMap<[u8; 32], Vec<SwapEvent>>>>,
+    monitor: Arc<CrossChainMonitor>,
     #[cfg(feature = "atomic-swap")]
     bitcoin_client: Option<Arc<crate::atomic_swap::bitcoin_adapter::BitcoinRpcClient>>,
+    cache: Arc<AtomicSwapCache>,
 }
 
 impl AtomicSwapRpcImpl {
-    /// Create a new atomic swap RPC implementation
+    /// Create a new RPC instance
     pub fn new(
         config: crate::atomic_swap::AtomicSwapConfig,
         monitor: Arc<CrossChainMonitor>,
         #[cfg(feature = "atomic-swap")]
         bitcoin_client: Option<Arc<crate::atomic_swap::bitcoin_adapter::BitcoinRpcClient>>,
     ) -> Self {
+        let cache_config = CacheConfig::default();
+        let cache = Arc::new(AtomicSwapCache::new(cache_config));
+        
         Self {
-            swaps: Arc::new(RwLock::new(HashMap::new())),
-            events: Arc::new(RwLock::new(HashMap::new())),
-            monitor,
             config,
+            swaps: Arc::new(RwLock::new(HashMap::new())),
+            event_history: Arc::new(RwLock::new(HashMap::new())),
+            monitor,
             #[cfg(feature = "atomic-swap")]
             bitcoin_client,
+            cache,
         }
     }
     
     /// Add an event to the history
     async fn add_event(&self, swap_id: [u8; 32], event: SwapEvent) {
-        let mut events = self.events.write().await;
+        let mut events = self.event_history.write().await;
         events.entry(swap_id).or_insert_with(Vec::new).push(event);
     }
     
@@ -306,6 +304,8 @@ impl AtomicSwapRpcImpl {
 #[async_trait]
 impl AtomicSwapRPC for AtomicSwapRpcImpl {
     async fn initiate_swap(&self, params: InitiateSwapParams) -> RpcResult<SwapSession> {
+        let _timer = RpcTimer::start("initiate_swap");
+        
         // Validate parameters
         if params.bitcoin_amount < self.config.min_swap_amount_btc {
             return Err(RpcError {
@@ -427,12 +427,21 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
         swaps.insert(swap_id, session.clone());
         
         // Add swap to monitor for cross-chain monitoring
-        self.monitor.add_swap(session.clone()).await
-            .map_err(|e| RpcError {
+        self.monitor.add_swap(session.clone()).await.map_err(|e| {
+            record_error("monitor_add_swap");
+            RpcError {
                 code: -32603,
-                message: format!("Failed to add swap to monitor: {:?}", e),
+                message: format!("Failed to add swap to monitor: {}", e),
                 data: None,
-            })?;
+            }
+        })?;
+        
+        // Record metrics
+        SWAPS_INITIATED.inc();
+        record_swap_state_transition("", "Active");
+        
+        // Cache the session
+        self.cache.cache_swap_session(swap_id, session.clone()).await;
         
         // Add initiation event
         self.add_event(swap_id, SwapEvent::SwapInitiated {
@@ -449,11 +458,37 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
     }
     
     async fn get_swap_status(&self, swap_id: [u8; 32]) -> RpcResult<SwapStatus> {
+        let _timer = RpcTimer::start("get_swap_status");
+        
+        // Check cache first
+        if let Some(cached) = self.cache.get_swap_session(&swap_id).await {
+            return Ok(SwapStatus {
+                swap_id: hex::encode(&swap_id),
+                state: cached.state.clone(),
+                bitcoin_amount: cached.setup.bitcoin_amount,
+                nova_amount: cached.setup.nova_amount,
+                created_at: cached.created_at,
+                updated_at: cached.updated_at,
+                bitcoin_confirmations: 0, // Would query actual confirmations
+                nova_confirmations: 0,
+                can_claim: cached.state == SwapState::Active && cached.secret.is_some(),
+                can_refund: cached.nova_htlc.is_expired(),
+                timeout_at: cached.nova_htlc.time_lock.absolute_timeout,
+                bitcoin_htlc_address: cached.btc_htlc.address.clone(),
+                nova_htlc_id: hex::encode(&cached.nova_htlc.htlc_id),
+                events: vec![], // Would fetch from event history
+            });
+        }
+        
+        // Not in cache, check storage
         let swaps = self.swaps.read().await;
-        let swap = swaps.get(&swap_id).ok_or_else(|| RpcError {
-            code: -32602,
-            message: "Swap not found".to_string(),
-            data: None,
+        let swap = swaps.get(&swap_id).ok_or_else(|| {
+            record_error("swap_not_found");
+            RpcError {
+                code: -32602,
+                message: "Swap not found".to_string(),
+                data: None,
+            }
         })?;
         
         let current_time = std::time::SystemTime::now()
@@ -613,7 +648,7 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
     }
     
     async fn get_swap_events(&self, swap_id: [u8; 32], limit: usize) -> RpcResult<Vec<SwapEvent>> {
-        let events = self.events.read().await;
+        let events = self.event_history.read().await;
         let swap_events = events.get(&swap_id).ok_or_else(|| RpcError {
             code: -32602,
             message: "No events found for swap".to_string(),

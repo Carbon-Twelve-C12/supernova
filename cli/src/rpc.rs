@@ -120,7 +120,7 @@ impl RpcClient {
         Ok(Self { client, url })
     }
     
-    async fn call<T>(&self, method: &str, params: serde_json::Value) -> Result<T>
+    pub async fn call<T>(&self, method: &str, params: serde_json::Value) -> Result<T>
     where
         T: for<'de> Deserialize<'de>,
     {

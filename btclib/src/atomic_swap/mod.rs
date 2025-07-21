@@ -11,6 +11,8 @@ pub mod crypto;
 pub mod api;
 pub mod error;
 pub mod websocket;
+pub mod cache;
+pub mod metrics;
 
 // Privacy features - Phase 4
 #[cfg(feature = "atomic-swap")]
@@ -18,10 +20,16 @@ pub mod confidential;
 #[cfg(feature = "atomic-swap")]
 pub mod zk_swap;
 
+// Test modules
+// #[cfg(test)]
+// mod tests;
+
 pub use htlc::{SupernovaHTLC, HTLCState, TimeLock, ParticipantInfo};
 pub use error::{AtomicSwapError, HTLCError, SwapError};
 pub use monitor::{CrossChainMonitor, SwapSummary};
 pub use api::AtomicSwapRPC;
+pub use cache::{AtomicSwapCache, CacheConfig};
+pub use metrics::init_metrics;
 
 use crate::crypto::{MLDSAPublicKey, MLDSASignature};
 use serde::{Serialize, Deserialize};

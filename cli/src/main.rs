@@ -104,6 +104,10 @@ enum Commands {
         #[arg(value_name = "AMOUNT")]
         amount: f64,
     },
+    
+    /// Atomic swap operations
+    #[command(subcommand)]
+    Swap(commands::swap::SwapCommand),
 }
 
 #[derive(Subcommand)]
@@ -335,6 +339,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "address": address,
                 "amount": amount
             })
+        },
+        Commands::Swap(cmd) => {
+            commands::swap::execute(commands::swap::SwapCmd { command: cmd }, &config).await?;
+            return Ok(()); // Commands handle their own output
         },
     };
     

@@ -3,6 +3,7 @@ pub mod wallet;
 pub mod transaction;
 pub mod mining;
 pub mod config;
+pub mod swap;
 
 use crate::config::OutputFormat;
 use anyhow::Result;

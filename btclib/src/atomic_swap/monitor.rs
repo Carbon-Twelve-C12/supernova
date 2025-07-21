@@ -15,6 +15,10 @@ use tokio::sync::RwLock;
 use std::collections::HashMap;
 use futures::stream::{Stream, StreamExt};
 use serde::{Serialize, Deserialize};
+use tokio::sync::mpsc;
+use tokio::sync::watch;
+use lru::LruCache;
+use std::num::NonZeroUsize;
 
 /// Cross-chain monitoring service
 pub struct CrossChainMonitor {
@@ -32,10 +36,13 @@ pub struct CrossChainMonitor {
     config: MonitorConfig,
     
     /// Signal to stop monitoring
-    stop_signal: Arc<std::sync::atomic::AtomicBool>,
+    stop_signal: watch::Receiver<bool>,
     
     /// Event channel for notifications
-    event_tx: tokio::sync::mpsc::UnboundedSender<SwapEvent>,
+    event_tx: mpsc::UnboundedSender<SwapEvent>,
+
+    /// History of emitted events
+    event_history: Arc<RwLock<LruCache<SwapEvent, ()>>>,
 }
 
 /// Monitoring configuration
@@ -120,7 +127,7 @@ struct SupernovaRefundData {
 }
 
 /// Events emitted by the monitor
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum SwapEvent {
     /// New swap initiated
     SwapInitiated {
@@ -163,21 +170,21 @@ pub enum SwapEvent {
 }
 
 /// Chain identifier
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum Chain {
     Bitcoin,
     Supernova,
 }
 
 /// Swap amount information
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct SwapAmounts {
     pub bitcoin_sats: u64,
     pub nova_units: u64,
 }
 
 /// Reason for refund
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum RefundReason {
     Timeout,
     UserRequested,
@@ -187,19 +194,40 @@ pub enum RefundReason {
 
 impl CrossChainMonitor {
     /// Create a new cross-chain monitor
-    pub fn new(
-        config: MonitorConfig,
-        supernova_handle: Option<SupernovaHandle>,
-    ) -> Self {
-        let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+    pub fn new(config: MonitorConfig, supernova_handle: Option<Arc<SupernovaHandle>>) -> Self {
+        let (event_tx, _) = mpsc::unbounded_channel();
+        let (stop_tx, stop_rx) = watch::channel(false);
         
         Self {
-            active_swaps: Arc::new(RwLock::new(HashMap::new())),
-            #[cfg(feature = "atomic-swap")]
-            bitcoin_client: None, // Will be set later if needed
-            supernova_handle: supernova_handle.map(Arc::new),
             config,
-            stop_signal: Arc::new(AtomicBool::new(false)),
+            active_swaps: Arc::new(RwLock::new(HashMap::new())),
+            bitcoin_client: None,
+            supernova_handle,
+            event_history: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(1000).unwrap()
+            ))),
+            stop_signal: stop_rx,
+            event_tx,
+        }
+    }
+    
+    /// Create a new cross-chain monitor with custom event channel
+    pub fn new_with_event_channel(
+        config: MonitorConfig,
+        supernova_handle: Option<Arc<SupernovaHandle>>,
+        event_tx: mpsc::UnboundedSender<SwapEvent>,
+    ) -> Self {
+        let (stop_tx, stop_rx) = watch::channel(false);
+        
+        Self {
+            config,
+            active_swaps: Arc::new(RwLock::new(HashMap::new())),
+            bitcoin_client: None,
+            supernova_handle,
+            event_history: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(1000).unwrap()
+            ))),
+            stop_signal: stop_rx,
             event_tx,
         }
     }
@@ -234,7 +262,7 @@ impl CrossChainMonitor {
             
             loop {
                 // Check if we should stop monitoring
-                if self.stop_signal.load(Ordering::Relaxed) {
+                if self.stop_signal.borrow().clone() {
                     break;
                 }
                 
@@ -353,8 +381,8 @@ impl CrossChainMonitor {
         None
     }
     
-    /// Handle a Bitcoin blockchain event
-    async fn handle_bitcoin_event(&self, event: SwapEvent) -> Result<(), MonitorError> {
+    /// Handle Bitcoin blockchain events
+    pub async fn handle_bitcoin_event(&self, event: SwapEvent) -> Result<(), MonitorError> {
         match &event {
             SwapEvent::SecretRevealed { swap_id, secret_hash: _, revealed_in_tx } => {
                 tracing::info!(

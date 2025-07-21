@@ -10,6 +10,11 @@ name = "supernova-cli"
 path = "src/main.rs"
 
 [dependencies]
+# WebSocket support
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
+uuid = { version = "1.6", features = ["v4"] }
+chrono = "0.4"
 # CLI framework
 clap = { version = "4.3", features = ["derive", "env"] }
 
@@ -18,6 +23,7 @@ tokio = { version = "1.28", features = ["full"] }
 
 # HTTP client for RPC
 reqwest = { version = "0.11", features = ["json"] }
+jsonrpc-client-transports = "18.0"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -47,9 +53,6 @@ getrandom = "0.2"
 sha2 = "0.10"
 ripemd = "0.1"
 bs58 = "0.5"
-
-# Time handling
-chrono = "0.4"
 
 # Table formatting
 prettytable-rs = "0.10"
