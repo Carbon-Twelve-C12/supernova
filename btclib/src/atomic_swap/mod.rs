@@ -10,12 +10,13 @@ pub mod monitor;
 pub mod crypto;
 pub mod api;
 pub mod error;
+pub mod websocket;
 
-// Privacy features will be added in Phase 4
-// #[cfg(feature = "atomic-swap")]
-// pub mod confidential;
-// #[cfg(feature = "atomic-swap")]
-// pub mod zk_swap;
+// Privacy features - Phase 4
+#[cfg(feature = "atomic-swap")]
+pub mod confidential;
+#[cfg(feature = "atomic-swap")]
+pub mod zk_swap;
 
 pub use htlc::{SupernovaHTLC, HTLCState, TimeLock, ParticipantInfo};
 pub use error::{AtomicSwapError, HTLCError, SwapError};
@@ -120,6 +121,7 @@ pub struct BitcoinHTLCReference {
     pub script_pubkey: Vec<u8>,
     pub amount: u64,
     pub timeout_height: u32,
+    pub address: String,
 }
 
 /// Current state of the swap

@@ -134,6 +134,24 @@ pub enum MonitorError {
     
     #[error("Sync error: {0}")]
     SyncError(String),
+    
+    #[error("Monitor not initialized")]
+    NotInitialized,
+    
+    #[error("Swap not found")]
+    SwapNotFound,
+    
+    #[error("Bitcoin RPC error: {0}")]
+    BitcoinRpcError(String),
+    
+    #[error("Claim failed: {0}")]
+    ClaimFailed(String),
+    
+    #[error("Refund failed: {0}")]
+    RefundFailed(String),
+    
+    #[error("Secret not found")]
+    SecretNotFound,
 }
 
 /// Security-related errors
@@ -211,8 +229,8 @@ pub enum ZKSwapError {
     #[error("Proof generation failed: {0}")]
     ProofGenerationFailed(String),
     
-    #[error("Proof verification failed")]
-    ProofVerificationFailed,
+    #[error("Proof verification failed: {0}")]
+    VerificationFailed(String),
     
     #[error("Nullifier already spent")]
     NullifierSpent,
@@ -222,6 +240,18 @@ pub enum ZKSwapError {
     
     #[error("Circuit synthesis error: {0}")]
     CircuitError(String),
+    
+    #[error("Setup error: {0}")]
+    SetupError(String),
+    
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+    
+    #[error("Deserialization error: {0}")]
+    DeserializationError(String),
 }
 
 impl From<std::io::Error> for AtomicSwapError {

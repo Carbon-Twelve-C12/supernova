@@ -1,19 +1,17 @@
-//! RPC API interface for atomic swaps
-//! 
-//! This module provides the RPC methods for managing atomic swaps
-//! between Bitcoin and Supernova blockchains.
+//! RPC API for atomic swap operations
 
 use crate::atomic_swap::{
-    AtomicSwapSetup, SwapSession, SwapState, SwapResult, 
-    AtomicSwapError, SwapError
+    AtomicSwapSetup, SwapSession, SwapState, SwapCompletion,
+    SupernovaHTLC, HTLCState, BitcoinHTLCReference,
 };
-use crate::atomic_swap::monitor::SwapSummary;
-use crate::atomic_swap::monitor::SwapEvent;
-use async_trait::async_trait;
-use serde::{Serialize, Deserialize};
+use crate::atomic_swap::monitor::{CrossChainMonitor, MonitorConfig, SwapSummary, SwapEvent};
+use crate::atomic_swap::error::{AtomicSwapError, HTLCError};
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
+use async_trait::async_trait;
 
 /// RPC result type
 pub type RpcResult<T> = Result<T, RpcError>;
@@ -98,6 +96,9 @@ pub struct SwapStatus {
     pub can_claim: bool,
     pub can_refund: bool,
     pub timeout_at: u64,
+    pub bitcoin_htlc_address: String,
+    pub nova_htlc_id: String,
+    pub events: Vec<SwapEvent>,
 }
 
 /// Atomic swap RPC trait
@@ -126,6 +127,23 @@ pub trait AtomicSwapRPC: Send + Sync {
     
     /// Estimate fees for a swap
     async fn estimate_swap_fees(&self, params: InitiateSwapParams) -> RpcResult<FeeEstimate>;
+    
+    // Phase 4: Privacy features
+    #[cfg(feature = "atomic-swap")]
+    /// Create a confidential atomic swap
+    async fn initiate_confidential_swap(&self, params: ConfidentialSwapParams) -> RpcResult<ConfidentialSwapInfo>;
+    
+    #[cfg(feature = "atomic-swap")]
+    /// Create a zero-knowledge swap
+    async fn initiate_zk_swap(&self, params: ZKSwapParams) -> RpcResult<ZKSwapInfo>;
+    
+    #[cfg(feature = "atomic-swap")]
+    /// Verify a confidential swap proof
+    async fn verify_confidential_swap(&self, swap_id: [u8; 32]) -> RpcResult<bool>;
+    
+    #[cfg(feature = "atomic-swap")]
+    /// Get privacy metrics for swaps
+    async fn get_privacy_metrics(&self) -> RpcResult<PrivacyMetrics>;
 }
 
 /// Fee estimate for a swap
@@ -138,6 +156,100 @@ pub struct FeeEstimate {
     pub total_fee_nova: u64,
 }
 
+/// Parameters for confidential swaps
+#[cfg(feature = "atomic-swap")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfidentialSwapParams {
+    /// Base swap parameters
+    pub base_params: InitiateSwapParams,
+    
+    /// Minimum amount (public)
+    pub min_amount: u64,
+    
+    /// Maximum amount (public)
+    pub max_amount: u64,
+    
+    /// Enable amount hiding
+    pub hide_amounts: bool,
+    
+    /// Enable participant hiding
+    pub hide_participants: bool,
+}
+
+/// Confidential swap information
+#[cfg(feature = "atomic-swap")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfidentialSwapInfo {
+    /// Swap ID
+    pub swap_id: [u8; 32],
+    
+    /// Amount commitment (if amounts hidden)
+    pub amount_commitment: Option<String>,
+    
+    /// Range proof
+    pub range_proof: Option<String>,
+    
+    /// Base swap info
+    pub base_info: SwapStatus,
+}
+
+/// Parameters for zero-knowledge swaps
+#[cfg(feature = "atomic-swap")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ZKSwapParams {
+    /// Base swap parameters
+    pub base_params: InitiateSwapParams,
+    
+    /// Enable validity proof
+    pub prove_validity: bool,
+    
+    /// Enable amount range proof
+    pub prove_amount_range: bool,
+    
+    /// Enable preimage knowledge proof
+    pub prove_preimage_knowledge: bool,
+}
+
+/// Zero-knowledge swap information
+#[cfg(feature = "atomic-swap")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ZKSwapInfo {
+    /// Swap ID
+    pub swap_id: [u8; 32],
+    
+    /// Validity proof
+    pub validity_proof: Option<String>,
+    
+    /// Range proof
+    pub range_proof: Option<String>,
+    
+    /// Preimage proof
+    pub preimage_proof: Option<String>,
+    
+    /// Base swap info
+    pub base_info: SwapStatus,
+}
+
+/// Privacy metrics
+#[cfg(feature = "atomic-swap")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PrivacyMetrics {
+    /// Total confidential swaps
+    pub total_confidential_swaps: u64,
+    
+    /// Total ZK swaps
+    pub total_zk_swaps: u64,
+    
+    /// Average proof generation time
+    pub avg_proof_generation_ms: f64,
+    
+    /// Average proof verification time
+    pub avg_proof_verification_ms: f64,
+    
+    /// Privacy adoption rate
+    pub privacy_adoption_rate: f64,
+}
+
 /// Implementation of the atomic swap RPC service
 pub struct AtomicSwapRpcImpl {
     /// Active swap sessions
@@ -146,26 +258,48 @@ pub struct AtomicSwapRpcImpl {
     /// Swap event history
     events: Arc<RwLock<HashMap<[u8; 32], Vec<SwapEvent>>>>,
     
+    /// Cross-chain monitor
+    monitor: Arc<CrossChainMonitor>,
+    
     /// Configuration
     config: crate::atomic_swap::AtomicSwapConfig,
+    
+    /// Bitcoin RPC client (if available)
+    #[cfg(feature = "atomic-swap")]
+    bitcoin_client: Option<Arc<crate::atomic_swap::bitcoin_adapter::BitcoinRpcClient>>,
 }
 
 impl AtomicSwapRpcImpl {
-    /// Create a new RPC implementation
-    pub fn new(config: crate::atomic_swap::AtomicSwapConfig) -> Self {
+    /// Create a new atomic swap RPC implementation
+    pub fn new(
+        config: crate::atomic_swap::AtomicSwapConfig,
+        monitor: Arc<CrossChainMonitor>,
+        #[cfg(feature = "atomic-swap")]
+        bitcoin_client: Option<Arc<crate::atomic_swap::bitcoin_adapter::BitcoinRpcClient>>,
+    ) -> Self {
         Self {
             swaps: Arc::new(RwLock::new(HashMap::new())),
             events: Arc::new(RwLock::new(HashMap::new())),
+            monitor,
             config,
+            #[cfg(feature = "atomic-swap")]
+            bitcoin_client,
         }
     }
     
     /// Add an event to the history
     async fn add_event(&self, swap_id: [u8; 32], event: SwapEvent) {
         let mut events = self.events.write().await;
-        events.entry(swap_id)
-            .or_insert_with(Vec::new)
-            .push(event);
+        events.entry(swap_id).or_insert_with(Vec::new).push(event);
+    }
+    
+    /// Generate a unique swap ID
+    fn generate_swap_id() -> [u8; 32] {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let mut id = [0u8; 32];
+        rng.fill(&mut id);
+        id
     }
 }
 
@@ -195,7 +329,7 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
         // Create timeout configuration
         let timeout_blocks = crate::atomic_swap::TimeoutConfig {
             bitcoin_claim_timeout: (params.timeout_minutes as u32 * 60) / 600, // ~10 min blocks
-            supernova_claim_timeout: (params.timeout_minutes as u32 * 60) / 500 - 20, // Shorter for safety
+            supernova_claim_timeout: (params.timeout_minutes as u32 * 60) / 500, // Shorter for safety
             refund_safety_margin: 6,
         };
         
@@ -275,6 +409,7 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
                 script_pubkey: vec![],
                 amount: params.bitcoin_amount,
                 timeout_height: 0,
+                address: "pending".to_string(),
             },
             state: SwapState::Initializing,
             created_at: std::time::SystemTime::now()
@@ -290,6 +425,14 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
         // Store swap
         let mut swaps = self.swaps.write().await;
         swaps.insert(swap_id, session.clone());
+        
+        // Add swap to monitor for cross-chain monitoring
+        self.monitor.add_swap(session.clone()).await
+            .map_err(|e| RpcError {
+                code: -32603,
+                message: format!("Failed to add swap to monitor: {:?}", e),
+                data: None,
+            })?;
         
         // Add initiation event
         self.add_event(swap_id, SwapEvent::SwapInitiated {
@@ -330,6 +473,9 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             can_claim: swap.state == SwapState::Active && swap.secret.is_some(),
             can_refund: swap.nova_htlc.is_expired(),
             timeout_at: swap.nova_htlc.time_lock.absolute_timeout,
+            bitcoin_htlc_address: swap.btc_htlc.address.clone(),
+            nova_htlc_id: hex::encode(&swap.nova_htlc.htlc_id),
+            events: vec![],  // Would fetch from event history
         })
     }
     
@@ -352,14 +498,25 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
         
         // Update state
         swap.state = SwapState::Claimed;
+        swap.secret = Some(secret);
         swap.updated_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
         
-        // In a real implementation, we would broadcast the claim transaction
+        // Add claim event
+        self.add_event(swap_id, SwapEvent::SwapCompleted {
+            swap_id,
+            btc_claim_tx: format!("btc_claim_{}", hex::encode(&swap_id[..8])),
+            nova_claim_tx: format!("nova_claim_{}", hex::encode(&swap_id[..8])),
+            duration_seconds: 0, // TODO: Calculate actual duration
+        }).await;
+        
+        // In production, this would broadcast the actual claim transaction
+        let tx_id = format!("nova_claim_{}", hex::encode(&swap_id[..8]));
+        
         Ok(TransactionId {
-            txid: "dummy_claim_tx".to_string(),
+            txid: tx_id,
             chain: "supernova".to_string(),
         })
     }
@@ -482,6 +639,121 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             service_fee,
             total_fee_btc: bitcoin_network_fee,
             total_fee_nova: nova_network_fee,
+        })
+    }
+    
+    #[cfg(feature = "atomic-swap")]
+    async fn initiate_confidential_swap(&self, params: ConfidentialSwapParams) -> RpcResult<ConfidentialSwapInfo> {
+        use crate::atomic_swap::confidential::{make_swap_confidential, ConfidentialSwapBuilder};
+        
+        // First create a regular swap
+        let swap_session = self.initiate_swap(params.base_params).await?;
+        
+        // Convert to confidential
+        let confidential_session = make_swap_confidential(
+            swap_session.clone(),
+            params.min_amount,
+            params.max_amount,
+        ).await.map_err(|e| RpcError {
+            code: -32000,
+            message: format!("Failed to create confidential swap: {:?}", e),
+            data: None,
+        })?;
+        
+        // Get commitment info
+        let amount_commitment = if params.hide_amounts {
+            Some(hex::encode(confidential_session.confidential_nova_htlc.amount_commitment.as_bytes()))
+        } else {
+            None
+        };
+        
+        let range_proof = Some(hex::encode(&confidential_session.confidential_nova_htlc.range_proof));
+        
+        Ok(ConfidentialSwapInfo {
+            swap_id: swap_session.setup.swap_id,
+            amount_commitment,
+            range_proof,
+            base_info: SwapStatus {
+                swap_id: hex::encode(swap_session.setup.swap_id),
+                state: swap_session.state.clone(),
+                bitcoin_amount: swap_session.setup.bitcoin_amount,
+                nova_amount: swap_session.setup.nova_amount,
+                created_at: swap_session.created_at,
+                updated_at: swap_session.updated_at,
+                bitcoin_confirmations: 0,
+                nova_confirmations: 0,
+                can_claim: swap_session.state == SwapState::Active && swap_session.secret.is_some(),
+                can_refund: swap_session.nova_htlc.is_expired(),
+                timeout_at: swap_session.nova_htlc.time_lock.absolute_timeout,
+                bitcoin_htlc_address: swap_session.btc_htlc.address.clone(),
+                nova_htlc_id: hex::encode(&swap_session.nova_htlc.htlc_id),
+                events: vec![],
+            },
+        })
+    }
+    
+    #[cfg(feature = "atomic-swap")]
+    async fn initiate_zk_swap(&self, params: ZKSwapParams) -> RpcResult<ZKSwapInfo> {
+        use crate::atomic_swap::zk_swap::create_zk_swap_session;
+        
+        // First create a regular swap
+        let swap_session = self.initiate_swap(params.base_params).await?;
+        
+        // Convert to ZK swap
+        let zk_session = create_zk_swap_session(swap_session.clone()).await
+            .map_err(|e| RpcError {
+                code: -32000,
+                message: format!("Failed to create ZK swap: {:?}", e),
+                data: None,
+            })?;
+        
+        // Extract proof info
+        let validity_proof = zk_session.validity_proof
+            .map(|p| hex::encode(&p.proof));
+        let range_proof = zk_session.range_proof
+            .map(|p| hex::encode(&p.proof));
+        let preimage_proof = zk_session.preimage_proof
+            .map(|p| hex::encode(&p.proof));
+        
+        Ok(ZKSwapInfo {
+            swap_id: swap_session.setup.swap_id,
+            validity_proof,
+            range_proof,
+            preimage_proof,
+            base_info: SwapStatus {
+                swap_id: hex::encode(swap_session.setup.swap_id),
+                state: swap_session.state.clone(),
+                bitcoin_amount: swap_session.setup.bitcoin_amount,
+                nova_amount: swap_session.setup.nova_amount,
+                created_at: swap_session.created_at,
+                updated_at: swap_session.updated_at,
+                bitcoin_confirmations: 0,
+                nova_confirmations: 0,
+                can_claim: swap_session.state == SwapState::Active && swap_session.secret.is_some(),
+                can_refund: swap_session.nova_htlc.is_expired(),
+                timeout_at: swap_session.nova_htlc.time_lock.absolute_timeout,
+                bitcoin_htlc_address: swap_session.btc_htlc.address.clone(),
+                nova_htlc_id: hex::encode(&swap_session.nova_htlc.htlc_id),
+                events: vec![],
+            },
+        })
+    }
+    
+    #[cfg(feature = "atomic-swap")]
+    async fn verify_confidential_swap(&self, swap_id: [u8; 32]) -> RpcResult<bool> {
+        // Placeholder - would verify the confidential proofs
+        Ok(true)
+    }
+    
+    #[cfg(feature = "atomic-swap")]
+    async fn get_privacy_metrics(&self) -> RpcResult<PrivacyMetrics> {
+        // Placeholder metrics
+        Ok(PrivacyMetrics {
+            total_confidential_swaps: 0,
+            total_zk_swaps: 0,
+            avg_proof_generation_ms: 150.0,
+            avg_proof_verification_ms: 25.0,
+            privacy_adoption_rate: 0.0,
         })
     }
 }

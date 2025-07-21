@@ -158,7 +158,7 @@ pub fn find_htlc_outputs(
 /// Bitcoin RPC client wrapper
 #[cfg(feature = "atomic-swap")]
 pub struct BitcoinRpcClient {
-    client: bitcoincore_rpc::Client,
+    pub(crate) client: bitcoincore_rpc::Client,
     network: Network,
 }
 
@@ -299,12 +299,18 @@ pub fn create_bitcoin_htlc_reference(
     let output = tx.output.get(vout as usize)
         .ok_or_else(|| BitcoinAdapterError::ParseError("Invalid output index".to_string()))?;
     
+    // Try to extract address from script
+    let address = bitcoin::Address::from_script(&output.script_pubkey, bitcoin::Network::Bitcoin)
+        .map(|addr| addr.to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    
     Ok(BitcoinHTLCReference {
         txid: tx.txid().to_string(),
         vout,
         script_pubkey: output.script_pubkey.to_bytes(),
         amount: output.value,
         timeout_height,
+        address,
     })
 }
 
