@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
 use crate::wallet::quantum_wallet::QuantumAddress;
-use bitcoin::Address;
+use bitcoin::{Address, ScriptBuf};
 use std::str::FromStr;
 use tracing::{debug, info, warn, error};
 
@@ -572,10 +572,10 @@ impl UtxoSet {
     pub fn get_utxos_for_addresses(&self, addresses: &[QuantumAddress]) -> Vec<UtxoEntry> {
         let mut utxos = Vec::new();
         let cache = self.cache.read().unwrap();
-        let address_scripts: Vec<bitcoin::Script> = addresses.iter().filter_map(|a| {
+        let address_scripts: Vec<ScriptBuf> = addresses.iter().filter_map(|a| {
             Address::from_str(&a.address).ok().map(|addr| {
-                // Get script pubkey directly from address
-                addr.script_pubkey()
+                // Assume network for the address - using Bitcoin network as default
+                addr.assume_checked().script_pubkey()
             })
         }).collect();
 

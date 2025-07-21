@@ -19,6 +19,11 @@ use crate::validation::SecurityLevel;
 use secp256k1::{Secp256k1, Message as Secp256k1Message};
 use ed25519_dalek::{SigningKey as Ed25519Keypair, Signer, Verifier, VerifyingKey};
 
+// Export signature types for compatibility
+pub type FalconSignature = Vec<u8>;
+pub type SPHINCSSignature = Vec<u8>;
+pub type ECDSASignature = secp256k1::ecdsa::Signature;
+
 /// Classical cryptographic schemes for hybrid quantum signatures
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum ClassicalScheme {
@@ -94,6 +99,87 @@ pub enum QuantumSecretKey {
     Sphincs(Vec<u8>),
     /// Hybrid secret key (classical + quantum)
     Hybrid(ClassicalScheme, Vec<u8>, Vec<u8>),
+}
+
+/// ML-DSA (Module-Lattice Digital Signature Algorithm) public key
+/// This is the NIST standardized version of Dilithium
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MLDSAPublicKey {
+    pub bytes: Vec<u8>,
+    pub security_level: MLDSASecurityLevel,
+}
+
+/// ML-DSA signature
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MLDSASignature {
+    pub bytes: Vec<u8>,
+}
+
+/// ML-DSA private key
+#[derive(Clone, Serialize, Deserialize)]
+pub struct MLDSAPrivateKey {
+    secret_bytes: Vec<u8>,
+    public_key: MLDSAPublicKey,
+}
+
+/// ML-DSA security levels (matching Dilithium)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MLDSASecurityLevel {
+    /// ML-DSA-44 (NIST Level 2)
+    Level2,
+    /// ML-DSA-65 (NIST Level 3)
+    Level3,
+    /// ML-DSA-87 (NIST Level 5)
+    Level5,
+}
+
+impl Default for MLDSASecurityLevel {
+    fn default() -> Self {
+        MLDSASecurityLevel::Level3
+    }
+}
+
+impl Default for MLDSAPublicKey {
+    fn default() -> Self {
+        Self {
+            bytes: vec![0u8; 1312], // Dilithium3 public key size
+            security_level: MLDSASecurityLevel::default(),
+        }
+    }
+}
+
+impl MLDSAPublicKey {
+    /// Verify a signature
+    pub fn verify(&self, message: &[u8], signature: &MLDSASignature) -> Result<bool, QuantumError> {
+        // For now, return Ok(true) as placeholder
+        // In production, this would use the actual Dilithium verification
+        Ok(true)
+    }
+}
+
+impl MLDSAPrivateKey {
+    /// Generate a new ML-DSA private key
+    pub fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
+        // Placeholder implementation
+        let public_key = MLDSAPublicKey::default();
+        Self {
+            secret_bytes: vec![0u8; 2544], // Dilithium3 secret key size
+            public_key,
+        }
+    }
+    
+    /// Get the public key
+    pub fn public_key(&self) -> MLDSAPublicKey {
+        self.public_key.clone()
+    }
+    
+    /// Sign a message
+    pub fn sign(&self, message: &[u8]) -> MLDSASignature {
+        // Placeholder implementation
+        MLDSASignature {
+            bytes: vec![0u8; 2420], // Dilithium3 signature size
+        }
+    }
 }
 
 /// Dilithium public key wrapper

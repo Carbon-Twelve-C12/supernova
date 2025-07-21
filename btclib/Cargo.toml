@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 lightning = []  # Re-enabled - core blockchain is production-ready
+atomic-swap = ["bitcoin", "bitcoincore-rpc", "bulletproofs", "bellman", "bls12_381"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -71,7 +72,11 @@ sha3 = "0.10"
 hkdf = "0.12"
 base64 = "0.21"
 bip39 = { version = "2.0", features = ["zeroize"] }
-bitcoin = "0.29"
+bitcoin = { version = "0.30", optional = true }
+bitcoincore-rpc = { version = "0.17", optional = true }
+bulletproofs = { version = "4.0", optional = true }
+bellman = { version = "0.14", optional = true }
+bls12_381 = { version = "0.8", optional = true }
 
 [dependencies.prost]
 version = "0.12"

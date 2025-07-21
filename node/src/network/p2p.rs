@@ -1977,8 +1977,7 @@ fn solve_pow_challenge(challenge: &[u8], difficulty: u8) -> Vec<u8> {
     
     loop {
         // Convert nonce to bytes
-        let mut nonce_bytes = [0u8; 8];
-        nonce_bytes.as_mut().write_u64::<BigEndian>(nonce).unwrap();
+        let nonce_bytes = nonce.to_be_bytes();
         
         // Hash challenge + nonce
         let mut hasher = Sha256::new();

@@ -211,11 +211,10 @@ impl QuantumP2PConfig {
         let ciphertext = self.symmetric_encrypt(data, &symmetric_key)?;
         
         // Sign the message
-        let message_data = [
-            id.as_ref(),
-            ciphertext_key.as_ref(),
-            ciphertext.as_ref(),
-        ].concat();
+        let mut message_data = Vec::new();
+        message_data.extend_from_slice(id.as_ref());
+        message_data.extend_from_slice(ciphertext_key.as_ref());
+        message_data.extend_from_slice(ciphertext.as_ref());
         
         let signature = sign_quantum(&self.quantum_identity, &message_data)?;
         
@@ -244,11 +243,10 @@ impl QuantumP2PConfig {
             .ok_or(P2PError::PeerNotFound)?;
         
         // Verify signature
-        let message_data = [
-            message.id.as_ref(),
-            message.encrypted_key.as_ref(),
-            message.ciphertext.as_ref(),
-        ].concat();
+        let mut message_data = Vec::new();
+        message_data.extend_from_slice(message.id.as_ref());
+        message_data.extend_from_slice(message.encrypted_key.as_ref());
+        message_data.extend_from_slice(message.ciphertext.as_ref());
         
         let verified = verify_quantum_signature(
             &peer_info.quantum_pubkey,

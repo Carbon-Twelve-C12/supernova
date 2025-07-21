@@ -38,6 +38,10 @@ pub mod validation;
 pub mod verification;
 pub mod wallet;
 
+// Feature-gated modules
+#[cfg(feature = "atomic-swap")]
+pub mod atomic_swap;
+
 // Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
