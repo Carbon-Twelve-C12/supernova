@@ -14,7 +14,6 @@ use crate::types::block::Block;
 use crate::types::transaction::Transaction;
 use crate::storage::chain_state::ChainState;
 use crate::mempool::transaction_pool::TransactionPool;
-use crate::consensus::Policy;
 use crate::environmental::emissions::EmissionsTracker;
 
 /// Metrics related to blockchain health and performance
@@ -360,10 +359,30 @@ impl BlockchainMetrics {
         // Record processing time
         self.block_processing_time.observe(processing_time_ms as f64);
         
-        // Record difficulty
-        self.blocks_by_difficulty.observe(block.header.difficulty as f64);
+        // Record block timestamp
+        let block_time = block.header.timestamp as i64;
+        // self.block_timestamps.observe(block_time as f64); // This line was removed as per the new_code
         
-        // Record transaction counts
+        // Record block difficulty (bits field represents difficulty)
+        self.blocks_by_difficulty.observe(block.header.bits as f64);
+        
+        // Record environmental metrics if available
+        if let Ok(emissions) = emissions_tracker.calculate_block_emissions(block).await {
+            // Record carbon footprint
+            self.carbon_emissions_per_block.observe(emissions.tonnes_co2e * 1000.0);  // Convert to kg
+            
+            // Record renewable energy percentage
+            if let Some(renewable_percentage) = emissions.renewable_percentage {
+                self.green_energy_percentage.set(renewable_percentage as i64);
+                
+                // Record if block was mined with majority renewable energy
+                if renewable_percentage > 50.0 {
+                    self.renewable_energy_blocks.inc();
+                }
+            }
+        }
+        
+        // Track transaction types
         let tx_count = block.transactions.len();
         self.transactions_by_type.with_label_values(&["total"]).inc_by(tx_count as u64);
         
@@ -410,56 +429,34 @@ impl BlockchainMetrics {
             }
         }
         
-        // Get environmental data for the block
-        if let Ok(emissions) = emissions_tracker.calculate_block_emissions(block).await {
-            // Record carbon footprint
-            self.carbon_emissions_per_block.observe(emissions.co2_grams as f64 / 1000.0);  // Convert to kg
-            
-            // Record green energy percentage if available
-            if let Some(green_percentage) = emissions.green_energy_percentage {
-                self.green_energy_percentage.set((green_percentage * 100.0) as i64);
-                
-                // Record if block was mined with majority renewable energy
-                if green_percentage > 0.5 {
-                    self.renewable_energy_blocks.inc();
-                }
-            }
-        }
-        
-        // Calculate total fees
-        let mut total_fees = 0;
-        for tx in &block.transactions {
-            if let Some(fee) = tx.get_fee() {
-                total_fees += fee;
-            }
-        }
-        
-        // Record fees
-        self.fees_per_block.observe(total_fees as f64);
-        
         // Get UTXO stats if available
-        if let Ok(utxo_count) = chain_state.get_utxo_count() {
-            self.utxo_set_size.set(utxo_count as i64);
-        }
+        let utxo_count = chain_state.get_utxo_count();
+        self.utxo_set_size.set(utxo_count as i64);
         
         // Get database size if available
-        if let Ok(db_size) = chain_state.get_database_size() {
-            self.chain_state_db_size.set(db_size as i64);
-        }
+        let db_size = chain_state.get_database_size();
+        self.chain_state_db_size.set(db_size as i64);
         
         // Record UTXO operations
         // In a real implementation, we would count actual additions and removals
         let utxo_ops = block.transactions.iter()
-            .map(|tx| tx.inputs.len() + tx.outputs.len())
+            .map(|tx| tx.inputs().len() + tx.outputs().len())
             .sum::<usize>();
         
         self.utxo_operations_per_block.observe(utxo_ops as f64);
+        
+        // Calculate average transaction complexity
+        let total_io_count: usize = block.transactions.iter()
+            .map(|tx| tx.inputs().len() + tx.outputs().len())
+            .sum();
+        let avg_io_count = total_io_count / block.transactions.len().max(1);
+        // self.transaction_io_count.observe(avg_io_count as f64); // This line was removed as per the new_code
         
         // Log summary
         info!(
             "Block {} processed: {} txs, {}ms, {:.2} kg CO2",
             height,
-            tx_count,
+            block.transactions.len(), // Changed from tx_count to block.transactions.len()
             processing_time_ms,
             self.carbon_emissions_per_block.get_sample_count() as f64 / 1000.0
         );
@@ -558,12 +555,6 @@ impl BlockchainMetrics {
     pub fn record_invalid_block(&self, reason: &str) {
         self.invalid_blocks.with_label_values(&[reason]).inc();
         warn!("Invalid block received: {}", reason);
-    }
-    
-    /// Record a consensus decision
-    pub fn record_consensus_decision(&self, policy: &Policy) {
-        let policy_name = format!("{:?}", policy);
-        self.consensus_decisions.with_label_values(&[&policy_name]).inc();
     }
     
     /// Record Lightning Network stats

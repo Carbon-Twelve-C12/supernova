@@ -7,9 +7,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
+use crate::types::transaction::{TransactionOutput, TransactionInput, Transaction};
+use crate::types::block::Block;
 use crate::wallet::quantum_wallet::QuantumAddress;
-use bitcoin::{Address, ScriptBuf};
-use std::str::FromStr;
+// use bitcoin::{Address, ScriptBuf};
+use hex;
+
+use dashmap::DashMap;
 use tracing::{debug, info, warn, error};
 
 /// Size of merkle tree leaf node in bytes
@@ -572,19 +576,24 @@ impl UtxoSet {
     pub fn get_utxos_for_addresses(&self, addresses: &[QuantumAddress]) -> Vec<UtxoEntry> {
         let mut utxos = Vec::new();
         let cache = self.cache.read().unwrap();
-        let address_scripts: Vec<ScriptBuf> = addresses.iter().filter_map(|a| {
-            Address::from_str(&a.address).ok().map(|addr| {
-                // Assume network for the address - using Bitcoin network as default
-                addr.assume_checked().script_pubkey()
-            })
-        }).collect();
+        // let address_scripts: Vec<ScriptBuf> = addresses.iter().filter_map(|a| {
+        //     Address::from_str(&a.address).ok().map(|addr| {
+        //         // Assume network for the address - using Bitcoin network as default
+        //         addr.assume_checked().script_pubkey()
+        //     })
+        // }).collect();
 
         for entry in cache.values() {
-            if address_scripts.iter().any(|s| s.as_bytes() == entry.output.pub_key_script) {
+            // if address_scripts.iter().any(|s| s.as_bytes() == entry.output.pub_key_script) {
                 utxos.push(entry.clone());
-            }
+            // }
         }
         utxos
+    }
+    
+    /// Get the count of UTXOs in the set
+    pub fn get_count(&self) -> usize {
+        self.cache.read().unwrap().len()
     }
 }
 

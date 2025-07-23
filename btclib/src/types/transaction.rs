@@ -781,6 +781,26 @@ impl Transaction {
         is_zero_hash && is_special_index
     }
     
+    /// Check if this transaction uses quantum-resistant signatures
+    pub fn has_quantum_signatures(&self) -> bool {
+        if let Some(sig_data) = &self.signature_data {
+            match sig_data.scheme {
+                SignatureSchemeType::Dilithium |
+                SignatureSchemeType::Falcon |
+                SignatureSchemeType::SphincsPlus |
+                SignatureSchemeType::Hybrid => true,
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+    
+    /// Get the transaction fee
+    pub fn get_fee(&self, get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>) -> u64 {
+        self.calculate_fee(&get_output).unwrap_or(0)
+    }
+    
     /// Estimate emissions for this transaction
     pub fn estimate_emissions(&self, tracker: &EmissionsTracker) -> Result<Emissions, EmissionsError> {
         // Get byte size as a proxy for energy consumption

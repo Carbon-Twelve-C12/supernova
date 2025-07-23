@@ -791,17 +791,51 @@ impl EmissionsTracker {
     
     /// Estimate energy consumption for a transaction
     fn estimate_transaction_energy(&self, transaction: &Transaction) -> Result<f64, EmissionsError> {
-        // This is a simplified model for Phase 1
-        // In a real implementation, would consider tx weight, fees, etc.
+        // For now, use a simple size-based estimation
+        let tx_size = transaction.calculate_size();
+        let energy_per_byte = 0.0000002; // kWh per byte (example value)
+        Ok(tx_size as f64 * energy_per_byte)
+    }
+    
+    /// Calculate emissions for an entire block
+    pub async fn calculate_block_emissions(&self, block: &Block) -> Result<Emissions, EmissionsError> {
+        let mut total_energy = 0.0;
         
-        // Basic transaction energy estimate
-        let tx_size_bytes = 250.0; // Conservative average
-        let network_hashrate: f64 = self.region_hashrates.values().map(|hr| hr.0).sum();
+        // Calculate energy for all transactions in the block
+        for tx in &block.transactions {
+            total_energy += self.estimate_transaction_energy(tx)?;
+        }
         
-        // Energy proportional to transaction size and inversely to hashrate
-        let energy = tx_size_bytes * self.config.default_network_efficiency / (1000.0 * network_hashrate.max(1.0));
+        // Add block mining energy (example: 50 kWh per block)
+        let mining_energy = 50.0;
+        total_energy += mining_energy;
         
-        Ok(energy)
+        // Get current emission factor
+        let emission_factor = self.get_current_emission_factor()?;
+        let tonnes_co2e = total_energy * emission_factor / 1000.0; // Convert kg to tonnes
+        
+        Ok(Emissions {
+            tonnes_co2e,
+            energy_kwh: total_energy,
+            renewable_percentage: self.get_renewable_percentage(),
+            location_based_emissions: Some(tonnes_co2e),
+            market_based_emissions: None,
+            marginal_emissions_impact: None,
+            calculation_time: Utc::now(),
+            confidence_level: None,
+        })
+    }
+    
+    /// Get the current emission factor in kg CO2e per kWh
+    fn get_current_emission_factor(&self) -> Result<f64, EmissionsError> {
+        // Return the default global emission factor
+        Ok(self.config.default_emission_factor)
+    }
+    
+    /// Get the current renewable energy percentage
+    fn get_renewable_percentage(&self) -> Option<f64> {
+        // Return a default value for now
+        Some(25.0) // 25% renewable
     }
     
     /// Calculate weighted emission factor based on hashrate distribution

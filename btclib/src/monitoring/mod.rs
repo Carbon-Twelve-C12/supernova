@@ -1,8 +1,6 @@
-// Monitoring subsystem for supernova blockchain
+// Monitoring and metrics module
+// Provides system and blockchain monitoring capabilities
 
-use prometheus::Registry;
-
-// Re-exports
 pub use prometheus;
 
 pub mod system;
@@ -10,6 +8,8 @@ pub mod blockchain;
 pub mod network;
 pub mod consensus;
 pub mod mempool;
+pub mod quantum_signature_benchmarks;
+pub mod blockchain_metrics;
 
 // Metrics error type
 #[derive(Debug, thiserror::Error)]
@@ -32,6 +32,6 @@ pub enum MetricsError {
 }
 
 /// Initialize the metrics registry
-pub fn create_registry() -> Result<Registry, MetricsError> {
-    Ok(Registry::new())
+pub fn create_registry() -> Result<prometheus::Registry, MetricsError> {
+    Ok(prometheus::Registry::new())
 } 

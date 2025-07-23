@@ -643,6 +643,49 @@ impl TransactionPool {
             None
         }
     }
+
+    /// Get the best transactions for block creation
+    pub fn get_best_transactions(&self, max_size: usize) -> Vec<Transaction> {
+        let mut transactions: Vec<Transaction> = self.transactions
+            .iter()
+            .map(|entry| entry.value().transaction.clone())
+            .collect();
+        
+        // Sort by priority (fee rate)
+        let get_utxo = self.get_utxo_or_mempool();
+        transactions.sort_by(|a, b| a.compare_by_priority(b, &get_utxo));
+        
+        // Select transactions up to max_size
+        let mut selected = Vec::new();
+        let mut total_size = 0;
+        
+        for tx in transactions {
+            let size = tx.calculate_size();
+            if total_size + size <= max_size {
+                selected.push(tx);
+                total_size += size;
+            } else {
+                break;
+            }
+        }
+        
+        selected
+    }
+    
+    /// Get the number of transactions in the pool
+    pub fn len(&self) -> usize {
+        self.transactions.len()
+    }
+    
+    /// Check if the pool is empty
+    pub fn is_empty(&self) -> bool {
+        self.transactions.is_empty()
+    }
+    
+    /// Get the current memory usage of the pool
+    pub fn memory_usage(&self) -> usize {
+        *self.size_bytes.read().unwrap()
+    }
 }
 
 impl fmt::Debug for TransactionPool {

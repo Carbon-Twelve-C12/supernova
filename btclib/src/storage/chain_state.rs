@@ -695,6 +695,34 @@ impl ChainState {
         // Return default difficulty if we can't get the tip
         0x1d00ffff // Default Bitcoin difficulty
     }
+
+    /// Get the current block count (chain height + 1)
+    pub fn get_block_count(&self) -> u64 {
+        let height = *self.current_height.read().unwrap();
+        height as u64 + 1
+    }
+    
+    /// Get the current UTXO count
+    pub fn get_utxo_count(&self) -> usize {
+        self.utxo_set.get_count()
+    }
+    
+    /// Get the database size in bytes (estimated)
+    pub fn get_database_size(&self) -> u64 {
+        // Estimate based on UTXO set size and block count
+        let utxo_count = self.get_utxo_count() as u64;
+        let block_count = self.get_block_count();
+        
+        // Rough estimates:
+        // - Each UTXO entry: ~200 bytes
+        // - Each block: ~1MB average
+        // - Overhead: 20%
+        let utxo_size = utxo_count * 200;
+        let block_size = block_count * 1_000_000;
+        let overhead = (utxo_size + block_size) / 5;
+        
+        utxo_size + block_size + overhead
+    }
 }
 
 // Implement Clone for ChainState to support sharing across async tasks
