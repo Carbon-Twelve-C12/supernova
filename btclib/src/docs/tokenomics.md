@@ -40,9 +40,9 @@ The total supply of 42,000,000 NOVA tokens is allocated as follows:
 | Team & Advisors | 10% | 4,200,000 | Team compensation and advisory services |
 | Environmental Treasury | 10% | 4,200,000 | Ensuring carbon negativity |
 | Community & Airdrops | 7.5% | 3,150,000 | Community building and adoption |
-| Liquidity Reserve | 4% | 1,680,000 | Market making and liquidity provision |
+| Liquidity Reserve | 4% | 1,680,000 | Strategic investors & market making |
 
-The Liquidity Reserve is a dedicated allocation managed by the Treasury Committee to ensure stable, deep markets for NOVA tokens. This allocation reduces selling pressure on the Foundation Reserve while providing professional market making services.
+The Liquidity Reserve serves dual purposes: funding strategic early investors who provide critical support for the project's launch, and ensuring stable, deep markets for NOVA tokens post-launch. This allocation reduces selling pressure on the Foundation Reserve while enabling both strategic partnerships and professional market making services.
 
 ### 2.2 Visual Breakdown
 
@@ -93,16 +93,17 @@ supernova implements a unique environmental reward system:
 
 ### 4.1 Team & Advisors Vesting
 
-The 4,200,000 NOVA allocated to Team & Advisors follows a simplified vesting schedule:
+The 4,200,000 NOVA allocated to Team & Advisors follows a conservative vesting schedule to ensure long-term alignment:
 
-- **Initial Release**: 50% at token generation (2,100,000 NOVA)
-- **Remaining Allocation**: 50% (2,100,000 NOVA) vests linearly over 2 years
-- **Cliff Period**: 6 months (no tokens released during this period)
-- **Release Schedule**: After cliff, linear monthly vesting over remaining 18 months
+- **Initial Release**: 0% at token generation (full vesting required)
+- **Cliff Period**: 12 months (no tokens released during this period)
+- **Vesting Period**: 48 months total (4 years)
+- **Release Schedule**: After cliff, linear monthly vesting over remaining 36 months
 - **Monthly Release Rate**: ~116,667 NOVA per month after cliff
 - **Vesting Start**: Network mainnet launch
+- **Acceleration**: None (demonstrates team commitment to long-term success)
 
-This revised vesting schedule provides immediate utility while ensuring long-term alignment through the remaining vested tokens.
+This conservative vesting schedule demonstrates the team's commitment to the project's long-term success and provides confidence to strategic investors.
 
 ### 4.2 Foundation Reserve Vesting
 
@@ -139,13 +140,13 @@ The 4,200,000 NOVA allocated to the Environmental Treasury follows a conditional
 
 Based on the vesting and release schedules, the projected circulating supply growth is as follows:
 
-| Timeframe | Mining Rewards | Foundation | Ecosystem | Team & Advisors | Environmental | Community | Total Circulating | % of Supply |
-|-----------|----------------|------------|-----------|-----------------|---------------|-----------|-------------------|------------|
-| Launch | 0 | 630,000 | 0 | 0 | 840,000 | 1,050,000 | 2,520,000 | 6.0% |
-| 6 Months | 1,512,000 | 630,000 | 0 | 0 | 840,000 | 1,312,500 | 4,294,500 | 10.2% |
-| 1 Year | 3,024,000 | 630,000 | 1,147,440 | 0 | 1,260,000 | 1,575,000 | 7,636,440 | 18.2% |
-| 2 Years | 6,048,000 | 2,205,000 | 3,442,320 | 1,575,000 | 2,100,000 | 2,100,000 | 17,470,320 | 41.6% |
-| 4 Years | 8,820,000 | 4,567,500 | 6,300,000 | 6,300,000 | 3,360,000 | 2,100,000 | 31,447,500 | 74.9% |
+| Timeframe | Mining Rewards | Foundation | Ecosystem | Team & Advisors | Environmental | Community | Strategic | Total Circulating | % of Supply |
+|-----------|----------------|------------|-----------|-----------------|---------------|-----------|-----------|-------------------|------------|
+| Launch | 0 | 630,000 | 0 | 0 | 840,000 | 1,050,000 | 0 | 2,520,000 | 6.0% |
+| 6 Months | 1,512,000 | 630,000 | 0 | 0 | 840,000 | 1,312,500 | 0 | 4,294,500 | 10.2% |
+| 1 Year | 3,024,000 | 630,000 | 1,147,440 | 0 | 1,260,000 | 1,575,000 | 333,333 | 8,969,773 | 21.4% |
+| 2 Years | 6,048,000 | 2,205,000 | 3,442,320 | 1,400,000 | 2,100,000 | 2,100,000 | 1,000,000 | 18,295,320 | 43.6% |
+| 4 Years | 8,820,000 | 4,567,500 | 6,300,000 | 2,800,000 | 3,360,000 | 2,100,000 | 1,000,000 | 28,947,500 | 68.9% |
 
 ## 5. Foundation Operations and Token Sales
 
@@ -228,29 +229,46 @@ This mechanism ensures:
 
 Prior to public launch, the Foundation will secure strategic investors through a structured approach:
 
-- **Strategic Round Allocation**: 525,000 NOVA (1.25% of total supply) from Foundation Reserve
+- **Strategic Round Allocation**: 1,500,000 NOVA (~3.5% of total supply) from Liquidity Reserve and partial Foundation Reserve
+  - 1,000,000 NOVA from Liquidity Reserve (59.5% of Liquidity Reserve)
+  - 500,000 NOVA from Foundation Reserve (8.8% of Foundation Reserve)
+  
+- **Investment Target**: $5,000,000 USD
+- **Token Price**: $3.33 per NOVA (approximately 20% discount to expected LBP target of $4.20)
+
 - **Investor Criteria**:
-  - Demonstrated alignment with supernova's environmental mission
+  - Demonstrated alignment with Supernova's environmental mission
   - Technical expertise in blockchain infrastructure or quantum computing
-  - Long-term investment horizon (minimum 2-year lockup with linear vesting)
+  - Long-term investment horizon (minimum 2-year commitment)
   - Ability to provide technical, operational, or market-making support
   - Geographic diversity across key markets
+  - Track record in supporting blockchain infrastructure projects
 
 - **Investment Structure**:
-  - Price: 20% discount to expected LBP target price
-  - Lockup: 6-month cliff, 24-month linear vesting thereafter
+  - Minimum Investment: $500,000 USD
+  - Lockup: 6-month cliff, 18-month linear vesting thereafter
   - Participation rights in future governance decisions
-  - Maximum allocation per investor: 105,000 NOVA (0.25% of total supply)
+  - Pro-rata rights for future fundraising rounds
+  - Advisory opportunities for investments above $1,000,000
 
 - **Strategic Partner Categories**:
-  | Category | Allocation | Example Partners |
-  |----------|------------|------------------|
-  | Environmental | 30% | Renewable energy companies, carbon markets |
-  | Technical | 30% | Post-quantum security, mining innovation |
-  | Financial | 20% | Market makers, crypto-native funds |
-  | Ecosystem | 20% | DeFi protocols, infrastructure projects |
+  | Category | Target Allocation | Example Partners | Investment Range |
+  |----------|-------------------|------------------|------------------|
+  | Technical | 30% ($1.5M) | Post-quantum security firms, mining innovators | $250K-$1M |
+  | Environmental | 30% ($1.5M) | Renewable energy companies, carbon markets | $100K-$500K |
+  | Financial | 25% ($1.25M) | Market makers, crypto-native funds | $250K-$1M |
+  | Ecosystem | 15% ($750K) | DeFi, infrastructure projects | $100K-$500K |
 
-The strategic investment round will close at least 30 days before the public LBP launch.
+- **Use of Proceeds**:
+  | Category | Allocation | Amount | Purpose |
+  |----------|------------|--------|---------|
+  | Development | 45% | $2.25M | Core protocol, quantum integration, security audits |
+  | Operations | 20% | $1M | Infrastructure, legal, compliance, insurance |
+  | Marketing | 20% | $1M | Exchange listings, community growth, partnerships |
+  | Environmental | 10% | $500K | REC purchases, carbon offsets, monitoring |
+  | Reserve | 5% | $250K | Contingency and opportunities |
+
+The strategic investment round will close at least 60 days before the public LBP launch to ensure proper vesting implementation.
 
 ### 5.7 Market Liquidity Strategy
 
@@ -287,16 +305,17 @@ Supernova will implement a comprehensive liquidity strategy to ensure market sta
 
 ### 5.8 Liquidity Reserve Management
 
-The 1,680,000 NOVA (4% of total supply) allocated to the Liquidity Reserve follows strict guidelines for market stability:
+The 1,680,000 NOVA (4% of total supply) allocated to the Liquidity Reserve follows strict guidelines:
 
 - **Allocation Breakdown**:
-  - DEX Liquidity: 50% (840,000 NOVA)
-  - CEX Market Making: 40% (672,000 NOVA)
-  - Volatility Reserve: 10% (168,000 NOVA)
+  - Strategic Investors: 59.5% (1,000,000 NOVA) - Pre-launch funding round
+  - DEX Liquidity: 20% (336,000 NOVA) - Post-launch liquidity provision
+  - CEX Market Making: 16% (268,800 NOVA) - Exchange market making
+  - Volatility Reserve: 4.5% (75,200 NOVA) - Emergency liquidity buffer
 
 - **Vesting Schedule**: 
-  - 30% available at launch (504,000 NOVA)
-  - Remaining 70% released linearly over 24 months
+  - Strategic Investor portion (1,000,000 NOVA): 6-month cliff, 18-month linear vesting
+  - Market Making portion (680,000 NOVA): 100% available at launch for immediate liquidity needs
 
 - **Utilization Guidelines**:
   - All liquidity deployments must be proposed by Treasury Committee
@@ -464,4 +483,4 @@ The Foundation provides regular updates on tokenomics through:
 
 ---
 
-*This document will be updated periodically as the supernova project evolves. Last updated: April 2025.* 
+*This document will be updated periodically as the supernova project evolves. Last updated: July 2025.* 
