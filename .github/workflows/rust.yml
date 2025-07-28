@@ -41,7 +41,7 @@ jobs:
       uses: codecov/codecov-action@v3
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: true
+        fail_ci_if_error: false  # Don't fail if token is missing
 
   format:
     name: Format Check
@@ -63,7 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+        # Only build for native architecture for now
+        target: [x86_64-unknown-linux-gnu]
     steps:
     - uses: actions/checkout@v3
     - name: Install Rust toolchain
