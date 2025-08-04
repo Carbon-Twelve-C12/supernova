@@ -52,8 +52,10 @@ impl FaucetWrapper {
     
     /// Get faucet status
     pub async fn status(&self) -> Result<FaucetStatus, FaucetError> {
-        let balance = *self.balance.lock().unwrap();
-        let transactions = self.recent_transactions.lock().unwrap();
+        let balance = *self.balance.lock()
+            .map_err(|e| FaucetError::InternalError(format!("Lock poisoned: {}", e)))?;
+        let transactions = self.recent_transactions.lock()
+            .map_err(|e| FaucetError::InternalError(format!("Lock poisoned: {}", e)))?;
         
         let transactions_today = transactions.iter()
             .filter(|tx| {
@@ -78,7 +80,8 @@ impl FaucetWrapper {
     pub async fn distribute_coins(&self, address: &str) -> Result<DistributionResult, FaucetError> {
         // Check balance
         {
-            let balance = self.balance.lock().unwrap();
+            let balance = self.balance.lock()
+                .map_err(|e| FaucetError::InternalError(format!("Lock poisoned: {}", e)))?;
             if *balance < self.distribution_amount {
                 return Err(FaucetError::InsufficientFunds);
             }
@@ -86,13 +89,15 @@ impl FaucetWrapper {
         
         // Use inner faucet to handle cooldown and validation
         let amount = {
-            let mut faucet = self.inner.lock().unwrap();
+            let mut faucet = self.inner.lock()
+                .map_err(|e| FaucetError::InternalError(format!("Lock poisoned: {}", e)))?;
             faucet.distribute_coins(address)?
         };
         
         // Deduct from balance
         {
-            let mut balance = self.balance.lock().unwrap();
+            let mut balance = self.balance.lock()
+                .map_err(|e| FaucetError::InternalError(format!("Lock poisoned: {}", e)))?;
             *balance -= amount;
         }
         
@@ -109,7 +114,8 @@ impl FaucetWrapper {
         
         // Add to recent transactions
         {
-            let mut transactions = self.recent_transactions.lock().unwrap();
+            let mut transactions = self.recent_transactions.lock()
+                .map_err(|e| FaucetError::InternalError(format!("Lock poisoned: {}", e)))?;
             transactions.push(transaction);
             
             // Keep only last 100 transactions
@@ -128,7 +134,8 @@ impl FaucetWrapper {
     
     /// Get recent transactions
     pub async fn get_recent_transactions(&self) -> Result<Vec<RecentTransaction>, FaucetError> {
-        let transactions = self.recent_transactions.lock().unwrap();
+        let transactions = self.recent_transactions.lock()
+            .map_err(|e| FaucetError::InternalError(format!("Lock poisoned: {}", e)))?;
         Ok(transactions.clone().into_iter().rev().take(10).collect())
     }
 }

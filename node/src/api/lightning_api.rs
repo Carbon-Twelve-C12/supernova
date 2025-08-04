@@ -149,7 +149,13 @@ async fn handle_open_channel(
     request: OpenChannelRequest,
     node: Arc<Mutex<Node>>,
 ) -> Result<impl Reply, warp::Rejection> {
-    let node = node.lock().unwrap();
+    let node = match node.lock() {
+        Ok(n) => n,
+        Err(e) => {
+            let response: LightningResponse<String> = LightningResponse::error(format!("Internal error: {}", e));
+            return Ok(warp::reply::json(&response));
+        }
+    };
     
     match node.open_payment_channel(&request.peer_id, request.capacity, request.push_amount).await {
         Ok(channel_id) => {
@@ -168,7 +174,13 @@ async fn handle_close_channel(
     request: CloseChannelRequest,
     node: Arc<Mutex<Node>>,
 ) -> Result<impl Reply, warp::Rejection> {
-    let node = node.lock().unwrap();
+    let node = match node.lock() {
+        Ok(n) => n,
+        Err(e) => {
+            let response: LightningResponse<String> = LightningResponse::error(format!("Internal error: {}", e));
+            return Ok(warp::reply::json(&response));
+        }
+    };
     
     match node.close_payment_channel(&request.channel_id, request.force_close).await {
         Ok(tx_id) => {
@@ -187,7 +199,13 @@ async fn handle_create_invoice(
     request: CreateInvoiceRequest,
     node: Arc<Mutex<Node>>,
 ) -> Result<impl Reply, warp::Rejection> {
-    let node = node.lock().unwrap();
+    let node = match node.lock() {
+        Ok(n) => n,
+        Err(e) => {
+            let response: LightningResponse<String> = LightningResponse::error(format!("Internal error: {}", e));
+            return Ok(warp::reply::json(&response));
+        }
+    };
     
     match node.create_invoice(request.amount_msat, &request.description, request.expiry_seconds) {
         Ok(invoice) => {
@@ -206,7 +224,13 @@ async fn handle_pay_invoice(
     request: PayInvoiceRequest,
     node: Arc<Mutex<Node>>,
 ) -> Result<impl Reply, warp::Rejection> {
-    let node = node.lock().unwrap();
+    let node = match node.lock() {
+        Ok(n) => n,
+        Err(e) => {
+            let response: LightningResponse<String> = LightningResponse::error(format!("Internal error: {}", e));
+            return Ok(warp::reply::json(&response));
+        }
+    };
     
     match node.pay_invoice(&request.invoice).await {
         Ok(preimage) => {
@@ -224,7 +248,13 @@ async fn handle_pay_invoice(
 async fn handle_list_channels(
     node: Arc<Mutex<Node>>,
 ) -> Result<impl Reply, warp::Rejection> {
-    let node = node.lock().unwrap();
+    let node = match node.lock() {
+        Ok(n) => n,
+        Err(e) => {
+            let response: LightningResponse<String> = LightningResponse::error(format!("Internal error: {}", e));
+            return Ok(warp::reply::json(&response));
+        }
+    };
     
     match node.list_channels() {
         Ok(channels) => {
@@ -243,7 +273,13 @@ async fn handle_get_channel_info(
     channel_id: String,
     node: Arc<Mutex<Node>>,
 ) -> Result<impl Reply, warp::Rejection> {
-    let node = node.lock().unwrap();
+    let node = match node.lock() {
+        Ok(n) => n,
+        Err(e) => {
+            let response: LightningResponse<String> = LightningResponse::error(format!("Internal error: {}", e));
+            return Ok(warp::reply::json(&response));
+        }
+    };
     
     match node.get_channel_info(&channel_id) {
         Ok(info) => {

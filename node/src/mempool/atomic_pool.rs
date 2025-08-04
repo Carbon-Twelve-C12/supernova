@@ -122,7 +122,9 @@ impl AtomicTransactionPool {
         for input_ref in &inputs {
             if let Some(existing_tx) = self.spent_outputs.get(input_ref) {
                 // Double-spend detected!
-                self.metrics.write().unwrap().double_spend_attempts += 1;
+                self.metrics.write()
+                    .map_err(|e| MempoolError::LockError(format!("Failed to acquire metrics lock: {}", e)))?
+                    .double_spend_attempts += 1;
                 return Err(MempoolError::DoubleSpend(hex::encode(*existing_tx.value())));
             }
         }
@@ -146,7 +148,9 @@ impl AtomicTransactionPool {
         self.transactions.insert(tx_hash, entry);
         
         // Update metrics
-        self.metrics.write().unwrap().total_added += 1;
+        self.metrics.write()
+            .map_err(|e| MempoolError::LockError(format!("Failed to acquire metrics lock: {}", e)))?
+            .total_added += 1;
 
         Ok(())
     }
@@ -165,7 +169,11 @@ impl AtomicTransactionPool {
                 }
                 
                 // Update metrics
-                self.metrics.write().unwrap().total_removed += 1;
+                if let Ok(mut metrics) = self.metrics.write() {
+                    metrics.total_removed += 1;
+                } else {
+                    log::error!("Failed to acquire metrics lock during transaction removal");
+                }
                 
                 Some(entry.transaction)
             }
@@ -287,7 +295,9 @@ impl AtomicTransactionPool {
         self.transactions.insert(new_tx_hash, entry);
         
         // Update metrics
-        self.metrics.write().unwrap().rbf_replacements += 1;
+        self.metrics.write()
+            .map_err(|e| MempoolError::LockError(format!("Failed to acquire metrics lock: {}", e)))?
+            .rbf_replacements += 1;
 
         Ok(conflicting_txs)
     }
@@ -345,7 +355,11 @@ impl AtomicTransactionPool {
             }
         }
 
-        self.metrics.write().unwrap().total_removed += removed as u64;
+        if let Ok(mut metrics) = self.metrics.write() {
+            metrics.total_removed += removed as u64;
+        } else {
+            log::error!("Failed to acquire metrics lock during expired transaction cleanup");
+        }
         removed
     }
 
@@ -391,7 +405,22 @@ impl AtomicTransactionPool {
             0
         };
 
-        let metrics = self.metrics.read().unwrap();
+        let metrics = match self.metrics.read() {
+            Ok(m) => m,
+            Err(e) => {
+                log::error!("Failed to acquire metrics lock for info: {}", e);
+                // Return info without metrics data
+                return MempoolInfo {
+                    transaction_count,
+                    total_size,
+                    total_fee,
+                    min_fee_rate: 0,
+                    avg_fee_rate,
+                    double_spend_attempts: 0,
+                    rbf_replacements: 0,
+                };
+            }
+        };
         
         MempoolInfo {
             transaction_count,
@@ -410,13 +439,18 @@ impl AtomicTransactionPool {
 
     /// Get metrics
     pub fn get_metrics(&self) -> (u64, u64, u64, u64) {
-        let metrics = self.metrics.read().unwrap();
-        (
-            metrics.total_added,
-            metrics.total_removed,
-            metrics.double_spend_attempts,
-            metrics.rbf_replacements
-        )
+        match self.metrics.read() {
+            Ok(metrics) => (
+                metrics.total_added,
+                metrics.total_removed,
+                metrics.double_spend_attempts,
+                metrics.rbf_replacements
+            ),
+            Err(e) => {
+                log::error!("Failed to acquire metrics lock: {}", e);
+                (0, 0, 0, 0)
+            }
+        }
     }
 
     /// Clear all transactions (atomic)

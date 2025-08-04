@@ -150,7 +150,8 @@ impl TransactionPool {
         
         // Check if adding this transaction would exceed max mempool size
         {
-            let current_size = *self.size_bytes.read().unwrap();
+            let current_size = *self.size_bytes.read()
+                .map_err(|e| MempoolError::Other(format!("Lock poisoned: {}", e)))?;
             if current_size + size > self.config.max_size_bytes {
                 // Try to make room by removing low-fee transactions
                 if !self.make_room(size) {
@@ -196,7 +197,8 @@ impl TransactionPool {
         
         // Update dependency graph
         {
-            let mut graph = self.dependency_graph.lock().unwrap();
+            let mut graph = self.dependency_graph.lock()
+                .map_err(|e| MempoolError::Other(format!("Lock poisoned: {}", e)))?;
             let mempool_txs: HashMap<[u8; 32], Transaction> = self.transactions
                 .iter()
                 .map(|entry| (*entry.key(), entry.value().transaction.clone()))
@@ -213,7 +215,8 @@ impl TransactionPool {
         
         // Update mempool size
         {
-            let mut size_bytes = self.size_bytes.write().unwrap();
+            let mut size_bytes = self.size_bytes.write()
+                .map_err(|e| MempoolError::Other(format!("Lock poisoned: {}", e)))?;
             *size_bytes += size;
         }
         
@@ -233,13 +236,15 @@ impl TransactionPool {
         
         // Update mempool size
         {
-            let mut size_bytes = self.size_bytes.write().unwrap();
+            let mut size_bytes = self.size_bytes.write()
+                .map_err(|e| MempoolError::Other(format!("Lock poisoned: {}", e)))?;
             *size_bytes -= entry.size;
         }
         
         // Update dependency graph
         {
-            let mut graph = self.dependency_graph.lock().unwrap();
+            let mut graph = self.dependency_graph.lock()
+                .map_err(|e| MempoolError::Other(format!("Lock poisoned: {}", e)))?;
             graph.remove_transaction(tx_hash);
         }
         
@@ -297,7 +302,13 @@ impl TransactionPool {
     /// Get transactions in topological order (dependencies first)
     pub fn get_topological_transactions(&self) -> Vec<Transaction> {
         // Get the topological order from the dependency graph
-        let graph = self.dependency_graph.lock().unwrap();
+        let graph = match self.dependency_graph.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                log::error!("Failed to acquire dependency graph lock: {}", e);
+                return Vec::new();
+            }
+        };
         let order = graph.get_topological_order();
         
         // Convert to transactions
@@ -327,7 +338,13 @@ impl TransactionPool {
         
         // Also clean orphans
         {
-            let mut orphans = self.orphans.write().unwrap();
+            let mut orphans = match self.orphans.write() {
+                Ok(o) => o,
+                Err(e) => {
+                    log::error!("Failed to acquire orphans write lock: {}", e);
+                    return removed;
+                }
+            };
             let before = orphans.len();
             
             // Keep only the maximum number of most recent orphans
@@ -348,7 +365,13 @@ impl TransactionPool {
     
     /// Get the current mempool size in bytes
     pub fn size(&self) -> usize {
-        *self.size_bytes.read().unwrap()
+        match self.size_bytes.read() {
+            Ok(size) => *size,
+            Err(e) => {
+                log::error!("Failed to read mempool size: {}", e);
+                0
+            }
+        }
     }
     
     /// Get the number of transactions in the pool
@@ -367,10 +390,12 @@ impl TransactionPool {
         let buckets = vec![1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
         let mut histogram = Vec::new();
         
-        for &bucket in &buckets {
+        for (i, &bucket) in buckets.iter().enumerate() {
             let count = self.transactions.iter()
-                .filter(|entry| entry.fee_rate >= bucket && 
-                    (bucket == *buckets.last().unwrap() || entry.fee_rate < buckets[buckets.iter().position(|&b| b == bucket).unwrap() + 1]))
+                .filter(|entry| {
+                    entry.fee_rate >= bucket && 
+                    (i == buckets.len() - 1 || entry.fee_rate < buckets.get(i + 1).copied().unwrap_or(u64::MAX))
+                })
                 .count();
             
             if count > 0 {
@@ -401,13 +426,20 @@ impl TransactionPool {
     
     /// Get the size in bytes for the mempool
     pub fn size_in_bytes(&self) -> usize {
-        *self.size_bytes.read().unwrap()
+        match self.size_bytes.read() {
+            Ok(size) => *size,
+            Err(e) => {
+                log::error!("Failed to read mempool size: {}", e);
+                0
+            }
+        }
     }
     
     /// Handle an orphan transaction (missing inputs)
     fn handle_orphan(&self, tx: Transaction) -> Result<(), MempoolError> {
         // Only store if we haven't reached maximum orphans
-        let mut orphans = self.orphans.write().unwrap();
+        let mut orphans = self.orphans.write()
+            .map_err(|e| MempoolError::Other(format!("Lock poisoned: {}", e)))?;
         
         if orphans.len() < self.config.max_orphan_transactions {
             let tx_hash = tx.hash();
@@ -424,7 +456,13 @@ impl TransactionPool {
         let orphans_to_process: Vec<Transaction>;
         
         {
-            let mut orphans = self.orphans.write().unwrap();
+            let mut orphans = match self.orphans.write() {
+                Ok(o) => o,
+                Err(e) => {
+                    log::error!("Failed to acquire orphans write lock: {}", e);
+                    return;
+                }
+            };
             let mut to_process: Vec<Transaction> = Vec::new();
             
             // This is inefficient but simple - we check all orphans
@@ -543,7 +581,13 @@ impl TransactionPool {
     /// Update ancestor metrics for a transaction and its descendants
     fn update_ancestor_metrics(&self, tx_hash: &[u8; 32]) {
         // Get the dependency graph
-        let graph = self.dependency_graph.lock().unwrap();
+        let graph = match self.dependency_graph.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                log::error!("Failed to acquire dependency graph lock: {}", e);
+                return;
+            }
+        };
         
         // Get all descendants of this transaction
         let descendants = graph.get_all_descendants(tx_hash);
@@ -591,7 +635,13 @@ impl TransactionPool {
     
     /// Make room in the mempool by removing low-fee transactions
     fn make_room(&self, required_space: usize) -> bool {
-        let current_size = *self.size_bytes.read().unwrap();
+        let current_size = match self.size_bytes.read() {
+            Ok(size) => *size,
+            Err(e) => {
+                log::error!("Failed to read mempool size: {}", e);
+                return false;
+            }
+        };
         let target_size = current_size.saturating_sub(required_space);
         
         // Get transactions sorted by fee rate (lowest first)
@@ -622,7 +672,13 @@ impl TransactionPool {
         }
         
         // Check if we made enough room
-        *self.size_bytes.read().unwrap() + required_space <= self.config.max_size_bytes
+        match self.size_bytes.read() {
+            Ok(size) => *size + required_space <= self.config.max_size_bytes,
+            Err(e) => {
+                log::error!("Failed to read mempool size: {}", e);
+                false
+            }
+        }
     }
     
     /// Create a function that checks both UTXOs and mempool transactions
@@ -684,17 +740,30 @@ impl TransactionPool {
     
     /// Get the current memory usage of the pool
     pub fn memory_usage(&self) -> usize {
-        *self.size_bytes.read().unwrap()
+        match self.size_bytes.read() {
+            Ok(size) => *size,
+            Err(e) => {
+                log::error!("Failed to read mempool size: {}", e);
+                0
+            }
+        }
     }
 }
 
 impl fmt::Debug for TransactionPool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let orphans_count = self.orphans.read()
+            .map(|o| o.len())
+            .unwrap_or(0);
+        let size_bytes = self.size_bytes.read()
+            .map(|s| *s)
+            .unwrap_or(0);
+            
         f.debug_struct("TransactionPool")
             .field("config", &self.config)
             .field("transactions_count", &self.transactions.len())
-            .field("orphans_count", &self.orphans.read().unwrap().len())
-            .field("size_bytes", &*self.size_bytes.read().unwrap())
+            .field("orphans_count", &orphans_count)
+            .field("size_bytes", &size_bytes)
             .field("get_utxo", &std::any::type_name_of_val(&self.get_utxo))
             .finish()
     }

@@ -70,7 +70,14 @@ impl AuthRateLimiter {
     /// Check if an IP is currently blocked
     pub fn is_blocked(&self, ip: &str) -> bool {
         let now = Instant::now();
-        let attempts = self.failed_attempts.read().unwrap();
+        let attempts = match self.failed_attempts.read() {
+            Ok(a) => a,
+            Err(e) => {
+                // On lock poisoning, assume blocked for safety
+                log::error!("Failed to acquire read lock: {}", e);
+                return true;
+            }
+        };
         
         if let Some(attempt) = attempts.get(ip) {
             if let Some(blocked_until) = attempt.blocked_until {
@@ -84,7 +91,13 @@ impl AuthRateLimiter {
     /// Record a failed authentication attempt
     pub fn record_failed_attempt(&self, ip: &str) {
         let now = Instant::now();
-        let mut attempts = self.failed_attempts.write().unwrap();
+        let mut attempts = match self.failed_attempts.write() {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("Failed to acquire write lock: {}", e);
+                return;
+            }
+        };
         
         let attempt = attempts.entry(ip.to_string()).or_insert_with(|| AuthAttempt {
             first_attempt: now,
@@ -117,14 +130,26 @@ impl AuthRateLimiter {
     
     /// Record a successful authentication
     pub fn record_successful_auth(&self, ip: &str) {
-        let mut attempts = self.failed_attempts.write().unwrap();
+        let mut attempts = match self.failed_attempts.write() {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("Failed to acquire write lock: {}", e);
+                return;
+            }
+        };
         attempts.remove(ip);
     }
     
     /// Clean up expired entries
     pub fn cleanup(&self) {
         let now = Instant::now();
-        let mut attempts = self.failed_attempts.write().unwrap();
+        let mut attempts = match self.failed_attempts.write() {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("Failed to acquire write lock during cleanup: {}", e);
+                return;
+            }
+        };
         
         attempts.retain(|_, attempt| {
             // Keep if blocked and block hasn't expired

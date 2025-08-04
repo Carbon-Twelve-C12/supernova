@@ -87,7 +87,13 @@ async fn get_info(
         "difficulty": blockchain_info.difficulty,
         "chainwork": blockchain_info.chain_work,
         "verificationprogress": blockchain_info.verification_progress,
-        "chain": node.config().read().unwrap().node.network_name.clone(),
+        "chain": node.config().read()
+            .map_err(|e| JsonRpcError {
+                code: ErrorCode::InternalError as i32,
+                message: format!("Failed to read config: {}", e),
+                data: None,
+            })?
+            .node.network_name.clone(),
         "warnings": "",
         "networkhashps": calculate_network_hashrate(blockchain_info.difficulty),
         "connections": network_info.connections,
@@ -125,7 +131,13 @@ async fn get_blockchain_info(
     })?;
     
     Ok(json!({
-        "chain": node.config().read().unwrap().node.network_name.clone(),
+        "chain": node.config().read()
+            .map_err(|e| JsonRpcError {
+                code: ErrorCode::InternalError as i32,
+                message: format!("Failed to read config: {}", e),
+                data: None,
+            })?
+            .node.network_name.clone(),
         "blocks": info.height,
         "headers": info.height,
         "bestblockhash": info.best_block_hash,
@@ -397,7 +409,13 @@ async fn get_mempool_info(
         "size": info.tx_count,
         "bytes": info.size,
         "usage": info.memory_usage,
-        "maxmempool": node.config().read().unwrap().mempool.max_mempool_size * 1024 * 1024, // Convert MB to bytes
+        "maxmempool": node.config().read()
+            .map_err(|e| JsonRpcError {
+                code: ErrorCode::InternalError as i32,
+                message: format!("Failed to read config: {}", e),
+                data: None,
+            })?
+            .mempool.max_mempool_size * 1024 * 1024, // Convert MB to bytes
         "mempoolminfee": info.min_fee_rate / 100000000.0, // Convert to NOVA/kB
         "minrelaytxfee": info.min_fee_rate / 100000000.0, // Convert to NOVA/kB
     }))
@@ -561,7 +579,13 @@ async fn get_mining_info(
         "difficulty": info.difficulty,
         "networkhashps": info.network_hashrate,
         "pooledtx": 10, // Placeholder
-        "chain": node.config().read().unwrap().node.network_name.clone(),
+        "chain": node.config().read()
+            .map_err(|e| JsonRpcError {
+                code: ErrorCode::InternalError as i32,
+                message: format!("Failed to read config: {}", e),
+                data: None,
+            })?
+            .node.network_name.clone(),
         "warnings": ""
     }))
 }
