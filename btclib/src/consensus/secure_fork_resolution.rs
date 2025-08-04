@@ -288,16 +288,24 @@ impl SecureForkResolver {
         score.max(0.0).min(1.0)
     }
     
+    /// Get current timestamp safely
+    fn current_timestamp() -> ForkResolutionResult<u64> {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .map_err(|_| ForkResolutionError::InvalidTimestamp)
+    }
+    
     /// Check if timestamps progress properly
     fn check_timestamp_progression(&self, headers: &[BlockHeader]) -> bool {
         if headers.len() < 2 {
             return true;
         }
         
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let current_time = match Self::current_timestamp() {
+            Ok(time) => time,
+            Err(_) => return false, // If we can't get current time, assume bad progression
+        };
         
         // Check first block isn't too far in future
         if headers[0].timestamp() > current_time + 7200 { // 2 hours
@@ -333,10 +341,7 @@ impl SecureForkResolver {
         metrics_a: &ChainMetrics,
         metrics_b: &ChainMetrics,
     ) -> ForkResolutionResult<bool> {
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let current_time = Self::current_timestamp()?;
         
         // Record observations
         self.split_observations.entry(*chain_a).or_default().push(current_time);
@@ -376,10 +381,10 @@ impl SecureForkResolver {
         // In a real implementation, would check against checkpoints
         // For now, just check if it's old enough
         if let Some(metrics) = self.metrics_cache.get(hash) {
-            let current_time = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
+            let current_time = match Self::current_timestamp() {
+                Ok(time) => time,
+                Err(_) => return false, // If we can't get time, assume not well-known
+            };
             
             // If block is more than 1 hour old, consider it well-known
             current_time.saturating_sub(metrics.tip_timestamp) > 3600

@@ -133,7 +133,7 @@ impl QuantumP2PConfig {
         // TODO: Replace with post-quantum key exchange
         let transport = tcp_transport
             .upgrade(libp2p::core::upgrade::Version::V1)
-            .authenticate(noise::Config::new(&classical_key).unwrap())
+            .authenticate(noise::Config::new(&classical_key).map_err(|_| P2PError::Noise)?)
             .multiplex(yamux::Config::default())
             .boxed();
         
@@ -154,7 +154,7 @@ impl QuantumP2PConfig {
             ],
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|_| P2PError::Internal("System time error".to_string()))?
                 .as_secs(),
             signature: Vec::new(),
             classical_signature: None,
@@ -192,7 +192,8 @@ impl QuantumP2PConfig {
         data: &[u8],
     ) -> Result<QuantumMessage, P2PError> {
         // Get peer's quantum info
-        let peer_info = self.peer_keys.read().unwrap()
+        let peer_info = self.peer_keys.read()
+            .map_err(|e| P2PError::Internal(format!("Lock poisoned: {}", e)))?
             .get(peer_id)
             .cloned()
             .ok_or(P2PError::PeerNotFound)?;
@@ -227,7 +228,7 @@ impl QuantumP2PConfig {
             signature,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|_| P2PError::Internal("System time error".to_string()))?
                 .as_secs(),
         })
     }
@@ -239,7 +240,8 @@ impl QuantumP2PConfig {
         message: &QuantumMessage,
     ) -> Result<Vec<u8>, P2PError> {
         // Get peer's quantum info
-        let peer_info = self.peer_keys.read().unwrap()
+        let peer_info = self.peer_keys.read()
+            .map_err(|e| P2PError::Internal(format!("Lock poisoned: {}", e)))?
             .get(peer_id)
             .cloned()
             .ok_or(P2PError::PeerNotFound)?;

@@ -520,10 +520,12 @@ impl MiningManager {
     
     /// Get mining statistics
     pub fn get_mining_stats(&self, period: u64) -> Result<MiningStats, MiningError> {
-        let stats = self.stats.read().unwrap();
+        let stats = self.stats.read()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
         
         // Calculate period-specific statistics
-        let uptime = if let Some(start_time) = *self.start_time.read().unwrap() {
+        let uptime = if let Some(start_time) = *self.start_time.read()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))? {
             start_time.elapsed().as_secs().min(period)
         } else {
             0
@@ -559,10 +561,12 @@ impl MiningManager {
     /// Get mining status
     pub fn get_mining_status(&self) -> Result<MiningStatus, MiningError> {
         let is_mining = self.is_mining.load(Ordering::Relaxed);
-        let workers = self.workers.read().unwrap();
+        let workers = self.workers.read()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
         let active_workers = workers.len();
         
-        let template_age_seconds = if let Some(created) = *self.template_created.read().unwrap() {
+        let template_age_seconds = if let Some(created) = *self.template_created.read()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))? {
             created.elapsed().as_secs()
         } else {
             0
@@ -596,7 +600,8 @@ impl MiningManager {
         let template = self.create_mining_template()?;
         
         // Create mining workers
-        let mut workers = self.workers.write().unwrap();
+        let mut workers = self.workers.write()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
         workers.clear();
         
         for i in 0..thread_count {
@@ -619,14 +624,17 @@ impl MiningManager {
         
         // Store template
         {
-            let mut current_template = self.current_template.write().unwrap();
+            let mut current_template = self.current_template.write()
+                .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
             *current_template = Some(template);
             
-            let mut template_created = self.template_created.write().unwrap();
+            let mut template_created = self.template_created.write()
+                .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
             *template_created = Some(Instant::now());
         }
         
-        let mut start_time = self.start_time.write().unwrap();
+        let mut start_time = self.start_time.write()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
         *start_time = Some(Instant::now());
         
         info!("Mining started successfully with {} threads", thread_count);
@@ -643,7 +651,8 @@ impl MiningManager {
         info!("Stopping mining");
         
         // Stop all workers
-        let workers = self.workers.read().unwrap();
+        let workers = self.workers.read()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
         for worker in workers.iter() {
             worker.borrow_mut().stop();
         }
@@ -853,7 +862,8 @@ impl MiningManager {
         self.current_hashrate.store(hashrate, Ordering::Relaxed);
         
         // Update statistics
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
         stats.total_hashes += hashrate;
         stats.avg_hashrate_1h = hashrate as f64;
     }
@@ -870,8 +880,14 @@ impl MiningManager {
     
     /// Update fee rates
     pub fn update_fee_rates(&self, fee_rates: FeeTiers) {
-        let mut current_rates = self.fee_rates.write().unwrap();
-        *current_rates = fee_rates;
+        match self.fee_rates.write() {
+            Ok(mut current_rates) => {
+                *current_rates = fee_rates;
+            }
+            Err(e) => {
+                error!("Failed to update fee rates due to lock poisoning: {}", e);
+            }
+        }
     }
     
     /// Create a mining template
@@ -917,7 +933,7 @@ impl MiningManager {
         // Get current timestamp
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| MiningError::InternalError(format!("System time error: {}", e)))?
             .as_secs() as u32;
         
         // Calculate environmental impact
