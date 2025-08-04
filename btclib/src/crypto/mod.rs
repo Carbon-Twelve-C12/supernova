@@ -9,9 +9,7 @@ pub mod zkp;
 pub mod falcon_real;  // Using Falcon implementation
 pub mod kem;
 
-// Legacy fake falcon module (to be removed)
-#[deprecated(note = "Use falcon_real instead - the old falcon module contains fake cryptography")]
-pub mod falcon;
+// Falcon module removed - use falcon_real for actual cryptographic implementation
 
 // Test modules
 #[cfg(test)]
@@ -35,8 +33,7 @@ pub use falcon_real::{
     falcon_verify
 };
 
-// Legacy exports (deprecated)
-pub use falcon::{FalconKeyPair, FalconParameters, FalconError};
+// Legacy falcon exports removed - use RealFalcon* types instead
 
 pub use kem::{KemKeyPair, KemError, encapsulate, decapsulate};
 

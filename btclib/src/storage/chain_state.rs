@@ -35,6 +35,9 @@ pub enum ChainStateError {
     
     #[error("Invalid checkpoint")]
     InvalidCheckpoint,
+    
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
 
 /// Result type for chain state operations
@@ -510,13 +513,15 @@ impl ChainState {
         
         // Update the header cache
         {
-            let mut headers = self.headers.write().unwrap();
+            let mut headers = self.headers.write()
+                .map_err(|e| ChainStateError::InternalError(format!("Lock poisoned: {}", e)))?;
             headers.insert(block_hash, block.header().clone());
         }
         
         // Update height map
         {
-            let mut height_map = self.height_map.write().unwrap();
+            let mut height_map = self.height_map.write()
+                .map_err(|e| ChainStateError::InternalError(format!("Lock poisoned: {}", e)))?;
             // Convert block_height to u32 for storage in height_map
             let height_u32 = u32::try_from(block_height).unwrap_or_else(|_| {
                 log::warn!("Block height {} exceeds u32 max value, truncating", block_height);

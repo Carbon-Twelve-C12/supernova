@@ -178,7 +178,9 @@ impl QuantumP2PConfig {
         };
         
         // Cache peer info
-        self.peer_keys.write().unwrap().insert(*peer_id, peer_info.clone());
+        self.peer_keys.write()
+            .map_err(|e| P2PError::Internal(format!("Lock poisoned: {}", e)))?
+            .insert(*peer_id, peer_info.clone());
         
         Ok(peer_info)
     }
@@ -406,6 +408,9 @@ pub enum P2PError {
     
     #[error("Serialization error")]
     Serialization,
+    
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 #[cfg(test)]

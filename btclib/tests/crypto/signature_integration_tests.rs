@@ -3,7 +3,7 @@ use btclib::crypto::signature::{
     Secp256k1Scheme, Ed25519Scheme, DilithiumScheme, FalconScheme
 };
 use btclib::validation::SecurityLevel;
-use btclib::crypto::falcon::{FalconKeyPair, FalconParameters};
+use btclib::crypto::falcon_real::{FalconKeyPair, FalconParameters};
 use btclib::crypto::quantum::{QuantumKeyPair, QuantumScheme, QuantumParameters};
 use rand::rngs::OsRng;
 use std::time::{Instant, Duration};

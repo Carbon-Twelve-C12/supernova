@@ -1,0 +1,32 @@
+# Clippy configuration for Supernova security
+# Enforces strict security and code quality standards
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 20
+
+# Disallow certain macros that can cause panics
+disallowed-macros = [
+    { path = "std::panic", reason = "Use proper error handling instead of panicking" },
+    { path = "std::unimplemented", reason = "Unimplemented code is a security risk" },
+    { path = "std::todo", reason = "TODO code should not be in production" },
+]
+
+# Disallow types that can cause issues
+disallowed-types = [
+    { path = "std::cell::RefCell", reason = "Can panic at runtime, use Arc<RwLock<T>> instead" },
+]
+
+# Enforce documentation
+missing-docs-in-crate-items = true
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Function size limits
+too-many-lines-threshold = 100
+
+# Maximum arguments per function
+too-many-arguments-threshold = 7
+
+# Enforce MSRV
+msrv = "1.70.0"

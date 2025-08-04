@@ -8,7 +8,11 @@ use rand::{CryptoRng, RngCore};
 use pqcrypto_dilithium::{dilithium2, dilithium3, dilithium5};
 use pqcrypto_traits::sign::{PublicKey as SignPublicKeyTrait, SecretKey as SignSecretKeyTrait, DetachedSignature as SignDetachedSignatureTrait};
 use thiserror::Error;
-use crate::crypto::falcon::FalconError;
+
+// Log security warning on first use
+use std::sync::Once;
+static INIT: Once = Once::new();
+use crate::crypto::falcon_real::FalconError;
 
 // Adding SPHINCS+ dependencies
 use pqcrypto_sphincsplus::sphincsshake128fsimple;
@@ -151,20 +155,68 @@ impl Default for MLDSAPublicKey {
 impl MLDSAPublicKey {
     /// Verify a signature
     pub fn verify(&self, message: &[u8], signature: &MLDSASignature) -> Result<bool, QuantumError> {
-        // For now, return Ok(true) as placeholder
-        // In production, this would use the actual Dilithium verification
-        Ok(true)
+        // ML-DSA is the NIST standardized version of Dilithium
+        // We use the appropriate Dilithium implementation based on security level
+        match self.security_level {
+            MLDSASecurityLevel::Level2 => {
+                let pk = dilithium2::PublicKey::from_bytes(&self.bytes)
+                    .map_err(|e| QuantumError::InvalidKey(format!("Invalid ML-DSA public key: {}", e)))?;
+                let sig = dilithium2::DetachedSignature::from_bytes(&signature.bytes)
+                    .map_err(|e| QuantumError::InvalidSignature(format!("Invalid ML-DSA signature: {}", e)))?;
+                Ok(dilithium2::verify_detached_signature(&sig, message, &pk).is_ok())
+            },
+            MLDSASecurityLevel::Level3 => {
+                let pk = dilithium3::PublicKey::from_bytes(&self.bytes)
+                    .map_err(|e| QuantumError::InvalidKey(format!("Invalid ML-DSA public key: {}", e)))?;
+                let sig = dilithium3::DetachedSignature::from_bytes(&signature.bytes)
+                    .map_err(|e| QuantumError::InvalidSignature(format!("Invalid ML-DSA signature: {}", e)))?;
+                Ok(dilithium3::verify_detached_signature(&sig, message, &pk).is_ok())
+            },
+            MLDSASecurityLevel::Level5 => {
+                let pk = dilithium5::PublicKey::from_bytes(&self.bytes)
+                    .map_err(|e| QuantumError::InvalidKey(format!("Invalid ML-DSA public key: {}", e)))?;
+                let sig = dilithium5::DetachedSignature::from_bytes(&signature.bytes)
+                    .map_err(|e| QuantumError::InvalidSignature(format!("Invalid ML-DSA signature: {}", e)))?;
+                Ok(dilithium5::verify_detached_signature(&sig, message, &pk).is_ok())
+            },
+        }
     }
 }
 
 impl MLDSAPrivateKey {
     /// Generate a new ML-DSA private key
-    pub fn generate<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-        // Placeholder implementation
-        let public_key = MLDSAPublicKey::default();
-        Self {
-            secret_bytes: vec![0u8; 2544], // Dilithium3 secret key size
-            public_key,
+    pub fn generate<R: RngCore + CryptoRng>(rng: &mut R, security_level: MLDSASecurityLevel) -> Result<Self, QuantumError> {
+        match security_level {
+            MLDSASecurityLevel::Level2 => {
+                let (pk, sk) = dilithium2::keypair();
+                Ok(Self {
+                    secret_bytes: sk.as_bytes().to_vec(),
+                    public_key: MLDSAPublicKey {
+                        bytes: pk.as_bytes().to_vec(),
+                        security_level,
+                    },
+                })
+            },
+            MLDSASecurityLevel::Level3 => {
+                let (pk, sk) = dilithium3::keypair();
+                Ok(Self {
+                    secret_bytes: sk.as_bytes().to_vec(),
+                    public_key: MLDSAPublicKey {
+                        bytes: pk.as_bytes().to_vec(),
+                        security_level,
+                    },
+                })
+            },
+            MLDSASecurityLevel::Level5 => {
+                let (pk, sk) = dilithium5::keypair();
+                Ok(Self {
+                    secret_bytes: sk.as_bytes().to_vec(),
+                    public_key: MLDSAPublicKey {
+                        bytes: pk.as_bytes().to_vec(),
+                        security_level,
+                    },
+                })
+            },
         }
     }
     
@@ -174,10 +226,32 @@ impl MLDSAPrivateKey {
     }
     
     /// Sign a message
-    pub fn sign(&self, message: &[u8]) -> MLDSASignature {
-        // Placeholder implementation
-        MLDSASignature {
-            bytes: vec![0u8; 2420], // Dilithium3 signature size
+    pub fn sign(&self, message: &[u8]) -> Result<MLDSASignature, QuantumError> {
+        match self.public_key.security_level {
+            MLDSASecurityLevel::Level2 => {
+                let sk = dilithium2::SecretKey::from_bytes(&self.secret_bytes)
+                    .map_err(|e| QuantumError::InvalidKey(format!("Invalid ML-DSA secret key: {}", e)))?;
+                let sig = dilithium2::detached_sign(message, &sk);
+                Ok(MLDSASignature {
+                    bytes: sig.as_bytes().to_vec(),
+                })
+            },
+            MLDSASecurityLevel::Level3 => {
+                let sk = dilithium3::SecretKey::from_bytes(&self.secret_bytes)
+                    .map_err(|e| QuantumError::InvalidKey(format!("Invalid ML-DSA secret key: {}", e)))?;
+                let sig = dilithium3::detached_sign(message, &sk);
+                Ok(MLDSASignature {
+                    bytes: sig.as_bytes().to_vec(),
+                })
+            },
+            MLDSASecurityLevel::Level5 => {
+                let sk = dilithium5::SecretKey::from_bytes(&self.secret_bytes)
+                    .map_err(|e| QuantumError::InvalidKey(format!("Invalid ML-DSA secret key: {}", e)))?;
+                let sig = dilithium5::detached_sign(message, &sk);
+                Ok(MLDSASignature {
+                    bytes: sig.as_bytes().to_vec(),
+                })
+            },
         }
     }
 }
@@ -247,6 +321,9 @@ impl From<FalconError> for QuantumError {
             FalconError::InvalidPublicKey => QuantumError::InvalidKey("Invalid Falcon public key".to_string()),
             FalconError::InvalidSecretKey => QuantumError::InvalidKey("Invalid Falcon secret key".to_string()),
             FalconError::InvalidMessage(msg) => QuantumError::InvalidSignature(format!("Invalid message for Falcon: {}", msg)),
+            FalconError::KeyGenerationFailed(msg) => QuantumError::CryptoOperationFailed(format!("Falcon key generation failed: {}", msg)),
+            FalconError::SigningFailed(msg) => QuantumError::CryptoOperationFailed(format!("Falcon signing failed: {}", msg)),
+            FalconError::VerificationFailed(msg) => QuantumError::CryptoOperationFailed(format!("Falcon verification failed: {}", msg)),
         }
     }
 }
@@ -410,13 +487,13 @@ impl QuantumKeyPair {
         security_level: u8,
     ) -> Result<Self, QuantumError> {
         // Use our new Falcon implementation
-        use crate::crypto::falcon::{FalconKeyPair, FalconParameters};
+        use crate::crypto::falcon_real::{FalconKeyPair as RealFalconKeyPair, FalconSecurityLevel};
         
-        // Create Falcon parameters
-        let params = FalconParameters::with_security_level(security_level)?;
+        // Convert numeric security level to FalconSecurityLevel
+        let falcon_security_level = FalconSecurityLevel::from_level(security_level)?;
         
         // Create a Falcon keypair
-        match FalconKeyPair::generate(rng, params) {
+        match RealFalconKeyPair::generate(rng, falcon_security_level) {
             Ok(falcon_keypair) => {
                 // Create a hybrid keypair with a classical and quantum component
                 Ok(Self {
@@ -424,7 +501,7 @@ impl QuantumKeyPair {
                     secret_key: falcon_keypair.secret_key.clone(),
                     parameters: QuantumParameters {
                         scheme: QuantumScheme::Falcon,
-                        security_level: falcon_keypair.parameters.security_level,
+                        security_level,
                     },
                 })
             },
@@ -598,17 +675,12 @@ impl QuantumKeyPair {
             },
             QuantumScheme::Falcon => {
                 // Use our new Falcon implementation
-                use crate::crypto::falcon::{FalconKeyPair, FalconParameters};
+                use crate::crypto::falcon_real::{falcon_sign, FalconSecurityLevel};
                 
-                let params = FalconParameters::with_security_level(self.parameters.security_level)?;
+                let falcon_security_level = FalconSecurityLevel::from_level(self.parameters.security_level)?;
                 
-                let falcon_keypair = FalconKeyPair {
-                    public_key: self.public_key.clone(),
-                    secret_key: self.secret_key.clone(),
-                    parameters: params,
-                };
-                
-                falcon_keypair.sign(message)
+                // Use the falcon_sign function directly
+                falcon_sign(&self.secret_key, message, falcon_security_level)
                     .map_err(|e| QuantumError::CryptoOperationFailed(format!("Falcon signing failed: {}", e)))
             },
             QuantumScheme::SphincsPlus => {
@@ -752,17 +824,12 @@ impl QuantumKeyPair {
             },
             QuantumScheme::Falcon => {
                 // Use our new Falcon implementation
-                use crate::crypto::falcon::{FalconKeyPair, FalconParameters};
+                use crate::crypto::falcon_real::{falcon_verify, FalconSecurityLevel};
                 
-                let params = FalconParameters::with_security_level(self.parameters.security_level)?;
+                let falcon_security_level = FalconSecurityLevel::from_level(self.parameters.security_level)?;
                 
-                let falcon_keypair = FalconKeyPair {
-                    public_key: self.public_key.clone(),
-                    secret_key: self.secret_key.clone(),
-                    parameters: params,
-                };
-                
-                falcon_keypair.verify(message, signature)
+                // Use the falcon_verify function directly
+                falcon_verify(&self.public_key, message, signature, falcon_security_level)
                     .map_err(|e| QuantumError::CryptoOperationFailed(format!("Falcon verification failed: {}", e)))
             },
             QuantumScheme::SphincsPlus => {

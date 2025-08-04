@@ -170,7 +170,8 @@ impl DifficultyAdjustment {
         }
         
         // Check if we're at an adjustment interval
-        let latest_height = *block_heights.last().unwrap();
+        let latest_height = *block_heights.last()
+            .ok_or_else(|| DifficultyAdjustmentError::InsufficientHistory(1))?;
         if latest_height % self.config.adjustment_interval != 0 && latest_height > 0 {
             // Not at an adjustment interval, so return the current target
             return Ok(current_target);
@@ -209,7 +210,8 @@ impl DifficultyAdjustment {
         
         // Basic calculation: time between first and last block
         let mut start_time = timestamps[0];
-        let mut end_time = *timestamps.last().unwrap();
+        let mut end_time = *timestamps.last()
+            .ok_or_else(|| DifficultyAdjustmentError::InvalidCalculation("Empty timestamp array".to_string()))?;
         
         // Use median-of-three for timestamps to prevent time-warp attacks
         if self.config.use_median_time_past && timestamps.len() >= 3 {

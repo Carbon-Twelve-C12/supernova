@@ -264,6 +264,8 @@ pub enum MiningError {
     BlockchainError(String),
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
 
 /// Detailed breakdown of block reward calculation
@@ -335,7 +337,9 @@ impl MiningManager {
         // Calculate time since last block (simplified)
         let seconds_since_last_block = 150; // Default 2.5 minutes
         
-        let fee_rates = self.fee_rates.read().unwrap().clone();
+        let fee_rates = self.fee_rates.read()
+            .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?
+            .clone();
         
         // Get environmental impact if tracker is available
         let environmental_impact = if let Some(tracker) = &self.environmental_tracker {
@@ -414,7 +418,9 @@ impl MiningManager {
         let template = MiningTemplate {
             version: 1,
             prev_hash: self.get_previous_block_hash(),
-            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH)
+                .map_err(|e| MiningError::InternalError(format!("System time error: {}", e)))?
+                .as_secs(),
             height: self.get_current_height() + 1, // Next block height
             target: current_target as u32,
             merkle_root: hex::encode(self.calculate_merkle_root(&template_transactions)?),
@@ -428,10 +434,12 @@ impl MiningManager {
         
         // Store template
         {
-            let mut current_template = self.current_template.write().unwrap();
+            let mut current_template = self.current_template.write()
+                .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
             *current_template = Some(BlockTemplate::from_mining_template(&template));
             
-            let mut template_created = self.template_created.write().unwrap();
+            let mut template_created = self.template_created.write()
+                .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
             *template_created = Some(Instant::now());
         }
         

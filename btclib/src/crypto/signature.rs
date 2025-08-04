@@ -310,20 +310,14 @@ impl FalconScheme {
 
 impl SignatureScheme for FalconScheme {
     fn verify(&self, public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<bool, SignatureError> {
-        // Create parameters using the appropriate security level
-        use crate::crypto::falcon::{FalconParameters, FalconKeyPair, FalconError};
+        use crate::crypto::falcon_real::{falcon_verify, FalconSecurityLevel, FalconError};
         
-        let params = FalconParameters::with_security_level(self.security_level)
-            .map_err(|e| SignatureError::CryptoOperationFailed(format!("Falcon parameter error: {}", e)))?;
-            
-        // Create a public key only keypair
-        let key_pair = FalconKeyPair::from_public_bytes(public_key.to_vec(), params)
-            .map_err(|e| SignatureError::CryptoOperationFailed(
-                format!("Falcon key error: {}", e)
-            ))?;
-            
-        // Verify the signature
-        match key_pair.verify(message, signature) {
+        // Convert numeric security level to FalconSecurityLevel
+        let security_level = FalconSecurityLevel::from_level(self.security_level)
+            .map_err(|e| SignatureError::CryptoOperationFailed(format!("Invalid security level: {}", e)))?;
+        
+        // Verify the signature using the falcon_verify function
+        match falcon_verify(public_key, message, signature, security_level) {
             Ok(valid) => Ok(valid),
             Err(e) => match e {
                 FalconError::InvalidKey(msg) => Err(SignatureError::InvalidKey(msg)),
@@ -584,24 +578,17 @@ impl SignatureVerifier {
 
     /// Verify a Falcon signature
     fn verify_falcon(&self, public_key: &[u8], signature: &[u8]) -> Result<bool, SignatureError> {
-        use crate::crypto::falcon::{FalconKeyPair, FalconParameters};
+        use crate::crypto::falcon_real::{falcon_verify, FalconSecurityLevel};
         
-        // Create parameters
-        let params = FalconParameters::with_security_level(self.security_level)
-            .map_err(|e| SignatureError::CryptoOperationFailed(
-                format!("Falcon parameter error: {}", e)
-            ))?;
+        // Convert numeric security level to FalconSecurityLevel
+        let security_level = FalconSecurityLevel::from_level(self.security_level)
+            .map_err(|e| SignatureError::CryptoOperationFailed(format!("Invalid security level: {}", e)))?;
         
-        // Create a public key only keypair
-        let key_pair = FalconKeyPair::from_public_bytes(public_key.to_vec(), params)
-            .map_err(|e| SignatureError::CryptoOperationFailed(
-                format!("Falcon key error: {}", e)
-            ))?;
-        
-        // Verify the signature
         // Note: We're not using message here since the hash was pre-computed
         let hash = [0u8; 32]; // Placeholder - in real implementation we'd use the hash
-        match key_pair.verify(&hash, signature) {
+        
+        // Verify the signature using the falcon_verify function
+        match falcon_verify(public_key, &hash, signature, security_level) {
             Ok(valid) => Ok(valid),
             Err(e) => Err(SignatureError::CryptoOperationFailed(
                 format!("Falcon verification error: {}", e)

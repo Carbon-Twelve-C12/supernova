@@ -519,7 +519,13 @@ impl UtxoSet {
     /// Get the balance for a specific script pubkey
     pub fn get_balance(&self, script_pubkey: &[u8]) -> u64 {
         let mut balance = 0;
-        let cache = self.cache.read().unwrap();
+        let cache = match self.cache.read() {
+            Ok(cache) => cache,
+            Err(e) => {
+                error!("Failed to read UTXO cache: {}", e);
+                return 0; // Return 0 balance on error
+            }
+        };
         
         for entry in cache.values() {
             if entry.output.pub_key_script == script_pubkey {

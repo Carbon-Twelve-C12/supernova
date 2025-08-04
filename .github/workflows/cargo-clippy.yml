@@ -17,8 +17,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Temporarily remove -D warnings to allow CI to pass
-  # RUSTFLAGS: "-D warnings"
+  RUSTFLAGS: "-D warnings"
 
 jobs:
   clippy:
