@@ -103,3 +103,9 @@ deploy_*.sh
 test_*.sh
 *.textClipping
 build_output.txt
+
+# Production readiness and sensitive documentation
+PRODUCTION_READINESS_CHECKLIST.md
+*_CHECKLIST.md
+*_AUDIT.md
+SECURITY_AUDIT*.md
