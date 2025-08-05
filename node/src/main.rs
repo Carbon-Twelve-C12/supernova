@@ -1,3 +1,15 @@
+// Supernova Node Binary
+// Main entry point for the Supernova blockchain node
+
+// Enforce panic-free code in production
+#![warn(clippy::unwrap_used)]
+#![warn(clippy::expect_used)]
+#![warn(clippy::panic)]
+#![warn(clippy::unimplemented)]
+#![warn(clippy::todo)]
+#![warn(clippy::unreachable)]
+#![warn(clippy::indexing_slicing)]
+
 use node::Node;
 use node::config::NodeConfig;
 use node::metrics::performance::PerformanceMonitor;

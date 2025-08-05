@@ -1,6 +1,6 @@
 # Supernova Fuzzing Infrastructure
 
-This directory contains the AFL++ fuzzing infrastructure for the Supernova blockchain, implementing the comprehensive security testing requirements from Section 11.1 of the Security Audit Framework.
+This directory contains the AFL++ fuzzing infrastructure for the Supernova blockchain, implementing the comprehensive security testing requirements
 
 ## Overview
 
@@ -332,8 +332,5 @@ ulimit -c unlimited
 - [AFL++ Documentation](https://aflplus.plus/)
 - [Fuzzing Rust Code](https://rust-fuzz.github.io/book/)
 - [Structure-Aware Fuzzing](https://github.com/google/fuzzing/blob/master/docs/structure-aware-fuzzing.md)
-- [Supernova Security Audit Framework](../docs/SECURITY_AUDIT.md)
 
 ---
-
-For questions or improvements, contact the Supernova Security Team.

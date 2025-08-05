@@ -1,0 +1,47 @@
+# Supernova Clippy Configuration
+# Enforces panic-free code and security best practices
+
+# Maximum cognitive complexity allowed
+cognitive-complexity-threshold = 30
+
+# Maximum number of lines allowed per function
+too-many-lines-threshold = 100
+
+# Maximum number of arguments allowed per function
+too-many-arguments-threshold = 7
+
+# Disallow large stack arrays
+large-stack-arrays-threshold = 512000
+
+# Disallow large const arrays
+large-const-arrays-threshold = 512000
+
+# Maximum allowed enum variant size difference
+enum-variant-size-threshold = 200
+
+# Enforce documentation
+missing-docs-in-private-items = true
+
+# Disallow unsafe code in production
+disallowed-methods = [
+    # Panic-inducing methods
+    { path = "std::option::Option::unwrap", reason = "Use proper error handling instead" },
+    { path = "std::option::Option::expect", reason = "Use proper error handling instead" },
+    { path = "std::result::Result::unwrap", reason = "Use proper error handling instead" },
+    { path = "std::result::Result::expect", reason = "Use proper error handling instead" },
+    
+    # Indexing that can panic
+    { path = "std::ops::Index::index", reason = "Use .get() for safe indexing" },
+    { path = "std::ops::IndexMut::index_mut", reason = "Use .get_mut() for safe indexing" },
+]
+
+# Additional disallowed macros
+disallowed-macros = [
+    { path = "std::panic", reason = "Panics are not allowed in production code" },
+    { path = "std::unimplemented", reason = "Use proper error handling instead" },
+    { path = "std::todo", reason = "TODOs are not allowed in production code" },
+    { path = "std::unreachable", reason = "Use proper error handling instead" },
+]
+
+# Enforce MSRV (Minimum Supported Rust Version)
+msrv = "1.70.0"
