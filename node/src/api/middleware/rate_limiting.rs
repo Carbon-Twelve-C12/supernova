@@ -165,7 +165,13 @@ where
         // Check rate limit
         let now = Instant::now();
         let window = Duration::from_secs(self.state.window_secs);
-        let mut clients = self.state.clients.lock().unwrap();
+        let mut clients = match self.state.clients.lock() {
+            Ok(clients) => clients,
+            Err(_) => {
+                // Lock is poisoned, continue without rate limiting
+                return Poll::Ready(Ok(()));
+            }
+        };
         
         // Clean up expired entries
         clients.retain(|_, entry| {

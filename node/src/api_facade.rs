@@ -81,8 +81,10 @@ impl ApiFacade {
     
     /// Get node info
     pub fn get_node_info(&self) -> Result<NodeInfo, NodeError> {
-        let chain_height = self.chain_state.read().unwrap().get_height() as u64;
-        let best_block_hash = self.chain_state.read().unwrap().get_best_block_hash();
+        let chain_state = self.chain_state.read()
+            .map_err(|e| NodeError::General(format!("Chain state lock poisoned: {}", e)))?;
+        let chain_height = chain_state.get_height() as u64;
+        let best_block_hash = chain_state.get_best_block_hash();
         let connections = self.network.peer_count_sync() as u32;
         let synced = !self.network.is_syncing();
         
@@ -101,12 +103,15 @@ impl ApiFacade {
     
     /// Get node status
     pub async fn get_status(&self) -> NodeStatus {
-        let chain_height = self.chain_state.read().unwrap().get_height() as u64;
-        let best_block_hash = self.chain_state.read().unwrap().get_best_block_hash();
+        let (chain_height, best_block_hash) = match self.chain_state.read() {
+            Ok(state) => (state.get_height() as u64, state.get_best_block_hash()),
+            Err(_) => (0, [0u8; 32]), // Safe default if lock is poisoned
+        };
         let peer_count = self.network.peer_count().await;
         let synced = !self.network.is_syncing();
-        let config = self.config.read().unwrap();
-        let is_mining = config.node.enable_mining;
+        let is_mining = self.config.read()
+            .map(|config| config.node.enable_mining)
+            .unwrap_or(false);
         
         // Calculate network hashrate from difficulty
         let difficulty = if let Ok(Some(hash)) = self.db.get_block_hash_by_height(chain_height) {
@@ -196,7 +201,9 @@ impl ApiFacade {
         Ok(NodeMetrics {
             uptime: self.start_time.elapsed().as_secs(),
             peer_count,
-            block_height: self.chain_state.read().unwrap().get_height() as u64,
+            block_height: self.chain_state.read()
+                .map(|state| state.get_height() as u64)
+                .unwrap_or(0),
             mempool_size: self.mempool.size(),
             mempool_bytes: self.mempool.get_memory_usage() as usize,
             sync_progress: if self.network.is_syncing() { 0.5 } else { 1.0 },
@@ -210,7 +217,8 @@ impl ApiFacade {
     
     /// Get config
     pub fn get_config(&self) -> Result<serde_json::Value, NodeError> {
-        let config = self.config.read().unwrap();
+        let config = self.config.read()
+            .map_err(|e| NodeError::ConfigError(format!("Config lock poisoned: {}", e)))?;
         serde_json::to_value(&*config)
             .map_err(|e| NodeError::ConfigError(e.to_string()))
     }
@@ -223,7 +231,8 @@ impl ApiFacade {
         updated_config.validate()
             .map_err(|e| NodeError::ConfigError(e.to_string()))?;
         
-        let mut config = self.config.write().unwrap();
+        let mut config = self.config.write()
+            .map_err(|e| NodeError::ConfigError(format!("Config lock poisoned: {}", e)))?;
         *config = updated_config;
         
         serde_json::to_value(&*config)
@@ -254,8 +263,8 @@ impl ApiFacade {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
             size: metadata.len(),
             backup_type: if include_wallet { "full" } else { "blockchain" }.to_string(),
             status: "completed".to_string(),
@@ -311,16 +320,20 @@ impl ApiFacade {
         });
         
         // Get blockchain stats
-        let chain_height = self.chain_state.read().unwrap().get_height();
+        let (chain_height, best_block_hash) = match self.chain_state.read() {
+            Ok(state) => (state.get_height(), state.get_best_block_hash()),
+            Err(_) => (0, [0u8; 32]),
+        };
         let blockchain_stats = serde_json::json!({
             "height": chain_height,
-            "best_block_hash": hex::encode(self.chain_state.read().unwrap().get_best_block_hash()),
+            "best_block_hash": hex::encode(best_block_hash),
         });
         
         // Get lightning stats
         let lightning_enabled = self.lightning_manager.is_some();
         let lightning_stats = if let Some(ln_manager) = &self.lightning_manager {
-            let manager = ln_manager.read().unwrap();
+            match ln_manager.read() {
+                Ok(manager) => {
             // Get info from the manager which includes peer count
             let info = manager.get_info().unwrap_or_else(|_| {
                 // Return default info if error
@@ -339,11 +352,21 @@ impl ApiFacade {
                 }
             });
             
-            serde_json::json!({
-                "enabled": true,
-                "channels": info.num_channels,
-                "peers": info.num_peers,
-            })
+                    serde_json::json!({
+                        "enabled": true,
+                        "channels": info.num_channels,
+                        "peers": info.num_peers,
+                    })
+                },
+                Err(_) => {
+                    // Lock poisoned, return safe defaults
+                    serde_json::json!({
+                        "enabled": true,
+                        "channels": 0,
+                        "peers": 0,
+                    })
+                }
+            }
         } else {
             serde_json::json!({
                 "enabled": false,

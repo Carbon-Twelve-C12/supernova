@@ -74,7 +74,9 @@ pub async fn get_blockchain_info(
     let total_work = format!("0x{:x}", (difficulty * height as f64) as u128);
     
     let config = node.config();
-    let network_id = config.read().unwrap().network.network_id.clone();
+    let network_id = config.read()
+        .map(|c| c.network.network_id.clone())
+        .unwrap_or_else(|_| "supernova-testnet".to_string());
     
     let info = BlockchainInfo {
         height,
@@ -118,7 +120,9 @@ pub async fn get_block_by_height(
         .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
     
-    let confirmations = node.chain_state().read().unwrap().get_height().saturating_sub(height) + 1;
+            let confirmations = node.chain_state().read()
+            .map(|state| state.get_height().saturating_sub(height) + 1)
+            .unwrap_or(0);
     
     // Calculate actual block weight
     let block_size = bincode::serialize(&block).unwrap_or_default().len();
@@ -193,7 +197,9 @@ pub async fn get_block_by_hash(
         .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
         .unwrap_or(0);
     
-    let confirmations = node.chain_state().read().unwrap().get_height().saturating_sub(height) + 1;
+            let confirmations = node.chain_state().read()
+            .map(|state| state.get_height().saturating_sub(height) + 1)
+            .unwrap_or(0);
     
     // Calculate actual block weight
     let block_size = bincode::serialize(&block).unwrap_or_default().len();
@@ -321,7 +327,9 @@ pub async fn get_transaction(
             .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Block not found"))?;
         
-        let confirmations = node.chain_state().read().unwrap().get_height().saturating_sub(block_height) + 1;
+        let confirmations = node.chain_state().read()
+            .map(|state| state.get_height().saturating_sub(block_height) + 1)
+            .unwrap_or(0);
         let block_time = block.timestamp();
         
         (Some(hex::encode(block_hash)), Some(block_height), confirmations, Some(block_time), Some(block_time))

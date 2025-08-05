@@ -132,7 +132,13 @@ where
 
             // Check rate limits
             let now = Instant::now();
-            let mut state = state.lock().unwrap();
+            let mut state = match state.lock() {
+                Ok(s) => s,
+                Err(_) => {
+                    // Lock is poisoned, continue without rate limiting
+                    return Ok(());
+                }
+            };
             
             // Clean up old entries
             cleanup_old_entries(&mut state, now, config.window);

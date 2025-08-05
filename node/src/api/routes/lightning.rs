@@ -59,7 +59,8 @@ pub async fn get_lightning_info(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Get Lightning info
-    let manager = lightning_manager.read().unwrap();
+    let manager = lightning_manager.read()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let info = manager.get_info()
         .map_err(|e| ApiError::internal_error(format!("Failed to get Lightning info: {}", e)))?;
     
@@ -101,7 +102,8 @@ pub async fn get_channels(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Get channels
-    let manager = lightning_manager.read().unwrap();
+    let manager = lightning_manager.read()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let channels = manager.get_channels(
         params.include_inactive.unwrap_or(false),
         params.include_pending.unwrap_or(true),
@@ -136,7 +138,8 @@ pub async fn get_channel(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Get channel info
-    let manager = lightning_manager.read().unwrap();
+    let manager = lightning_manager.read()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let channel = manager.get_channel(&channel_id)
         .map_err(|e| ApiError::internal_error(format!("Failed to get channel: {}", e)))?
         .ok_or_else(|| ApiError::not_found(format!("Channel {} not found", channel_id)))?;
@@ -166,7 +169,8 @@ pub async fn open_channel(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Open channel
-    let mut manager = lightning_manager.write().unwrap();
+    let mut manager = lightning_manager.write()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let response = manager.open_channel(
         &request.node_id,
         request.local_funding_amount,
@@ -202,7 +206,8 @@ pub async fn close_channel(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Close channel
-    let mut manager = lightning_manager.write().unwrap();
+    let mut manager = lightning_manager.write()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let success = manager.close_channel(
         &request.channel_id,
         request.force.unwrap_or(false),
@@ -257,7 +262,8 @@ pub async fn get_payments(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Get payments
-    let manager = lightning_manager.read().unwrap();
+    let manager = lightning_manager.read()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let payments = manager.get_payments(
         params.index_offset.unwrap_or(0),
         params.max_payments.unwrap_or(100),
@@ -289,7 +295,8 @@ pub async fn send_payment(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Send payment
-    let mut manager = lightning_manager.write().unwrap();
+    let mut manager = lightning_manager.write()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let response = manager.send_payment(
         &request.payment_request,
         request.amount_msat,
@@ -341,7 +348,8 @@ pub async fn get_invoices(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Get invoices
-    let manager = lightning_manager.read().unwrap();
+    let manager = lightning_manager.read()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let invoices = manager.get_invoices(
         params.pending_only.unwrap_or(true),
         params.index_offset.unwrap_or(0),
@@ -373,7 +381,8 @@ pub async fn create_invoice(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Create invoice
-    let mut manager = lightning_manager.write().unwrap();
+    let mut manager = lightning_manager.write()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let response = manager.create_invoice(
         request.value_msat,
         request.memo.as_deref().unwrap_or(""),
@@ -415,7 +424,8 @@ pub async fn get_network_nodes(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Get network nodes
-    let manager = lightning_manager.read().unwrap();
+    let manager = lightning_manager.read()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let nodes = manager.get_network_nodes(params.limit.unwrap_or(100))
         .map_err(|e| ApiError::internal_error(format!("Failed to list network nodes: {}", e)))?;
     
@@ -448,7 +458,8 @@ pub async fn get_node_info(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Get node info
-    let manager = lightning_manager.read().unwrap();
+    let manager = lightning_manager.read()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let node_info = manager.get_node_info(&node_id)
         .map_err(|e| ApiError::internal_error(format!("Failed to get node info: {}", e)))?
         .ok_or_else(|| ApiError::not_found(format!("Node {} not found", node_id)))?;
@@ -494,7 +505,8 @@ pub async fn find_route(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Find route
-    let manager = lightning_manager.read().unwrap();
+    let manager = lightning_manager.read()
+        .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let route = manager.find_route(
         &params.pub_key,
         params.amt_msat,
