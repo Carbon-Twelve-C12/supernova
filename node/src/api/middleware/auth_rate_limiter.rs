@@ -74,7 +74,7 @@ impl AuthRateLimiter {
             Ok(a) => a,
             Err(e) => {
                 // On lock poisoning, assume blocked for safety
-                log::error!("Failed to acquire read lock: {}", e);
+                tracing::error!("Failed to acquire read lock: {}", e);
                 return true;
             }
         };
@@ -94,7 +94,7 @@ impl AuthRateLimiter {
         let mut attempts = match self.failed_attempts.write() {
             Ok(a) => a,
             Err(e) => {
-                log::error!("Failed to acquire write lock: {}", e);
+                tracing::error!("Failed to acquire write lock: {}", e);
                 return;
             }
         };
@@ -133,7 +133,7 @@ impl AuthRateLimiter {
         let mut attempts = match self.failed_attempts.write() {
             Ok(a) => a,
             Err(e) => {
-                log::error!("Failed to acquire write lock: {}", e);
+                tracing::error!("Failed to acquire write lock: {}", e);
                 return;
             }
         };
@@ -146,7 +146,7 @@ impl AuthRateLimiter {
         let mut attempts = match self.failed_attempts.write() {
             Ok(a) => a,
             Err(e) => {
-                log::error!("Failed to acquire write lock during cleanup: {}", e);
+                tracing::error!("Failed to acquire write lock during cleanup: {}", e);
                 return;
             }
         };

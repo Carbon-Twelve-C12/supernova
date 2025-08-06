@@ -487,7 +487,10 @@ impl RecoveryManager {
         }
 
         for result in join_all(tasks).await {
-            if !result.map_err(|e| StorageError::DatabaseError(format!("Task join error: {}", e)))? {
+            let verified = result
+                .map_err(|e| StorageError::DatabaseError(format!("Task join error: {}", e)))?
+                ?;  // Unwrap the inner Result<bool, StorageError>
+            if !verified {
                 return Ok(false);
             }
         }

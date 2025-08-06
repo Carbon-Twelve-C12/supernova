@@ -858,7 +858,7 @@ impl MiningManager {
     }
     
     /// Update hashrate statistics
-    pub fn update_hashrate(&self, hashrate: u64) {
+    pub fn update_hashrate(&self, hashrate: u64) -> Result<(), MiningError> {
         self.current_hashrate.store(hashrate, Ordering::Relaxed);
         
         // Update statistics
@@ -866,6 +866,7 @@ impl MiningManager {
             .map_err(|e| MiningError::InternalError(format!("Lock poisoned: {}", e)))?;
         stats.total_hashes += hashrate;
         stats.avg_hashrate_1h = hashrate as f64;
+        Ok(())
     }
     
     /// Update network hashrate estimate

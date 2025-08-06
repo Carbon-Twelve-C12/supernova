@@ -169,7 +169,11 @@ where
             Ok(clients) => clients,
             Err(_) => {
                 // Lock is poisoned, continue without rate limiting
-                return Poll::Ready(Ok(()));
+                let fut = self.service.call(req);
+                return Box::pin(async move {
+                    let res = fut.await?;
+                    Ok(res)
+                });
             }
         };
         
