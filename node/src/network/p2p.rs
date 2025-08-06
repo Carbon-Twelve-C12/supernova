@@ -749,10 +749,12 @@ impl P2PNetwork {
         
         // Handle events and commands in the main async context
         let command_receiver = Arc::clone(&self.command_receiver);
-        let swarm_cmd_tx = self.swarm_cmd_tx.read().await.clone().unwrap();
+        let swarm_cmd_tx = self.swarm_cmd_tx.read().await.clone()
+            .ok_or_else(|| Box::<dyn Error>::from("Swarm command sender not initialized"))?;
         
         let task = tokio::spawn(async move {
-            let mut command_rx = command_receiver.write().await.take().unwrap();
+            let mut command_rx = command_receiver.write().await.take()
+                .expect("Command receiver should be available");
             let mut rate_limit_cleanup_interval = tokio::time::interval(Duration::from_secs(300));
             let mut ban_cleanup_interval = tokio::time::interval(Duration::from_secs(60));
             
@@ -843,7 +845,9 @@ impl P2PNetwork {
                 stats_guard.bytes_sent += data_len as u64;
                 
                 // Track bandwidth
-                bandwidth_tracker.lock().unwrap().record_sent(data_len as u64);
+                if let Ok(mut tracker) = bandwidth_tracker.lock() {
+                    tracker.record_sent(data_len as u64);
+                }
             }
         }
         match cmd {
@@ -1046,7 +1050,9 @@ impl P2PNetwork {
                 stats.write().await.bytes_received += data.len() as u64;
                 
                 // Track bandwidth
-                bandwidth_tracker.lock().unwrap().record_received(data.len() as u64);
+                if let Ok(mut tracker) = bandwidth_tracker.lock() {
+                    tracker.record_received(data.len() as u64);
+                }
                 
                 // Update peer info
                 if let Some(peer_info) = connected_peers.write().await.get_mut(&peer_id) {

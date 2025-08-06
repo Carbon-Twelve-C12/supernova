@@ -267,16 +267,25 @@ impl NetworkRateLimiter {
         
         // Update metrics
         {
-            let mut metrics = self.metrics.write().unwrap();
-            metrics.total_requests += 1;
+            if let Ok(mut metrics) = self.metrics.write() {
+                metrics.total_requests += 1;
+            }
+            // Continue even if metrics lock fails
         }
         
         // Check circuit breaker
         if self.config.circuit_breaker_enabled {
-            let mut breaker = self.circuit_breaker.write().unwrap();
-            if !breaker.is_allowed() {
-                self.record_rejection();
-                return Err(RateLimitError::GlobalRateLimitExceeded);
+            match self.circuit_breaker.write() {
+                Ok(mut breaker) => {
+                    if !breaker.is_allowed() {
+                        self.record_rejection();
+                        return Err(RateLimitError::GlobalRateLimitExceeded);
+                    }
+                }
+                Err(_) => {
+                    // If lock fails, allow the request but log warning
+                    warn!("Circuit breaker lock poisoned, allowing request");
+                }
             }
         }
         
@@ -313,12 +322,17 @@ impl NetworkRateLimiter {
     
     /// Check IP-specific rate limit
     fn check_ip_limit(&self, ip: IpAddr) -> Result<(), RateLimitError> {
-        let mut limits = self.ip_limits.write().unwrap();
+        let mut limits = self.ip_limits.write()
+            .map_err(|_| {
+                warn!("IP limits lock poisoned");
+                RateLimitError::GlobalRateLimitExceeded
+            })?;
         let limit = limits.entry(ip).or_insert_with(IpRateLimit::new);
         
         // Check if banned
         if limit.is_banned() {
-            let banned_until = limit.banned_until.unwrap();
+            let banned_until = limit.banned_until
+                .expect("is_banned() returned true but banned_until is None");
             return Err(RateLimitError::IpBanned(ip, banned_until));
         }
         
@@ -403,7 +417,12 @@ impl NetworkRateLimiter {
     
     /// Get current metrics
     pub fn metrics(&self) -> RateLimitMetrics {
-        self.metrics.read().unwrap().clone()
+        self.metrics.read()
+            .map(|m| m.clone())
+            .unwrap_or_else(|_| {
+                warn!("Metrics lock poisoned, returning default");
+                RateLimitMetrics::default()
+            })
     }
     
     /// Clean up old entries
