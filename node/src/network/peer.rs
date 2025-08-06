@@ -378,7 +378,13 @@ impl PeerManager {
             return false;
         }
         
-        let mut attempts = self.connection_attempts.lock().unwrap();
+        let mut attempts = match self.connection_attempts.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                warn!("Connection attempts lock poisoned");
+                return false; // Deny connection on lock failure
+            }
+        };
         
         // Clean up old attempts
         for (_, timestamps) in attempts.iter_mut() {

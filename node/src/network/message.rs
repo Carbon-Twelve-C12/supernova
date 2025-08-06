@@ -132,8 +132,11 @@ impl MessageHandler {
     pub fn queue_message(&self, from_peer: Option<PeerId>, message: ProtocolMessage) {
         // Queue the message for processing
         let network_message = NetworkMessage::new(from_peer, message);
-        let mut queue = self.incoming_queue.lock().unwrap();
-        queue.push_back(network_message);
+        if let Ok(mut queue) = self.incoming_queue.lock() {
+            queue.push_back(network_message);
+        } else {
+            warn!("Failed to acquire message queue lock, dropping message");
+        }
     }
     
     /// Process the next batch of queued messages
@@ -142,7 +145,13 @@ impl MessageHandler {
         
         // Get messages from the queue (limited batch)
         let messages = {
-            let mut queue = self.incoming_queue.lock().unwrap();
+            let mut queue = match self.incoming_queue.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    warn!("Failed to acquire message queue lock for processing");
+                    return 0;
+                }
+            };
             let mut batch = Vec::new();
             
             while let Some(message) = queue.pop_front() {
@@ -227,7 +236,8 @@ impl MessageHandler {
         }
         
         // Check for duplicates
-        let mut seen = self.seen_messages.lock().unwrap();
+        let mut seen = self.seen_messages.lock()
+            .map_err(|_| "Seen messages lock poisoned".to_string())?;
         
         // Use blake3 for fast hashing
         let hash = blake3::hash(&message_bytes).as_bytes().to_vec();
@@ -280,7 +290,13 @@ impl MessageHandler {
     /// Clean up the seen messages cache
     fn clean_seen_cache(&self) {
         let now = Instant::now();
-        let mut seen = self.seen_messages.lock().unwrap();
+        let mut seen = match self.seen_messages.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                warn!("Failed to acquire seen messages lock for cleanup");
+                return;
+            }
+        };
         
         // Remove entries older than TTL
         seen.retain(|_, timestamp| {
@@ -329,12 +345,16 @@ impl MessageHandler {
     
     /// Get the current size of the message queue
     pub fn queue_size(&self) -> usize {
-        self.incoming_queue.lock().unwrap().len()
+        self.incoming_queue.lock()
+            .map(|q| q.len())
+            .unwrap_or(0)
     }
     
     /// Get the current size of the seen message cache
     pub fn seen_cache_size(&self) -> usize {
-        self.seen_messages.lock().unwrap().len()
+        self.seen_messages.lock()
+            .map(|s| s.len())
+            .unwrap_or(0)
     }
 }
 

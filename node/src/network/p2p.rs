@@ -1156,7 +1156,8 @@ impl P2PNetwork {
     /// Get network info for API
     pub async fn get_network_info(&self) -> Result<NetworkInfo, Box<dyn Error>> {
         let stats = self.get_stats().await;
-        let bandwidth = self.bandwidth_tracker.lock().unwrap();
+        let bandwidth = self.bandwidth_tracker.lock()
+            .map_err(|e| Box::<dyn Error>::from(format!("Bandwidth tracker lock poisoned: {}", e)))?;
         let rates = bandwidth.get_rates(60);
         let (bytes_sent, bytes_received) = (bandwidth.bytes_sent, bandwidth.bytes_received);
         
@@ -1432,7 +1433,8 @@ impl P2PNetwork {
     
     /// Get bandwidth usage for API
     pub async fn get_bandwidth_usage(&self, period: u64) -> Result<BandwidthUsage, Box<dyn Error>> {
-        let bandwidth = self.bandwidth_tracker.lock().unwrap();
+        let bandwidth = self.bandwidth_tracker.lock()
+            .map_err(|e| Box::<dyn Error>::from(format!("Bandwidth tracker lock poisoned: {}", e)))?;
         let (upload_rate, download_rate) = bandwidth.get_rates(period);
         
         Ok(BandwidthUsage {
@@ -1553,7 +1555,9 @@ impl P2PNetwork {
         if let Ok(data) = bincode::serialize(&message) {
             stats.write().await.messages_sent += 1;
             stats.write().await.bytes_sent += data.len() as u64;
-            bandwidth_tracker.lock().unwrap().record_sent(data.len() as u64);
+            if let Ok(mut tracker) = bandwidth_tracker.lock() {
+                tracker.record_sent(data.len() as u64);
+            }
         }
     }
     
@@ -1573,7 +1577,9 @@ impl P2PNetwork {
         if let Ok(data) = bincode::serialize(&message) {
             stats.write().await.messages_sent += 1;
             stats.write().await.bytes_sent += data.len() as u64;
-            bandwidth_tracker.lock().unwrap().record_sent(data.len() as u64);
+            if let Ok(mut tracker) = bandwidth_tracker.lock() {
+                tracker.record_sent(data.len() as u64);
+            }
         }
     }
     

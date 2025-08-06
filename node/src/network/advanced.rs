@@ -364,18 +364,23 @@ impl AdvancedNetworkService {
     
     /// Get current connection statistics
     pub fn get_connection_stats(&self) -> ConnectionStats {
-        self.stats.read().unwrap().clone()
+        self.stats.read()
+            .map(|s| s.clone())
+            .unwrap_or_default()
     }
     
     /// Get information about a connected peer
     pub fn get_peer_info(&self, peer_id: &PeerId) -> Option<PeerGeoInfo> {
-        let info = self.peer_info.read().unwrap();
-        info.get(peer_id).and_then(|p| p.geo_info.clone())
+        self.peer_info.read()
+            .ok()
+            .and_then(|info| info.get(peer_id).and_then(|p| p.geo_info.clone()))
     }
     
     /// Get the geographic diversity score
     pub fn get_geo_diversity_score(&self) -> f64 {
-        self.stats.read().unwrap().geo_diversity_score
+        self.stats.read()
+            .map(|s| s.geo_diversity_score)
+            .unwrap_or(0.0)
     }
     
     /// Lookup geographic information for an IP address
@@ -479,7 +484,13 @@ fn update_connection_stats(
         .unwrap_or_default()
         .as_secs();
         
-    let peers = peer_info.read().unwrap();
+    let peers = match peer_info.read() {
+        Ok(guard) => guard,
+        Err(_) => {
+            warn!("Failed to acquire peer info lock for stats update");
+            return;
+        }
+    };
     let mut new_stats = ConnectionStats {
         last_updated: now,
         ..Default::default()
@@ -538,7 +549,11 @@ fn update_connection_stats(
     new_stats.geo_diversity_score = calculate_geo_diversity(&peers);
     
     // Update stats atomically
-    *stats.write().unwrap() = new_stats;
+    if let Ok(mut stats_guard) = stats.write() {
+        *stats_guard = new_stats;
+    } else {
+        warn!("Failed to acquire stats lock for update");
+    }
 }
 
 /// Extract IP address from a multiaddr

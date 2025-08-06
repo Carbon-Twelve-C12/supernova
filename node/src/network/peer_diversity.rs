@@ -348,7 +348,13 @@ impl PeerDiversityManager {
         let now = Instant::now();
         let one_minute_ago = now - Duration::from_secs(60);
         
-        let mut attempts = self.connection_attempts.write().unwrap();
+        let mut attempts = match self.connection_attempts.write() {
+            Ok(guard) => guard,
+            Err(_) => {
+                warn!("Connection attempts lock poisoned");
+                return false; // Deny connection on lock failure
+            }
+        };
         
         // Clean up old attempts
         for (_, timestamps) in attempts.iter_mut() {
@@ -468,7 +474,7 @@ impl PeerDiversityManager {
             let mut subnet_peers = subnet_counts[&subnet].clone();
             
             // Sort by score, disconnect lowest scores first
-            subnet_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            subnet_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             
             // Disconnect excess peers
             let excess_count = count - self.eclipse_config.max_connections_per_subnet;
@@ -491,7 +497,7 @@ impl PeerDiversityManager {
                 .collect();
                 
             // Sort by score, lowest first
-            remaining_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            remaining_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             
             // Take additional peers up to target
             let additional_needed = target_rotation_count - disconnection_count;
@@ -626,7 +632,7 @@ impl PeerDiversityManager {
                 .collect();
                 
             // Sort by score (lowest first)
-            subnet_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            subnet_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             
             // Add the worst-scoring peers from this subnet
             let to_take = subnet_count - self.eclipse_config.max_connections_per_subnet;

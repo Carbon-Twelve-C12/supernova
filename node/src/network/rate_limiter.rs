@@ -346,8 +346,9 @@ impl NetworkRateLimiter {
             // Ban if too many violations
             if limit.violations >= self.config.violations_before_ban {
                 limit.banned_until = Some(Instant::now() + self.config.ban_duration);
-                let mut metrics = self.metrics.write().unwrap();
-                metrics.banned_ips += 1;
+                if let Ok(mut metrics) = self.metrics.write() {
+                    metrics.banned_ips += 1;
+                }
                 warn!("Banned IP {} for repeated rate limit violations", ip);
             }
             
@@ -379,7 +380,11 @@ impl NetworkRateLimiter {
             }
         };
         
-        let mut limits = self.subnet_limits.write().unwrap();
+        let mut limits = self.subnet_limits.write()
+            .map_err(|_| {
+                warn!("Subnet limits lock poisoned");
+                RateLimitError::GlobalRateLimitExceeded
+            })?;
         let limit = limits.entry(subnet.clone()).or_insert_with(IpRateLimit::new);
         
         limit.cleanup(self.config.subnet_window);
@@ -396,23 +401,26 @@ impl NetworkRateLimiter {
     /// Record a successful operation
     pub fn record_success(&self) {
         if self.config.circuit_breaker_enabled {
-            let mut breaker = self.circuit_breaker.write().unwrap();
-            breaker.record_success();
+            if let Ok(mut breaker) = self.circuit_breaker.write() {
+                breaker.record_success();
+            }
         }
     }
     
     /// Record a failed operation
     pub fn record_failure(&self) {
         if self.config.circuit_breaker_enabled {
-            let mut breaker = self.circuit_breaker.write().unwrap();
-            breaker.record_failure();
+            if let Ok(mut breaker) = self.circuit_breaker.write() {
+                breaker.record_failure();
+            }
         }
     }
     
     /// Record a rejection
     fn record_rejection(&self) {
-        let mut metrics = self.metrics.write().unwrap();
-        metrics.rejected_requests += 1;
+        if let Ok(mut metrics) = self.metrics.write() {
+            metrics.rejected_requests += 1;
+        }
     }
     
     /// Get current metrics
@@ -429,22 +437,24 @@ impl NetworkRateLimiter {
     pub fn cleanup(&self) {
         // Clean up IP limits
         {
-            let mut limits = self.ip_limits.write().unwrap();
-            let now = Instant::now();
-            limits.retain(|_, limit| {
-                // Keep if banned or has recent requests
-                limit.is_banned() || 
-                limit.requests.iter().any(|&t| now.duration_since(t) <= self.config.ip_window * 2)
-            });
+            if let Ok(mut limits) = self.ip_limits.write() {
+                let now = Instant::now();
+                limits.retain(|_, limit| {
+                    // Keep if banned or has recent requests
+                    limit.is_banned() || 
+                    limit.requests.iter().any(|&t| now.duration_since(t) <= self.config.ip_window * 2)
+                });
+            }
         }
         
         // Clean up subnet limits
         {
-            let mut limits = self.subnet_limits.write().unwrap();
-            let now = Instant::now();
-            limits.retain(|_, limit| {
-                limit.requests.iter().any(|&t| now.duration_since(t) <= self.config.subnet_window * 2)
-            });
+            if let Ok(mut limits) = self.subnet_limits.write() {
+                let now = Instant::now();
+                limits.retain(|_, limit| {
+                    limit.requests.iter().any(|&t| now.duration_since(t) <= self.config.subnet_window * 2)
+                });
+            }
         }
         
         debug!("Rate limiter cleanup completed");
@@ -452,7 +462,13 @@ impl NetworkRateLimiter {
 
     /// Get current rate limit metrics as JSON
     pub fn get_metrics_json(&self) -> serde_json::Value {
-        let metrics = self.metrics.read().unwrap();
+        let metrics = match self.metrics.read() {
+            Ok(m) => m.clone(),
+            Err(_) => {
+                warn!("Metrics lock poisoned, returning default JSON");
+                RateLimitMetrics::default()
+            }
+        };
         serde_json::json!({
             "total_requests": metrics.total_requests,
             "rejected_requests": metrics.rejected_requests,
