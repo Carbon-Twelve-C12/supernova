@@ -382,7 +382,10 @@ impl RecoveryManager {
                 height,
                 block_hash,
                 utxo_hash,
-                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
             };
 
             self.checkpoints.insert(height, checkpoint.clone());
@@ -484,7 +487,7 @@ impl RecoveryManager {
         }
 
         for result in join_all(tasks).await {
-            if !result.unwrap()? {
+            if !result.map_err(|e| StorageError::DatabaseError(format!("Task join error: {}", e)))? {
                 return Ok(false);
             }
         }
@@ -500,7 +503,8 @@ impl RecoveryManager {
         let mut height = self.chain_state.get_best_height();
 
         while height > 0 {
-            let block = self.db.get_block(&current_hash)?.unwrap();
+            let block = self.db.get_block(&current_hash)?
+                .ok_or_else(|| StorageError::KeyNotFound(format!("Block not found: {:?}", current_hash)))?;
 
             for tx in block.transactions() {
                 for input in tx.inputs() {
@@ -593,7 +597,8 @@ impl RecoveryManager {
         let mut height = self.chain_state.get_best_height();
 
         while height > 0 {
-            let block = self.db.get_block(&current_hash)?.unwrap();
+            let block = self.db.get_block(&current_hash)?
+                .ok_or_else(|| StorageError::KeyNotFound(format!("Block not found: {:?}", current_hash)))?;
             
             for tx in block.transactions() {
                 let tx_hash = tx.hash();
@@ -633,9 +638,8 @@ impl RecoveryManager {
         };
         
         // Find the latest checkpoint
-        if !self.checkpoints.is_empty() {
-            let latest_height = *self.checkpoints.keys().max().unwrap();
-            self.last_checkpoint = self.checkpoints.get(&latest_height).cloned();
+        if let Some(latest_height) = self.checkpoints.keys().max() {
+            self.last_checkpoint = self.checkpoints.get(latest_height).cloned();
             
             if let Some(checkpoint) = &self.last_checkpoint {
                 info!("Loaded checkpoint at height {}", checkpoint.height);

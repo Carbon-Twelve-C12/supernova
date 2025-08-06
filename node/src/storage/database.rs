@@ -822,7 +822,8 @@ impl BlockchainDB {
         
         // Update bloom filter
         if self.config.use_bloom_filters {
-            let mut tx_filter = self.tx_filter.write().unwrap();
+            let mut tx_filter = self.tx_filter.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("Transaction filter write lock poisoned: {}", e)))?;
             tx_filter.insert(tx_hash);
         }
         
@@ -848,7 +849,8 @@ impl BlockchainDB {
         
         // Check bloom filter for fast negative lookups
         if self.config.use_bloom_filters {
-            let tx_filter = self.tx_filter.read().unwrap();
+            let tx_filter = self.tx_filter.read()
+                .map_err(|e| StorageError::LockPoisoned(format!("Transaction filter read lock poisoned: {}", e)))?;
             if !tx_filter.contains(tx_hash) {
                 return Ok(None);
             }
@@ -903,7 +905,9 @@ impl BlockchainDB {
     /// Get block hash by height
     pub fn get_block_by_height(&self, height: u64) -> Result<Option<Block>, StorageError> {
         if let Some(hash) = self.block_height_index.get(&height.to_be_bytes())? {
-            self.get_block(hash.as_ref().try_into().unwrap())
+            let hash_array: [u8; 32] = hash.as_ref().try_into()
+                .map_err(|_| StorageError::DatabaseError("Invalid block hash length".to_string()))?;
+            self.get_block(&hash_array)
         } else {
             Ok(None)
         }
@@ -1108,9 +1112,10 @@ impl BlockchainDB {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
             if path.is_file() && path.extension().map_or(false, |ext| ext == "sst") {
-                let file_name = path.file_name().unwrap();
-                let target_path = backup_path.join(file_name);
-                fs::copy(&path, &target_path).await?;
+                if let Some(file_name) = path.file_name() {
+                    let target_path = backup_path.join(file_name);
+                    fs::copy(&path, &target_path).await?;
+                }
             }
         }
         
@@ -2031,13 +2036,15 @@ impl BlockchainDB {
             let block_filter_capacity = (blocks_budget / 100) as usize; // Each block requires ~100 bytes in filter
             let tx_filter_capacity = (tx_budget / 50) as usize; // Each tx requires ~50 bytes in filter
             
-            let mut block_filter = self.block_filter.write().unwrap();
+            let mut block_filter = self.block_filter.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("Block filter write lock poisoned: {}", e)))?;
             *block_filter = BloomFilter::new(
                 block_filter_capacity.max(1000), // At least 1000 items
                 self.config.bloom_filter_fpr,
             );
             
-            let mut tx_filter = self.tx_filter.write().unwrap();
+            let mut tx_filter = self.tx_filter.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("Transaction filter write lock poisoned: {}", e)))?;
             *tx_filter = BloomFilter::new(
                 tx_filter_capacity.max(10000), // At least 10000 items
                 self.config.bloom_filter_fpr,
@@ -2065,7 +2072,8 @@ impl BlockchainDB {
             
             // Add to bloom filter
             if self.config.use_bloom_filters {
-                let mut tx_filter = self.tx_filter.write().unwrap();
+                let mut tx_filter = self.tx_filter.write()
+                    .map_err(|e| StorageError::LockPoisoned(format!("Transaction filter write lock poisoned: {}", e)))?;
                 tx_filter.insert(&key);
             }
             
@@ -2125,11 +2133,15 @@ impl BlockchainDB {
                         // Update bloom filters if enabled
                         if self.config.use_bloom_filters {
                             if tree_name == BLOCKS_TREE {
-                                let mut block_filter = self.block_filter.write().unwrap();
-                                block_filter.insert(&key);
+                                if let Ok(mut block_filter) = self.block_filter.write() {
+                                    block_filter.insert(&key);
+                                }
+                                // Silently ignore lock failures during restore
                             } else if tree_name == TXNS_TREE {
-                                let mut tx_filter = self.tx_filter.write().unwrap();
-                                tx_filter.insert(&key);
+                                if let Ok(mut tx_filter) = self.tx_filter.write() {
+                                    tx_filter.insert(&key);
+                                }
+                                // Silently ignore lock failures during restore
                             }
                         }
                     },
@@ -2183,13 +2195,17 @@ impl BlockchainDB {
         
         if self.config.use_bloom_filters {
             {
-                let mut block_filter = self.block_filter.write().unwrap();
-                block_filter.clear();
+                if let Ok(mut block_filter) = self.block_filter.write() {
+                    block_filter.clear();
+                }
+                // Silently ignore lock failures during clear
             } // Lock is dropped here
             
             {
-                let mut tx_filter = self.tx_filter.write().unwrap();
-                tx_filter.clear();
+                if let Ok(mut tx_filter) = self.tx_filter.write() {
+                    tx_filter.clear();
+                }
+                // Silently ignore lock failures during clear
             } // Lock is dropped here
             
             // Reinitialize bloom filters

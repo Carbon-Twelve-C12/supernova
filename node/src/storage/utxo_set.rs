@@ -216,7 +216,8 @@ impl UtxoSet {
         }
         
         // Get mmap again after potential remapping
-        let mmap = self.mmap.as_mut().unwrap();
+        let mmap = self.mmap.as_mut()
+            .ok_or_else(|| StorageError::DatabaseError("Memory map not initialized".to_string()))?;
         
         // Write header with entry count
         let entry_count = self.utxos.len();
@@ -364,7 +365,7 @@ impl UtxoSet {
         // Create commitment
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|_| StorageError::DatabaseError("System time before UNIX epoch".to_string()))?
             .as_secs();
             
         let commitment = UtxoCommitment {
