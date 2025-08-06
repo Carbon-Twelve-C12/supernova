@@ -84,39 +84,52 @@ impl<T: Clone> DatabaseCache<T> {
     /// Create a new database cache with specified capacity
     pub fn new(capacity: usize) -> Self {
         Self {
-            cache: RwLock::new(LruCache::new(NonZeroUsize::new(capacity.max(1)).unwrap())),
+            cache: RwLock::new(LruCache::new(
+                NonZeroUsize::new(capacity.max(1))
+                    .expect("Capacity is guaranteed to be at least 1")
+            )),
             capacity,
         }
     }
     
     /// Get an item from cache
     pub fn get(&self, key: &[u8]) -> Option<T> {
-        let mut cache = self.cache.write().unwrap();
+        let mut cache = self.cache.write().ok()?;
         cache.get(&key.to_vec()).cloned()
     }
     
     /// Insert an item into cache
     pub fn insert(&self, key: &[u8], value: T) {
-        let mut cache = self.cache.write().unwrap();
-        cache.put(key.to_vec(), value);
+        if let Ok(mut cache) = self.cache.write() {
+            cache.put(key.to_vec(), value);
+        }
+        // Silently ignore lock failures for cache inserts
     }
     
     /// Remove an item from cache
     pub fn remove(&self, key: &[u8]) {
-        let mut cache = self.cache.write().unwrap();
-        cache.pop(&key.to_vec());
+        if let Ok(mut cache) = self.cache.write() {
+            cache.pop(&key.to_vec());
+        }
+        // Silently ignore lock failures for cache removals
     }
     
     /// Clear the cache
     pub fn clear(&self) {
-        let mut cache = self.cache.write().unwrap();
-        cache.clear();
+        if let Ok(mut cache) = self.cache.write() {
+            cache.clear();
+        }
+        // Silently ignore lock failures for cache clears
     }
     
     /// Resize the cache
     pub fn resize(&self, new_capacity: usize) {
-        let mut cache = self.cache.write().unwrap();
-        cache.resize(NonZeroUsize::new(new_capacity.max(1)).unwrap());
+        if let Ok(mut cache) = self.cache.write() {
+            if let Some(cap) = NonZeroUsize::new(new_capacity.max(1)) {
+                cache.resize(cap);
+            }
+        }
+        // Silently ignore lock failures for cache resizes
     }
 }
 
@@ -456,14 +469,16 @@ impl BlockchainDB {
         // Load existing blocks into the bloom filter
         for result in self.blocks.iter() {
             let (key, _) = result?;
-            let mut block_filter = self.block_filter.write().unwrap();
+            let mut block_filter = self.block_filter.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("Block filter write lock poisoned: {}", e)))?;
             block_filter.insert(&key);
         }
         
         // Load existing transactions into the bloom filter
         for result in self.transactions.iter() {
             let (key, _) = result?;
-            let mut tx_filter = self.tx_filter.write().unwrap();
+            let mut tx_filter = self.tx_filter.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("Transaction filter write lock poisoned: {}", e)))?;
             tx_filter.insert(&key);
         }
         
@@ -480,7 +495,8 @@ impl BlockchainDB {
         
         // Update bloom filter
         if self.config.use_bloom_filters {
-            let mut block_filter = self.block_filter.write().unwrap();
+            let mut block_filter = self.block_filter.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("Block filter write lock poisoned: {}", e)))?;
             block_filter.insert(block_hash);
         }
         
@@ -506,7 +522,8 @@ impl BlockchainDB {
         
         // Check bloom filter for fast negative lookups
         if self.config.use_bloom_filters {
-            let block_filter = self.block_filter.read().unwrap();
+            let block_filter = self.block_filter.read()
+                .map_err(|e| StorageError::LockPoisoned(format!("Block filter read lock poisoned: {}", e)))?;
             if !block_filter.contains(block_hash) {
                 return Ok(None);
             }
@@ -2493,6 +2510,8 @@ pub enum StorageError {
     PendingBlockExpired,
     #[error("Pending block invalid")]
     PendingBlockInvalid,
+    #[error("Lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 // Add these implementations after the enum definition

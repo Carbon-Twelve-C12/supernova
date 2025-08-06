@@ -113,7 +113,8 @@ impl AtomicUtxoSet {
                 let loaded_utxos: HashMap<OutPoint, UnspentOutput> = 
                     bincode::deserialize(&contents)?;
                 
-                let mut utxos = self.utxos.write().unwrap();
+                let mut utxos = self.utxos.write()
+                    .map_err(|e| StorageError::LockPoisoned(format!("UTXO lock poisoned: {}", e)))?;
                 *utxos = loaded_utxos;
                 
                 info!("Loaded {} UTXOs from disk", utxos.len());
@@ -203,15 +204,18 @@ impl AtomicUtxoSet {
     /// Apply a UTXO transaction atomically
     pub fn apply_transaction(&self, tx: UtxoTransaction) -> Result<(), StorageError> {
         // Acquire transaction lock for atomicity
-        let _tx_guard = self.tx_lock.lock().unwrap();
+        let _tx_guard = self.tx_lock.lock()
+            .map_err(|e| StorageError::LockPoisoned(format!("Transaction lock poisoned: {}", e)))?;
         
         // First, write to WAL for crash recovery
         self.write_to_wal(&tx)?;
         
         // Validate all inputs exist and aren't already spent
         {
-            let utxos = self.utxos.read().unwrap();
-            let spent = self.spent_outputs.read().unwrap();
+            let utxos = self.utxos.read()
+                .map_err(|e| StorageError::LockPoisoned(format!("UTXO read lock poisoned: {}", e)))?;
+            let spent = self.spent_outputs.read()
+                .map_err(|e| StorageError::LockPoisoned(format!("Spent outputs read lock poisoned: {}", e)))?;
             
             for input in &tx.inputs {
                 // Check if UTXO exists
@@ -243,8 +247,10 @@ impl AtomicUtxoSet {
     fn apply_transaction_internal(&self, tx: &UtxoTransaction) -> Result<(), StorageError> {
         // Remove spent UTXOs
         {
-            let mut utxos = self.utxos.write().unwrap();
-            let mut spent = self.spent_outputs.write().unwrap();
+            let mut utxos = self.utxos.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("UTXO write lock poisoned: {}", e)))?;
+            let mut spent = self.spent_outputs.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("Spent outputs write lock poisoned: {}", e)))?;
             
             for input in &tx.inputs {
                 utxos.remove(input);
@@ -254,7 +260,8 @@ impl AtomicUtxoSet {
         
         // Add new UTXOs
         {
-            let mut utxos = self.utxos.write().unwrap();
+            let mut utxos = self.utxos.write()
+                .map_err(|e| StorageError::LockPoisoned(format!("UTXO write lock poisoned: {}", e)))?;
             
             for (outpoint, output) in &tx.outputs {
                 utxos.insert(*outpoint, output.clone());
@@ -287,21 +294,30 @@ impl AtomicUtxoSet {
     
     /// Get a UTXO by outpoint
     pub fn get(&self, outpoint: &OutPoint) -> Option<UnspentOutput> {
-        let utxos = self.utxos.read().unwrap();
+        let utxos = self.utxos.read().ok()?;
         utxos.get(outpoint).cloned()
     }
     
     /// Check if a UTXO exists and is unspent
     pub fn contains(&self, outpoint: &OutPoint) -> bool {
-        let utxos = self.utxos.read().unwrap();
-        let spent = self.spent_outputs.read().unwrap();
+        let utxos = match self.utxos.read() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
+        let spent = match self.spent_outputs.read() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
         
         utxos.contains_key(outpoint) && !spent.contains(outpoint)
     }
     
     /// Get multiple UTXOs atomically
     pub fn get_batch(&self, outpoints: &[OutPoint]) -> Vec<Option<UnspentOutput>> {
-        let utxos = self.utxos.read().unwrap();
+        let utxos = match self.utxos.read() {
+            Ok(guard) => guard,
+            Err(_) => return outpoints.iter().map(|_| None).collect(),
+        };
         
         outpoints.iter()
             .map(|outpoint| utxos.get(outpoint).cloned())
@@ -310,8 +326,10 @@ impl AtomicUtxoSet {
     
     /// Validate that all inputs for a transaction exist
     pub fn validate_inputs(&self, tx: &Transaction) -> Result<bool, StorageError> {
-        let utxos = self.utxos.read().unwrap();
-        let spent = self.spent_outputs.read().unwrap();
+        let utxos = self.utxos.read()
+            .map_err(|e| StorageError::LockPoisoned(format!("UTXO read lock poisoned: {}", e)))?;
+        let spent = self.spent_outputs.read()
+            .map_err(|e| StorageError::LockPoisoned(format!("Spent outputs read lock poisoned: {}", e)))?;
         
         // Skip validation for coinbase
         if tx.inputs().is_empty() || tx.inputs()[0].prev_output_index() == 0xffffffff {
@@ -340,7 +358,8 @@ impl AtomicUtxoSet {
     
     /// Save UTXO set to disk
     pub fn save(&self) -> Result<(), StorageError> {
-        let utxos = self.utxos.read().unwrap();
+        let utxos = self.utxos.read()
+            .map_err(|e| StorageError::LockPoisoned(format!("UTXO read lock poisoned: {}", e)))?;
         
         let serialized = bincode::serialize(&*utxos)?;
         
@@ -360,13 +379,19 @@ impl AtomicUtxoSet {
     
     /// Get current UTXO count
     pub fn len(&self) -> usize {
-        let utxos = self.utxos.read().unwrap();
+        let utxos = match self.utxos.read() {
+            Ok(guard) => guard,
+            Err(_) => return 0,
+        };
         utxos.len()
     }
     
     /// Get total value of all UTXOs
     pub fn total_value(&self) -> u64 {
-        let utxos = self.utxos.read().unwrap();
+        let utxos = match self.utxos.read() {
+            Ok(guard) => guard,
+            Err(_) => return 0,
+        };
         utxos.values()
             .map(|utxo| utxo.value)
             .fold(0u64, |acc, val| acc.saturating_add(val))
@@ -374,7 +399,8 @@ impl AtomicUtxoSet {
     
     /// Clear spent outputs older than a certain height (pruning)
     pub fn prune_spent_outputs(&self, height_limit: u64) -> Result<usize, StorageError> {
-        let mut spent = self.spent_outputs.write().unwrap();
+        let mut spent = self.spent_outputs.write()
+            .map_err(|e| StorageError::LockPoisoned(format!("Spent outputs write lock poisoned: {}", e)))?;
         let initial_size = spent.len();
         
         // In a real implementation, we'd track the spend height
