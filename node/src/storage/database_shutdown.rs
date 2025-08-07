@@ -352,7 +352,10 @@ impl DatabaseStartupHandler {
             if let Ok(timestamp_str) = std::str::from_utf8(&last_shutdown) {
                 if let Ok(timestamp) = timestamp_str.parse::<i64>() {
                     let shutdown_time = chrono::DateTime::from_timestamp(timestamp, 0)
-                        .unwrap_or(chrono::DateTime::from_timestamp(0, 0).unwrap());
+                        .unwrap_or_else(|| {
+                            chrono::DateTime::from_timestamp(0, 0)
+                                .unwrap_or_else(|| chrono::DateTime::<chrono::Utc>::MIN_UTC)
+                        });
                     info!("Last clean shutdown was at {}", shutdown_time);
                     return Ok(true);
                 }

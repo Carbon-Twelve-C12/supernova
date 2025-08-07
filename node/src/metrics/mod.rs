@@ -102,8 +102,8 @@ impl<'a> BackupOperation<'a> {
         self.metrics.last_backup_time.set(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as f64,
+                .map(|d| d.as_secs() as f64)
+                .unwrap_or(0.0),
         );
     }
 }
@@ -230,7 +230,9 @@ impl ApiMetricsManager {
     
     /// Get current metrics snapshot
     pub fn get_metrics(&self) -> ApiMetrics {
-        self.metrics.lock().unwrap().clone()
+        self.metrics.lock()
+            .map(|m| m.clone())
+            .unwrap_or_else(|_| ApiMetrics::new())
     }
     
     /// Reset metrics

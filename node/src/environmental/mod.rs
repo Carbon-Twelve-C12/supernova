@@ -183,8 +183,8 @@ impl EnvironmentalMonitor {
             ],
             calculated_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
         })
     }
     
@@ -195,7 +195,8 @@ impl EnvironmentalMonitor {
         }
         
         // Calculate energy usage based on system resources
-        let mut system = self.system.lock().unwrap();
+        let mut system = self.system.lock()
+            .map_err(|_| EnvironmentalError::InvalidSetting("System lock poisoned".to_string()))?;
         system.refresh_cpu();
         
         // Get global CPU usage - in sysinfo 0.29, we need to calculate it from all CPUs
@@ -238,7 +239,9 @@ impl EnvironmentalMonitor {
             energy_history.push(history_entry);
             
             // Trim history based on retention settings
-            let retention_seconds = self.settings.read().unwrap().data_retention_days * 86400;
+            let retention_seconds = self.settings.read()
+            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?
+            .data_retention_days * 86400;
             let current_timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -300,14 +303,22 @@ impl EnvironmentalMonitor {
         let intensity = emission_factor;
         
         // Get offsets if enabled and requested
-        let offsets = if include_offsets && self.settings.read().unwrap().carbon_offset_enabled {
+        let offsets = if include_offsets && self.settings.read()
+            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?
+            .carbon_offset_enabled {
             Some(vec![
                 crate::api::types::CarbonOffset {
-                    id: format!("offset_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+                    id: format!("offset_{}", SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0)),
                     quantity_g: total_emissions_g * 0.5, // Apply 50% offset
                     provider: "Gold Standard".to_string(),
                     verification: Some("Gold Standard".to_string()),
-                    timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                    timestamp: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
                 }
             ])
         } else {
@@ -346,7 +357,8 @@ impl EnvironmentalMonitor {
             return Err(EnvironmentalError::InvalidTimePeriod("Period must be greater than 0".to_string()));
         }
         
-        let mut system = self.system.lock().unwrap();
+        let mut system = self.system.lock()
+            .map_err(|_| EnvironmentalError::InvalidSetting("System lock poisoned".to_string()))?;
         system.refresh_all();
         
         // Calculate CPU usage - in sysinfo 0.29, we need to calculate it from all CPUs
@@ -403,7 +415,8 @@ impl EnvironmentalMonitor {
     
     /// Get current environmental settings (converted to API type)
     pub fn get_settings(&self) -> Result<EnvironmentalSettings, EnvironmentalError> {
-        let internal_settings = self.settings.read().unwrap();
+        let internal_settings = self.settings.read()
+            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?;
         Ok(EnvironmentalSettings {
             monitoring_enabled: internal_settings.monitoring_enabled,
             emission_tracking_enabled: internal_settings.emission_tracking_enabled,
@@ -419,7 +432,8 @@ impl EnvironmentalMonitor {
     
     /// Update environmental settings (partial update from API type)
     pub fn update_settings(&self, new_settings: EnvironmentalSettings) -> Result<EnvironmentalSettings, EnvironmentalError> {
-        let mut internal_settings = self.settings.write().unwrap();
+        let mut internal_settings = self.settings.write()
+            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?;
         
         // Update only the fields that exist in the API type
         internal_settings.monitoring_enabled = new_settings.monitoring_enabled;
@@ -495,9 +509,14 @@ impl EnvironmentalMonitor {
     /// Calculate renewable percentage based on location and settings
     fn calculate_renewable_percentage(&self) -> f64 {
         // First check if a value is manually set in settings
-        if let Some(renewable) = self.settings.read().unwrap().renewable_energy_percentage {
-            return renewable;
+        if let Ok(settings) = self.settings.read() {
+            if let Some(renewable) = settings.renewable_energy_percentage {
+                return renewable;
+            }
+        } else {
+            tracing::warn!("Failed to read settings: lock poisoned, using default");
         }
+
         
         // Otherwise calculate based on energy mix of the region
         if let Some(energy_mix) = self.energy_mix.get(&self.node_location) {
@@ -545,7 +564,9 @@ impl EnvironmentalMonitor {
         let emissions_tons = carbon_data.total_emissions_g / 1_000_000.0;
         
         // If carbon offset is enabled and we have offsets, calculate total
-        if self.settings.read().unwrap().carbon_offset_enabled {
+        if self.settings.read()
+            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?
+            .carbon_offset_enabled {
             if let Some(offsets) = &carbon_data.offsets {
                 // Sum all offsets and convert from grams to tons
                 offsets.iter().map(|o| o.quantity_g / 1_000_000.0).sum()
@@ -563,7 +584,13 @@ impl EnvironmentalMonitor {
         // For now, we'll estimate based on node activity
         
         // Get system network stats if available
-        let mut system = self.system.lock().unwrap();
+        let mut system = match self.system.lock() {
+            Ok(s) => s,
+            Err(_) => {
+                tracing::warn!("Failed to acquire system lock: using estimated network usage");
+                return 0.01 * period as f64; // Return conservative estimate
+            }
+        };
         
         // Estimate network usage based on period and typical node activity
         // Assume average of 1 MB/s for an active node

@@ -163,10 +163,14 @@ impl Node {
         let chain_state = Arc::new(RwLock::new(ChainState::new(Arc::clone(&db))?));
         
         // Initialize genesis block if needed
-        if chain_state.read().unwrap().get_height() == 0 {
+        if chain_state.read()
+            .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+            .get_height() == 0 {
             // Create genesis block
             let genesis_block = crate::blockchain::create_genesis_block(&config.node.chain_id);
-            chain_state.write().unwrap().initialize_with_genesis(genesis_block)
+            chain_state.write()
+                .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+                .initialize_with_genesis(genesis_block)
                 .map_err(|e| NodeError::StorageError(e.into()))?;
         }
         
@@ -176,7 +180,9 @@ impl Node {
         
         // Initialize network
         let keypair = libp2p::identity::Keypair::generate_ed25519();
-        let genesis_hash = chain_state.read().unwrap().get_genesis_hash();
+        let genesis_hash = chain_state.read()
+            .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+            .get_genesis_hash();
         let (network, command_tx, _event_rx) = P2PNetwork::new(
             Some(keypair),
             genesis_hash,
@@ -412,7 +418,9 @@ impl Node {
         }
         
         // Add to chain state
-        self.chain_state.write().unwrap().add_block(&block)
+        self.chain_state.write()
+            .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+            .add_block(&block)
             .map_err(|e| NodeError::StorageError(e.into()))?;
         
         // Remove transactions from mempool
@@ -437,8 +445,25 @@ impl Node {
     
     /// Get node status
     pub async fn get_status(&self) -> NodeStatusInfo {
-        let config = self.config.read().unwrap();
-        let chain_height = self.chain_state.read().unwrap().get_height() as u64;
+        let config = match self.config.read() {
+            Ok(c) => c,
+            Err(_) => {
+                error!("Config lock poisoned in get_status");
+                return NodeStatusInfo {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    network: "unknown".to_string(),
+                    chain_id: "unknown".to_string(),
+                    chain_height: 0,
+                    mempool_size: 0,
+                    peer_count: 0,
+                    is_syncing: false,
+                    is_testnet: false,
+                };
+            }
+        };
+        let chain_height = self.chain_state.read()
+            .map(|cs| cs.get_height() as u64)
+            .unwrap_or(0);
         let peer_count = self.network.peer_count().await;
         let is_syncing = self.network.is_syncing();
         
@@ -456,9 +481,14 @@ impl Node {
     
     /// Get node info
     pub fn get_info(&self) -> Result<NodeInfo, NodeError> {
-        let config = self.config.read().unwrap();
-        let chain_height = self.chain_state.read().unwrap().get_height() as u64;
-        let best_block_hash = self.chain_state.read().unwrap().get_best_block_hash();
+        let config = self.config.read()
+            .map_err(|_| NodeError::General("Config lock poisoned".to_string()))?;
+        let chain_height = self.chain_state.read()
+            .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+            .get_height() as u64;
+        let best_block_hash = self.chain_state.read()
+            .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+            .get_best_block_hash();
         let connections = self.network.peer_count_sync() as u32;
         let synced = !self.network.is_syncing();
         
@@ -555,7 +585,9 @@ impl Node {
         Ok(NodeMetrics {
             uptime: self.start_time.elapsed().as_secs(),
             peer_count: self.network.peer_count_sync(),
-            block_height: self.chain_state.read().unwrap().get_height() as u64,
+            block_height: self.chain_state.read()
+                .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+                .get_height() as u64,
             mempool_size: self.mempool.size(),
             mempool_bytes,
             sync_progress,
@@ -569,7 +601,8 @@ impl Node {
     
     /// Get config
     pub fn get_config(&self) -> Result<serde_json::Value, NodeError> {
-        let config = self.config.read().unwrap();
+        let config = self.config.read()
+            .map_err(|_| NodeError::General("Config lock poisoned".to_string()))?;
         serde_json::to_value(&*config)
             .map_err(|e| NodeError::ConfigError(e.to_string()))
     }
@@ -585,7 +618,8 @@ impl Node {
             .map_err(|e| NodeError::ConfigError(e.to_string()))?;
         
         // Update config
-        let mut config = self.config.write().unwrap();
+        let mut config = self.config.write()
+            .map_err(|_| NodeError::General("Config lock poisoned".to_string()))?;
         *config = updated_config;
         
         // Return updated config
@@ -619,8 +653,8 @@ impl Node {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
             size: metadata.len(),
             backup_type: if include_wallet { "full" } else { "blockchain" }.to_string(),
             status: "completed".to_string(),
@@ -691,8 +725,12 @@ impl Node {
         
         // Get blockchain stats
         let blockchain_stats = serde_json::json!({
-            "height": self.chain_state.read().unwrap().get_height(),
-            "total_blocks": self.chain_state.read().unwrap().get_height(),
+            "height": self.chain_state.read()
+                .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+                .get_height(),
+            "total_blocks": self.chain_state.read()
+                .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
+                .get_height(),
             "total_transactions": 0,
             "utxo_set_size": 0
         });

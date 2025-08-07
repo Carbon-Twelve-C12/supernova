@@ -94,17 +94,45 @@ impl SystemMetrics {
             0.0
         };
         
-        *self.total_memory.lock().unwrap() = total;
-        *self.used_memory.lock().unwrap() = used;
-        *self.memory_utilization_pct.lock().unwrap() = memory_pct;
-        *self.total_swap.lock().unwrap() = total_swap;
-        *self.used_swap.lock().unwrap() = used_swap;
+        if let Ok(mut mem) = self.total_memory.lock() {
+            *mem = total;
+        } else {
+            tracing::warn!("Failed to update total_memory metric: lock poisoned");
+        }
+        if let Ok(mut mem) = self.used_memory.lock() {
+            *mem = used;
+        } else {
+            tracing::warn!("Failed to update used_memory metric: lock poisoned");
+        }
+        if let Ok(mut mem) = self.memory_utilization_pct.lock() {
+            *mem = memory_pct;
+        } else {
+            tracing::warn!("Failed to update memory_utilization_pct metric: lock poisoned");
+        }
+        if let Ok(mut swap) = self.total_swap.lock() {
+            *swap = total_swap;
+        } else {
+            tracing::warn!("Failed to update total_swap metric: lock poisoned");
+        }
+        if let Ok(mut swap) = self.used_swap.lock() {
+            *swap = used_swap;
+        } else {
+            tracing::warn!("Failed to update used_swap metric: lock poisoned");
+        }
     }
     
     /// Record CPU usage metrics
     pub fn record_cpu_usage(&self, usage_pct: f64, cpu_count: u64) {
-        *self.cpu_usage_pct.lock().unwrap() = usage_pct;
-        *self.cpu_count.lock().unwrap() = cpu_count;
+        if let Ok(mut cpu) = self.cpu_usage_pct.lock() {
+            *cpu = usage_pct;
+        } else {
+            tracing::warn!("Failed to update cpu_usage_pct metric: lock poisoned");
+        }
+        if let Ok(mut count) = self.cpu_count.lock() {
+            *count = cpu_count;
+        } else {
+            tracing::warn!("Failed to update cpu_count metric: lock poisoned");
+        }
     }
     
     /// Record process-specific metrics
@@ -116,11 +144,31 @@ impl SystemMetrics {
         read_bytes: u64,
         written_bytes: u64,
     ) {
-        *self.process_memory.lock().unwrap() = memory;
-        *self.process_cpu_pct.lock().unwrap() = cpu_pct;
-        *self.process_uptime.lock().unwrap() = uptime;
-        *self.process_read_bytes.lock().unwrap() = read_bytes;
-        *self.process_written_bytes.lock().unwrap() = written_bytes;
+        if let Ok(mut mem) = self.process_memory.lock() {
+            *mem = memory;
+        } else {
+            tracing::warn!("Failed to update process_memory metric: lock poisoned");
+        }
+        if let Ok(mut cpu) = self.process_cpu_pct.lock() {
+            *cpu = cpu_pct;
+        } else {
+            tracing::warn!("Failed to update process_cpu_pct metric: lock poisoned");
+        }
+        if let Ok(mut up) = self.process_uptime.lock() {
+            *up = uptime;
+        } else {
+            tracing::warn!("Failed to update process_uptime metric: lock poisoned");
+        }
+        if let Ok(mut bytes) = self.process_read_bytes.lock() {
+            *bytes = read_bytes;
+        } else {
+            tracing::warn!("Failed to update process_read_bytes metric: lock poisoned");
+        }
+        if let Ok(mut bytes) = self.process_written_bytes.lock() {
+            *bytes = written_bytes;
+        } else {
+            tracing::warn!("Failed to update process_written_bytes metric: lock poisoned");
+        }
     }
     
     /// Record disk metrics for a specific disk
@@ -138,7 +186,13 @@ impl SystemMetrics {
             0.0
         };
         
-        let mut disks = self.disk_metrics.lock().unwrap();
+        let mut disks = match self.disk_metrics.lock() {
+            Ok(d) => d,
+            Err(_) => {
+                tracing::warn!("Failed to update disk metrics: lock poisoned");
+                return;
+            }
+        };
         disks.insert(
             disk_name,
             DiskMetric {
@@ -162,7 +216,13 @@ impl SystemMetrics {
         receive_errors: u64,
         transmit_errors: u64,
     ) {
-        let mut networks = self.network_metrics.lock().unwrap();
+        let mut networks = match self.network_metrics.lock() {
+            Ok(n) => n,
+            Err(_) => {
+                tracing::warn!("Failed to update network metrics: lock poisoned");
+                return;
+            }
+        };
         let now = Instant::now();
         
         // Calculate rate if we have previous values
@@ -200,7 +260,11 @@ impl SystemMetrics {
     
     /// Record the time taken to collect metrics
     pub fn record_metrics_collection_time(&self, duration_secs: f64) {
-        *self.last_collection_duration.lock().unwrap() = duration_secs;
+        if let Ok(mut duration) = self.last_collection_duration.lock() {
+            *duration = duration_secs;
+        } else {
+            tracing::warn!("Failed to update last_collection_duration metric: lock poisoned");
+        }
     }
     
     /// Get the node uptime in seconds
@@ -211,39 +275,49 @@ impl SystemMetrics {
     /// Get memory usage information
     pub fn memory_usage(&self) -> (u64, u64, f64) {
         (
-            *self.total_memory.lock().unwrap(),
-            *self.used_memory.lock().unwrap(),
-            *self.memory_utilization_pct.lock().unwrap(),
+            self.total_memory.lock().map(|v| *v).unwrap_or(0),
+            self.used_memory.lock().map(|v| *v).unwrap_or(0),
+            self.memory_utilization_pct.lock().map(|v| *v).unwrap_or(0.0),
         )
     }
     
     /// Get CPU usage information
     pub fn cpu_usage(&self) -> (f64, u64) {
         (
-            *self.cpu_usage_pct.lock().unwrap(),
-            *self.cpu_count.lock().unwrap(),
+            self.cpu_usage_pct.lock().map(|v| *v).unwrap_or(0.0),
+            self.cpu_count.lock().map(|v| *v).unwrap_or(0),
         )
     }
     
     /// Get process metrics
     pub fn process_metrics(&self) -> (u64, f64, u64, u64, u64) {
         (
-            *self.process_memory.lock().unwrap(),
-            *self.process_cpu_pct.lock().unwrap(),
-            *self.process_uptime.lock().unwrap(),
-            *self.process_read_bytes.lock().unwrap(),
-            *self.process_written_bytes.lock().unwrap(),
+            self.process_memory.lock().map(|v| *v).unwrap_or(0),
+            self.process_cpu_pct.lock().map(|v| *v).unwrap_or(0.0),
+            self.process_uptime.lock().map(|v| *v).unwrap_or(0),
+            self.process_read_bytes.lock().map(|v| *v).unwrap_or(0),
+            self.process_written_bytes.lock().map(|v| *v).unwrap_or(0),
         )
     }
     
     /// Get collection of disk metrics
     pub fn disk_metrics(&self) -> HashMap<String, DiskMetric> {
-        self.disk_metrics.lock().unwrap().clone()
+        self.disk_metrics.lock()
+            .map(|d| d.clone())
+            .unwrap_or_else(|_| {
+                tracing::warn!("Failed to get disk metrics: lock poisoned");
+                HashMap::new()
+            })
     }
     
     /// Get collection of network metrics
     pub fn network_metrics(&self) -> HashMap<String, NetworkMetric> {
-        self.network_metrics.lock().unwrap().clone()
+        self.network_metrics.lock()
+            .map(|n| n.clone())
+            .unwrap_or_else(|_| {
+                tracing::warn!("Failed to get network metrics: lock poisoned");
+                HashMap::new()
+            })
     }
 }
 
