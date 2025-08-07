@@ -2468,7 +2468,7 @@ impl BlockchainDB {
         // Check bloom filter first for fast negative lookups
         if self.config.use_bloom_filters {
             let block_filter = self.block_filter.read()
-                .map_err(|_| StorageError::LockPoisoned)?;
+                .map_err(|_| StorageError::DatabaseError("Block filter lock poisoned".to_string()))?;
             if !block_filter.contains(block_hash) {
                 return Ok(false);
             }

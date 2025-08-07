@@ -8,6 +8,7 @@ use std::time::Instant;
 use libp2p::PeerId;
 use tokio::sync::RwLock as TokioRwLock;
 use sysinfo::System;
+use crate::config::NodeConfig;
 use btclib::types::block::Block;
 use btclib::types::transaction::Transaction;
 use crate::node::{Node, NodeError};

@@ -248,7 +248,7 @@ impl NodeTestnetManager {
             .ok_or("Faucet is not enabled")?;
         
                     let faucet_guard = faucet.lock()
-                .map_err(|_| FaucetError::Internal("Faucet lock poisoned".to_string()))?;
+                .map_err(|_| "Faucet lock poisoned".to_string())?;
         let stats = faucet_guard.get_statistics();
         
         Ok(FaucetStatus {

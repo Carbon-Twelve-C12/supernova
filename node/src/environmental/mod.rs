@@ -565,8 +565,8 @@ impl EnvironmentalMonitor {
         
         // If carbon offset is enabled and we have offsets, calculate total
         if self.settings.read()
-            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?
-            .carbon_offset_enabled {
+            .map(|s| s.carbon_offset_enabled)
+            .unwrap_or(false) {
             if let Some(offsets) = &carbon_data.offsets {
                 // Sum all offsets and convert from grams to tons
                 offsets.iter().map(|o| o.quantity_g / 1_000_000.0).sum()
