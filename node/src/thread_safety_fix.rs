@@ -75,7 +75,11 @@ impl NodeApiFacade {
     /// Create a new API facade from a Node
     pub fn from_node(node: &Node) -> Self {
         Self {
-            config: Arc::new(node.config().read().unwrap().clone()),
+            config: Arc::new(
+                node.config().read()
+                    .map(|c| c.clone())
+                    .unwrap_or_else(|_| NodeConfig::default())
+            ),
             chain_state: node.chain_state(),
             blockchain_db: node.db(),
             network: node.network_proxy(),
@@ -131,7 +135,8 @@ impl NodeApiFacade {
     
     /// Get node status
     pub async fn get_status(&self) -> Result<crate::api::types::NodeStatus, String> {
-        let chain_state = self.chain_state.read().unwrap();
+        let chain_state = self.chain_state.read()
+            .map_err(|_| "Chain state lock poisoned".to_string())?;
         let difficulty = chain_state.get_current_difficulty();
         let network_hashrate = self.estimate_network_hashrate(difficulty);
         
@@ -203,7 +208,19 @@ impl NodeApiFacade {
     
     /// Get blockchain statistics
     pub fn get_blockchain_stats(&self) -> serde_json::Value {
-        let chain_state = self.chain_state.read().unwrap();
+        let chain_state = match self.chain_state.read() {
+            Ok(cs) => cs,
+            Err(_) => {
+                return serde_json::json!({
+                    "height": 0,
+                    "difficulty": 0,
+                    "chain_work": "0",
+                    "best_block_hash": "unknown",
+                    "total_transactions": 0,
+                    "average_block_time": 600
+                });
+            }
+        };
         let height = chain_state.get_height();
         let difficulty = chain_state.get_current_difficulty();
         let chain_work = format!("{}", height * (difficulty as u64)); // Simplified calculation

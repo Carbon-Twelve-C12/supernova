@@ -2467,7 +2467,8 @@ impl BlockchainDB {
     pub fn has_block(&self, block_hash: &[u8; 32]) -> Result<bool, StorageError> {
         // Check bloom filter first for fast negative lookups
         if self.config.use_bloom_filters {
-            let block_filter = self.block_filter.read().unwrap();
+            let block_filter = self.block_filter.read()
+                .map_err(|_| StorageError::LockPoisoned)?;
             if !block_filter.contains(block_hash) {
                 return Ok(false);
             }

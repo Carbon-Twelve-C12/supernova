@@ -14,7 +14,10 @@ pub fn get_recent_logs(
     limit: usize,
     offset: usize,
 ) -> Vec<LogEntry> {
-    let buffer = LOG_BUFFER.lock().unwrap();
+    let buffer = match LOG_BUFFER.lock() {
+        Ok(b) => b,
+        Err(_) => return Vec::new(), // Return empty on lock poisoned
+    };
     
     buffer.iter()
         .filter(|log| {
@@ -40,7 +43,10 @@ pub fn get_recent_logs(
 
 /// Add a log entry to the buffer
 pub fn add_log_entry(level: &str, component: &str, message: String) {
-    let mut buffer = LOG_BUFFER.lock().unwrap();
+    let mut buffer = match LOG_BUFFER.lock() {
+        Ok(b) => b,
+        Err(_) => return, // Skip logging on lock poisoned
+    };
     
     // Remove oldest entries if buffer is full
     if buffer.len() >= 10000 {

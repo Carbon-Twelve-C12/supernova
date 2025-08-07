@@ -167,7 +167,8 @@ impl TransactionPoolNodeMethods for TransactionPool {
 /// Extension trait for Arc<TransactionPool> to provide missing methods
 impl TransactionPoolNodeMethods for Arc<TransactionPool> {
     fn get_memory_usage(&self) -> usize {
-        self.as_ref().get_memory_usage().try_into().unwrap()
+        self.as_ref().get_memory_usage().try_into()
+            .unwrap_or(usize::MAX)
     }
     
     fn size_in_bytes(&self) -> usize {
