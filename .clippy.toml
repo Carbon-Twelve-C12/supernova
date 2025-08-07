@@ -10,17 +10,8 @@ too-many-lines-threshold = 100
 # Maximum number of arguments allowed per function
 too-many-arguments-threshold = 7
 
-# Disallow large stack arrays
-large-stack-arrays-threshold = 512000
-
-# Disallow large const arrays
-large-const-arrays-threshold = 512000
-
 # Maximum allowed enum variant size difference
 enum-variant-size-threshold = 200
-
-# Enforce documentation
-missing-docs-in-private-items = true
 
 # Disallow unsafe code in production
 disallowed-methods = [
