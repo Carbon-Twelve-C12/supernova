@@ -83,7 +83,8 @@ impl MetricsCollector {
 
     /// Start the metrics collector
     pub async fn start(&self) -> Result<(), String> {
-        let mut running = self.running.lock().unwrap();
+        let mut running = self.running.lock()
+            .map_err(|_| "Running lock poisoned".to_string())?;
         if *running {
             return Err("Metrics collector is already running".to_string());
         }
@@ -103,7 +104,9 @@ impl MetricsCollector {
             loop {
                 tokio::select! {
                     _ = basic_interval.tick() => {
-                        if !*running_clone.lock().unwrap() {
+                        if !running_clone.lock()
+                            .map(|guard| *guard)
+                            .unwrap_or(false) {
                             break;
                         }
                         
@@ -129,7 +132,8 @@ impl MetricsCollector {
 
     /// Stop the metrics collector
     pub async fn stop(&self) -> Result<(), String> {
-        let mut running = self.running.lock().unwrap();
+        let mut running = self.running.lock()
+            .map_err(|_| "Running lock poisoned".to_string())?;
         if !*running {
             return Err("Metrics collector is not running".to_string());
         }
