@@ -204,7 +204,9 @@ impl SecureDifficultyAdjuster {
         adjustment_ratio = self.apply_security_limits(adjustment_ratio)?;
         
         // Get current target
-        let current_target = period_blocks.last().unwrap().target;
+        let current_target = period_blocks.last()
+            .ok_or(SecureDifficultyError::InvalidDifficulty)?
+            .target;
         
         // Calculate new target
         let new_target = self.calculate_new_target(current_target, adjustment_ratio)?;
@@ -215,7 +217,10 @@ impl SecureDifficultyAdjuster {
         // Update adjustment info
         self.last_adjustment = AdjustmentInfo {
             height: current_height,
-            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                            timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
             old_target: current_target,
             new_target,
             adjustment_ratio,
@@ -247,8 +252,8 @@ impl SecureDifficultyAdjuster {
         // Check timestamp bounds
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         
         if block.timestamp > current_time + 7200 {
             return Err(SecureDifficultyError::InvalidTimestamp(
@@ -392,7 +397,9 @@ impl SecureDifficultyAdjuster {
             end_times.sort_unstable();
             end_times[5] // Median
         } else {
-            blocks.last().unwrap().timestamp
+            blocks.last()
+                .ok_or(SecureDifficultyError::InvalidDifficulty)?
+                .timestamp
         };
         
         if end_time <= start_time {
@@ -585,8 +592,13 @@ impl SecureDifficultyAdjuster {
         let current_difficulty = self.target_to_difficulty(current_target);
         
         let avg_block_time = if self.block_history.len() >= 2 {
-            let total_time = self.block_history.back().unwrap().timestamp 
-                - self.block_history.front().unwrap().timestamp;
+            let back_time = self.block_history.back()
+                .map(|b| b.timestamp)
+                .unwrap_or(0);
+            let front_time = self.block_history.front()
+                .map(|b| b.timestamp)
+                .unwrap_or(0);
+            let total_time = back_time.saturating_sub(front_time);
             total_time / (self.block_history.len() as u64 - 1)
         } else {
             self.config.target_block_time

@@ -225,7 +225,13 @@ impl CheckpointManager {
                     _ = interval.tick() => {
                         // Check if it's time for a new checkpoint
                         let current_height = {
-                            let state = chain_state.lock().unwrap();
+                            let state = match chain_state.lock() {
+                                Ok(s) => s,
+                                Err(_) => {
+                                    error!("Chain state lock poisoned, skipping checkpoint");
+                                    continue;
+                                }
+                            };
                             state.get_height()
                         };
                         
@@ -276,7 +282,8 @@ impl CheckpointManager {
 
         // Check if we need to do an initial checkpoint
         let current_height = {
-            let state = self.chain_state.lock().unwrap();
+            let state = self.chain_state.lock()
+            .map_err(|_| StorageError::DatabaseError("Chain state lock poisoned".to_string()))?;
             state.get_height()
         };
 
@@ -395,7 +402,9 @@ impl CheckpointManager {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
             
-            if path.is_dir() && path.file_name().unwrap().to_string_lossy().starts_with("checkpoint_") {
+            if path.is_dir() && path.file_name()
+                        .map(|n| n.to_string_lossy().starts_with("checkpoint_"))
+                        .unwrap_or(false) {
                 let info_file = path.join("checkpoint_info.json");
                 if info_file.exists() {
                     match fs::read(&info_file).await {
@@ -500,7 +509,8 @@ impl CheckpointManager {
         
         // Get current height and block hash
         let (height, block_hash) = {
-            let state = chain_state.lock().unwrap();
+            let state = chain_state.lock()
+                .map_err(|_| StorageError::DatabaseError("Chain state lock poisoned".to_string()))?;
             (state.get_height(), state.get_best_block_hash())
         };
         
@@ -590,7 +600,8 @@ impl CheckpointManager {
         
         // Get current height and hash
         let (height, hash) = {
-            let state = chain_state.lock().unwrap();
+            let state = chain_state.lock()
+                .map_err(|_| StorageError::DatabaseError("Chain state lock poisoned".to_string()))?;
             (state.get_height(), state.get_best_block_hash())
         };
         
@@ -630,7 +641,11 @@ impl CheckpointManager {
         
         for path in paths {
             // Add file name to hash
-            hasher.update(path.file_name().unwrap().to_string_lossy().as_bytes());
+                            if let Some(file_name) = path.file_name() {
+                    hasher.update(file_name.to_string_lossy().as_bytes());
+                } else {
+                    return Err(StorageError::DatabaseError("Invalid file path".to_string()));
+                }
             
             if path.is_file() {
                 // Hash file contents
@@ -652,7 +667,9 @@ impl CheckpointManager {
         let mut entries = fs::read_dir(from).await?;
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            let target = to.join(path.file_name().unwrap());
+            let file_name = path.file_name()
+                .ok_or_else(|| StorageError::DatabaseError("Invalid file path".to_string()))?;
+            let target = to.join(file_name);
             
             if path.is_file() {
                 fs::copy(&path, &target).await?;
@@ -694,7 +711,9 @@ impl CheckpointManager {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
             if path.is_dir() {
-                let file_name = path.file_name().unwrap().to_string_lossy();
+                let file_name = path.file_name()
+                    .map(|n| n.to_string_lossy())
+                    .ok_or_else(|| StorageError::DatabaseError("Invalid file path".to_string()))?;
                 if file_name.starts_with("checkpoint_") {
                     if let Some(height) = file_name.strip_prefix("checkpoint_") {
                         if let Ok(height) = height.parse::<u64>() {
@@ -760,7 +779,9 @@ impl CheckpointManager {
         
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.is_dir() && path.file_name().unwrap().to_string_lossy().starts_with("checkpoint_") {
+            if path.is_dir() && path.file_name()
+                        .map(|n| n.to_string_lossy().starts_with("checkpoint_"))
+                        .unwrap_or(false) {
                 let info_file = path.join("checkpoint_info.json");
                 if info_file.exists() {
                     match fs::read(&info_file).await {

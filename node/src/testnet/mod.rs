@@ -219,7 +219,8 @@ impl NodeTestnetManager {
         let faucet = self.faucet.as_ref()
             .ok_or(FaucetError::FaucetDisabled)?;
         
-        let mut faucet_guard = faucet.lock().unwrap();
+        let mut faucet_guard = faucet.lock()
+            .map_err(|_| FaucetError::Internal("Faucet lock poisoned".to_string()))?;
         let amount = faucet_guard.distribute_coins(recipient)?;
         
         // Update statistics
@@ -246,7 +247,8 @@ impl NodeTestnetManager {
         let faucet = self.faucet.as_ref()
             .ok_or("Faucet is not enabled")?;
         
-        let faucet_guard = faucet.lock().unwrap();
+                    let faucet_guard = faucet.lock()
+                .map_err(|_| FaucetError::Internal("Faucet lock poisoned".to_string()))?;
         let stats = faucet_guard.get_statistics();
         
         Ok(FaucetStatus {
@@ -268,7 +270,8 @@ impl NodeTestnetManager {
     
     /// Get testnet statistics
     pub fn get_stats(&self) -> Result<TestnetStats, String> {
-        let stats = self.stats.lock().unwrap();
+        let stats = self.stats.lock()
+            .map_err(|_| "Stats lock poisoned".to_string())?;
         Ok(stats.clone())
     }
     
