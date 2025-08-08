@@ -20,6 +20,7 @@ pub mod eclipse_prevention_tests;
 pub mod rate_limiter_tests;
 
 use std::sync::Arc;
+use crate::config::NetworkConfig;
 use tokio::sync::mpsc;
 use libp2p::PeerId;
 use tracing::{debug, info, warn, error};

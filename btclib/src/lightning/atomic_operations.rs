@@ -559,7 +559,8 @@ impl<'a> Drop for OperationGuard<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lightning::channel::{Channel, PublicKey};
+    use crate::lightning::channel::Channel;
+    use secp256k1::PublicKey;
     
     #[test]
     fn test_atomic_htlc_operations() {

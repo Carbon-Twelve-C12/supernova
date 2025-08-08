@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc, Duration};
 use crate::environmental::emissions::{Emissions, EmissionsTracker, Region, EmissionFactor, EmissionsConfig, HashRate};
 use crate::environmental::types::EmissionsFactorType;
 use crate::environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetPurchase, EnvironmentalAssetType, TreasuryConfig};
-use crate::environmental::miner_reporting::{MinerReportingManager, MinerEnvironmentalReport, MinerVerificationStatus};
+use crate::environmental::miner_reporting::{MinerReportingManager, MinerEnvironmentalReport, MinerVerificationStatus, MinerEnvironmentalInfo};
 use std::fmt;
 use std::path::Path;
 use crate::environmental::{
@@ -822,7 +822,7 @@ mod tests {
             Ok(50000.0)
         }
         
-        fn get_emissions_history(&self, _days: u32) -> Result<Vec<(DateTime<Utc>, f64)>, String> {
+        fn get_emissions_history(&self, _days: usize) -> Result<Vec<(DateTime<Utc>, f64)>, String> {
             Ok(vec![])
         }
         

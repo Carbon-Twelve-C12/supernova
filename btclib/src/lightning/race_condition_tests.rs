@@ -7,7 +7,8 @@
 mod tests {
     use super::*;
     use crate::lightning::atomic_operations::{AtomicChannel, AtomicOperationError};
-    use crate::lightning::channel::{Channel, ChannelState, PublicKey};
+    use crate::lightning::channel::{Channel, ChannelState};
+    use secp256k1::PublicKey;
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;

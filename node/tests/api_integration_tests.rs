@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 // Import our API modules
-use node::api::server::create_app;
+use node::api::routes::configure as create_app;
 use node::api::types::{BlockchainInfo, MempoolInfo, NetworkInfo};
 
 /// Mock dependency injection for testing
@@ -30,7 +30,7 @@ async fn test_health_endpoint() {
     let app = test::init_service(
         App::new()
             .app_data(dependencies.clone())
-            .configure(|cfg| create_app(cfg, dependencies.clone()))
+            .configure(|cfg| create_app(cfg))
     ).await;
     
     // Send request
@@ -62,7 +62,7 @@ async fn test_blockchain_info_endpoint() {
     let app = test::init_service(
         App::new()
             .app_data(dependencies.clone())
-            .configure(|cfg| create_app(cfg, dependencies.clone()))
+            .configure(|cfg| create_app(cfg))
     ).await;
     
     // Send request
@@ -86,7 +86,7 @@ async fn test_mempool_info_endpoint() {
     let app = test::init_service(
         App::new()
             .app_data(dependencies.clone())
-            .configure(|cfg| create_app(cfg, dependencies.clone()))
+            .configure(|cfg| create_app(cfg))
     ).await;
     
     // Send request
@@ -110,7 +110,7 @@ async fn test_network_info_endpoint() {
     let app = test::init_service(
         App::new()
             .app_data(dependencies.clone())
-            .configure(|cfg| create_app(cfg, dependencies.clone()))
+            .configure(|cfg| create_app(cfg))
     ).await;
     
     // Send request
@@ -134,7 +134,7 @@ async fn test_block_by_height_endpoint() {
     let app = test::init_service(
         App::new()
             .app_data(dependencies.clone())
-            .configure(|cfg| create_app(cfg, dependencies.clone()))
+            .configure(|cfg| create_app(cfg))
     ).await;
     
     // Send request (get genesis block)
@@ -154,7 +154,7 @@ async fn test_invalid_block_height_endpoint() {
     let app = test::init_service(
         App::new()
             .app_data(dependencies.clone())
-            .configure(|cfg| create_app(cfg, dependencies.clone()))
+            .configure(|cfg| create_app(cfg))
     ).await;
     
     // Send request for an invalid block height (extremely high)
