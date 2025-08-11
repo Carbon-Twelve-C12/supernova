@@ -346,7 +346,7 @@ mod tests {
         // Try to add second transaction - should fail
         assert!(matches!(
             pool.add_transaction(tx2, 2),
-            Err(MempoolError::DoubleSpend)
+            Err(MempoolError::DoubleSpend(_))
         ));
         
         // Verify first transaction is still there

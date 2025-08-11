@@ -1080,7 +1080,7 @@ mod tests {
         let mut rng = OsRng;
         let params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, SecurityLevel::Medium.into());
         
-        let keypair = QuantumKeyPair::generate(&mut rng, params).expect("Key generation should succeed");
+        let keypair = QuantumKeyPair::generate(params).expect("Key generation should succeed");
         let message = b"This is a test message for quantum signature";
         
         // Sign the message
@@ -1101,7 +1101,7 @@ mod tests {
         let mut rng = OsRng;
         let params = QuantumParameters::with_security_level(QuantumScheme::Falcon, SecurityLevel::Medium.into());
         
-        let result = QuantumKeyPair::generate(&mut rng, params);
+        let result = QuantumKeyPair::generate(params);
         assert!(result.is_err(), "Falcon should return not implemented error");
         
         if let Err(err) = result {
@@ -1122,7 +1122,7 @@ mod tests {
             security_level: SecurityLevel::Low as u8,
         };
         
-        let keypair = QuantumKeyPair::generate(&mut rng, parameters).expect("SPHINCS+ key generation failed");
+        let keypair = QuantumKeyPair::generate(parameters).expect("SPHINCS+ key generation failed");
         
         let message = b"Test message for SPHINCS+ signatures";
         let signature = keypair.sign(message).expect("SPHINCS+ signing failed");
@@ -1152,7 +1152,7 @@ mod tests {
                 security_level: *security_level,
             };
         
-            let keypair = QuantumKeyPair::generate(&mut rng, parameters)
+            let keypair = QuantumKeyPair::generate(parameters)
                 .expect("Hybrid key generation failed");
             
             let message = b"Test message for hybrid signatures";
@@ -1184,11 +1184,11 @@ mod tests {
                 let params = QuantumParameters::with_security_level(*scheme, *security_level);
                 
                 // Generate a legitimate key pair
-                let legitimate_keypair = QuantumKeyPair::generate(&mut rng, params)
+                let legitimate_keypair = QuantumKeyPair::generate(params)
                     .expect("Key generation should succeed");
                 
                 // Generate an attacker's key pair
-                let attacker_keypair = QuantumKeyPair::generate(&mut rng, params)
+                let attacker_keypair = QuantumKeyPair::generate(params)
                     .expect("Attacker key generation should succeed");
                 
                 let message = b"Critical transaction: Send 1000 NOVA to attacker";
@@ -1249,8 +1249,8 @@ mod tests {
             3
         );
         
-        let keypair1 = QuantumKeyPair::generate(&mut rng, params).unwrap();
-        let keypair2 = QuantumKeyPair::generate(&mut rng, params).unwrap();
+        let keypair1 = QuantumKeyPair::generate(params).unwrap();
+        let keypair2 = QuantumKeyPair::generate(params).unwrap();
         
         let message = b"Hybrid security test message";
         let signature1 = keypair1.sign(message).unwrap();

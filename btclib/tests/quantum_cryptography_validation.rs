@@ -57,7 +57,7 @@ mod dilithium_validation {
         
         // Key generation timing
         let start = Instant::now();
-        let keypair = QuantumKeyPair::generate(&mut rng, params).expect("Key generation failed");
+        let keypair = QuantumKeyPair::generate(params).expect("Key generation failed");
         let key_gen_time = start.elapsed();
         
         // Test message
@@ -134,7 +134,7 @@ mod dilithium_validation {
         println!("\n=== Dilithium Quantum Attack Resistance Test ===");
         let mut rng = OsRng;
         let params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, 3);
-        let keypair = QuantumKeyPair::generate(&mut rng, params).expect("Key generation failed");
+        let keypair = QuantumKeyPair::generate(params).expect("Key generation failed");
         
         // Test against common quantum attack vectors
         println!("Testing resistance against quantum attack vectors...");
@@ -200,7 +200,7 @@ mod falcon_validation {
         
         // Try to generate keypair
         let start = Instant::now();
-        match QuantumKeyPair::generate(&mut rng, params) {
+        match QuantumKeyPair::generate(params) {
             Ok(keypair) => {
                 let key_gen_time = start.elapsed();
                 
@@ -304,7 +304,7 @@ mod sphincs_validation {
         
         // Key generation timing
         let start = Instant::now();
-        let keypair = QuantumKeyPair::generate(&mut rng, params).expect("Key generation failed");
+        let keypair = QuantumKeyPair::generate(params).expect("Key generation failed");
         let key_gen_time = start.elapsed();
         
         // Test message
@@ -403,7 +403,7 @@ mod hybrid_validation {
         
         // Key generation
         let start = Instant::now();
-        let keypair = QuantumKeyPair::generate(&mut rng, params).expect("Key generation failed");
+        let keypair = QuantumKeyPair::generate(params).expect("Key generation failed");
         let key_gen_time = start.elapsed();
         
         // Test message
@@ -492,7 +492,7 @@ mod performance_validation {
         let params = QuantumParameters::with_security_level(scheme, security_level);
         
         // Skip if not implemented
-        let keypair = match QuantumKeyPair::generate(&mut rng, params) {
+        let keypair = match QuantumKeyPair::generate(params) {
             Ok(kp) => kp,
             Err(_) => return QuantumTestResults {
                 scheme,
@@ -519,7 +519,7 @@ mod performance_validation {
         // Key generation
         let start = Instant::now();
         for _ in 0..iterations {
-            let _ = QuantumKeyPair::generate(&mut rng, params);
+            let _ = QuantumKeyPair::generate(params);
         }
         let key_gen_time = start.elapsed() / iterations;
         
@@ -563,7 +563,7 @@ mod security_edge_cases {
         println!("\n=== Message Size Limit Tests ===");
         let mut rng = OsRng;
         let params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, 3);
-        let keypair = QuantumKeyPair::generate(&mut rng, params).expect("Key generation failed");
+        let keypair = QuantumKeyPair::generate(params).expect("Key generation failed");
         
         // Test various message sizes
         let test_sizes = vec![
@@ -595,7 +595,7 @@ mod security_edge_cases {
         println!("\n=== Key Serialization Security Test ===");
         let mut rng = OsRng;
         let params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, 3);
-        let keypair = QuantumKeyPair::generate(&mut rng, params).expect("Key generation failed");
+        let keypair = QuantumKeyPair::generate(params).expect("Key generation failed");
         
         // Ensure keys can be safely serialized/deserialized
         let pk_bytes = &keypair.public_key;

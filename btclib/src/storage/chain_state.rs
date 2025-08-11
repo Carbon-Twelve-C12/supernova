@@ -755,12 +755,16 @@ mod tests {
     // Helper function to create a test block
     fn create_test_block(prev_hash: [u8; 32], height: u32, target: u32) -> Block {
         // In a real test, would create a proper block
-        Block::new(
+        let header = BlockHeader::new_with_height(
             1,
             prev_hash,
-            vec![Transaction::new(1, vec![], vec![], 0)],
+            [0; 32], // merkle_root
+            0, // timestamp
             target,
-        )
+            0, // nonce
+            height as u64,
+        );
+        Block::new(header, vec![Transaction::new(1, vec![], vec![], 0)])
     }
     
     #[test]

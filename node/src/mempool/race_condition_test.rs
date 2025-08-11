@@ -287,7 +287,7 @@ mod mempool_race_tests {
                             local_spent.insert((prev_hash, index));
                             successes += 1;
                         }
-                        Err(MempoolError::DoubleSpend) => {
+                        Err(MempoolError::DoubleSpend(_)) => {
                             // Expected for double-spend attempts
                         }
                         Err(e) => panic!("Unexpected error: {:?}", e),

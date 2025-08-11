@@ -38,11 +38,11 @@ mod tests {
                 let params = QuantumParameters::with_security_level(*scheme, *security_level);
                 
                 // Generate a legitimate key pair
-                let legitimate_keypair = QuantumKeyPair::generate(&mut rng, params)
+                let legitimate_keypair = QuantumKeyPair::generate(params)
                     .expect("Key generation should succeed");
                 
                 // Generate an attacker's key pair
-                let attacker_keypair = QuantumKeyPair::generate(&mut rng, params)
+                let attacker_keypair = QuantumKeyPair::generate(params)
                     .expect("Attacker key generation should succeed");
                 
                 let message = b"Critical transaction: Send 1000 NOVA to attacker";
@@ -133,8 +133,8 @@ mod tests {
             3
         );
         
-        let keypair1 = QuantumKeyPair::generate(&mut rng, params).unwrap();
-        let keypair2 = QuantumKeyPair::generate(&mut rng, params).unwrap();
+        let keypair1 = QuantumKeyPair::generate(params).unwrap();
+        let keypair2 = QuantumKeyPair::generate(params).unwrap();
         
         let message = b"Hybrid security test message";
         let signature1 = keypair1.sign(message).unwrap();
@@ -177,7 +177,7 @@ mod tests {
         println!("\n=== QUANTUM SIGNATURE PERFORMANCE TEST ===");
         
         let params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, 3);
-        let keypair = QuantumKeyPair::generate(&mut rng, params).unwrap();
+        let keypair = QuantumKeyPair::generate(params).unwrap();
         let message = b"Performance test message";
         
         // Test signing performance

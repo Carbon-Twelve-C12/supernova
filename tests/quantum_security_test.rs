@@ -31,7 +31,7 @@ fn test_dilithium_signatures() {
         };
         
         // Generate keypair
-        let keypair = QuantumKeyPair::generate(&mut rng, parameters)
+        let keypair = QuantumKeyPair::generate(parameters)
             .expect("Failed to generate Dilithium keypair");
         
         // Test signing and verification
@@ -68,7 +68,7 @@ fn test_sphincs_signatures() {
     };
     
     // Generate keypair
-    let keypair = QuantumKeyPair::generate(&mut rng, parameters)
+    let keypair = QuantumKeyPair::generate(parameters)
         .expect("Failed to generate SPHINCS+ keypair");
     
     // Test signing and verification
@@ -108,7 +108,7 @@ fn test_hybrid_signatures() {
         };
         
         // Generate keypair
-        let keypair = QuantumKeyPair::generate(&mut rng, parameters)
+        let keypair = QuantumKeyPair::generate(parameters)
             .expect("Failed to generate hybrid keypair");
         
         // Test signing and verification

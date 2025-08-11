@@ -841,30 +841,20 @@ mod tests {
         
         // Verify with correct message should succeed
         let result = verifier.verify(
+            SignatureType::Secp256k1,
             &key_pair.public_key,
             message,
             &signature,
-            &SignatureParams {
-                sig_type: SignatureType::Secp256k1,
-                security_level: 1,
-                enable_batch: false,
-                additional_params: HashMap::new(),
-            },
         );
         assert!(result.is_ok());
         
         // Verify with incorrect message should fail
         let wrong_message = b"Wrong message";
         let result = verifier.verify(
+            SignatureType::Secp256k1,
             &key_pair.public_key,
             wrong_message,
             &signature,
-            &SignatureParams {
-                sig_type: SignatureType::Secp256k1,
-                security_level: 1,
-                enable_batch: false,
-                additional_params: HashMap::new(),
-            },
         );
         
         if let Err(err) = result {

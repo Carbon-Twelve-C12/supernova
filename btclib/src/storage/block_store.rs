@@ -581,12 +581,15 @@ mod tests {
         let block_store = BlockStore::new(config).unwrap();
         
         // Create a test block
-        let block = Block::new(
+        let header = BlockHeader::new(
             1,
             [0u8; 32],
-            vec![Transaction::new(1, vec![], vec![], 0)],
-            0,
+            [0; 32], // merkle_root
+            0, // timestamp
+            0, // bits
+            0, // nonce
         );
+        let block = Block::new(header, vec![Transaction::new(1, vec![], vec![], 0)]);
         let block_hash = block.hash();
         
         // Store the block

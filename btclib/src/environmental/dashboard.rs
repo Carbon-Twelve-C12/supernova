@@ -846,10 +846,24 @@ mod tests {
         fn get_miner_emissions(&self, _miner_id: &str) -> Result<MinerEmissionsData, String> {
             Ok(MinerEmissionsData {
                 miner_id: "test_miner".to_string(),
-                emissions_per_block: 100.0,
-                total_emissions: 1000.0,
+                miner_name: "Test Miner".to_string(),
+                region: "US".to_string(),
+                energy_consumption_kwh_day: 1000.0,
+                emissions_tonnes_year: 100.0,
+                hardware_types: vec!["ASIC".to_string()],
+                energy_sources: {
+                    let mut sources = HashMap::new();
+                    sources.insert("renewable".to_string(), 75.0);
+                    sources.insert("coal".to_string(), 25.0);
+                    sources
+                },
                 renewable_percentage: 75.0,
-                timestamp: Utc::now().timestamp() as u64,
+                offset_tonnes: 10.0,
+                verification_status: "verified".to_string(),
+                energy_efficiency: Some(25.0),
+                net_carbon_impact: 90.0,
+                is_verified: true,
+                timestamp: Utc::now(),
             })
         }
     }
