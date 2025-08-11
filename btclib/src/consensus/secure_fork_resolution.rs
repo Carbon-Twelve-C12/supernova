@@ -411,15 +411,15 @@ mod tests {
     use crate::types::Block;
     
     fn create_test_header(height: u64, prev_hash: [u8; 32], bits: u32, timestamp: u64) -> BlockHeader {
-        let block = Block::new(
+        BlockHeader::new_with_height(
             1,
             prev_hash,
-            vec![],
+            [0; 32], // merkle_root
+            timestamp,
             bits,
-        );
-        let mut header = block.header().clone();
-        // Set timestamp (would need proper setter in real implementation)
-        header
+            0, // nonce
+            height,
+        )
     }
     
     #[test]

@@ -606,7 +606,7 @@ impl UtxoSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::transaction::{OutPoint, TxOutput};
+    use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
     
     fn create_test_utxo(txid: &str, vout: u32, value: u64) -> UtxoEntry {
         UtxoEntry {

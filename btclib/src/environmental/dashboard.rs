@@ -8,7 +8,7 @@ use crate::environmental::miner_reporting::{MinerReportingManager, MinerEnvironm
 use std::fmt;
 use std::path::Path;
 use crate::environmental::{
-    api::{NetworkEmissionsData, AssetPurchaseRecord, EnvironmentalApiTrait},
+    api::{NetworkEmissionsData, AssetPurchaseRecord, EnvironmentalApiTrait, MinerEmissionsData},
     types::{EnergySource, HardwareType}
 };
 
@@ -828,6 +828,29 @@ mod tests {
         
         fn get_all_asset_purchases(&self) -> Result<Vec<AssetPurchaseRecord>, String> {
             Ok(vec![])
+        }
+        
+        fn get_miner_by_id(&self, _miner_id: &str) -> Result<MinerEnvironmentalInfo, String> {
+            Ok(MinerEnvironmentalInfo {
+                miner_id: "test_miner".to_string(),
+                location: "US".to_string(),
+                energy_source: "renewable".to_string(),
+                renewable_percentage: 75.0,
+                carbon_footprint: 250.0,
+                certifications: vec![],
+                compliance_status: "compliant".to_string(),
+                reporting_timestamp: Utc::now().timestamp() as u64,
+            })
+        }
+        
+        fn get_miner_emissions(&self, _miner_id: &str) -> Result<MinerEmissionsData, String> {
+            Ok(MinerEmissionsData {
+                miner_id: "test_miner".to_string(),
+                emissions_per_block: 100.0,
+                total_emissions: 1000.0,
+                renewable_percentage: 75.0,
+                timestamp: Utc::now().timestamp() as u64,
+            })
         }
     }
     

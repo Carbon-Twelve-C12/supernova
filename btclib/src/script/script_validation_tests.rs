@@ -8,7 +8,7 @@ mod tests {
     use crate::script::{ScriptValidator, ScriptFlags, ScriptBuilder};
     use crate::script::interpreter::{ScriptInterpreter, SignatureChecker, ScriptError};
     use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
-    use crate::crypto::signature::{sign_message, verify_signature, SignatureType};
+    use crate::crypto::signature::{verify_signature, SignatureType, Signature};
     use secp256k1::{Secp256k1, Message, SecretKey, PublicKey};
     use sha2::{Sha256, Digest};
     
