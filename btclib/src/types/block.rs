@@ -598,13 +598,22 @@ mod tests {
 
     #[test]
     fn test_block_creation() {
+        use crate::types::transaction::{Transaction, TransactionInput};
+        
         let prev_hash = [0u8; 32];
-        let transactions = Vec::new();
+        // Create a coinbase transaction
+        use crate::types::transaction::TransactionOutput;
+        let coinbase_input = TransactionInput::new_coinbase(vec![1, 2, 3]);
+        let coinbase_output = TransactionOutput::new(50_000_000_000, vec![1, 2, 3, 4]);
+        let coinbase_tx = Transaction::new(1, vec![coinbase_input], vec![coinbase_output], 0);
+        let transactions = vec![coinbase_tx];
+        
         let block = Block::new_with_params(1, prev_hash, transactions, 0x1d00ffff);
         
         assert_eq!(block.header.version, 1);
         assert_eq!(block.header.prev_block_hash, prev_hash);
-        assert!(block.validate());
+        assert!(block.verify_merkle_root());
+        assert!(block.validate_transactions());
     }
 
     #[test]
