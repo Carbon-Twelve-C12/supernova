@@ -23,7 +23,7 @@ mod tests {
             // Generate key pair
             let params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, level);
             let mut rng = thread_rng();
-            let keypair = QuantumKeyPair::generate(&mut rng, params)
+            let keypair = QuantumKeyPair::generate( params)
                 .expect("Failed to generate Dilithium keypair");
             
             // Create a test transaction
@@ -41,7 +41,7 @@ mod tests {
             assert!(is_valid, "Dilithium{} signature should be valid", level);
             
             // Test with wrong public key
-            let wrong_keypair = QuantumKeyPair::generate(&mut rng, params)
+            let wrong_keypair = QuantumKeyPair::generate( params)
                 .expect("Failed to generate wrong keypair");
             let is_invalid = signed_tx.verify_signature(&wrong_keypair.public_key)
                 .expect("Failed to verify with wrong key");
@@ -77,7 +77,7 @@ mod tests {
             // Generate key pair
             let params = QuantumParameters::with_security_level(QuantumScheme::Falcon, level);
             let mut rng = thread_rng();
-            let keypair = QuantumKeyPair::generate(&mut rng, params)
+            let keypair = QuantumKeyPair::generate( params)
                 .expect("Failed to generate Falcon keypair");
             
             // Create a test transaction
@@ -103,7 +103,7 @@ mod tests {
         // SPHINCS+ with security level 1 (fast variant)
         let params = QuantumParameters::with_security_level(QuantumScheme::SphincsPlus, 1);
         let mut rng = thread_rng();
-        let keypair = QuantumKeyPair::generate(&mut rng, params)
+        let keypair = QuantumKeyPair::generate( params)
             .expect("Failed to generate SPHINCS+ keypair");
         
         // Create a test transaction
@@ -131,7 +131,7 @@ mod tests {
             3
         );
         let mut rng = thread_rng();
-        let keypair = QuantumKeyPair::generate(&mut rng, params)
+        let keypair = QuantumKeyPair::generate( params)
             .expect("Failed to generate hybrid keypair");
         
         // Create a test transaction
@@ -152,7 +152,7 @@ mod tests {
         assert!(is_valid, "Hybrid Secp256k1+Dilithium signature should be valid");
         
         // Test with wrong key
-        let wrong_keypair = QuantumKeyPair::generate(&mut rng, params)
+        let wrong_keypair = QuantumKeyPair::generate( params)
             .expect("Failed to generate wrong keypair");
         let is_invalid = signed_tx.verify_signature(&wrong_keypair.public_key)
             .expect("Failed to verify with wrong key");
@@ -170,7 +170,7 @@ mod tests {
             5
         );
         let mut rng = thread_rng();
-        let keypair = QuantumKeyPair::generate(&mut rng, params)
+        let keypair = QuantumKeyPair::generate( params)
             .expect("Failed to generate hybrid keypair");
         
         // Create a test transaction
@@ -198,7 +198,7 @@ mod tests {
         // Generate a Dilithium3 keypair
         let params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, 3);
         let mut rng = thread_rng();
-        let keypair = QuantumKeyPair::generate(&mut rng, params)
+        let keypair = QuantumKeyPair::generate( params)
             .expect("Failed to generate keypair");
         
         // Create and sign a transaction
@@ -251,7 +251,7 @@ mod tests {
         
         // Generate Dilithium keypair and sign
         let dilithium_params = QuantumParameters::with_security_level(QuantumScheme::Dilithium, 3);
-        let dilithium_keypair = QuantumKeyPair::generate(&mut rng, dilithium_params)
+        let dilithium_keypair = QuantumKeyPair::generate( dilithium_params)
             .expect("Failed to generate Dilithium keypair");
         
         let tx = create_test_transaction();
@@ -261,7 +261,7 @@ mod tests {
         
         // Generate Falcon keypair
         let falcon_params = QuantumParameters::with_security_level(QuantumScheme::Falcon, 1);
-        let falcon_keypair = QuantumKeyPair::generate(&mut rng, falcon_params)
+        let falcon_keypair = QuantumKeyPair::generate( falcon_params)
             .expect("Failed to generate Falcon keypair");
         
         // Try to verify Dilithium signature with Falcon public key

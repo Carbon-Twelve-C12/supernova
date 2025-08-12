@@ -609,9 +609,15 @@ mod tests {
     use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
     
     fn create_test_utxo(txid: &str, vout: u32, value: u64) -> UtxoEntry {
+        // Convert hex string to [u8; 32]
+        let mut txid_bytes = [0u8; 32];
+        if txid.len() >= 64 {
+            hex::decode_to_slice(txid, &mut txid_bytes).unwrap();
+        }
+        
         UtxoEntry {
             outpoint: OutPoint {
-                txid: txid.to_string(),
+                txid: txid_bytes,
                 vout,
             },
             output: TxOutput {

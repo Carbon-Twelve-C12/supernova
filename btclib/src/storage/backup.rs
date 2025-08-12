@@ -9,7 +9,8 @@ use sha2::{Sha256, Digest};
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 
-use crate::types::block::Block;
+use crate::types::block::{Block, BlockHeader};
+use crate::types::transaction::Transaction;
 use crate::storage::chain_state::Checkpoint;
 
 /// Error types for backup operations
@@ -639,12 +640,15 @@ mod tests {
         let backup_manager = BackupManager::new(config).unwrap();
         
         // Create a test block
-        let block = Block::new(
+        let header = BlockHeader::new(
             1,
             [0u8; 32],
-            vec![Transaction::new(1, vec![], vec![], 0)],
-            0,
+            [0; 32], // merkle_root
+            0, // timestamp
+            0, // bits
+            0, // nonce
         );
+        let block = Block::new(header, vec![Transaction::new(1, vec![], vec![], 0)]);
         
         // Create test checkpoints
         let checkpoint = Checkpoint {
@@ -695,12 +699,15 @@ mod tests {
         let backup_manager = BackupManager::new(config).unwrap();
         
         // Create a test block
-        let block = Block::new(
+        let header = BlockHeader::new(
             1,
             [0u8; 32],
-            vec![Transaction::new(1, vec![], vec![], 0)],
-            0,
+            [0; 32], // merkle_root
+            0, // timestamp
+            0, // bits
+            0, // nonce
         );
+        let block = Block::new(header, vec![Transaction::new(1, vec![], vec![], 0)]);
         
         // Create backup
         let backup_data = backup_manager.block_to_backup_data(&block, &[]).unwrap();

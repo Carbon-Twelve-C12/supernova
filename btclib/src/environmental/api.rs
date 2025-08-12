@@ -5,10 +5,10 @@ use thiserror::Error;
 
 use crate::types::block::Block;
 use crate::environmental::{
-    emissions::{EmissionsError, EmissionsTracker, Region, VerificationStatus},
+    emissions::{EmissionsError, EmissionsTracker, VerificationStatus},
     miner_reporting::{MinerEnvironmentalInfo, MinerVerificationStatus, RECCertificate, CarbonOffset, MinerReportingManager, VerificationInfo},
     treasury::{EnvironmentalTreasury, TreasuryError, EnvironmentalAssetPurchase, TreasuryAccountType, EnvironmentalAssetType, TreasuryAllocation},
-    types::{HardwareType, EnergySource},
+    types::{HardwareType, EnergySource, Region},
     transparency::TransparencyDashboard,
     dashboard::EnvironmentalDashboard,
 };

@@ -803,9 +803,10 @@ mod tests {
     impl EnvironmentalApiTrait for MockEnvironmentalApi {
         fn get_network_emissions(&self) -> Result<NetworkEmissionsData, String> {
             Ok(NetworkEmissionsData {
-                total_emissions: 1000.0,
-                emissions_per_transaction: 0.01,
+                total_energy_mwh: 1000.0,
+                total_emissions_tons_co2e: 500.0,
                 renewable_percentage: 50.0,
+                emissions_per_tx: 0.005,
                 timestamp: Utc::now().timestamp() as u64,
             })
         }
@@ -831,15 +832,32 @@ mod tests {
         }
         
         fn get_miner_by_id(&self, _miner_id: &str) -> Result<MinerEnvironmentalInfo, String> {
+            use crate::environmental::types::{Region, EnergySource, HardwareType};
+            use std::collections::HashMap;
+            
+            let mut energy_sources = HashMap::new();
+            energy_sources.insert(EnergySource::Solar, 41.5);
+            energy_sources.insert(EnergySource::Wind, 27.5);
+            energy_sources.insert(EnergySource::Grid, 31.0);
+            
             Ok(MinerEnvironmentalInfo {
                 miner_id: "test_miner".to_string(),
-                location: "US".to_string(),
-                energy_source: "renewable".to_string(),
+                name: "Test Miner".to_string(),
+                region: Region::NorthAmerica,
+                location_verification: None,
+                hardware_types: vec![HardwareType::Asic],
+                energy_sources,
                 renewable_percentage: 75.0,
-                carbon_footprint: 250.0,
-                certifications: vec![],
-                compliance_status: "compliant".to_string(),
-                reporting_timestamp: Utc::now().timestamp() as u64,
+                verification: None,
+                total_hashrate: 1000.0,
+                energy_consumption_kwh_day: 24000.0,
+                carbon_footprint_tons_year: 250.0,
+                recs: vec![],
+                carbon_offsets: vec![],
+                environmental_impact: 0.3,
+                compliance_score: 95.0,
+                last_report_timestamp: Utc::now(),
+                status: MinerVerificationStatus::Verified,
             })
         }
         
