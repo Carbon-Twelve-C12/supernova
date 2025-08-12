@@ -229,7 +229,7 @@ mod tests {
     
     #[test]
     fn test_script_number_encoding() {
-        assert_eq!(encode_script_number(0), vec![]);
+        assert_eq!(encode_script_number(0), vec![] as Vec<u8>);
         assert_eq!(encode_script_number(1), vec![0x01]);
         assert_eq!(encode_script_number(-1), vec![0x81]);
         assert_eq!(encode_script_number(127), vec![0x7f]);

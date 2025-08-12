@@ -524,6 +524,29 @@ impl AtomicChannel {
         channel.create_commitment_transaction()
             .map_err(|e| AtomicOperationError::ChannelError(e))
     }
+    
+    /// Get current balances atomically
+    pub fn get_balances(&self) -> AtomicResult<(u64, u64)> {
+        Ok(self.state.get_balances())
+    }
+    
+    /// Get current channel state
+    pub fn get_state(&self) -> AtomicResult<ChannelState> {
+        self.state.get_state()
+    }
+    
+    /// Set channel state
+    pub fn set_state(&self, new_state: ChannelState) -> AtomicResult<()> {
+        self.state.set_state(new_state)
+    }
+    
+    /// Update balances atomically
+    pub fn update_balances<F>(&self, updater: &F) -> AtomicResult<()>
+    where
+        F: Fn(u64, u64) -> Result<(u64, u64), String>,
+    {
+        self.state.update_balances(updater)
+    }
 }
 
 /// Channel info snapshot

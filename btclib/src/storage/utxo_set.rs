@@ -620,10 +620,7 @@ mod tests {
                 txid: txid_bytes,
                 vout,
             },
-            output: TxOutput {
-                value,
-                script_pubkey: vec![0, 1, 2, 3],
-            },
+            output: TxOutput::new(value, vec![0, 1, 2, 3]),
             height: 1,
             is_coinbase: false,
             is_confirmed: true,

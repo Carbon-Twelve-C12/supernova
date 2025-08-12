@@ -17,8 +17,11 @@ mod tests {
     #[test]
     fn test_fund_creation_bug_fixed() {
         // Create a channel with 1,000,000 NOVA capacity
-        let local_node_id = PublicKey([1u8; 33]);
-        let remote_node_id = PublicKey([2u8; 33]);
+        let secp = secp256k1::Secp256k1::new();
+        let local_private_key = secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
+        let remote_private_key = secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let remote_node_id = PublicKey::from_secret_key(&secp, &remote_private_key);
         let mut channel = Channel::new(local_node_id, remote_node_id, 1_000_000, true, false);
         channel.state = ChannelState::Active;
         channel.local_balance_novas = 600_000;
@@ -66,7 +69,7 @@ mod tests {
         }
         
         // Verify balances are consistent
-        let (final_local, final_remote) = atomic_channel.state.get_balances();
+        let (final_local, final_remote) = atomic_channel.get_balances().unwrap();
         let total_balance = final_local + final_remote;
         
         // Count successful HTLCs
@@ -82,8 +85,11 @@ mod tests {
     /// Test concurrent HTLC operations don't corrupt state
     #[test]
     fn test_concurrent_htlc_state_consistency() {
-        let local_node_id = PublicKey([1u8; 33]);
-        let remote_node_id = PublicKey([2u8; 33]);
+        let secp = secp256k1::Secp256k1::new();
+        let local_private_key = secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
+        let remote_private_key = secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let remote_node_id = PublicKey::from_secret_key(&secp, &remote_private_key);
         let mut channel = Channel::new(local_node_id, remote_node_id, 10_000_000, true, false);
         channel.state = ChannelState::Active;
         channel.local_balance_novas = 5_000_000;
@@ -137,7 +143,7 @@ mod tests {
                     settled += 1;
                 }
             }
-            settled
+            vec![settled as u64]
         }));
         
         // Thread 4: Fail some HTLCs
@@ -152,7 +158,7 @@ mod tests {
                     failed += 1;
                 }
             }
-            failed
+            vec![failed as u64]
         }));
         
         // Wait for all threads to complete
@@ -162,7 +168,7 @@ mod tests {
         
         // Verify state consistency
         let channel_info = atomic_channel.get_channel_info().unwrap();
-        let (local, remote) = atomic_channel.state.get_balances();
+        let (local, remote) = atomic_channel.get_balances().unwrap();
         
         // Total balance should still equal capacity
         assert_eq!(local + remote + (channel_info.pending_htlcs_count as u64 * 100_000), 10_000_000);
@@ -177,8 +183,11 @@ mod tests {
     /// Test that operations are properly serialized
     #[test]
     fn test_operation_serialization() {
-        let local_node_id = PublicKey([1u8; 33]);
-        let remote_node_id = PublicKey([2u8; 33]);
+        let secp = secp256k1::Secp256k1::new();
+        let local_private_key = secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
+        let remote_private_key = secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let remote_node_id = PublicKey::from_secret_key(&secp, &remote_private_key);
         let mut channel = Channel::new(local_node_id, remote_node_id, 1_000_000, true, false);
         channel.state = ChannelState::Active;
         channel.local_balance_novas = 1_000_000;
@@ -219,15 +228,18 @@ mod tests {
         assert_eq!(failures, 1, "Expected exactly one HTLC to fail");
         
         // Verify balance
-        let (local, _) = atomic_channel.state.get_balances();
+        let (local, _) = atomic_channel.get_balances().unwrap();
         assert_eq!(local, 400_000, "Local balance should be 400,000 after one 600,000 HTLC");
     }
     
     /// Test channel state transitions are atomic
     #[test]
     fn test_atomic_state_transitions() {
-        let local_node_id = PublicKey([1u8; 33]);
-        let remote_node_id = PublicKey([2u8; 33]);
+        let secp = secp256k1::Secp256k1::new();
+        let local_private_key = secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
+        let remote_private_key = secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let remote_node_id = PublicKey::from_secret_key(&secp, &remote_private_key);
         let mut channel = Channel::new(local_node_id, remote_node_id, 1_000_000, true, false);
         channel.state = ChannelState::Active;
         
@@ -242,7 +254,7 @@ mod tests {
         let barrier1 = Arc::clone(&barrier);
         handles.push(thread::spawn(move || {
             barrier1.wait();
-            channel1.state.set_state(ChannelState::ClosingNegotiation)
+            channel1.set_state(ChannelState::ClosingNegotiation)
         }));
         
         // Thread 2: Try to set to ForceClosed
@@ -251,7 +263,7 @@ mod tests {
         handles.push(thread::spawn(move || {
             barrier2.wait();
             thread::sleep(Duration::from_millis(10)); // Small delay
-            channel2.state.set_state(ChannelState::ForceClosed)
+            channel2.set_state(ChannelState::ForceClosed)
         }));
         
         // Thread 3: Try to set to an invalid state
@@ -261,7 +273,7 @@ mod tests {
             barrier3.wait();
             thread::sleep(Duration::from_millis(20)); // Small delay
             // Try to go from ClosingNegotiation back to Active (invalid)
-            channel3.state.set_state(ChannelState::Active)
+            channel3.set_state(ChannelState::Active)
         }));
         
         // Collect results
@@ -279,7 +291,7 @@ mod tests {
         assert!(results[2].is_err(), "Invalid state transition should fail");
         
         // Final state should be consistent
-        let final_state = atomic_channel.state.get_state().unwrap();
+        let final_state = atomic_channel.get_state().unwrap();
         assert!(
             final_state == ChannelState::ClosingNegotiation || final_state == ChannelState::ForceClosed,
             "Final state should be one of the valid transitions"
@@ -289,8 +301,11 @@ mod tests {
     /// Test balance update atomicity
     #[test]
     fn test_atomic_balance_updates() {
-        let local_node_id = PublicKey([1u8; 33]);
-        let remote_node_id = PublicKey([2u8; 33]);
+        let secp = secp256k1::Secp256k1::new();
+        let local_private_key = secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
+        let remote_private_key = secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let remote_node_id = PublicKey::from_secret_key(&secp, &remote_private_key);
         let mut channel = Channel::new(local_node_id, remote_node_id, 1_000_000, true, false);
         channel.state = ChannelState::Active;
         channel.local_balance_novas = 500_000;
@@ -314,7 +329,7 @@ mod tests {
                 let mut success_count = 0;
                 for _ in 0..10 {
                     // Move from local to remote
-                    if channel_clone.state.update_balances(&|local, remote| {
+                    if channel_clone.update_balances(&|local, remote| {
                         if local >= 1000 {
                             Ok((local - 1000, remote + 1000))
                         } else {
@@ -325,7 +340,7 @@ mod tests {
                     }
                     
                     // Move from remote to local
-                    if channel_clone.state.update_balances(&|local, remote| {
+                    if channel_clone.update_balances(&|local, remote| {
                         if remote >= 1000 {
                             Ok((local + 1000, remote - 1000))
                         } else {
@@ -348,7 +363,7 @@ mod tests {
             .sum();
         
         // Verify final balances
-        let (final_local, final_remote) = atomic_channel.state.get_balances();
+        let (final_local, final_remote) = atomic_channel.get_balances().unwrap();
         
         // Balances should sum to capacity
         assert_eq!(final_local + final_remote, 1_000_000, "Total balance should remain constant");

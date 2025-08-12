@@ -348,10 +348,13 @@ mod tests {
         let context = create_test_context(0, [0; 32], 0);
         
         // Create a coinbase with excessive reward
-        let mut coinbase = Transaction::new_coinbase();
-        coinbase.outputs = vec![
-            TransactionOutput::new(100_000_000_000u64, vec![]), // 100 NOVA - too much!
-        ];
+        let coinbase_input = TransactionInput::new_coinbase(vec![1, 2, 3]);
+        let coinbase = Transaction::new(
+            1,
+            vec![coinbase_input],
+            vec![TransactionOutput::new(100_000_000_000u64, vec![])], // 100 NOVA - too much!
+            0
+        );
         
         let mut block = Block::new(
             BlockHeader::new(1, [0; 32], [0; 32], 

@@ -1054,7 +1054,7 @@ mod tests {
                 grid_emissions_factor: 0.4, // 0.4 tonnes CO2e per MWh
                 region_name: "North America".to_string(),
                 data_source: EmissionsDataSource::IEA,
-                factor_type: EmissionsFactorType::Grid,
+                factor_type: EmissionsFactorType::GridAverage,
                 year: Some(2024),
                 timestamp: None,
                 confidence: Some(0.95),
@@ -1100,7 +1100,7 @@ mod tests {
                 grid_emissions_factor: 0.3, // 0.3 tonnes CO2e per MWh
                 region_name: "Europe".to_string(),
                 data_source: EmissionsDataSource::EEA,
-                factor_type: EmissionsFactorType::Grid,
+                factor_type: EmissionsFactorType::GridAverage,
                 year: Some(2024),
                 timestamp: None,
                 confidence: Some(0.95),
