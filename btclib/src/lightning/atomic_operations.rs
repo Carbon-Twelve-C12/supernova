@@ -565,8 +565,11 @@ mod tests {
     #[test]
     fn test_atomic_htlc_operations() {
         // Create a test channel
-        let local_node_id = PublicKey([1u8; 33]);
-        let remote_node_id = PublicKey([2u8; 33]);
+        let secp = secp256k1::Secp256k1::new();
+        let local_private_key = secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
+        let remote_private_key = secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let remote_node_id = PublicKey::from_secret_key(&secp, &remote_private_key);
         let mut channel = Channel::new(local_node_id, remote_node_id, 1000000, true, false);
         channel.state = ChannelState::Active;
         channel.local_balance_novas = 600000;
@@ -601,8 +604,11 @@ mod tests {
         use std::sync::Arc;
         
         // Create a test channel
-        let local_node_id = PublicKey([1u8; 33]);
-        let remote_node_id = PublicKey([2u8; 33]);
+        let secp = secp256k1::Secp256k1::new();
+        let local_private_key = secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        let local_node_id = PublicKey::from_secret_key(&secp, &local_private_key);
+        let remote_private_key = secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap();
+        let remote_node_id = PublicKey::from_secret_key(&secp, &remote_private_key);
         let mut channel = Channel::new(local_node_id, remote_node_id, 1000000, true, false);
         channel.state = ChannelState::Active;
         channel.local_balance_novas = 800000;

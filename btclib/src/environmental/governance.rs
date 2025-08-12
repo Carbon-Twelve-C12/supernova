@@ -5,7 +5,7 @@ use thiserror::Error;
 use uuid;
 
 use crate::environmental::treasury::{EnvironmentalTreasury, TreasuryAccountType, TreasuryError};
-use crate::crypto::signature::Signature;
+use crate::crypto::signature::{Signature, SignatureType};
 
 /// Error types for environmental governance operations
 #[derive(Error, Debug)]
@@ -681,7 +681,11 @@ mod tests {
             "voter1".to_string(),
             true,
             None,
-            Signature::default(),
+            Signature {
+                signature_type: SignatureType::Secp256k1,
+                signature_bytes: vec![0; 64],
+                public_key_bytes: vec![0; 33],
+            },
         ).is_ok());
         
         assert!(governance.vote(
@@ -689,7 +693,11 @@ mod tests {
             "voter2".to_string(),
             true,
             None,
-            Signature::default(),
+            Signature {
+                signature_type: SignatureType::Secp256k1,
+                signature_bytes: vec![0; 64],
+                public_key_bytes: vec![0; 33],
+            },
         ).is_ok());
         
         assert!(governance.vote(
@@ -697,7 +705,11 @@ mod tests {
             "voter3".to_string(),
             false,
             None,
-            Signature::default(),
+            Signature {
+                signature_type: SignatureType::Secp256k1,
+                signature_bytes: vec![0; 64],
+                public_key_bytes: vec![0; 33],
+            },
         ).is_ok());
         
         // Verify votes were recorded

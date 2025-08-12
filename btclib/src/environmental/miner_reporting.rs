@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use chrono::{DateTime, Utc};
 use thiserror::Error;
-use crate::environmental::types::{EnergySource as TypesEnergySource, EmissionFactor, HardwareType as TypesHardwareType, Region};
+use crate::environmental::types::{EnergySource as TypesEnergySource, EmissionFactor, HardwareType as TypesHardwareType, Region, EmissionsDataSource, EmissionsFactorType};
 use crate::environmental::emissions::VerificationStatus;
 use std::sync::{Arc, RwLock};
 use url::Url;
@@ -1053,6 +1053,11 @@ mod tests {
             EmissionFactor {
                 grid_emissions_factor: 0.4, // 0.4 tonnes CO2e per MWh
                 region_name: "North America".to_string(),
+                data_source: EmissionsDataSource::IEA,
+                factor_type: EmissionsFactorType::Grid,
+                year: Some(2024),
+                timestamp: None,
+                confidence: Some(0.95),
             },
         );
         
@@ -1094,6 +1099,11 @@ mod tests {
             EmissionFactor {
                 grid_emissions_factor: 0.3, // 0.3 tonnes CO2e per MWh
                 region_name: "Europe".to_string(),
+                data_source: EmissionsDataSource::EEA,
+                factor_type: EmissionsFactorType::Grid,
+                year: Some(2024),
+                timestamp: None,
+                confidence: Some(0.95),
             },
         );
         

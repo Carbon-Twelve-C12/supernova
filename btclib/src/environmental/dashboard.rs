@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc, Duration};
 use crate::environmental::emissions::{Emissions, EmissionsTracker, Region, EmissionFactor, EmissionsConfig, HashRate};
 use crate::environmental::types::EmissionsFactorType;
-use crate::environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetPurchase, EnvironmentalAssetType, TreasuryConfig};
+use crate::environmental::treasury::{EnvironmentalTreasury, EnvironmentalAssetPurchase, EnvironmentalAssetType, TreasuryConfig, TreasuryAllocation};
 use crate::environmental::miner_reporting::{MinerReportingManager, MinerEnvironmentalReport, MinerVerificationStatus, MinerEnvironmentalInfo};
 use std::fmt;
 use std::path::Path;
@@ -851,13 +851,15 @@ mod tests {
                 verification: None,
                 total_hashrate: 1000.0,
                 energy_consumption_kwh_day: 24000.0,
-                carbon_footprint_tons_year: 250.0,
-                recs: vec![],
+                carbon_footprint_tonnes_year: Some(250.0),
+                last_update: Utc::now(),
+                has_rec_certificates: false,
+                has_carbon_offsets: false,
+                certificates_url: None,
+                rec_certificates: vec![],
                 carbon_offsets: vec![],
-                environmental_impact: 0.3,
-                compliance_score: 95.0,
-                last_report_timestamp: Utc::now(),
-                status: MinerVerificationStatus::Verified,
+                environmental_score: Some(95.0),
+                preferred_energy_type: Some(EnergySource::Solar),
             })
         }
         
@@ -915,20 +917,24 @@ mod tests {
         );
         
         // Create treasury
+        let mut min_purchase_amounts = HashMap::new();
+        min_purchase_amounts.insert(EnvironmentalAssetType::REC, 1000.0);
+        min_purchase_amounts.insert(EnvironmentalAssetType::CarbonOffset, 1000.0);
+        
         let treasury = EnvironmentalTreasury::new(TreasuryConfig {
+            enabled: true,
             fee_allocation_percentage: 2.0,
-            required_signatures: 1,
-            signers: vec!["signer1".to_string()],
-            min_purchase_amount: 1000.0,
-            max_purchase_amount: 100000.0,
-            auto_purchase_threshold: 10000.0,
-            enable_auto_purchase: true,
-            preferred_asset_type: EnvironmentalAssetType::REC,
-            backup_asset_type: Some(EnvironmentalAssetType::CarbonOffset),
-            verification_required: true,
-            max_asset_age_days: 365,
-            diversification_enabled: true,
-            max_single_asset_percentage: 50.0,
+            allocation: TreasuryAllocation {
+                rec_percentage: 50.0,
+                offset_percentage: 30.0,
+                investment_percentage: 15.0,
+                research_percentage: 5.0,
+            },
+            min_purchase_amounts,
+            verification_service_url: Some("https://verify.example.com".to_string()),
+            require_verification: true,
+            automatic_purchases: true,
+            max_single_purchase_percentage: 50.0,
         });
         
         // Create dashboard
