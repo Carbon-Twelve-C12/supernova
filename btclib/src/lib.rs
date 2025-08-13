@@ -131,3 +131,7 @@ pub use freeze::*;
 
 // Add this export near other testnet-related exports
 pub use testnet::network_simulator::SimulationConfig;
+
+// Test utilities module - only available in test builds
+#[cfg(test)]
+pub mod test_utils;
