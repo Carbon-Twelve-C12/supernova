@@ -430,11 +430,15 @@ mod tests {
         // Create header lookup
         let mut headers = HashMap::new();
         
-        // Chain A: More work
+        // Add genesis block (common ancestor)
+        let genesis = create_test_header(0, [0; 32], 0x1d00ffff, 0);
+        headers.insert([0; 32], genesis);
+        
+        // Chain A: More work (lower bits = more difficulty)
         let header_a = create_test_header(1, [0; 32], 0x1c00ffff, 1000);
         headers.insert([1; 32], header_a);
         
-        // Chain B: Less work
+        // Chain B: Less work (higher bits = less difficulty)
         let header_b = create_test_header(1, [0; 32], 0x1d00ffff, 1000);
         headers.insert([2; 32], header_b);
         

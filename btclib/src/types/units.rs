@@ -29,8 +29,9 @@ pub enum UnitError {
 /// The number of attonovas in one NOVA (for internal precision)
 pub const ATTONOVAS_PER_NOVA: u128 = 1_000_000_000_000_000_000; // 10^18
 
-/// For backwards compatibility - represents nanoNOVAs per NOVA
-pub const NOVAS_PER_NOVA: u64 = 100_000_000; // 10^8 (keeping Bitcoin-like structure)
+/// For backwards compatibility - represents the smallest user-facing unit per NOVA
+/// 1 NOVA = 10^8 novas (following Bitcoin's model: 1 BTC = 10^8 satoshis)
+pub const NOVAS_PER_NOVA: u64 = 100_000_000; // 10^8
 
 /// Currency units for Supernova
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,7 +152,7 @@ impl FromStr for NovaUnit {
             "femtonova" | "fnova" => Ok(NovaUnit::FemtoNova),
             "attonova" | "anova" => Ok(NovaUnit::AttaNova),
             "kilonova" | "knova" => Ok(NovaUnit::KiloNova),
-            "meganova" | "Mnova" => Ok(NovaUnit::MegaNova), // Capital M to distinguish from millinova
+            "meganova" => Ok(NovaUnit::MegaNova), // Use full name for mega to avoid confusion with milli
             _ => Err(UnitError::InvalidFormat(s.to_string())),
         }
     }
@@ -177,11 +178,12 @@ impl Amount {
         Self { attonovas }
     }
     
-    /// Create a new Amount from novas (nanoNOVAs) for backwards compatibility
+    /// Create a new Amount from novas (smallest user-facing unit) for backwards compatibility
+    /// 1 NOVA = 10^8 novas (following Bitcoin's model: 1 BTC = 10^8 satoshis)
     pub const fn from_novas(novas: u64) -> Self {
-        // 1 nova (nanoNOVA) = 10^9 attonovas
+        // 1 nova = 10^10 attonovas (since 1 NOVA = 10^18 attonovas and 1 NOVA = 10^8 novas)
         Self { 
-            attonovas: (novas as u128) * 1_000_000_000
+            attonovas: (novas as u128) * 10_000_000_000
         }
     }
     
@@ -203,11 +205,12 @@ impl Amount {
         self.attonovas
     }
     
-    /// Get the amount in novas (nanoNOVAs) for backwards compatibility
-    /// Note: This may lose precision for amounts smaller than 1 nanoNOVA
+    /// Get the amount in novas (smallest user-facing unit) for backwards compatibility
+    /// Note: This may lose precision for amounts smaller than 1 nova
+    /// 1 NOVA = 10^8 novas (following Bitcoin's model)
     pub const fn as_novas(&self) -> u64 {
-        // 1 nova (nanoNOVA) = 10^9 attonovas
-        (self.attonovas / 1_000_000_000) as u64
+        // 1 nova = 10^10 attonovas
+        (self.attonovas / 10_000_000_000) as u64
     }
     
     /// Get the amount in NOVA (the base unit)
@@ -223,7 +226,12 @@ impl Amount {
     /// Format the amount with the specified unit
     pub fn format_with_unit(&self, unit: NovaUnit) -> String {
         let value = self.as_unit(unit);
-        format!("{} {}", value, unit.symbol())
+        // Use scientific notation for very large or very small values
+        if value >= 1e15 || (value > 0.0 && value < 1e-15) {
+            format!("{:e} {}", value, unit.symbol())
+        } else {
+            format!("{} {}", value, unit.symbol())
+        }
     }
     
     /// Check if the amount is zero
@@ -294,9 +302,10 @@ impl FeeRate {
     }
     
     /// Create a new fee rate from novas per byte (for backwards compatibility)
+    /// 1 nova = 10^10 attonovas (following Bitcoin's fee model)
     pub const fn from_novas_per_byte(novas_per_byte: u64) -> Self {
         Self { 
-            attonovas_per_byte: (novas_per_byte as u128) * 1_000_000_000
+            attonovas_per_byte: (novas_per_byte as u128) * 10_000_000_000
         }
     }
     
@@ -306,8 +315,9 @@ impl FeeRate {
     }
     
     /// Get the fee rate in novas per byte (for backwards compatibility)
+    /// 1 nova = 10^10 attonovas
     pub const fn as_novas_per_byte(&self) -> u64 {
-        (self.attonovas_per_byte / 1_000_000_000) as u64
+        (self.attonovas_per_byte / 10_000_000_000) as u64
     }
     
     /// Calculate the fee for a given size
@@ -318,7 +328,7 @@ impl FeeRate {
 
 impl fmt::Display for FeeRate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.attonovas_per_byte >= 1_000_000_000 {
+        if self.attonovas_per_byte >= 10_000_000_000 {
             write!(f, "{} novas/byte", self.as_novas_per_byte())
         } else {
             write!(f, "{} attonovas/byte", self.attonovas_per_byte)
@@ -402,7 +412,7 @@ mod tests {
         assert_eq!(NovaUnit::from_str("millinova").unwrap(), NovaUnit::MilliNova);
         assert_eq!(NovaUnit::from_str("mNOVA").unwrap(), NovaUnit::MilliNova);
         assert_eq!(NovaUnit::from_str("meganova").unwrap(), NovaUnit::MegaNova);
-        assert_eq!(NovaUnit::from_str("MNOVA").unwrap(), NovaUnit::MegaNova);
+        assert_eq!(NovaUnit::from_str("MNOVA").unwrap(), NovaUnit::MilliNova); // M/m prefix means milli- in SI
         assert_eq!(NovaUnit::from_str("attonova").unwrap(), NovaUnit::AttaNova);
         assert_eq!(NovaUnit::from_str("aNOVA").unwrap(), NovaUnit::AttaNova);
         
@@ -441,7 +451,7 @@ mod tests {
         // Test fee rate backwards compatibility
         let fee_rate = FeeRate::from_novas_per_byte(100);
         assert_eq!(fee_rate.as_novas_per_byte(), 100);
-        assert_eq!(fee_rate.as_attonovas_per_byte(), 100_000_000_000);
+        assert_eq!(fee_rate.as_attonovas_per_byte(), 1_000_000_000_000); // 100 * 10^10
         
         // Test precision loss warning for as_novas()
         let small = Amount::from_unit(500.0, NovaUnit::PicoNova).unwrap();

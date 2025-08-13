@@ -229,10 +229,14 @@ mod tests {
         
         let mut headers = HashMap::new();
         
+        // Add genesis block
+        let genesis = create_header(0, [0; 32], 0x1d00ffff, 0, 0);
+        headers.insert([0; 32], genesis);
+        
         // Build a deep chain
         let mut prev_hash = [0; 32];
         for i in 0..20 {
-            let block = create_header(i, prev_hash, 0x1d00ffff, 1000 + i * 600, i as u32);
+            let block = create_header(i + 1, prev_hash, 0x1d00ffff, 1000 + i * 600, i as u32);
             let hash = [(i + 1) as u8; 32];
             headers.insert(hash, block);
             prev_hash = hash;

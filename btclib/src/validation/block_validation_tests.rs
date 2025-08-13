@@ -49,7 +49,7 @@ mod tests {
             prev_block_hash: prev_hash,
             prev_block_height: prev_height,
             prev_block_timestamp: prev_timestamp,
-            median_time_past: prev_timestamp - 3600, // 1 hour before previous block
+            median_time_past: prev_timestamp.saturating_sub(3600), // 1 hour before previous block
             current_difficulty: 0x1d00ffff,
             utxo_provider: None,
         }
