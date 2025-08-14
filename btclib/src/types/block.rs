@@ -172,6 +172,11 @@ impl BlockHeader {
         self.height
     }
     
+    /// Get version
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
     /// Get bits value
     pub fn bits(&self) -> u32 {
         self.bits
@@ -182,9 +187,14 @@ impl BlockHeader {
         &self.prev_block_hash
     }
     
-    /// Get the timestamp
+    /// Get timestamp
     pub fn timestamp(&self) -> u64 {
         self.timestamp
+    }
+    
+    /// Get merkle root
+    pub fn merkle_root(&self) -> &[u8; 32] {
+        &self.merkle_root
     }
     
     /// Set the height of this block header

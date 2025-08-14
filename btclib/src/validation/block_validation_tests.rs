@@ -149,17 +149,32 @@ mod tests {
     fn test_multiple_coinbase_detection() {
         let validator = BlockValidator::new();
         
+        // Create two distinct coinbase transactions with different coinbase data
+        let coinbase1 = Transaction::new(
+            1,
+            vec![TransactionInput::new_coinbase(vec![1, 2, 3])], // Different data
+            vec![TransactionOutput::new(50_000_000_000, vec![])],
+            0
+        );
+        
+        let coinbase2 = Transaction::new(
+            1,
+            vec![TransactionInput::new_coinbase(vec![4, 5, 6])], // Different data
+            vec![TransactionOutput::new(50_000_000_000, vec![])],
+            0
+        );
+        
         let block = Block::new(
             BlockHeader::new(1, [0; 32], [0; 32], 0, 0x1d00ffff, 0),
-            vec![Transaction::new_coinbase(), Transaction::new_coinbase()], // Two coinbases!
+            vec![coinbase1, coinbase2], // Two distinct coinbases!
         );
         
         let result = validator.validate_block(&block);
-        assert!(result.is_err());
+        assert!(result.is_err(), "Block validation should fail");
         
         match result.err().unwrap() {
             BlockValidationError::MultipleCoinbase => {},
-            _ => panic!("Expected MultipleCoinbase error"),
+            e => panic!("Expected MultipleCoinbase error, got: {:?}", e),
         }
     }
     

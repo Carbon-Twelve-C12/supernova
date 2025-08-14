@@ -10,6 +10,7 @@ use std::error::Error as StdError;
 pub mod transaction;
 pub mod crypto;
 pub mod block;
+pub mod unified_validation;
 
 #[cfg(test)]
 mod block_validation_tests;

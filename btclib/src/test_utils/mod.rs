@@ -298,8 +298,8 @@ pub fn create_test_chain(length: usize) -> Result<Vec<Block>, SupernovaError> {
         let block = TestBlockBuilder::new()
             .prev_block_hash(prev_hash)
             .timestamp(1_600_000_000 + (i as u64 * 600)) // 10 minutes apart
-            .target(0x207fffff) // Very easy difficulty for testing
-            .build_and_mine()?;
+            .target(0x207fffff) // Easy difficulty
+            .build()?; // Just build, don't mine - for test efficiency
 
         prev_hash = block.hash();
         chain.push(block);

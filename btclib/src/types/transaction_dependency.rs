@@ -232,20 +232,21 @@ mod tests {
         let mut graph = TransactionDependencyGraph::new();
         let mut mempool = HashMap::new();
         
-        // Create some transaction hashes
-        let tx1_hash = [1u8; 32];
-        let tx2_hash = [2u8; 32];
-        let tx3_hash = [3u8; 32];
-        
         // Create transactions with dependencies
-        // tx1 has no dependencies
-        let tx1 = create_test_tx(vec![]);
+        // tx1 has no mempool dependencies (uses external UTXO)
+        let external_utxo = [255u8; 32]; // Represents a UTXO from blockchain
+        let tx1 = create_test_tx(vec![external_utxo]);
+        let tx1_hash = tx1.hash();
+        
         // tx2 depends on tx1
         let tx2 = create_test_tx(vec![tx1_hash]);
+        let tx2_hash = tx2.hash();
+        
         // tx3 depends on tx2
         let tx3 = create_test_tx(vec![tx2_hash]);
+        let tx3_hash = tx3.hash();
         
-        // Add to mempool
+        // Add to mempool with their actual hashes
         mempool.insert(tx1_hash, tx1.clone());
         mempool.insert(tx2_hash, tx2.clone());
         mempool.insert(tx3_hash, tx3.clone());

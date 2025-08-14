@@ -5,13 +5,18 @@
 
 pub mod difficulty;
 pub mod secure_fork_resolution;
+pub mod fork_resolution_v2;
 pub mod timestamp_validation;
+pub mod time_warp_prevention;
 
 #[cfg(test)]
 pub mod time_warp_tests;
 
 #[cfg(test)]
 mod fork_resolution_attack_tests;
+
+#[cfg(test)]
+mod security_fix_tests;
 
 // Re-export key types
 pub use difficulty::{

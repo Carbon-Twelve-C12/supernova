@@ -220,6 +220,9 @@ impl BlockValidator {
         // Transaction structure validation
         self.validate_transaction_structure(block)?;
         
+        // Validate merkle root - CRITICAL: Must verify transaction integrity
+        self.validate_merkle_root(block)?;
+        
         Ok(())
     }
     

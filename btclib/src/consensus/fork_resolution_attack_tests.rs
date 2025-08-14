@@ -170,19 +170,13 @@ mod tests {
         };
         let mut resolver = SecureForkResolver::new(config);
         
-        // Create a common genesis block
-        let genesis_hash = [0; 32];
-        let genesis = create_header(0, [0; 32], 0x1d00ffff, 1000, 0);
-        
-        // Create two competing chains
         let chain_a = [1; 32];
         let chain_b = [2; 32];
         
         // Create headers for test chains
         let mut headers = HashMap::new();
-        headers.insert(genesis_hash, genesis.clone());
-        headers.insert(chain_a, create_header(1, genesis_hash, 0x1d00ffff, 1600, 111));
-        headers.insert(chain_b, create_header(1, genesis_hash, 0x1d00ffff, 1600, 222));
+        headers.insert(chain_a, create_header(10, [0; 32], 0x1d00ffff, 1000, 111));
+        headers.insert(chain_b, create_header(10, [0; 32], 0x1d00ffff, 1000, 222));
         
         // Create nearly equal metrics
         let metrics = ChainMetrics {
@@ -229,14 +223,10 @@ mod tests {
         
         let mut headers = HashMap::new();
         
-        // Add genesis block
-        let genesis = create_header(0, [0; 32], 0x1d00ffff, 0, 0);
-        headers.insert([0; 32], genesis);
-        
         // Build a deep chain
         let mut prev_hash = [0; 32];
         for i in 0..20 {
-            let block = create_header(i + 1, prev_hash, 0x1d00ffff, 1000 + i * 600, i as u32);
+            let block = create_header(i, prev_hash, 0x1d00ffff, 1000 + i * 600, i as u32);
             let hash = [(i + 1) as u8; 32];
             headers.insert(hash, block);
             prev_hash = hash;
@@ -262,19 +252,15 @@ mod tests {
         // Create header storage
         let mut headers = HashMap::new();
         
-        // Add genesis block
-        let genesis_hash = [0; 32];
-        headers.insert(genesis_hash, create_header(0, [0; 32], 0x1d00ffff, 900, 0));
-        
         // Good chain with proper timestamps
         let good_chain = [10; 32];
-        headers.insert([8; 32], create_header(1, genesis_hash, 0x1d00ffff, 1000, 1));
+        headers.insert([8; 32], create_header(1, [0; 32], 0x1d00ffff, 1000, 1));
         headers.insert([9; 32], create_header(2, [8; 32], 0x1d00ffff, 1600, 2));
         headers.insert(good_chain, create_header(3, [9; 32], 0x1d00ffff, 2200, 3));
         
         // Bad chain with backwards timestamps (manipulation attempt)
         let bad_chain = [11; 32];
-        headers.insert([5; 32], create_header(1, genesis_hash, 0x1d00ffff, 3000, 1));
+        headers.insert([5; 32], create_header(1, [0; 32], 0x1d00ffff, 3000, 1));
         headers.insert([6; 32], create_header(2, [5; 32], 0x1d00ffff, 2000, 2));
         headers.insert(bad_chain, create_header(3, [6; 32], 0x1d00ffff, 1000, 3));
         
