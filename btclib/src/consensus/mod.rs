@@ -29,9 +29,15 @@ pub use difficulty::{
 
 // Import validation functions from the main validation module
 pub use crate::validation::{validate_block, validate_transaction};
-pub use secure_fork_resolution::{
-    SecureForkResolver, SecureForkConfig, ChainMetrics,
+// Export the new fork resolution v2 as the primary implementation
+pub use fork_resolution_v2::{
+    ProofOfWorkForkResolver as SecureForkResolver,
     ForkResolutionError, ForkResolutionResult
+};
+
+// Keep the old types for backward compatibility during transition
+pub use secure_fork_resolution::{
+    SecureForkConfig, ChainMetrics
 };
 
 pub use timestamp_validation::{

@@ -122,13 +122,9 @@ impl ProofOfWorkForkResolver {
         } else {
             let byte_offset = exponent - 3;
             if byte_offset < 30 {
-                target[31 - byte_offset] = mantissa as u8;
-                if byte_offset < 29 {
-                    target[30 - byte_offset] = (mantissa >> 8) as u8;
-                }
-                if byte_offset < 28 {
-                    target[29 - byte_offset] = (mantissa >> 16) as u8;
-                }
+                target[32 - byte_offset - 1] = mantissa as u8;
+                target[32 - byte_offset - 2] = (mantissa >> 8) as u8;
+                target[32 - byte_offset - 3] = (mantissa >> 16) as u8;
             }
         }
         
@@ -274,7 +270,7 @@ mod tests {
         let test_cases = vec![
             (0x1d00ffff, "00000000ffff0000000000000000000000000000000000000000000000000000"),
             (0x1b0404cb, "00000000000404cb000000000000000000000000000000000000000000000000"),
-            (0x04123456, "00000000000000000000000000000000000000000000000000000000000012"),
+            (0x04123456, "0000000000000000000000000000000000000000000000000000000000123456"),
         ];
         
         for (bits, expected_hex) in test_cases {
@@ -297,12 +293,12 @@ mod tests {
         headers.insert([0; 32], genesis);
         
         // Block 1 (harder difficulty)
-        let mut block1_hash = [1; 32];
+        let block1_hash = [1; 32];
         let block1 = BlockHeader::new(1, [0; 32], [0; 32], 600, 0x1d00ffff, 0);
         headers.insert(block1_hash, block1);
         
         // Block 2 (even harder)
-        let mut block2_hash = [2; 32];
+        let block2_hash = [2; 32];
         let block2 = BlockHeader::new(2, block1_hash, [0; 32], 1200, 0x1c00ffff, 0);
         headers.insert(block2_hash, block2);
         

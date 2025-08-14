@@ -7,7 +7,9 @@ use log::{error, warn};
 use crate::types::block::{Block, BlockHeader};
 use crate::types::transaction::{Transaction, OutPoint};
 use crate::storage::utxo_set::{UtxoSet, UtxoEntry, UtxoCommitment};
-use crate::consensus::secure_fork_resolution::{SecureForkResolver, SecureForkConfig};
+use crate::consensus::fork_resolution_v2::ProofOfWorkForkResolver;
+use crate::consensus::secure_fork_resolution::SecureForkConfig;
+use std::cmp::Ordering;
 
 /// Errors that can occur in chain state operations
 #[derive(Debug, Error)]
@@ -129,8 +131,8 @@ pub struct ChainState {
     /// UTXO set reference
     utxo_set: Arc<UtxoSet>,
     
-    /// Secure fork resolver
-    fork_resolver: Arc<Mutex<SecureForkResolver>>,
+    /// Proof of work fork resolver
+    fork_resolver: Arc<Mutex<ProofOfWorkForkResolver>>,
 }
 
 impl ChainState {
@@ -148,7 +150,7 @@ impl ChainState {
             processed_blocks: Arc::new(RwLock::new(HashSet::new())),
             checkpoints: Arc::new(RwLock::new(HashMap::new())),
             utxo_set,
-            fork_resolver: Arc::new(Mutex::new(SecureForkResolver::new(fork_config))),
+            fork_resolver: Arc::new(Mutex::new(ProofOfWorkForkResolver::new(fork_config.max_fork_depth))),
         }
     }
     
@@ -317,7 +319,15 @@ impl ChainState {
                 ChainStateError::StorageError(format!("Fork resolver lock poisoned: {}", e)))?;
             
             match resolver.compare_chains(&block_hash, &current_tip, get_header) {
-                Ok(new_chain_better) => new_chain_better,
+                Ok(ordering) => match ordering {
+                    Ordering::Greater => true,  // New chain has more work
+                    Ordering::Less => false,    // Current chain has more work
+                    Ordering::Equal => {
+                        // Equal work - use deterministic tiebreaker
+                        // (resolver handles this internally, but for clarity)
+                        false
+                    }
+                },
                 Err(e) => {
                     // Log error but don't fail - default to keeping current chain
                     log::warn!("Fork resolution error: {}, keeping current chain", e);

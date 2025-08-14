@@ -26,7 +26,7 @@ mod tests {
         let mut prev = [0; 32];
         for i in 1..=3 {
             let hash = [i as u8; 32];
-            let header = BlockHeader::new(i, prev, [0; 32], i * 600, 0x1f7fffff, 0); // Easy
+            let header = BlockHeader::new(i, prev, [0; 32], (i as u64) * 600, 0x1f7fffff, 0); // Easy
             headers.insert(hash, header);
             prev = hash;
         }
@@ -36,7 +36,7 @@ mod tests {
         prev = [0; 32];
         for i in 1..=2 {
             let hash = [10 + i as u8; 32];
-            let header = BlockHeader::new(i, prev, [0; 32], i * 600, 0x1d00ffff, 0); // Harder
+            let header = BlockHeader::new(i, prev, [0; 32], (i as u64) * 600, 0x1d00ffff, 0); // Harder
             headers.insert(hash, header);
             prev = hash;
         }
@@ -201,7 +201,7 @@ mod tests {
                 i,
                 if i == 0 { [0; 32] } else { [i as u8; 32] },
                 [0; 32],
-                1000 + i * 600, // 10 minutes apart
+                1000 + (i as u64) * 600, // 10 minutes apart
                 0x207fffff,
                 0,
             );
