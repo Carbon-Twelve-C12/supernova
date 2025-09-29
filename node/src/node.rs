@@ -163,7 +163,7 @@ impl Node {
             chain_state.write()
                 .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
                 .initialize_with_genesis(genesis_block)
-                .map_err(|e| NodeError::StorageError(e))?;
+                .map_err(NodeError::StorageError)?;
         }
         
         // Initialize mempool
@@ -413,7 +413,7 @@ impl Node {
         self.chain_state.write()
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
             .add_block(&block)
-            .map_err(|e| NodeError::StorageError(e))?;
+            .map_err(NodeError::StorageError)?;
         
         // Remove transactions from mempool
         for tx in block.transactions() {

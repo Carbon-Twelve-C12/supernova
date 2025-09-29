@@ -259,12 +259,12 @@ impl FraudDetector {
     fn check_impossible_efficiency(&self, audit: &EfficiencyAudit) -> Option<SuspiciousActivity> {
         // Theoretical maximum efficiency for current technology
         match audit.hash_rate_per_watt {
-            x if x > 200.0 => return Some(SuspiciousActivity::ImpossibleEfficiency {
+            x if x > 200.0 => Some(SuspiciousActivity::ImpossibleEfficiency {
                 claimed: x,
                 theoretical_max: 200.0,
             }),
-            _ => return None,
-        };
+            _ => None,
+        }
     }
     
     async fn detect_patterns(

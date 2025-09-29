@@ -260,7 +260,7 @@ impl EclipsePreventionSystem {
         let region = self.lookup_region(&ip_address).await;
         
         let info = PeerConnectionInfo {
-            peer_id: peer_id,
+            peer_id,
             ip_address,
             subnet,
             asn,

@@ -254,7 +254,7 @@ fn bits_to_target(bits: u32) -> [u8; 32] {
     } else {
         // Normal case: place coefficient at the correct position
         // Target is stored in little-endian, so we need to place bytes from the end
-        if exponent >= 3 && exponent <= 34 {
+        if (3..=34).contains(&exponent) {
             let pos = 32 - (exponent - 3);
             if pos >= 3 {
                 target[pos - 1] = (coefficient & 0xFF) as u8;

@@ -5,11 +5,10 @@ use serde::{Serialize, Deserialize};
 use crate::types::block::Block;
 use crate::environmental::{
     emissions::{EmissionsError, EmissionsTracker, VerificationStatus},
-    miner_reporting::{MinerEnvironmentalInfo, MinerVerificationStatus, MinerReportingManager, VerificationInfo},
+    miner_reporting::{MinerEnvironmentalInfo, MinerVerificationStatus, MinerReportingManager},
     treasury::{EnvironmentalTreasury, TreasuryError, TreasuryAccountType, EnvironmentalAssetType},
     transparency::TransparencyDashboard,
     dashboard::EnvironmentalDashboard,
-    types::{Region, HardwareType, EnergySource},
 };
 
 /// Main error type for the environmental API

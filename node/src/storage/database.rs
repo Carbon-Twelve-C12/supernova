@@ -2035,8 +2035,8 @@ impl BlockchainDB {
         
         // Update bloom filter capacities based on available memory
         if self.config.use_bloom_filters {
-            let block_filter_capacity = (blocks_budget / 100); // Each block requires ~100 bytes in filter
-            let tx_filter_capacity = (tx_budget / 50); // Each tx requires ~50 bytes in filter
+            let block_filter_capacity = blocks_budget / 100; // Each block requires ~100 bytes in filter
+            let tx_filter_capacity = tx_budget / 50; // Each tx requires ~50 bytes in filter
             
             let mut block_filter = self.block_filter.write()
                 .map_err(|e| StorageError::LockPoisoned(format!("Block filter write lock poisoned: {}", e)))?;
@@ -2055,7 +2055,7 @@ impl BlockchainDB {
         
         // Update the configuration
         self.config.cache_size = total_budget_bytes;
-        self.config.bloom_filter_capacity = (utxo_budget / 30); // Each UTXO requires ~30 bytes in filter
+        self.config.bloom_filter_capacity = utxo_budget / 30; // Each UTXO requires ~30 bytes in filter
         
         // Reinitialize bloom filters with existing data
         if self.config.use_bloom_filters {

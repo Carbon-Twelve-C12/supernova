@@ -123,7 +123,7 @@ impl Wallet {
             // Construct witness
             let mut witness_stack = Witness::new();
             witness_stack.push(signatures[input_index].clone());
-            witness_stack.push(&public_key.to_bytes());
+            witness_stack.push(public_key.to_bytes());
             
             // Set witness
             input.witness = witness_stack;
