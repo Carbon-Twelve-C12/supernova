@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use crate::environmental::{
     dashboard::EnvironmentalDashboard,
     emissions::{EmissionsError, EmissionsTracker, VerificationStatus},
-    miner_reporting::{MinerEnvironmentalInfo, MinerReportingManager, MinerVerificationStatus},
+    miner_reporting::{MinerEnvironmentalInfo, MinerReportingManager, MinerVerificationStatus, VerificationInfo},
     transparency::TransparencyDashboard,
     treasury::{EnvironmentalAssetType, EnvironmentalTreasury, TreasuryAccountType, TreasuryError},
+    types::{Region, HardwareType, EnergySource},
 };
 use crate::types::block::Block;
 

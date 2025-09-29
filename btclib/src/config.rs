@@ -236,7 +236,7 @@ impl Config {
 
 /// Main Supernova blockchain configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct supernovaConfig {
+pub struct SupernovaConfig {
     /// Network configuration
     pub network: NetworkConfig,
 
@@ -307,7 +307,7 @@ pub struct SecurityConfig {
     pub max_signature_validation_time_ms: u64,
 }
 
-impl Default for supernovaConfig {
+impl Default for SupernovaConfig {
     fn default() -> Self {
         Self {
             network: NetworkConfig::default(),
@@ -354,7 +354,7 @@ impl Default for SecurityConfig {
     }
 }
 
-impl supernovaConfig {
+impl SupernovaConfig {
     /// Load configuration from file
     pub fn load_from_file(path: &PathBuf) -> Result<Self, ConfigError> {
         if !path.exists() {
@@ -364,7 +364,7 @@ impl supernovaConfig {
         let content =
             std::fs::read_to_string(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
 
-        let config: supernovaConfig =
+        let config: SupernovaConfig =
             toml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
 
         Ok(config)

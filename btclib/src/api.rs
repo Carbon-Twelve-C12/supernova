@@ -81,14 +81,14 @@ pub enum ApiError {
 /// API result type
 pub type ApiResult<T> = Result<T, ApiError>;
 
-/// Main API for interacting with the supernova blockchain
-pub struct supernovaApi {
+/// Main API for interacting with the Supernova blockchain
+pub struct SupernovaApi {
     /// Configuration
     config: Config,
 }
 
-impl supernovaApi {
-    /// Create a new supernova API
+impl SupernovaApi {
+    /// Create a new Supernova API
     pub fn new(config: Config) -> Self {
         Self { config }
     }
@@ -164,7 +164,6 @@ impl Api {
             .await
             .map_err(|e| ApiError::BindError(e.to_string()))?;
 
-        println!("API server listening on {}", self.config.bind_address);
         self.listener = Some(listener);
 
         Ok(())

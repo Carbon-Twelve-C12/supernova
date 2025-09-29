@@ -235,11 +235,6 @@ impl TimeWarpPrevention {
             // Debug output
             #[cfg(test)]
             {
-                println!(
-                    "Alternating count: {}, ups: {}, downs: {}",
-                    alternating_count, ups, downs
-                );
-                println!("Check timestamps: {:?}", check_timestamps);
             }
 
             // If we see a clear alternating pattern (at least 3 alternations)

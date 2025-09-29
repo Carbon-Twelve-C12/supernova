@@ -416,7 +416,6 @@ impl EnvironmentalTreasury {
                 }
                 Err(e) => {
                     // Log error but continue with other purchases
-                    eprintln!("Failed to purchase RECs: {}", e);
                 }
             }
         }
@@ -443,7 +442,6 @@ impl EnvironmentalTreasury {
                     total_spent += offset_amount;
                 }
                 Err(e) => {
-                    eprintln!("Failed to purchase Carbon Offsets: {}", e);
                 }
             }
         }
@@ -467,7 +465,6 @@ impl EnvironmentalTreasury {
                     total_spent += investment_amount;
                 }
                 Err(e) => {
-                    eprintln!("Failed to make Green Investment: {}", e);
                 }
             }
         }
@@ -494,7 +491,6 @@ impl EnvironmentalTreasury {
                     total_spent += research_amount;
                 }
                 Err(e) => {
-                    eprintln!("Failed to fund Research Grant: {}", e);
                 }
             }
         }

@@ -186,7 +186,6 @@ impl GreenLightningRouter {
 
     /// Calculate route carbon footprint
     pub fn calculate_route_carbon_footprint(&self, route: &GreenLightningRoute) -> f64 {
-        println!("🌿 Calculating route carbon footprint");
 
         let mut total_carbon = 0.0;
 
@@ -204,11 +203,6 @@ impl GreenLightningRouter {
         let length_factor = 1.0 + (route.hops.len() as f64 - 1.0) * 0.05;
         total_carbon *= length_factor;
 
-        println!("  Route carbon footprint: {:.6} kg CO2e", total_carbon);
-        println!(
-            "  Per hop average: {:.6} kg CO2e",
-            total_carbon / route.hops.len() as f64
-        );
 
         total_carbon
     }
@@ -220,7 +214,6 @@ impl GreenLightningRouter {
         destination: NodeId,
         amount_sats: u64,
     ) -> Result<GreenLightningRoute, RoutingError> {
-        println!("⚡ Optimizing route for renewable energy");
 
         // Check cache first
         let cache_key = RouteCacheKey {
@@ -231,7 +224,6 @@ impl GreenLightningRouter {
         };
 
         if let Some(cached) = self.get_cached_route(&cache_key) {
-            println!("  Using cached green route");
             return Ok(cached);
         }
 
@@ -244,16 +236,6 @@ impl GreenLightningRouter {
         // Update metrics
         self.update_routing_metrics(&route);
 
-        println!("✅ Green route optimized:");
-        println!(
-            "  Renewable percentage: {:.1}%",
-            route.average_renewable_percentage
-        );
-        println!(
-            "  Carbon footprint: {:.6} kg CO2e",
-            route.total_carbon_footprint
-        );
-        println!("  Route score: {:.1}/100", route.route_score);
 
         Ok(route)
     }
@@ -263,7 +245,6 @@ impl GreenLightningRouter {
         &self,
         preferences: EnvironmentalRoutingPreferences,
     ) -> Result<(), RoutingError> {
-        println!("🌍 Applying environmental routing preferences");
 
         let mut params = self.routing_params.write().unwrap();
 
@@ -300,16 +281,12 @@ impl GreenLightningRouter {
             params.min_renewable_percentage = min_renewable;
         }
 
-        println!("  Priority: {:?}", preferences.priority);
-        println!("  Max carbon: {:.6} kg CO2e", params.max_carbon_per_route);
-        println!("  Min renewable: {:.1}%", params.min_renewable_percentage);
 
         Ok(())
     }
 
     /// Incentivize green Lightning nodes
     pub fn incentivize_green_lightning_nodes(&self) -> GreenIncentiveProgram {
-        println!("💚 Green Lightning incentive program active");
 
         let graph = self.network_graph.read().unwrap();
 
@@ -357,14 +334,6 @@ impl GreenLightningRouter {
             },
         };
 
-        println!(
-            "  Green nodes: {}/{} ({:.1}%)",
-            green_nodes,
-            total_nodes,
-            (green_nodes as f64 / total_nodes as f64) * 100.0
-        );
-        println!("  Carbon negative nodes: {}", carbon_negative_nodes);
-        println!("  Network renewable average: {:.1}%", avg_renewable);
 
         incentives
     }

@@ -177,7 +177,6 @@ impl QuantumSecurityAuditor {
 
     /// Prepare comprehensive Dilithium security audit
     pub fn prepare_dilithium_security_audit(&mut self) -> DilithiumSecurityAudit {
-        println!("🔐 Preparing CRYSTALS-Dilithium security audit...");
 
         // Test all security levels
         let level2_validation = self.validate_dilithium_level(2);
@@ -196,7 +195,6 @@ impl QuantumSecurityAuditor {
         // Side-channel analysis
         let side_channel_analysis = self.analyze_side_channels();
 
-        println!("✅ Dilithium security audit complete");
 
         DilithiumSecurityAudit {
             level2_validation,
@@ -211,14 +209,12 @@ impl QuantumSecurityAuditor {
 
     /// Prepare SPHINCS+ validation
     pub fn prepare_sphincs_plus_validation(&mut self) -> SphincsSecurityAudit {
-        println!("🔐 Preparing SPHINCS+ security validation...");
 
         let hash_security = self.test_hash_based_security();
         let stateless_validation = self.test_stateless_signatures();
         let tree_construction = self.analyze_tree_construction();
         let performance_metrics = self.benchmark_sphincs_performance();
 
-        println!("✅ SPHINCS+ validation complete");
 
         SphincsSecurityAudit {
             hash_security,
@@ -230,7 +226,6 @@ impl QuantumSecurityAuditor {
 
     /// Prepare Falcon integration review
     pub fn prepare_falcon_integration_review(&mut self) -> FalconIntegrationAudit {
-        println!("🔐 Preparing Falcon integration review...");
 
         // Note: Falcon is prepared but not fully integrated yet
         let integration_complete = false;
@@ -238,7 +233,6 @@ impl QuantumSecurityAuditor {
         let signature_optimization = self.analyze_signature_sizes();
         let compatibility = self.test_falcon_compatibility();
 
-        println!("✅ Falcon integration review complete");
 
         FalconIntegrationAudit {
             integration_complete,
@@ -250,14 +244,12 @@ impl QuantumSecurityAuditor {
 
     /// Create quantum attack resistance tests
     pub fn create_quantum_attack_resistance_tests(&mut self) -> QuantumAttackResistanceTests {
-        println!("🛡️ Creating quantum attack resistance tests...");
 
         let grover_resistance = self.test_grover_resistance();
         let shor_immunity = self.test_shor_immunity();
         let collision_resistance = self.test_collision_resistance();
         let future_threat_analysis = self.analyze_future_threats();
 
-        println!("✅ Quantum attack resistance tests complete");
 
         QuantumAttackResistanceTests {
             grover_resistance,
@@ -269,7 +261,6 @@ impl QuantumSecurityAuditor {
 
     /// Document post-quantum security proofs
     pub fn document_post_quantum_security_proofs(&self) -> PostQuantumSecurityProofs {
-        println!("📄 Documenting post-quantum security proofs...");
 
         let lattice_problem_hardness =
             "Dilithium security reduces to the hardness of Module-LWE and Module-SIS problems, \
@@ -307,7 +298,6 @@ impl QuantumSecurityAuditor {
             },
         ];
 
-        println!("✅ Security proofs documented");
 
         PostQuantumSecurityProofs {
             lattice_problem_hardness,
@@ -324,7 +314,6 @@ impl QuantumSecurityAuditor {
         let mut passed_tests = 0;
         let total_tests = self.test_iterations;
 
-        println!("  Testing Dilithium {:?}...", level);
 
         // Key generation tests
         for _ in 0..total_tests {
@@ -545,7 +534,6 @@ impl QuantumSecurityAuditor {
 
     /// Generate comprehensive audit report
     pub fn generate_audit_report(&mut self) -> QuantumSecurityAuditReport {
-        println!("📊 Generating comprehensive quantum security audit report...");
 
         let dilithium_audit = self.prepare_dilithium_security_audit();
         let sphincs_audit = self.prepare_sphincs_plus_validation();
@@ -565,7 +553,6 @@ impl QuantumSecurityAuditor {
             certification_ready: true,
         };
 
-        println!("✅ Quantum security audit report complete!");
 
         QuantumSecurityAuditReport {
             audit_id: format!("QSA-{}", Utc::now().timestamp()),
@@ -742,7 +729,6 @@ pub fn prepare_quantum_security_audit() -> QuantumSecurityAuditReport {
 
 pub fn validate_quantum_lightning_security() -> bool {
     // Validate quantum Lightning Network security
-    println!("⚡ Validating quantum Lightning Network security...");
 
     // In production, would validate actual Lightning implementation
     // For audit preparation, we demonstrate the validation framework
@@ -752,7 +738,6 @@ pub fn validate_quantum_lightning_security() -> bool {
 
 pub fn test_environmental_oracle_security() -> bool {
     // Test environmental oracle consensus security
-    println!("🌍 Testing environmental oracle security...");
 
     // Validate multi-oracle consensus
     // Test Byzantine fault tolerance

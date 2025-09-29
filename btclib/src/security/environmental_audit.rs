@@ -152,7 +152,6 @@ impl EnvironmentalSecurityAuditor {
 
     /// Prepare carbon tracking validation
     pub fn prepare_carbon_tracking_validation(&mut self) -> CarbonTrackingAudit {
-        println!("🌍 Preparing carbon tracking system validation...");
 
         let oracle_consensus = self.validate_oracle_consensus();
         let data_integrity = self.test_data_integrity();
@@ -160,7 +159,6 @@ impl EnvironmentalSecurityAuditor {
         let calculation_accuracy = self.test_calculation_accuracy();
         let multi_oracle_security = self.test_multi_oracle_security();
 
-        println!("✅ Carbon tracking validation complete");
 
         CarbonTrackingAudit {
             oracle_consensus,
@@ -173,14 +171,12 @@ impl EnvironmentalSecurityAuditor {
 
     /// Document renewable verification process
     pub fn document_renewable_verification_process(&mut self) -> RenewableVerificationAudit {
-        println!("🌱 Documenting renewable verification process...");
 
         let automated_validation = self.test_automated_validation();
         let certificate_authenticity = self.test_certificate_authenticity();
         let regional_verification = self.test_regional_verification();
         let integration_tests = self.test_verification_integration();
 
-        println!("✅ Renewable verification documented");
 
         RenewableVerificationAudit {
             automated_validation,
@@ -192,14 +188,12 @@ impl EnvironmentalSecurityAuditor {
 
     /// Validate Foundation review procedures
     pub fn validate_foundation_review_procedures(&mut self) -> FoundationReviewAudit {
-        println!("📋 Validating Foundation review procedures...");
 
         let manual_review_process = self.test_manual_review_process();
         let quarterly_cycle = self.test_quarterly_cycle();
         let reviewer_authorization = self.test_reviewer_authorization();
         let audit_trail = self.test_audit_trail();
 
-        println!("✅ Foundation review procedures validated");
 
         FoundationReviewAudit {
             manual_review_process,
@@ -211,14 +205,12 @@ impl EnvironmentalSecurityAuditor {
 
     /// Create environmental security tests
     pub fn create_environmental_security_tests(&mut self) -> EnvironmentalSecurityTests {
-        println!("🔒 Creating environmental security tests...");
 
         let byzantine_tolerance = self.test_byzantine_fault_tolerance();
         let sybil_resistance = self.test_sybil_attack_resistance();
         let manipulation_prevention = self.test_manipulation_prevention();
         let cryptographic_integrity = self.test_cryptographic_integrity();
 
-        println!("✅ Environmental security tests complete");
 
         EnvironmentalSecurityTests {
             byzantine_tolerance,
@@ -230,14 +222,12 @@ impl EnvironmentalSecurityAuditor {
 
     /// Prepare green incentive audit
     pub fn prepare_green_incentive_audit(&mut self) -> GreenIncentiveAudit {
-        println!("💚 Preparing green incentive audit...");
 
         let incentive_calculation = self.test_incentive_calculation();
         let bonus_distribution = self.test_bonus_distribution();
         let gaming_prevention = self.test_gaming_prevention();
         let economic_sustainability = self.test_economic_sustainability();
 
-        println!("✅ Green incentive audit complete");
 
         GreenIncentiveAudit {
             incentive_calculation,
@@ -253,7 +243,6 @@ impl EnvironmentalSecurityAuditor {
         let mut tests_passed = 0;
         let total_tests = 1000;
 
-        println!("  Testing oracle consensus mechanism...");
 
         for _ in 0..total_tests {
             // Simulate oracle submissions with varying data
@@ -509,7 +498,6 @@ impl EnvironmentalSecurityAuditor {
 
     /// Generate comprehensive environmental audit report
     pub fn generate_audit_report(&mut self) -> EnvironmentalSystemAuditReport {
-        println!("📊 Generating environmental system audit report...");
 
         let carbon_tracking_audit = self.prepare_carbon_tracking_validation();
         let renewable_verification_audit = self.document_renewable_verification_process();
@@ -531,7 +519,6 @@ impl EnvironmentalSecurityAuditor {
             sustainability_score: 98.5,
         };
 
-        println!("✅ Environmental system audit report complete!");
 
         EnvironmentalSystemAuditReport {
             audit_id: format!("ESA-{}", Utc::now().timestamp()),
@@ -775,13 +762,11 @@ pub fn prepare_environmental_system_audit() -> EnvironmentalSystemAuditReport {
 }
 
 pub fn validate_carbon_tracking_system() -> bool {
-    println!("🌍 Validating carbon tracking system...");
     // Full validation in production
     true
 }
 
 pub fn test_renewable_verification_security() -> bool {
-    println!("🌱 Testing renewable verification security...");
     // Security tests in production
     true
 }

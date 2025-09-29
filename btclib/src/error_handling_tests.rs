@@ -4,7 +4,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::{supernovaError, supernovaResult, SafeUnwrap, ResultExt};
+    use crate::errors::{SupernovaError, SupernovaResult, SafeUnwrap, ResultExt};
     use crate::errors::{safe_serialize, safe_deserialize, get_system_time};
 
     #[test]
@@ -57,13 +57,13 @@ mod tests {
 
         let test = TestStruct { value: 42 };
         let serialized = safe_serialize(&test).unwrap();
-        let result: supernovaResult<TestStruct> = safe_deserialize(&serialized);
+        let result: SupernovaResult<TestStruct> = safe_deserialize(&serialized);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test);
 
         // Test with invalid data
         let invalid_data = vec![0xFF, 0xFF, 0xFF, 0xFF];
-        let result: supernovaResult<TestStruct> = safe_deserialize(&invalid_data);
+        let result: SupernovaResult<TestStruct> = safe_deserialize(&invalid_data);
         assert!(result.is_err());
     }
 
@@ -72,7 +72,7 @@ mod tests {
         use std::sync::{Mutex, RwLock};
 
         let mutex = Mutex::new(42);
-        let result = (|| -> supernovaResult<()> {
+        let result = (|| -> SupernovaResult<()> {
             let value = safe_lock!(mutex);
             assert_eq!(*value, 42);
             Ok(())
@@ -80,7 +80,7 @@ mod tests {
         assert!(result.is_ok());
 
         let rwlock = RwLock::new("test");
-        let result = (|| -> supernovaResult<()> {
+        let result = (|| -> SupernovaResult<()> {
             let value = safe_lock!(rwlock, read);
             assert_eq!(*value, "test");
             Ok(())
@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn test_safe_arithmetic() {
         // Test safe_add
-        let result = (|| -> supernovaResult<u64> {
+        let result = (|| -> SupernovaResult<u64> {
             let a: u64 = 100;
             let b: u64 = 200;
             Ok(safe_add!(a, b))
@@ -99,16 +99,16 @@ mod tests {
         assert_eq!(result.unwrap(), 300);
 
         // Test overflow
-        let result = (|| -> supernovaResult<u64> {
+        let result = (|| -> SupernovaResult<u64> {
             let a: u64 = u64::MAX;
             let b: u64 = 1;
             Ok(safe_add!(a, b))
         })();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), supernovaError::ArithmeticOverflow(_)));
+        assert!(matches!(result.unwrap_err(), SupernovaError::ArithmeticOverflow(_)));
 
         // Test safe_sub
-        let result = (|| -> supernovaResult<u64> {
+        let result = (|| -> SupernovaResult<u64> {
             let a: u64 = 300;
             let b: u64 = 100;
             Ok(safe_sub!(a, b))
@@ -116,13 +116,13 @@ mod tests {
         assert_eq!(result.unwrap(), 200);
 
         // Test underflow
-        let result = (|| -> supernovaResult<u64> {
+        let result = (|| -> SupernovaResult<u64> {
             let a: u64 = 100;
             let b: u64 = 200;
             Ok(safe_sub!(a, b))
         })();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), supernovaError::ArithmeticOverflow(_)));
+        assert!(matches!(result.unwrap_err(), SupernovaError::ArithmeticOverflow(_)));
     }
 
     #[test]
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn test_error_handling_patterns() {
         // Pattern 1: Using ? operator with custom errors
-        fn process_data() -> supernovaResult<String> {
+        fn process_data() -> SupernovaResult<String> {
             let data = vec![1, 2, 3];
             let serialized = safe_serialize(&data)?;
             let deserialized: Vec<i32> = safe_deserialize(&serialized)?;
@@ -151,7 +151,7 @@ mod tests {
         assert_eq!(result.unwrap(), "Processed 3 items");
 
         // Pattern 2: Chaining with context
-        fn load_and_process() -> supernovaResult<()> {
+        fn load_and_process() -> SupernovaResult<()> {
             std::fs::read_to_string("nonexistent.txt")
                 .context("Failed to read config file")?;
             Ok(())

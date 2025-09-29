@@ -589,7 +589,6 @@ impl BackupManager {
             // Remove the backup file
             if let Err(e) = fs::remove_file(&backup.path) {
                 // Just log the error and continue
-                eprintln!("Failed to remove backup file: {}", e);
             } else {
                 // Update counters
                 if backup.metadata.backup_type == BackupType::Full {

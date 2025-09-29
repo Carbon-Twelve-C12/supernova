@@ -445,7 +445,6 @@ impl EnvironmentalAlertingSystem {
                 },
                 Err(e) => {
                     // Log error
-                    eprintln!("Error checking rule {}: {}", rule.name, e);
                 }
             }
         }
@@ -469,11 +468,6 @@ impl EnvironmentalAlertingSystem {
 
                 // Log the auto-resolve if configured
                 if self.config.log_all_activity {
-                    println!("[{}] Alert {} changed to {:?} by System: Auto-resolved: condition no longer met",
-                        now.format("%Y-%m-%d %H:%M:%S"),
-                        alert_id,
-                        AlertStatus::Resolved
-                    );
                 }
             }
         }
@@ -511,13 +505,6 @@ impl EnvironmentalAlertingSystem {
                         "".to_string()
                     };
 
-                    println!("[{}] Alert {} changed to {:?} by {}{}",
-                        Utc::now().format("%Y-%m-%d %H:%M:%S"),
-                        alert_id,
-                        AlertStatus::Acknowledged,
-                        user,
-                        note_str
-                    );
                 }
 
                 Ok(())
@@ -559,13 +546,6 @@ impl EnvironmentalAlertingSystem {
                         "".to_string()
                     };
 
-                    println!("[{}] Alert {} changed to {:?} by {}{}",
-                        Utc::now().format("%Y-%m-%d %H:%M:%S"),
-                        alert_id,
-                        AlertStatus::Resolved,
-                        user,
-                        note_str
-                    );
                 }
 
                 Ok(())
@@ -606,13 +586,6 @@ impl EnvironmentalAlertingSystem {
                     "".to_string()
                 };
 
-                println!("[{}] Alert {} changed to {:?} by {}{}",
-                    Utc::now().format("%Y-%m-%d %H:%M:%S"),
-                    alert_id,
-                    AlertStatus::Dismissed,
-                    user,
-                    note_str
-                );
             }
 
             Ok(())
@@ -817,26 +790,13 @@ impl EnvironmentalAlertingSystem {
             match method {
                 NotificationMethod::Email(email) => {
                     // In a real implementation, this would send an email
-                    println!("Sending email notification to {}: {}", email, alert.message);
                 },
                 NotificationMethod::Webhook(url) => {
                     // In a real implementation, this would call a webhook
-                    println!("Calling webhook at {}: {}", url, alert.message);
                 },
                 NotificationMethod::Log => {
-                    println!("[{}] ALERT {}: {} ({})",
-                        Utc::now().format("%Y-%m-%d %H:%M:%S"),
-                        rule.severity.to_string().to_uppercase(),
-                        alert.message,
-                        alert.id
-                    );
                 },
                 NotificationMethod::Console => {
-                    eprintln!("\x1b[31mALERT {}: {} ({})\x1b[0m",
-                        rule.severity.to_string().to_uppercase(),
-                        alert.message,
-                        alert.id
-                    );
                 },
             }
         }

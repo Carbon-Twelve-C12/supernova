@@ -1,7 +1,7 @@
 //! Hash utilities for the blockchain
 //! Provides a simpler interface to the cryptographic hash functions
 
-use crate::crypto::hash::{supernovaHash, Blake3Hash, DoubleSha256Hash, Hash, Sha256Hash};
+use crate::crypto::hash::{SupernovaHash, Blake3Hash, DoubleSha256Hash, Hash, Sha256Hash};
 use sha2::{Digest, Sha256};
 
 /// 256-bit hash value - fixed size array for blockchain use
@@ -27,7 +27,7 @@ pub fn hash_quantum_resistant(data: &[u8]) -> Vec<u8> {
 
 /// supernova's enhanced hash (combination of algorithms)
 pub fn hash_supernova(data: &[u8]) -> Vec<u8> {
-    let hasher = supernovaHash::new();
+    let hasher = SupernovaHash::new();
     hasher.hash(data)
 }
 

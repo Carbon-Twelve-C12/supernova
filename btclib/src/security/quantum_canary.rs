@@ -410,7 +410,6 @@ impl QuantumCanarySystem {
         // Send to all configured endpoints
         for endpoint in &self.alert_endpoints {
             // In production, send actual alerts (email, SMS, webhook, etc.)
-            eprintln!("ALERT to {}: {}", endpoint, alert_message);
         }
 
         Ok(())
@@ -440,13 +439,6 @@ impl QuantumCanarySystem {
 
     /// Trigger emergency quantum migration
     async fn trigger_emergency_migration(&self, canary: &QuantumCanary) -> Result<(), CanaryError> {
-        eprintln!(
-            "EMERGENCY QUANTUM MIGRATION TRIGGERED!\n\
-            Canary {} compromised at security level {}\n\
-            Activating quantum-only mode...",
-            hex::encode(canary.id.0),
-            canary.security_level
-        );
 
         // In production, this would:
         // 1. Disable all classical cryptography

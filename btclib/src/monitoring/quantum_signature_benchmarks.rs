@@ -261,10 +261,6 @@ impl QuantumSignatureMonitor {
             let scheme_name = format!("{:?}", scheme);
             let mut scheme_results = Vec::new();
 
-            println!(
-                "Benchmarking {} with security level {}...",
-                scheme_name, security_level
-            );
 
             for &batch_size in &batch_sizes {
                 if batch_size == 1 {
@@ -284,41 +280,13 @@ impl QuantumSignatureMonitor {
 
     /// Generate performance report similar to the research paper
     pub fn generate_performance_report(&self, results: &HashMap<String, Vec<BenchmarkResults>>) {
-        println!("\n╔═══════════════════════════════════════════════════════════════╗");
-        println!("║     SUPERNOVA QUANTUM SIGNATURE PERFORMANCE REPORT            ║");
-        println!("║                                                               ║");
-        println!("║     Benchmarking Post-Quantum Signature Aggregation           ║");
-        println!("╚═══════════════════════════════════════════════════════════════╝\n");
 
         for (scheme, scheme_results) in results {
-            println!("\n=== {} Performance ===", scheme);
-            println!(
-                "{:<15} {:<20} {:<20} {:<15}",
-                "# Signatures", "Proving Time (ms)", "Verification (ms)", "Proof Size (KB)"
-            );
-            println!("{:-<70}", "");
 
             for result in scheme_results {
-                println!(
-                    "{:<15} {:<20.2} {:<20.2} {:<15.2}",
-                    result.signatures_count,
-                    result.proving_time_ms,
-                    result.verification_time_ms,
-                    result.proof_size_kb
-                );
             }
         }
 
-        println!("\n=== Comparison with LaBRADOR (Research Paper) ===");
-        println!("LaBRADOR achieves for 10k Falcon-512 signatures:");
-        println!("  - Proof size: 74.07 KB");
-        println!("  - Proving time: 5.95 seconds");
-        println!("  - Verification time: 2.65 seconds");
-        println!("\nSupernova's implementation provides comparable performance");
-        println!("with additional benefits of:");
-        println!("  - Multiple signature scheme support");
-        println!("  - Hybrid classical/quantum modes");
-        println!("  - Integrated environmental tracking");
     }
 }
 
@@ -365,9 +333,5 @@ mod tests {
         let per_sig_single = single_result.verification_time_ms;
 
         // Batch verification should show some efficiency gains
-        println!(
-            "Batch efficiency: {:.2}ms per sig vs {:.2}ms single",
-            per_sig_batch, per_sig_single
-        );
     }
 }

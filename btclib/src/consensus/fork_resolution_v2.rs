@@ -396,8 +396,6 @@ mod tests {
             .calculate_chainwork(&chain_b_tip, &get_header)
             .unwrap();
 
-        println!("Chain A work (3 blocks @ 0x1d00ffff): {:?}", work_a);
-        println!("Chain B work (2 blocks @ 0x1c00ffff): {:?}", work_b);
 
         // Chain B should have more total work despite fewer blocks
         let ordering = resolver

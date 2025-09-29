@@ -484,12 +484,12 @@ mod tests {
 
         // Test the safe_add functionality (macro from errors module)
         // We'll test it properly by importing and using it
-        use crate::errors::supernovaError;
-        let result = (|| -> Result<u64, supernovaError> { Ok(crate::safe_add!(a, b)) })();
+        use crate::errors::SupernovaError;
+        let result = (|| -> Result<u64, SupernovaError> { Ok(crate::safe_add!(a, b)) })();
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            supernovaError::ArithmeticOverflow(_) => {}
+            SupernovaError::ArithmeticOverflow(_) => {}
             _ => panic!("Wrong error type"),
         }
     }

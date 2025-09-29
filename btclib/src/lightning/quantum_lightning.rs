@@ -228,12 +228,6 @@ impl QuantumLightningManager {
         capacity_sats: u64,
         environmental_cert: Option<RenewableValidationResult>,
     ) -> Result<QuantumLightningChannel, LightningError> {
-        println!("⚡ Creating quantum-secure Lightning channel");
-        println!("   Capacity: {} sats", capacity_sats);
-        println!(
-            "   Quantum scheme: {:?}",
-            self.node_quantum_keys.parameters.scheme
-        );
 
         // Generate channel ID
         let channel_id = self.generate_channel_id(&funding_tx);
@@ -279,14 +273,6 @@ impl QuantumLightningManager {
         // Update metrics
         self.update_metrics_for_new_channel(&channel);
 
-        println!(
-            "✅ Quantum Lightning channel created: {:?}",
-            hex::encode(&channel_id[..8])
-        );
-        println!(
-            "   Environmental score: {:.1}/100",
-            channel.environmental_data.environmental_score
-        );
 
         Ok(channel)
     }
@@ -296,7 +282,6 @@ impl QuantumLightningManager {
         &self,
         remote_pubkey: &[u8],
     ) -> Result<(), LightningError> {
-        println!("🔐 Validating quantum channel security");
 
         // Verify key size is appropriate for quantum resistance
         let min_key_size = match self.node_quantum_keys.parameters.scheme {
@@ -313,22 +298,12 @@ impl QuantumLightningManager {
         }
 
         // Additional security checks
-        println!(
-            "  ✓ Quantum key size verified: {} bytes",
-            remote_pubkey.len()
-        );
-        println!(
-            "  ✓ Security level: {}",
-            self.node_quantum_keys.parameters.security_level
-        );
-        println!("  ✓ Post-quantum cryptography: ACTIVE");
 
         Ok(())
     }
 
     /// Test quantum HTLC operations
     pub async fn test_quantum_htlc_operations(&self) -> Result<(), LightningError> {
-        println!("🧪 Testing quantum HTLC operations");
 
         // Create test HTLC
         let test_amount = 100_000; // sats
@@ -350,14 +325,6 @@ impl QuantumLightningManager {
         // Benchmark performance
         let perf_results = self.benchmark_quantum_lightning_performance().await?;
 
-        println!("✅ Quantum HTLC tests passed!");
-        println!("   HTLC creation: ✓");
-        println!("   Security validation: ✓");
-        println!("   Payment routing: ✓");
-        println!(
-            "   Performance: {:.2}ms avg",
-            perf_results.avg_operation_time_ms
-        );
 
         Ok(())
     }
@@ -446,21 +413,6 @@ impl QuantumLightningManager {
             )
             .await?;
 
-        println!("  Green route found:");
-        println!("    Hops: {}", route.hops.len());
-        println!(
-            "    Carbon footprint: {:.4} kg CO2e",
-            route.total_carbon_footprint
-        );
-        println!(
-            "    Avg renewable: {:.1}%",
-            route.average_renewable_percentage
-        );
-        println!(
-            "    Green nodes: {}/{}",
-            route.green_nodes_count,
-            route.hops.len()
-        );
 
         Ok(route)
     }
@@ -518,10 +470,6 @@ impl QuantumLightningManager {
             let discount_factor = prefs.green_incentive_multiplier;
             let discounted_fee = (base_fee_sats as f64 * discount_factor) as u64;
 
-            println!(
-                "  💚 Green node discount applied: {}% off",
-                (1.0 - discount_factor) * 100.0
-            );
 
             discounted_fee
         } else {
@@ -577,9 +525,6 @@ impl QuantumLightningManager {
                 && route.green_nodes_count == route.hops.len());
 
         if carbon_negative {
-            println!("🌱 Carbon negative payment validated!");
-            println!("   Payment carbon: {:.6} kg CO2e", payment_carbon);
-            println!("   Route is carbon negative: ✓");
         }
 
         Ok(carbon_negative)

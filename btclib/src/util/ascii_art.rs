@@ -55,14 +55,9 @@ pub fn display_logo() -> io::Result<()> {
 
     execute!(stdout, SetForegroundColor(Color::Cyan))?;
     for line in &logo {
-        println!("{}", line);
     }
     execute!(stdout, ResetColor)?;
 
-    println!();
-    println!(" Next-Generation Blockchain with Enhanced Security, ");
-    println!(" Scalability, and Environmental Awareness");
-    println!();
 
     Ok(())
 }
@@ -159,7 +154,6 @@ pub fn testnet_startup_animation() -> io::Result<()> {
 
     stdout.execute(MoveTo(0, (logo_height + 2) as u16))?;
     stdout.execute(SetForegroundColor(Color::Green))?;
-    println!("supernova Testnet Launch Sequence");
     stdout.execute(ResetColor)?;
 
     for (i, step) in progress_steps.iter().enumerate() {
@@ -237,7 +231,6 @@ pub fn display_startup_sequence() -> io::Result<()> {
 
     execute!(stdout, MoveTo(0, (logo_height + 2) as u16))?;
     execute!(stdout, SetForegroundColor(Color::Green))?;
-    println!("Starting supernova Blockchain...");
     execute!(stdout, ResetColor)?;
 
     for i in 0..5 {
@@ -248,7 +241,6 @@ pub fn display_startup_sequence() -> io::Result<()> {
     for i in 0..5 {
         execute!(stdout, MoveTo(2, (logo_height + 4 + i) as u16))?;
         execute!(stdout, SetForegroundColor(Color::Green))?;
-        println!("✓ Component {}/5 initialized", i + 1);
         execute!(stdout, ResetColor)?;
     }
 

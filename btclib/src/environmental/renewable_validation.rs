@@ -210,10 +210,6 @@ impl RenewableEnergyValidator {
         certificates: Vec<RenewableCertificate>,
         energy_consumption_mwh: f64,
     ) -> Result<RenewableValidationResult, OracleError> {
-        println!(
-            "🌿 Validating renewable energy certificates for miner: {}",
-            miner_id
-        );
 
         let mut validated_certificates = Vec::new();
         let mut total_renewable_mwh = 0.0;
@@ -231,7 +227,6 @@ impl RenewableEnergyValidator {
                     }
                 }
                 Err(e) => {
-                    println!("⚠️  Certificate validation failed: {}", e);
                 }
             }
         }
@@ -277,10 +272,6 @@ impl RenewableEnergyValidator {
         // Update metrics
         self.update_metrics(&result);
 
-        println!(
-            "✅ Renewable validation complete: {}% renewable, {} NOVA incentive",
-            renewable_percentage, green_incentive_nova
-        );
 
         Ok(result)
     }
@@ -290,22 +281,10 @@ impl RenewableEnergyValidator {
         &self,
         new_incentives: GreenMiningIncentive,
     ) -> Result<(), OracleError> {
-        println!("💚 Implementing green mining incentives");
 
         let mut incentives = self.incentive_structure.write().unwrap();
         *incentives = new_incentives;
 
-        println!("  ✓ Base multiplier: {}x", incentives.base_multiplier);
-        println!(
-            "  ✓ 100% renewable bonus: {}%",
-            incentives.full_renewable_bonus * 100.0
-        );
-        println!(
-            "  ✓ Carbon negative bonus: {}%",
-            incentives.carbon_negative_bonus * 100.0
-        );
-        println!("  ✓ Regional incentives configured");
-        println!("  ✓ Time-based incentives active");
 
         Ok(())
     }
@@ -318,10 +297,6 @@ impl RenewableEnergyValidator {
         total_consumption_mwh: f64,
         carbon_offsets: Vec<CarbonOffset>,
     ) -> Result<bool, OracleError> {
-        println!(
-            "🌍 Verifying carbon-negative operations for miner: {}",
-            miner_id
-        );
 
         // Calculate emissions avoided by renewable energy
         let emissions_avoided = self.calculate_emissions_avoided(renewable_mwh);
@@ -346,17 +321,6 @@ impl RenewableEnergyValidator {
 
         let is_carbon_negative = net_emissions < 0.0;
 
-        println!("  Emissions avoided: {} tonnes CO2e", emissions_avoided);
-        println!("  Carbon offsets: {} tonnes CO2e", total_offset_tonnes);
-        println!("  Net emissions: {} tonnes CO2e", net_emissions);
-        println!(
-            "  Carbon negative: {}",
-            if is_carbon_negative {
-                "YES ✅"
-            } else {
-                "NO ❌"
-            }
-        );
 
         Ok(is_carbon_negative)
     }

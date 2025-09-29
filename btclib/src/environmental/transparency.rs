@@ -317,6 +317,5 @@ mod tests {
     #[test]
     fn test_report_generation() {
         // This is just a stub test implementation
-        println!("Test transparency report generation");
     }
 }

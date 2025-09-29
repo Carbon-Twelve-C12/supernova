@@ -75,7 +75,7 @@ pub use crate::validation::ValidationError;
 
 // Re-export public API
 pub use crate::api::{Api, ApiConfig};
-pub use crate::config::supernovaConfig;
+pub use crate::config::SupernovaConfig;
 pub use crate::consensus::{DifficultyAdjustment, DifficultyAdjustmentConfig};
 pub use crate::consensus_verification::{
     ConsensusProperty, ConsensusVerificationFramework, VerificationReport,
@@ -84,7 +84,7 @@ pub use crate::environmental::{
     Emissions, EmissionsTimePeriod, EmissionsTracker, EnvironmentalAssetType,
     EnvironmentalDashboard, EnvironmentalTreasury,
 };
-pub use crate::errors::{supernovaError, supernovaResult};
+pub use crate::errors::{SupernovaError, SupernovaResult};
 pub use crate::mempool::{MempoolError, TransactionPool, TransactionPoolConfig};
 pub use crate::util::merkle::{MerkleError, MerkleProof, MerkleTree};
 pub use crate::validation::{BlockValidationConfig, BlockValidator, TransactionValidator};

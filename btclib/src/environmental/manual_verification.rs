@@ -377,8 +377,6 @@ impl ManualVerificationSystem {
         // Add to current quarter batch
         self.add_to_quarterly_batch(&request_id)?;
 
-        println!("📋 Manual verification request submitted: {}", request_id);
-        println!("   Review deadline: {}", review_deadline.format("%Y-%m-%d"));
 
         Ok(request_id)
     }
@@ -433,11 +431,6 @@ impl ManualVerificationSystem {
         // Update metrics
         self.update_metrics(&result);
 
-        println!(
-            "✅ Manual verification completed for request: {}",
-            request_id
-        );
-        println!("   Approved renewable: {} MWh", approved_mwh);
 
         Ok(result)
     }
@@ -477,9 +470,6 @@ impl ManualVerificationSystem {
             .unwrap()
             .insert(quarter_id.clone(), batch);
 
-        println!("📊 Quarterly review batch created: {}", quarter_id);
-        println!("   Total requests: {}", request_ids.len());
-        println!("   Deadline: {}", deadline.format("%Y-%m-%d"));
 
         Ok(quarter_id)
     }
@@ -513,11 +503,6 @@ impl ManualVerificationSystem {
 
         batch.status = BatchStatus::ReadyForReview;
 
-        println!(
-            "👥 Assigned {} requests to {} reviewers",
-            assigned_count,
-            reviewer_ids.len()
-        );
 
         Ok(assigned_count)
     }

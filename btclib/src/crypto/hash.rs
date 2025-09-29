@@ -112,7 +112,7 @@ impl Hash for DoubleSha256Hash {
     }
 }
 
-/// Available hash algorithms in supernovaHash
+/// Available hash algorithms in SupernovaHash
 #[derive(Debug, Clone)]
 pub enum HashAlgorithm {
     Sha256(Sha256Hash),
@@ -150,18 +150,18 @@ impl Hash for HashAlgorithm {
     }
 }
 
-/// supernovaHash - A composite hash that combines multiple algorithms
+/// SupernovaHash - A composite hash that combines multiple algorithms
 /// for increased quantum resistance
 #[derive(Debug, Clone)]
-pub struct supernovaHash {
+pub struct SupernovaHash {
     /// The primary hash algorithm
     pub primary: HashAlgorithm,
     /// The secondary hash algorithm for additional security
     pub secondary: HashAlgorithm,
 }
 
-impl supernovaHash {
-    /// Create a new supernovaHash with default algorithms (BLAKE3 + SHA-256)
+impl SupernovaHash {
+    /// Create a new SupernovaHash with default algorithms (BLAKE3 + SHA-256)
     pub fn new() -> Self {
         Self {
             primary: HashAlgorithm::Blake3(Blake3Hash),
@@ -169,19 +169,19 @@ impl supernovaHash {
         }
     }
 
-    /// Create a new supernovaHash with custom algorithms
+    /// Create a new SupernovaHash with custom algorithms
     pub fn with_algorithms(primary: HashAlgorithm, secondary: HashAlgorithm) -> Self {
         Self { primary, secondary }
     }
 }
 
-impl Default for supernovaHash {
+impl Default for SupernovaHash {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Hash for supernovaHash {
+impl Hash for SupernovaHash {
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         // Hash with primary algorithm
         let primary_hash = self.primary.hash(data);
@@ -202,7 +202,7 @@ impl Hash for supernovaHash {
     }
 
     fn algorithm_name(&self) -> &'static str {
-        "supernovaHash"
+        "SupernovaHash"
     }
 
     fn output_size(&self) -> usize {
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn test_supernova_hash() {
-        let hasher = supernovaHash::new();
+        let hasher = SupernovaHash::new();
         let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
 

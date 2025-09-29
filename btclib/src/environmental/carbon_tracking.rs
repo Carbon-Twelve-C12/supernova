@@ -216,7 +216,6 @@ impl CarbonTracker {
         energy_sources: HashMap<EnergySourceType, f64>,
         region: Region,
     ) -> Result<CarbonTrackingResult, OracleError> {
-        println!("🌱 Validating carbon footprint for entity: {}", entity_id);
 
         // Step 1: Calculate emissions using local calculator
         let local_emissions =
@@ -276,10 +275,6 @@ impl CarbonTracker {
         // Update network-wide monitoring
         self.update_monitoring_data(&result)?;
 
-        println!(
-            "✅ Carbon footprint validated: {} tonnes CO2e (net: {} tonnes)",
-            result.total_emissions, result.net_carbon_footprint
-        );
 
         Ok(result)
     }
@@ -289,10 +284,6 @@ impl CarbonTracker {
         &self,
         test_data: Vec<OracleDataPoint>,
     ) -> Result<OracleConsensusResult, OracleError> {
-        println!(
-            "🔍 Testing multi-oracle consensus with {} data points",
-            test_data.len()
-        );
 
         // Simulate oracle consensus mechanism
         let total_oracles = test_data.len();
@@ -335,7 +326,6 @@ impl CarbonTracker {
         data: &EnvironmentalData,
         proofs: &[VerificationProof],
     ) -> Result<bool, OracleError> {
-        println!("🔐 Verifying environmental data integrity");
 
         // Verify each proof
         for proof in proofs {
@@ -361,23 +351,17 @@ impl CarbonTracker {
             }
         }
 
-        println!("✅ Environmental data integrity verified");
         Ok(true)
     }
 
     /// Implement real-time carbon tracking
     pub fn implement_real_time_carbon_tracking(&self) -> Result<(), OracleError> {
-        println!("📊 Implementing real-time carbon tracking system");
 
         // Initialize monitoring components
         let mut monitoring = self.monitoring_data.write().unwrap();
         monitoring.last_calculation = Utc::now();
 
         // Set up real-time data streams (simulated)
-        println!("  ✓ Real-time data streams configured");
-        println!("  ✓ Smart meter integration active");
-        println!("  ✓ Grid data feeds connected");
-        println!("  ✓ Environmental oracle network online");
 
         Ok(())
     }
