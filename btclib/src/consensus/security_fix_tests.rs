@@ -181,10 +181,174 @@ mod tests {
             get_utxo: Box::new(|_, _| None),
             height: 1,
             current_time: None,
+            is_coinbase_mature: None,
         };
         
         let result = validator.validate_block_secure(&block, Some(&context));
         assert!(matches!(result, Err(UnifiedValidationError::InvalidSubsidy { expected: 50_000_000_000, actual: 100_000_000_000 })));
+    }
+    
+    /// Test halving schedule validation
+    #[test]
+    fn test_halving_schedule_validation() {
+        let validator = UnifiedBlockValidator::new();
+        
+        // Test heights around halving boundaries
+        let test_cases = vec![
+            (0, 50_000_000_000),       // Genesis: 50 NOVA
+            (1, 50_000_000_000),       // Block 1: 50 NOVA
+            (209_999, 50_000_000_000), // Just before first halving: 50 NOVA
+            (210_000, 25_000_000_000), // First halving: 25 NOVA
+            (210_001, 25_000_000_000), // Just after first halving: 25 NOVA
+            (419_999, 25_000_000_000), // Just before second halving: 25 NOVA
+            (420_000, 12_500_000_000), // Second halving: 12.5 NOVA
+            (630_000, 6_250_000_000),  // Third halving: 6.25 NOVA
+            (840_000, 3_125_000_000),  // Fourth halving: 3.125 NOVA
+            (13_440_000, 0),           // After 64 halvings: 0 NOVA
+        ];
+        
+        for (height, expected_subsidy) in test_cases {
+            let subsidy = validator.calculate_block_subsidy(height);
+            assert_eq!(subsidy, expected_subsidy, 
+                      "Incorrect subsidy at height {}: expected {}, got {}", 
+                      height, expected_subsidy, subsidy);
+        }
+    }
+    
+    /// Test coinbase validation with fees
+    #[test]
+    fn test_coinbase_with_fees_validation() {
+        let mut validator = UnifiedBlockValidator::new();
+        
+        // Create a regular transaction with fee
+        let regular_tx = Transaction::new(
+            1,
+            vec![TransactionInput::new([1; 32], 0, vec![], 0xffffffff)], // References UTXO
+            vec![TransactionOutput::new(40_000_000_000, vec![5, 6, 7, 8])], // 40 NOVA output
+            0,
+        );
+        
+        // Create coinbase that claims subsidy + fee (50 + 10 = 60 NOVA)
+        let coinbase = Transaction::new(
+            1,
+            vec![TransactionInput::new_coinbase(vec![1, 2, 3])],
+            vec![TransactionOutput::new(60_000_000_000, vec![1, 2, 3, 4])], // 60 NOVA
+            0,
+        );
+        
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase, regular_tx], 0x207fffff);
+        
+        let context = ValidationContext {
+            previous_headers: vec![],
+            get_utxo: Box::new(|hash, index| {
+                // Mock UTXO for the regular transaction input
+                if hash == &[1; 32] && index == 0 {
+                    Some(TransactionOutput::new(50_000_000_000, vec![9, 10, 11, 12])) // 50 NOVA input
+                } else {
+                    None
+                }
+            }),
+            height: 1,
+            current_time: None,
+            is_coinbase_mature: None,
+        };
+        
+        // Should pass: coinbase claims 60 NOVA (50 subsidy + 10 fee)
+        let result = validator.validate_block_secure(&block, Some(&context));
+        assert!(result.is_ok(), "Valid coinbase with fees should pass: {:?}", result);
+    }
+    
+    /// Test coinbase trying to claim too much
+    #[test]
+    fn test_excessive_coinbase_with_fees() {
+        let mut validator = UnifiedBlockValidator::new();
+        
+        // Create a regular transaction with fee
+        let regular_tx = Transaction::new(
+            1,
+            vec![TransactionInput::new([1; 32], 0, vec![], 0xffffffff)],
+            vec![TransactionOutput::new(45_000_000_000, vec![5, 6, 7, 8])], // 45 NOVA output
+            0,
+        );
+        
+        // Create coinbase that claims MORE than subsidy + fee
+        let coinbase = Transaction::new(
+            1,
+            vec![TransactionInput::new_coinbase(vec![1, 2, 3])],
+            vec![TransactionOutput::new(61_000_000_000, vec![1, 2, 3, 4])], // 61 NOVA (too much!)
+            0,
+        );
+        
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase, regular_tx], 0x207fffff);
+        
+        let context = ValidationContext {
+            previous_headers: vec![],
+            get_utxo: Box::new(|hash, index| {
+                if hash == &[1; 32] && index == 0 {
+                    Some(TransactionOutput::new(50_000_000_000, vec![9, 10, 11, 12])) // 50 NOVA input
+                } else {
+                    None
+                }
+            }),
+            height: 1,
+            current_time: None,
+            is_coinbase_mature: None,
+        };
+        
+        // Should fail: coinbase claims 61 NOVA but can only claim 55 (50 subsidy + 5 fee)
+        let result = validator.validate_block_secure(&block, Some(&context));
+        assert!(matches!(result, Err(UnifiedValidationError::InvalidSubsidy { .. })),
+                "Excessive coinbase should fail");
+    }
+    
+    /// Test coinbase maturity validation
+    #[test]
+    fn test_coinbase_maturity_validation() {
+        let mut validator = UnifiedBlockValidator::new();
+        
+        // Create a transaction spending a coinbase output
+        let spend_tx = Transaction::new(
+            1,
+            vec![TransactionInput::new([99; 32], 0, vec![], 0xffffffff)], // Tries to spend coinbase
+            vec![TransactionOutput::new(50_000_000_000, vec![5, 6, 7, 8])],
+            0,
+        );
+        
+        // Create new coinbase
+        let coinbase = Transaction::new(
+            1,
+            vec![TransactionInput::new_coinbase(vec![1, 2, 3])],
+            vec![TransactionOutput::new(50_000_000_000, vec![1, 2, 3, 4])],
+            0,
+        );
+        
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase, spend_tx], 0x207fffff);
+        
+        let context = ValidationContext {
+            previous_headers: vec![],
+            get_utxo: Box::new(|hash, index| {
+                if hash == &[99; 32] && index == 0 {
+                    Some(TransactionOutput::new(50_000_000_000, vec![9, 10, 11, 12]))
+                } else {
+                    None
+                }
+            }),
+            height: 150, // Height 150, trying to spend coinbase from height 51
+            current_time: None,
+            is_coinbase_mature: Some(Box::new(|hash, _index, _maturity| {
+                // Mock: coinbase from block 51 is only 99 blocks old (immature)
+                if hash == &[99; 32] {
+                    false // Not mature yet!
+                } else {
+                    true
+                }
+            })),
+        };
+        
+        // Should fail: coinbase not mature
+        let result = validator.validate_block_secure(&block, Some(&context));
+        assert!(matches!(result, Err(UnifiedValidationError::InvalidTransaction(_))),
+                "Spending immature coinbase should fail: {:?}", result);
     }
     
     /// Integration test: Full validation with all security checks
@@ -225,6 +389,7 @@ mod tests {
             get_utxo: Box::new(|_, _| None),
             height: 12,
             current_time: Some(8000), // Current time
+            is_coinbase_mature: None,
         };
         
         // Should pass all validations
