@@ -202,6 +202,16 @@ impl BlockHeader {
         self.height = height;
     }
     
+    /// Set the timestamp of this block header
+    pub fn set_timestamp(&mut self, timestamp: u64) {
+        self.timestamp = timestamp;
+    }
+    
+    /// Set the nonce of this block header
+    pub fn set_nonce(&mut self, nonce: u32) {
+        self.nonce = nonce;
+    }
+    
     /// Get the target as a 256-bit value
     pub fn target(&self) -> [u8; 32] {
         bits_to_target(self.bits)

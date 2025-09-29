@@ -111,12 +111,15 @@ impl TimeWarpPrevention {
             }
         }
         
-        // 4. Statistical anomaly detection
+        // 4. Check for manipulation patterns (always check, regardless of config)
+        self.detect_manipulation_patterns(timestamp, previous_timestamps)?;
+        
+        // 5. Statistical anomaly detection (requires more history)
         if self.config.enable_anomaly_detection && previous_timestamps.len() >= 20 {
             self.detect_time_anomalies(timestamp, previous_timestamps)?;
         }
         
-        // 5. Update history for future validations
+        // 6. Update history for future validations
         self.update_timestamp_history(timestamp);
         
         Ok(())
@@ -175,8 +178,7 @@ impl TimeWarpPrevention {
             }
         }
         
-        // Check for patterns that might indicate manipulation
-        self.detect_manipulation_patterns(new_timestamp, previous_timestamps)?;
+        // Pattern detection is now done separately in validate_timestamp
         
         Ok(())
     }
@@ -188,21 +190,53 @@ impl TimeWarpPrevention {
         previous_timestamps: &[u64],
     ) -> TimeValidationResult<()> {
         // Pattern 1: Alternating timestamps (classic time warp)
-        if previous_timestamps.len() >= 4 {
-            let ts = previous_timestamps;
+        if previous_timestamps.len() >= 3 {
+            // Look for alternating pattern in recent timestamps
+            // Check if we have a clear alternating pattern
+            let mut ups: i32 = 0;
+            let mut downs: i32 = 0;
+            let mut last_direction = None;
+            let mut alternating_count = 0;
             
-            // Check for alternating pattern: high, low, high, low...
-            let mut alternating = true;
-            for i in 1..4.min(ts.len()) {
-                let expected_higher = i % 2 == 1;
-                let is_higher = ts[i-1] > ts[i];
-                if expected_higher != is_higher {
-                    alternating = false;
-                    break;
+            // Check the pattern including the new timestamp
+            let mut check_timestamps = previous_timestamps[0..previous_timestamps.len().min(10)].to_vec();
+            check_timestamps.insert(0, new_timestamp);
+            
+            for i in 1..check_timestamps.len() {
+                let current_direction = if check_timestamps[i-1] > check_timestamps[i] {
+                    Some(true) // Going up (newer timestamp is higher)
+                } else if check_timestamps[i-1] < check_timestamps[i] {
+                    Some(false) // Going down
+                } else {
+                    continue; // Skip equal timestamps
+                };
+                
+                if let Some(dir) = current_direction {
+                    if dir {
+                        ups += 1;
+                    } else {
+                        downs += 1;
+                    }
+                    
+                    if let Some(last) = last_direction {
+                        if last != dir {
+                            alternating_count += 1;
+                        }
+                    }
+                    last_direction = Some(dir);
                 }
             }
             
-            if alternating {
+            // Debug output
+            #[cfg(test)]
+            {
+                println!("Alternating count: {}, ups: {}, downs: {}", alternating_count, ups, downs);
+                println!("Check timestamps: {:?}", check_timestamps);
+            }
+            
+            // If we see a clear alternating pattern (at least 3 alternations)
+            // and roughly equal ups and downs
+            if alternating_count >= 3 && (ups - downs).abs() <= 1 {
                 return Err(TimeValidationError::ManipulationDetected(
                     "Alternating timestamp pattern detected".to_string()
                 ));

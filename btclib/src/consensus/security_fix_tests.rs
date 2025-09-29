@@ -52,30 +52,36 @@ mod tests {
     /// Test that classic time warp attack is prevented
     #[test]
     fn test_time_warp_attack_prevented() {
-        let config = TimeWarpConfig::default();
+        let mut config = TimeWarpConfig::default();
+        // Disable anomaly detection threshold to focus on pattern detection
+        config.enable_anomaly_detection = false; 
         let mut prevention = TimeWarpPrevention::new(config);
         
         // Simulate classic time warp: alternating timestamps
+        // Previous timestamps should be in reverse order (newest first)
         let previous_timestamps = vec![
+            900,  // Block n-1 (most recent)
+            2100, // Block n-2  
+            1000, // Block n-3
             2000, // Block n-4
-            1000, // Block n-3 (jump back)
-            2100, // Block n-2 (jump forward)
-            900,  // Block n-1 (jump back)
+            1100, // Block n-5
         ];
         
-        // Try to continue the pattern
+        // Try to continue the alternating pattern
         let new_timestamp = 2200; // Would continue alternating pattern
         let header = BlockHeader::new(5, [0; 32], [0; 32], new_timestamp, 0x1d00ffff, 0);
         
         let result = prevention.validate_timestamp(&header, &previous_timestamps, Some(3000));
         
-        // Should detect manipulation
-        assert!(result.is_err());
+        // Should detect the alternating pattern
+        assert!(result.is_err(), "Should detect alternating timestamp pattern");
         match result {
             Err(TimeValidationError::ManipulationDetected(msg)) => {
-                assert!(msg.contains("Alternating timestamp pattern"));
+                assert!(msg.contains("Alternating timestamp pattern"), 
+                       "Error should mention alternating pattern, got: {}", msg);
             }
-            _ => panic!("Expected ManipulationDetected error"),
+            Ok(_) => panic!("Should have detected time warp attack"),
+            Err(e) => panic!("Wrong error type: {:?}", e),
         }
     }
     
@@ -129,7 +135,9 @@ mod tests {
         let block = Block::new_with_params(1, [0; 32], vec![coinbase1, coinbase2], 0x207fffff);
         
         let result = validator.validate_block_secure(&block, None);
-        assert!(matches!(result, Err(UnifiedValidationError::MultipleCoinbase)));
+        println!("Multiple coinbase validation result: {:?}", result);
+        assert!(matches!(result, Err(UnifiedValidationError::MultipleCoinbase)),
+                "Expected MultipleCoinbase error, got: {:?}", result);
     }
     
     /// Test unified validation catches invalid merkle root
@@ -192,7 +200,11 @@ mod tests {
             0,
         );
         
-        let block = Block::new_with_params(1, [0; 32], vec![coinbase], 0x207fffff);
+        // Create block with proper timestamp (after previous blocks)
+        // Use an extremely easy target (0x207fffff) - max target for testing
+        let mut block = Block::new_with_params(1, [0; 32], vec![coinbase], 0x207fffff);
+        // Set timestamp to be after the last previous block
+        block.header.set_timestamp(7200); // After the 11th block at 6600
         
         // Create previous headers for timestamp validation
         let mut previous_headers = Vec::new();
@@ -217,6 +229,9 @@ mod tests {
         
         // Should pass all validations
         let result = validator.validate_block_secure(&block, Some(&context));
-        assert!(result.is_ok(), "Valid block should pass all security checks");
+        if let Err(e) = &result {
+            println!("Full validation error: {:?}", e);
+        }
+        assert!(result.is_ok(), "Valid block should pass all security checks: {:?}", result);
     }
 }
