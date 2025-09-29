@@ -1,6 +1,6 @@
 # Supernova Environmental Features
 
-**Version**: 1.0.0-RC3  
+**Version**: 1.0.0-RC4  
 **Status**: Production Ready
 
 ## Overview
@@ -221,7 +221,7 @@ pub fn calculate_mining_reward(&self) -> Amount {
 
 ## Future Enhancements
 
-### Planned Features (Post-RC3)
+### Planned Features (Post-RC4)
 1. **Carbon Token**: Tokenized carbon credits on Supernova
 2. **DeFi Integration**: Green bonds and sustainability markets
 3. **IoT Integration**: Direct sensor data from mining facilities
@@ -261,4 +261,4 @@ These features position Supernova as the leader in sustainable blockchain techno
 
 ---
 
-**Version**: 1.0.0-RC3 | **Status**: Production Ready | **Last Updated**: June 2025 
+**Version**: 1.0.0-RC4 | **Status**: Production Ready | **Last Updated**: September 2025 
