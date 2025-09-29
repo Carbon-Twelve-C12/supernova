@@ -1,10 +1,12 @@
+use crate::api::types::{
+    MempoolInfo, MempoolTransaction, TransactionFees, TransactionValidationResult,
+};
+use crate::config;
 use crate::mempool::error::MempoolError;
-use crate::api::types::{MempoolInfo, MempoolTransaction, TransactionValidationResult, TransactionFees};
 use btclib::types::transaction::Transaction;
 use dashmap::DashMap;
-use std::time::{SystemTime, Duration};
-use crate::config;
 use hex;
+use std::time::{Duration, SystemTime};
 
 /// Configuration for the transaction memory pool
 #[derive(Debug, Clone)]
@@ -36,10 +38,10 @@ impl From<config::MempoolConfig> for MempoolConfig {
 impl Default for MempoolConfig {
     fn default() -> Self {
         Self {
-            max_size: 5000,         // Default to 5000 transactions
-            max_age: 72 * 3600,     // 72 hours in seconds
-            min_fee_rate: 1,        // 1 nova per byte
-            enable_rbf: true,       // Enable RBF by default
+            max_size: 5000,             // Default to 5000 transactions
+            max_age: 72 * 3600,         // 72 hours in seconds
+            min_fee_rate: 1,            // 1 nova per byte
+            enable_rbf: true,           // Enable RBF by default
             min_rbf_fee_increase: 10.0, // 10% minimum fee increase
         }
     }
@@ -50,8 +52,8 @@ impl Default for MempoolConfig {
 struct MempoolEntry {
     transaction: Transaction,
     timestamp: SystemTime,
-    fee_rate: u64,    // Novas per byte
-    size: usize,      // Size in bytes
+    fee_rate: u64, // Novas per byte
+    size: usize,   // Size in bytes
 }
 
 /// Thread-safe transaction pool implementation
@@ -72,9 +74,13 @@ impl TransactionPool {
     }
 
     /// Add a transaction to the pool
-    pub fn add_transaction(&self, transaction: Transaction, fee_rate: u64) -> Result<(), MempoolError> {
+    pub fn add_transaction(
+        &self,
+        transaction: Transaction,
+        fee_rate: u64,
+    ) -> Result<(), MempoolError> {
         let tx_hash = transaction.hash();
-        
+
         // Check if transaction already exists
         if self.transactions.contains_key(&tx_hash) {
             return Err(MempoolError::TransactionExists(hex::encode(tx_hash)));
@@ -82,17 +88,17 @@ impl TransactionPool {
 
         // Check pool size limit
         if self.transactions.len() >= self.config.max_size {
-            return Err(MempoolError::MempoolFull { 
-                current: self.transactions.len(), 
-                max: self.config.max_size 
+            return Err(MempoolError::MempoolFull {
+                current: self.transactions.len(),
+                max: self.config.max_size,
             });
         }
 
         // Check minimum fee rate
         if fee_rate < self.config.min_fee_rate {
-            return Err(MempoolError::FeeTooLow { 
-                required: self.config.min_fee_rate, 
-                provided: fee_rate 
+            return Err(MempoolError::FeeTooLow {
+                required: self.config.min_fee_rate,
+                provided: fee_rate,
             });
         }
 
@@ -117,13 +123,15 @@ impl TransactionPool {
     pub fn remove_transaction(&self, tx_hash: &[u8; 32]) -> Option<Transaction> {
         match self.transactions.remove(tx_hash) {
             Some((_, entry)) => Some(entry.transaction),
-            None => None
+            None => None,
         }
     }
 
     /// Get a transaction by its hash
     pub fn get_transaction(&self, tx_hash: &[u8; 32]) -> Option<Transaction> {
-        self.transactions.get(tx_hash).map(|entry| entry.transaction.clone())
+        self.transactions
+            .get(tx_hash)
+            .map(|entry| entry.transaction.clone())
     }
 
     /// Clear expired transactions from the pool
@@ -133,7 +141,9 @@ impl TransactionPool {
         let mut removed = 0;
 
         self.transactions.retain(|_, entry| {
-            let age = now.duration_since(entry.timestamp).unwrap_or(Duration::ZERO);
+            let age = now
+                .duration_since(entry.timestamp)
+                .unwrap_or(Duration::ZERO);
             if age > max_age {
                 removed += 1;
                 false
@@ -148,14 +158,17 @@ impl TransactionPool {
     /// Check for double-spend attempts
     pub fn check_double_spend(&self, transaction: &Transaction) -> bool {
         // Get all input references from the new transaction
-        let new_inputs: Vec<_> = transaction.inputs()
+        let new_inputs: Vec<_> = transaction
+            .inputs()
             .iter()
             .map(|input| (input.prev_tx_hash(), input.prev_output_index()))
             .collect();
 
         // Check if any existing transaction uses the same inputs
         for entry in self.transactions.iter() {
-            let existing_inputs: Vec<_> = entry.transaction.inputs()
+            let existing_inputs: Vec<_> = entry
+                .transaction
+                .inputs()
                 .iter()
                 .map(|input| (input.prev_tx_hash(), input.prev_output_index()))
                 .collect();
@@ -173,16 +186,15 @@ impl TransactionPool {
 
     /// Get all transactions sorted by fee rate
     pub fn get_sorted_transactions(&self) -> Vec<Transaction> {
-        let mut entries: Vec<_> = self.transactions
+        let mut entries: Vec<_> = self
+            .transactions
             .iter()
-            .map(|ref_multi| {
-                (ref_multi.transaction.clone(), ref_multi.fee_rate)
-            })
+            .map(|ref_multi| (ref_multi.transaction.clone(), ref_multi.fee_rate))
             .collect();
 
         // Sort by fee rate in descending order
         entries.sort_by(|a, b| b.1.cmp(&a.1));
-        
+
         entries.into_iter().map(|(tx, _)| tx).collect()
     }
 
@@ -193,51 +205,64 @@ impl TransactionPool {
     }
 
     /// Attempt to replace an existing transaction with a higher-fee version (RBF)
-    pub fn replace_transaction(&self, new_transaction: Transaction, fee_rate: u64) -> Result<Option<Transaction>, MempoolError> {
+    pub fn replace_transaction(
+        &self,
+        new_transaction: Transaction,
+        fee_rate: u64,
+    ) -> Result<Option<Transaction>, MempoolError> {
         // Check if RBF is enabled
         if !self.config.enable_rbf {
-            return Err(MempoolError::InvalidTransaction("Replace-By-Fee is disabled".to_string()));
+            return Err(MempoolError::InvalidTransaction(
+                "Replace-By-Fee is disabled".to_string(),
+            ));
         }
-        
+
         let tx_hash = new_transaction.hash();
-        
+
         // Check if the transaction already exists
         if self.transactions.contains_key(&tx_hash) {
             return Err(MempoolError::TransactionExists(hex::encode(tx_hash)));
         }
-        
+
         // Find transactions in the mempool that have inputs overlapping with the new transaction
-        let conflicting_txs: Vec<([u8; 32], MempoolEntry)> = self.find_conflicting_transactions(&new_transaction);
-        
+        let conflicting_txs: Vec<([u8; 32], MempoolEntry)> =
+            self.find_conflicting_transactions(&new_transaction);
+
         if conflicting_txs.is_empty() {
             // No conflicts, this is not an RBF but a new transaction
-            return Err(MempoolError::InvalidTransaction("No conflicting transactions found for RBF".to_string()));
+            return Err(MempoolError::InvalidTransaction(
+                "No conflicting transactions found for RBF".to_string(),
+            ));
         }
-        
+
         // Calculate the total fee of the conflicting transactions
-        let total_conflicting_size: usize = conflicting_txs.iter().map(|(_, entry)| entry.size).sum();
-        let total_conflicting_fee: u64 = conflicting_txs.iter().map(|(_, entry)| entry.fee_rate * entry.size as u64).sum();
-        
+        let total_conflicting_size: usize =
+            conflicting_txs.iter().map(|(_, entry)| entry.size).sum();
+        let total_conflicting_fee: u64 = conflicting_txs
+            .iter()
+            .map(|(_, entry)| entry.fee_rate * entry.size as u64)
+            .sum();
+
         // Calculate the new transaction size
         let new_tx_size = match bincode::serialize(&new_transaction) {
             Ok(bytes) => bytes.len(),
             Err(e) => return Err(MempoolError::SerializationError(e.to_string())),
         };
-        
+
         // Calculate the new transaction fee
         let new_tx_fee = fee_rate * new_tx_size as u64;
-        
+
         // Check if the new transaction's fee is sufficiently higher than the conflicting transactions
         let min_increase = 1.0 + (self.config.min_rbf_fee_increase / 100.0);
         let min_required_fee = ((total_conflicting_fee as f64) * min_increase) as u64;
-        
+
         if new_tx_fee < min_required_fee {
-            return Err(MempoolError::FeeTooLow { 
-                required: min_required_fee, 
-                provided: new_tx_fee 
+            return Err(MempoolError::FeeTooLow {
+                required: min_required_fee,
+                provided: new_tx_fee,
             });
         }
-        
+
         // Remove all conflicting transactions
         let mut removed_txs = Vec::new();
         for (hash, entry) in conflicting_txs {
@@ -245,7 +270,7 @@ impl TransactionPool {
                 removed_txs.push(entry.transaction);
             }
         }
-        
+
         // Add the new transaction
         let new_entry = MempoolEntry {
             transaction: new_transaction.clone(),
@@ -253,9 +278,9 @@ impl TransactionPool {
             fee_rate,
             size: new_tx_size,
         };
-        
+
         self.transactions.insert(tx_hash, new_entry);
-        
+
         // If we only replaced one transaction, return it
         if removed_txs.len() == 1 {
             Ok(Some(removed_txs.remove(0)))
@@ -264,34 +289,48 @@ impl TransactionPool {
             Ok(None)
         }
     }
-    
+
     /// Find transactions in the mempool that have inputs overlapping with the new transaction
-    fn find_conflicting_transactions(&self, transaction: &Transaction) -> Vec<([u8; 32], MempoolEntry)> {
+    fn find_conflicting_transactions(
+        &self,
+        transaction: &Transaction,
+    ) -> Vec<([u8; 32], MempoolEntry)> {
         // Get all input references from the new transaction
-        let new_inputs: Vec<_> = transaction.inputs()
+        let new_inputs: Vec<_> = transaction
+            .inputs()
             .iter()
             .map(|input| (input.prev_tx_hash(), input.prev_output_index()))
             .collect();
-        
+
         let mut conflicting_txs = Vec::new();
-        
+
         // Check all transactions in the mempool for conflicts
         for entry in self.transactions.iter() {
             let tx_hash = *entry.key();
-            let existing_inputs: Vec<_> = entry.transaction.inputs()
+            let existing_inputs: Vec<_> = entry
+                .transaction
+                .inputs()
                 .iter()
                 .map(|input| (input.prev_tx_hash(), input.prev_output_index()))
                 .collect();
-            
+
             // Check for any overlap in inputs
             for input in &new_inputs {
                 if existing_inputs.contains(input) {
-                    conflicting_txs.push((tx_hash, MempoolEntry { transaction: entry.transaction.clone(), timestamp: entry.timestamp, fee_rate: entry.fee_rate, size: entry.size }));
+                    conflicting_txs.push((
+                        tx_hash,
+                        MempoolEntry {
+                            transaction: entry.transaction.clone(),
+                            timestamp: entry.timestamp,
+                            fee_rate: entry.fee_rate,
+                            size: entry.size,
+                        },
+                    ));
                     break;
                 }
             }
         }
-        
+
         conflicting_txs
     }
 
@@ -299,39 +338,61 @@ impl TransactionPool {
     pub fn get_info(&self) -> MempoolInfo {
         let transaction_count = self.transactions.len();
         let total_size: usize = self.transactions.iter().map(|entry| entry.size).sum();
-        let total_fee: u64 = self.transactions.iter().map(|entry| entry.fee_rate * entry.size as u64).sum();
-        
+        let total_fee: u64 = self
+            .transactions
+            .iter()
+            .map(|entry| entry.fee_rate * entry.size as u64)
+            .sum();
+
         // Calculate average fee rate
         let avg_fee_rate = if transaction_count > 0 {
             total_fee / total_size as u64
         } else {
             0
         };
-        
+
         MempoolInfo {
             transaction_count,
             total_size,
             total_fee,
             min_fee_rate: self.config.min_fee_rate,
-            max_fee_rate: self.transactions.iter().map(|entry| entry.fee_rate).max().unwrap_or(0),
+            max_fee_rate: self
+                .transactions
+                .iter()
+                .map(|entry| entry.fee_rate)
+                .max()
+                .unwrap_or(0),
             avg_fee_rate,
         }
     }
-    
+
     /// Get transactions with pagination and sorting
-    pub fn get_transactions(&self, limit: usize, offset: usize, sort: &str) -> Result<Vec<MempoolTransaction>, MempoolError> {
-        let mut entries: Vec<_> = self.transactions.iter().map(|entry| {
-            let tx_hash = *entry.key();
-            let entry_val = entry.value();
-            MempoolTransaction {
-                txid: hex::encode(tx_hash),
-                size: entry_val.size,
-                fee: entry_val.fee_rate * entry_val.size as u64,
-                fee_rate: entry_val.fee_rate,
-                time: entry_val.timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
-            }
-        }).collect();
-        
+    pub fn get_transactions(
+        &self,
+        limit: usize,
+        offset: usize,
+        sort: &str,
+    ) -> Result<Vec<MempoolTransaction>, MempoolError> {
+        let mut entries: Vec<_> = self
+            .transactions
+            .iter()
+            .map(|entry| {
+                let tx_hash = *entry.key();
+                let entry_val = entry.value();
+                MempoolTransaction {
+                    txid: hex::encode(tx_hash),
+                    size: entry_val.size,
+                    fee: entry_val.fee_rate * entry_val.size as u64,
+                    fee_rate: entry_val.fee_rate,
+                    time: entry_val
+                        .timestamp
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                }
+            })
+            .collect();
+
         // Sort based on the sort parameter
         match sort {
             "fee_desc" => entries.sort_by(|a, b| b.fee.cmp(&a.fee)),
@@ -342,72 +403,91 @@ impl TransactionPool {
             "size_asc" => entries.sort_by(|a, b| a.size.cmp(&b.size)),
             _ => entries.sort_by(|a, b| b.fee_rate.cmp(&a.fee_rate)), // Default to fee_rate desc
         }
-        
+
         // Apply pagination
         let start = offset.min(entries.len());
         let end = (offset + limit).min(entries.len());
-        
+
         Ok(entries[start..end].to_vec())
     }
-    
+
     /// Get a specific transaction by hex string ID
-    pub fn get_transaction_by_id(&self, txid: &str) -> Result<Option<MempoolTransaction>, MempoolError> {
+    pub fn get_transaction_by_id(
+        &self,
+        txid: &str,
+    ) -> Result<Option<MempoolTransaction>, MempoolError> {
         // Parse hex string to bytes
-        let tx_hash_bytes = hex::decode(txid).map_err(|e| MempoolError::SerializationError(format!("Invalid hex: {}", e)))?;
+        let tx_hash_bytes = hex::decode(txid)
+            .map_err(|e| MempoolError::SerializationError(format!("Invalid hex: {}", e)))?;
         if tx_hash_bytes.len() != 32 {
-            return Err(MempoolError::SerializationError("Transaction hash must be 32 bytes".to_string()));
+            return Err(MempoolError::SerializationError(
+                "Transaction hash must be 32 bytes".to_string(),
+            ));
         }
-        
+
         let mut tx_hash = [0u8; 32];
         tx_hash.copy_from_slice(&tx_hash_bytes);
-        
+
         if let Some(entry) = self.transactions.get(&tx_hash) {
             Ok(Some(MempoolTransaction {
                 txid: txid.to_string(),
                 size: entry.size,
                 fee: entry.fee_rate * entry.size as u64,
                 fee_rate: entry.fee_rate,
-                time: entry.timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
+                time: entry
+                    .timestamp
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
             }))
         } else {
             Ok(None)
         }
     }
-    
+
     /// Submit a transaction from raw bytes
-    pub fn submit_transaction(&self, raw_tx: &[u8], allow_high_fees: bool) -> Result<String, MempoolError> {
+    pub fn submit_transaction(
+        &self,
+        raw_tx: &[u8],
+        allow_high_fees: bool,
+    ) -> Result<String, MempoolError> {
         // Deserialize the transaction
-        let transaction: Transaction = bincode::deserialize(raw_tx)
-            .map_err(|e| MempoolError::SerializationError(format!("Failed to deserialize transaction: {}", e)))?;
-        
+        let transaction: Transaction = bincode::deserialize(raw_tx).map_err(|e| {
+            MempoolError::SerializationError(format!("Failed to deserialize transaction: {}", e))
+        })?;
+
         let tx_hash = transaction.hash();
-        
+
         // Calculate a basic fee rate (this is simplified)
         let tx_size = raw_tx.len();
         let fee_rate = self.config.min_fee_rate; // Simplified fee calculation
-        
+
         // Check for high fees if not allowed
         if !allow_high_fees && fee_rate > self.config.min_fee_rate * 10 {
-            return Err(MempoolError::FeeTooLow { 
-                required: self.config.min_fee_rate * 10, 
-                provided: fee_rate 
+            return Err(MempoolError::FeeTooLow {
+                required: self.config.min_fee_rate * 10,
+                provided: fee_rate,
             });
         }
-        
+
         // Add to mempool
         self.add_transaction(transaction, fee_rate)?;
-        
+
         Ok(hex::encode(tx_hash))
     }
-    
+
     /// Validate a transaction without adding it to mempool
-    pub fn validate_transaction(&self, raw_tx: &[u8]) -> Result<TransactionValidationResult, MempoolError> {
+    pub fn validate_transaction(
+        &self,
+        raw_tx: &[u8],
+    ) -> Result<TransactionValidationResult, MempoolError> {
         // Deserialize the transaction
-        let transaction: Transaction = bincode::deserialize(raw_tx)
-            .map_err(|e| MempoolError::SerializationError(format!("Failed to deserialize transaction: {}", e)))?;
-        
+        let transaction: Transaction = bincode::deserialize(raw_tx).map_err(|e| {
+            MempoolError::SerializationError(format!("Failed to deserialize transaction: {}", e))
+        })?;
+
         let tx_hash = transaction.hash();
-        
+
         // Check if already in mempool
         if self.transactions.contains_key(&tx_hash) {
             return Ok(TransactionValidationResult {
@@ -417,7 +497,7 @@ impl TransactionPool {
                 size: Some(raw_tx.len()),
             });
         }
-        
+
         // Check for double spend
         if self.check_double_spend(&transaction) {
             return Ok(TransactionValidationResult {
@@ -427,10 +507,10 @@ impl TransactionPool {
                 size: Some(raw_tx.len()),
             });
         }
-        
+
         // Basic validation passed
         let fee_rate = self.config.min_fee_rate; // Simplified
-        
+
         Ok(TransactionValidationResult {
             valid: true,
             error: None,
@@ -438,36 +518,44 @@ impl TransactionPool {
             size: Some(raw_tx.len()),
         })
     }
-    
+
     /// Estimate fee for target confirmation
     pub fn estimate_fee(&self, target_conf: u32) -> Result<TransactionFees, MempoolError> {
         // Simple fee estimation based on current mempool state
         let transaction_count = self.transactions.len();
-        
+
         let (low_priority, normal_priority, high_priority) = if transaction_count == 0 {
             // Empty mempool, use minimum rates
-            (self.config.min_fee_rate, self.config.min_fee_rate * 2, self.config.min_fee_rate * 5)
+            (
+                self.config.min_fee_rate,
+                self.config.min_fee_rate * 2,
+                self.config.min_fee_rate * 5,
+            )
         } else {
             // Calculate percentiles from current mempool
-            let mut fee_rates: Vec<u64> = self.transactions.iter().map(|entry| entry.fee_rate).collect();
+            let mut fee_rates: Vec<u64> = self
+                .transactions
+                .iter()
+                .map(|entry| entry.fee_rate)
+                .collect();
             fee_rates.sort();
-            
+
             let len = fee_rates.len();
             let low = fee_rates[len / 4].max(self.config.min_fee_rate);
             let normal = fee_rates[len / 2].max(self.config.min_fee_rate * 2);
             let high = fee_rates[len * 3 / 4].max(self.config.min_fee_rate * 5);
-            
+
             (low, normal, high)
         };
-        
+
         // Adjust based on target confirmation time
         let multiplier = match target_conf {
-            1 => 2.0,      // Next block - high priority
-            2..=3 => 1.5,  // 2-3 blocks - normal priority  
-            4..=6 => 1.0,  // 4-6 blocks - normal
-            _ => 0.8,      // 7+ blocks - low priority
+            1 => 2.0,     // Next block - high priority
+            2..=3 => 1.5, // 2-3 blocks - normal priority
+            4..=6 => 1.0, // 4-6 blocks - normal
+            _ => 0.8,     // 7+ blocks - low priority
         };
-        
+
         Ok(TransactionFees {
             low_priority: (low_priority as f64 * multiplier * 0.8) as u64,
             normal_priority: (normal_priority as f64 * multiplier) as u64,
@@ -500,7 +588,10 @@ impl TransactionPool {
     }
 
     /// Get all transactions for a given block
-    pub fn get_transactions_for_block(&self, block: &btclib::types::block::Block) -> Vec<Transaction> {
+    pub fn get_transactions_for_block(
+        &self,
+        block: &btclib::types::block::Block,
+    ) -> Vec<Transaction> {
         let mut transactions = Vec::new();
         for tx in block.transactions() {
             if let Some(mempool_tx) = self.get_transaction(&tx.hash()) {
@@ -509,15 +600,17 @@ impl TransactionPool {
         }
         transactions
     }
-    
+
     /// Get fee histogram for the mempool
     pub fn get_fee_histogram(&self) -> Vec<(u64, usize)> {
         // Create buckets for fee rates (in novas/byte)
         let buckets = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
         let mut histogram = Vec::new();
-        
+
         for (i, &bucket) in buckets.iter().enumerate() {
-            let count = self.transactions.iter()
+            let count = self
+                .transactions
+                .iter()
                 .filter(|entry| {
                     let fee_rate = entry.fee_rate;
                     if i == buckets.len() - 1 {
@@ -529,12 +622,12 @@ impl TransactionPool {
                     }
                 })
                 .count();
-            
+
             if count > 0 {
                 histogram.push((bucket, count));
             }
         }
-        
+
         histogram
     }
 }
@@ -557,12 +650,12 @@ mod tests {
     fn test_add_and_get_transaction() {
         let config = MempoolConfig::default();
         let pool = TransactionPool::new(config);
-        
+
         let tx = create_test_transaction([1u8; 32], 50_000_000);
         let tx_hash = tx.hash();
-        
+
         assert!(pool.add_transaction(tx.clone(), 2).is_ok());
-        
+
         // Compare transaction hashes instead of transactions directly
         let tx_from_pool = pool.get_transaction(&tx_hash).unwrap();
         assert_eq!(tx_from_pool.hash(), tx.hash());
@@ -572,11 +665,11 @@ mod tests {
     fn test_double_spend_detection() {
         let config = MempoolConfig::default();
         let pool = TransactionPool::new(config);
-        
+
         // Add first transaction
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         assert!(pool.add_transaction(tx1, 2).is_ok());
-        
+
         // Try to add second transaction spending same output
         let tx2 = create_test_transaction([1u8; 32], 40_000_000);
         assert!(pool.check_double_spend(&tx2));
@@ -586,19 +679,19 @@ mod tests {
     fn test_fee_rate_sorting() {
         let config = MempoolConfig::default();
         let pool = TransactionPool::new(config);
-        
+
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         let tx2 = create_test_transaction([2u8; 32], 40_000_000);
-        
+
         // Store hashes for comparison
         let tx1_hash = tx1.hash();
         let tx2_hash = tx2.hash();
-        
+
         pool.add_transaction(tx1.clone(), 1).unwrap();
         pool.add_transaction(tx2.clone(), 2).unwrap();
-        
+
         let sorted = pool.get_sorted_transactions();
-        
+
         // Compare transaction hashes instead of transactions directly
         assert_eq!(sorted[0].hash(), tx2_hash); // Higher fee rate should be first
         assert_eq!(sorted[1].hash(), tx1_hash);
@@ -612,26 +705,26 @@ mod tests {
             ..MempoolConfig::default()
         };
         let pool = TransactionPool::new(config);
-        
+
         // Add first transaction with low fee
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         let tx1_hash = tx1.hash();
         pool.add_transaction(tx1.clone(), 1).unwrap();
-        
+
         // Create replacement transaction with same inputs but higher fee
         let tx2 = create_test_transaction([1u8; 32], 50_000_000);
         let tx2_hash = tx2.hash();
-        
+
         // Replace should succeed with higher fee rate
         assert!(pool.replace_transaction(tx2.clone(), 2).is_ok());
-        
+
         // Original transaction should be gone
         assert!(pool.get_transaction(&tx1_hash).is_none());
-        
+
         // New transaction should be present
         assert!(pool.get_transaction(&tx2_hash).is_some());
     }
-    
+
     #[test]
     fn test_rbf_disabled() {
         let config = MempoolConfig {
@@ -639,18 +732,21 @@ mod tests {
             ..MempoolConfig::default()
         };
         let pool = TransactionPool::new(config);
-        
+
         // Add first transaction
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         pool.add_transaction(tx1.clone(), 1).unwrap();
-        
+
         // Create replacement transaction
         let tx2 = create_test_transaction([1u8; 32], 50_000_000);
-        
+
         // RBF should fail when disabled
-        assert!(matches!(pool.replace_transaction(tx2, 2), Err(MempoolError::InvalidTransaction(_))));
+        assert!(matches!(
+            pool.replace_transaction(tx2, 2),
+            Err(MempoolError::InvalidTransaction(_))
+        ));
     }
-    
+
     #[test]
     fn test_rbf_insufficient_fee() {
         let config = MempoolConfig {
@@ -659,20 +755,20 @@ mod tests {
             ..MempoolConfig::default()
         };
         let pool = TransactionPool::new(config);
-        
+
         // Add first transaction
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         pool.add_transaction(tx1.clone(), 10).unwrap();
-        
+
         // Create replacement transaction with not enough fee increase
         let tx2 = create_test_transaction([1u8; 32], 50_000_000);
-        
+
         // 10% increase is not enough
         assert!(matches!(
-            pool.replace_transaction(tx2.clone(), 11), 
+            pool.replace_transaction(tx2.clone(), 11),
             Err(MempoolError::FeeTooLow { .. })
         ));
-        
+
         // 60% increase should work
         assert!(pool.replace_transaction(tx2, 16).is_ok());
     }

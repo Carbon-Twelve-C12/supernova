@@ -2,12 +2,12 @@
 // Public testnet for community validation of carbon-negative, quantum-secure blockchain
 // Demonstrates all revolutionary features in test environment
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
 
-use crate::crypto::quantum::{QuantumScheme, QuantumParameters};
+use crate::crypto::quantum::{QuantumParameters, QuantumScheme};
 use crate::environmental::types::Region;
 
 /// Comprehensive testnet configuration
@@ -17,22 +17,22 @@ pub struct TestnetConfiguration {
     pub network_id: String,
     pub network_name: String,
     pub network_type: NetworkType,
-    
+
     /// Genesis configuration
     pub genesis_config: GenesisConfiguration,
-    
+
     /// Node configuration
     pub node_config: TestnetNodeConfig,
-    
+
     /// Environmental configuration
     pub environmental_config: TestnetEnvironmentalConfig,
-    
+
     /// Lightning Network configuration
     pub lightning_config: TestnetLightningConfig,
-    
+
     /// Monitoring configuration
     pub monitoring_config: MonitoringConfiguration,
-    
+
     /// Faucet configuration
     pub faucet_config: FaucetConfiguration,
 }
@@ -49,16 +49,16 @@ pub enum NetworkType {
 pub struct GenesisConfiguration {
     /// Genesis timestamp
     pub timestamp: DateTime<Utc>,
-    
+
     /// Initial coin distribution
     pub initial_distribution: Vec<GenesisAllocation>,
-    
+
     /// Quantum parameters
     pub quantum_params: QuantumParameters,
-    
+
     /// Environmental parameters
     pub environmental_params: EnvironmentalGenesisParams,
-    
+
     /// Network parameters
     pub network_params: NetworkGenesisParams,
 }
@@ -84,13 +84,13 @@ pub enum AllocationType {
 pub struct TestnetNodeConfig {
     /// Bootstrap nodes
     pub bootstrap_nodes: Vec<BootstrapNode>,
-    
+
     /// Default node settings
     pub default_settings: NodeSettings,
-    
+
     /// Quantum security settings
     pub quantum_settings: QuantumNodeSettings,
-    
+
     /// Performance settings
     pub performance_settings: PerformanceSettings,
 }
@@ -108,13 +108,13 @@ pub struct BootstrapNode {
 pub struct TestnetEnvironmentalConfig {
     /// Environmental oracles
     pub oracle_nodes: Vec<TestnetOracleNode>,
-    
+
     /// Carbon tracking settings
     pub carbon_tracking: CarbonTrackingSettings,
-    
+
     /// Renewable validation settings
     pub renewable_validation: RenewableValidationSettings,
-    
+
     /// Green mining settings
     pub green_mining: GreenMiningSettings,
 }
@@ -140,13 +140,13 @@ pub enum OracleSpecialization {
 pub struct TestnetLightningConfig {
     /// Lightning nodes
     pub lightning_nodes: Vec<TestnetLightningNode>,
-    
+
     /// Channel parameters
     pub channel_params: TestnetChannelParams,
-    
+
     /// Routing configuration
     pub routing_config: TestnetRoutingConfig,
-    
+
     /// Test scenarios
     pub test_scenarios: Vec<LightningTestScenario>,
 }
@@ -166,13 +166,13 @@ pub struct MonitoringConfiguration {
     /// Dashboard endpoints
     pub dashboard_url: String,
     pub api_endpoint: String,
-    
+
     /// Metrics configuration
     pub metrics_config: MetricsConfiguration,
-    
+
     /// Alert configuration
     pub alert_config: AlertConfiguration,
-    
+
     /// Public displays
     pub public_displays: PublicDisplayConfig,
 }
@@ -182,12 +182,12 @@ pub struct MonitoringConfiguration {
 pub struct FaucetConfiguration {
     /// Faucet endpoint
     pub endpoint: String,
-    
+
     /// Distribution parameters
     pub distribution_amount: u64,
     pub cooldown_period: u64, // seconds
     pub max_daily_requests: u32,
-    
+
     /// Anti-abuse measures
     pub captcha_enabled: bool,
     pub rate_limiting: RateLimitConfig,
@@ -197,10 +197,10 @@ pub struct FaucetConfiguration {
 pub struct TestnetDeploymentManager {
     /// Configuration
     config: TestnetConfiguration,
-    
+
     /// Deployment status
     deployment_status: DeploymentStatus,
-    
+
     /// Node registry
     node_registry: HashMap<String, TestnetNode>,
 }
@@ -233,7 +233,7 @@ impl TestnetDeploymentManager {
     /// Create new testnet deployment manager
     pub fn new() -> Self {
         let config = Self::create_default_testnet_config();
-        
+
         Self {
             config,
             deployment_status: DeploymentStatus {
@@ -246,13 +246,13 @@ impl TestnetDeploymentManager {
             node_registry: HashMap::new(),
         }
     }
-    
+
     /// Deploy testnet nodes
     pub async fn deploy_testnet_nodes(&mut self) -> Result<DeploymentResult, DeploymentError> {
         println!("🌐 Deploying Supernova testnet nodes...");
-        
+
         self.deployment_status.phase = DeploymentPhase::DeployingInfrastructure;
-        
+
         // Deploy bootstrap nodes
         let bootstrap_nodes = self.config.node_config.bootstrap_nodes.clone();
         for bootstrap in &bootstrap_nodes {
@@ -260,7 +260,7 @@ impl TestnetDeploymentManager {
             self.deploy_single_node(bootstrap).await?;
             self.deployment_status.nodes_deployed += 1;
         }
-        
+
         // Deploy additional testnet nodes
         let additional_nodes = 10;
         for i in 0..additional_nodes {
@@ -268,44 +268,57 @@ impl TestnetDeploymentManager {
             self.deploy_configured_node(node_config).await?;
             self.deployment_status.nodes_deployed += 1;
         }
-        
-        println!("✅ Deployed {} testnet nodes", self.deployment_status.nodes_deployed);
-        
+
+        println!(
+            "✅ Deployed {} testnet nodes",
+            self.deployment_status.nodes_deployed
+        );
+
         Ok(DeploymentResult {
             nodes_deployed: self.deployment_status.nodes_deployed,
             success: true,
             details: "Testnet nodes deployed successfully".to_string(),
         })
     }
-    
+
     /// Configure environmental oracles
-    pub async fn configure_environmental_oracles(&mut self) -> Result<OracleDeploymentResult, DeploymentError> {
+    pub async fn configure_environmental_oracles(
+        &mut self,
+    ) -> Result<OracleDeploymentResult, DeploymentError> {
         println!("🌍 Configuring environmental oracles...");
-        
+
         self.deployment_status.phase = DeploymentPhase::InitializingOracles;
-        
+
         for oracle in &self.config.environmental_config.oracle_nodes {
-            println!("  Deploying oracle: {} ({})", oracle.oracle_id, oracle.region);
+            println!(
+                "  Deploying oracle: {} ({})",
+                oracle.oracle_id, oracle.region
+            );
             self.deploy_oracle_node(oracle).await?;
             self.deployment_status.oracles_active += 1;
         }
-        
+
         // Initialize oracle consensus
         self.initialize_oracle_consensus().await?;
-        
-        println!("✅ Configured {} environmental oracles", self.deployment_status.oracles_active);
-        
+
+        println!(
+            "✅ Configured {} environmental oracles",
+            self.deployment_status.oracles_active
+        );
+
         Ok(OracleDeploymentResult {
             oracles_deployed: self.deployment_status.oracles_active,
             consensus_established: true,
             test_mode_active: true,
         })
     }
-    
+
     /// Setup Foundation verification system
-    pub async fn setup_foundation_verification_system(&mut self) -> Result<VerificationSystemResult, DeploymentError> {
+    pub async fn setup_foundation_verification_system(
+        &mut self,
+    ) -> Result<VerificationSystemResult, DeploymentError> {
         println!("📋 Setting up Foundation verification system...");
-        
+
         // Create test Foundation reviewers
         let test_reviewers = vec![
             TestReviewer {
@@ -321,39 +334,44 @@ impl TestnetDeploymentManager {
                 test_account: true,
             },
         ];
-        
+
         // Setup quarterly review system
         for reviewer in test_reviewers {
             self.setup_test_reviewer(reviewer).await?;
         }
-        
+
         println!("✅ Foundation verification system ready for testing");
-        
+
         Ok(VerificationSystemResult {
             reviewers_configured: 2,
             quarterly_cycle_active: true,
             test_mode: true,
         })
     }
-    
+
     /// Deploy quantum Lightning Network
-    pub async fn deploy_quantum_lightning_network(&mut self) -> Result<LightningDeploymentResult, DeploymentError> {
+    pub async fn deploy_quantum_lightning_network(
+        &mut self,
+    ) -> Result<LightningDeploymentResult, DeploymentError> {
         println!("⚡ Deploying quantum Lightning Network...");
-        
+
         self.deployment_status.phase = DeploymentPhase::LaunchingLightning;
-        
+
         // Deploy Lightning nodes
         for ln_node in &self.config.lightning_config.lightning_nodes {
             println!("  Deploying Lightning node: {}", ln_node.node_id);
             self.deploy_lightning_node(ln_node).await?;
         }
-        
+
         // Create initial channels
         let initial_channels = self.create_initial_lightning_channels().await?;
         self.deployment_status.lightning_channels = initial_channels;
-        
-        println!("✅ Quantum Lightning Network deployed with {} channels", initial_channels);
-        
+
+        println!(
+            "✅ Quantum Lightning Network deployed with {} channels",
+            initial_channels
+        );
+
         Ok(LightningDeploymentResult {
             lightning_nodes: self.config.lightning_config.lightning_nodes.len() as u32,
             channels_created: initial_channels,
@@ -361,26 +379,28 @@ impl TestnetDeploymentManager {
             green_routing_active: true,
         })
     }
-    
+
     /// Create testnet monitoring dashboard
-    pub async fn create_testnet_monitoring_dashboard(&self) -> Result<MonitoringResult, DeploymentError> {
+    pub async fn create_testnet_monitoring_dashboard(
+        &self,
+    ) -> Result<MonitoringResult, DeploymentError> {
         println!("📊 Creating testnet monitoring dashboard...");
-        
+
         // Deploy monitoring infrastructure
         let dashboard_url = &self.config.monitoring_config.dashboard_url;
         let api_endpoint = &self.config.monitoring_config.api_endpoint;
-        
+
         println!("  Dashboard URL: {}", dashboard_url);
         println!("  API Endpoint: {}", api_endpoint);
-        
+
         // Initialize metrics collection
         self.initialize_metrics_collection().await?;
-        
+
         // Setup public displays
         self.setup_public_displays().await?;
-        
+
         println!("✅ Monitoring dashboard deployed");
-        
+
         Ok(MonitoringResult {
             dashboard_url: dashboard_url.clone(),
             api_endpoint: api_endpoint.clone(),
@@ -388,34 +408,37 @@ impl TestnetDeploymentManager {
             public_access: true,
         })
     }
-    
+
     /// Create testnet faucet
     pub async fn create_testnet_faucet(&self) -> Result<FaucetResult, DeploymentError> {
         println!("💧 Creating testnet faucet...");
-        
+
         let faucet_endpoint = &self.config.faucet_config.endpoint;
         let distribution_amount = self.config.faucet_config.distribution_amount;
-        
+
         println!("  Faucet endpoint: {}", faucet_endpoint);
         println!("  Distribution amount: {} NOVA", distribution_amount);
-        println!("  Cooldown period: {} seconds", self.config.faucet_config.cooldown_period);
-        
+        println!(
+            "  Cooldown period: {} seconds",
+            self.config.faucet_config.cooldown_period
+        );
+
         // Deploy faucet service
         self.deploy_faucet_service().await?;
-        
+
         println!("✅ Testnet faucet active");
-        
+
         Ok(FaucetResult {
             endpoint: faucet_endpoint.clone(),
             active: true,
             balance: 1_000_000_000, // 1 billion test NOVA
         })
     }
-    
+
     /// Deploy green mining testnet
     pub async fn deploy_green_mining_testnet(&self) -> Result<GreenMiningResult, DeploymentError> {
         println!("🌱 Deploying green mining testnet...");
-        
+
         // Setup test miners with different renewable percentages
         let test_miners = vec![
             TestMiner {
@@ -437,26 +460,29 @@ impl TestnetDeploymentManager {
                 carbon_negative: false,
             },
         ];
-        
+
         for miner in test_miners {
             self.setup_test_miner(miner).await?;
         }
-        
+
         println!("✅ Green mining testnet deployed");
-        
+
         Ok(GreenMiningResult {
             test_miners_deployed: 3,
             incentive_system_active: true,
             carbon_tracking_enabled: true,
         })
     }
-    
+
     /// Setup quantum signature testing
-    pub async fn setup_quantum_signature_testing(&self) -> Result<QuantumTestResult, DeploymentError> {
+    pub async fn setup_quantum_signature_testing(
+        &self,
+    ) -> Result<QuantumTestResult, DeploymentError> {
         println!("🔐 Setting up quantum signature testing...");
-        
+
         // Create test scenarios
-        let test_scenarios = [QuantumTestScenario {
+        let test_scenarios = [
+            QuantumTestScenario {
                 name: "Dilithium Level 3 Performance".to_string(),
                 test_type: QuantumTestType::Performance,
                 iterations: 10000,
@@ -470,20 +496,23 @@ impl TestnetDeploymentManager {
                 name: "Hybrid Signature Compatibility".to_string(),
                 test_type: QuantumTestType::Compatibility,
                 iterations: 1000,
-            }];
-        
+            },
+        ];
+
         println!("  Created {} quantum test scenarios", test_scenarios.len());
-        
+
         Ok(QuantumTestResult {
             scenarios_created: test_scenarios.len() as u32,
             test_environment_ready: true,
         })
     }
-    
+
     /// Enable Lightning testnet channels
-    pub async fn enable_lightning_testnet_channels(&self) -> Result<LightningTestResult, DeploymentError> {
+    pub async fn enable_lightning_testnet_channels(
+        &self,
+    ) -> Result<LightningTestResult, DeploymentError> {
         println!("⚡ Enabling Lightning testnet channels...");
-        
+
         // Create test payment scenarios
         let payment_scenarios = vec![
             "Carbon-negative payment routing",
@@ -491,24 +520,26 @@ impl TestnetDeploymentManager {
             "Green route optimization",
             "Multi-hop environmental payments",
         ];
-        
+
         let scenarios_count = payment_scenarios.len();
-        
+
         for scenario in payment_scenarios {
             println!("  Enabled scenario: {}", scenario);
         }
-        
+
         Ok(LightningTestResult {
             channels_available: self.deployment_status.lightning_channels,
             test_scenarios_active: scenarios_count as u32,
             quantum_htlc_enabled: true,
         })
     }
-    
+
     /// Create environmental impact dashboard
-    pub async fn create_environmental_impact_dashboard(&self) -> Result<EnvironmentalDashboardResult, DeploymentError> {
+    pub async fn create_environmental_impact_dashboard(
+        &self,
+    ) -> Result<EnvironmentalDashboardResult, DeploymentError> {
         println!("🌍 Creating environmental impact dashboard...");
-        
+
         let dashboard_features = vec![
             "Real-time carbon footprint tracking",
             "Network renewable energy percentage",
@@ -516,11 +547,11 @@ impl TestnetDeploymentManager {
             "Carbon offset verification",
             "Environmental oracle status",
         ];
-        
+
         for feature in &dashboard_features {
             println!("  ✓ {}", feature);
         }
-        
+
         Ok(EnvironmentalDashboardResult {
             dashboard_active: true,
             features_enabled: dashboard_features.len() as u32,
@@ -528,9 +559,9 @@ impl TestnetDeploymentManager {
             real_time_updates: true,
         })
     }
-    
+
     // Helper methods
-    
+
     fn create_default_testnet_config() -> TestnetConfiguration {
         TestnetConfiguration {
             network_id: "supernova-testnet-1".to_string(),
@@ -544,7 +575,7 @@ impl TestnetDeploymentManager {
             faucet_config: Self::create_faucet_config(),
         }
     }
-    
+
     fn create_genesis_config() -> GenesisConfiguration {
         GenesisConfiguration {
             timestamp: Utc::now(),
@@ -570,13 +601,13 @@ impl TestnetDeploymentManager {
                 oracle_minimum: 3,
             },
             network_params: NetworkGenesisParams {
-                block_time_seconds: 150, // 2.5 minutes
-                max_block_size: 4_000_000, // 4MB for increased throughput
+                block_time_seconds: 150,              // 2.5 minutes
+                max_block_size: 4_000_000,            // 4MB for increased throughput
                 difficulty_adjustment_interval: 2016, // ~3.5 days with 2.5-minute blocks
             },
         }
     }
-    
+
     fn create_node_config() -> TestnetNodeConfig {
         TestnetNodeConfig {
             bootstrap_nodes: vec![
@@ -610,7 +641,7 @@ impl TestnetDeploymentManager {
             },
         }
     }
-    
+
     fn create_environmental_config() -> TestnetEnvironmentalConfig {
         TestnetEnvironmentalConfig {
             oracle_nodes: vec![
@@ -646,18 +677,16 @@ impl TestnetDeploymentManager {
             },
         }
     }
-    
+
     fn create_lightning_config() -> TestnetLightningConfig {
         TestnetLightningConfig {
-            lightning_nodes: vec![
-                TestnetLightningNode {
-                    node_id: "ln-node-1".to_string(),
-                    public_key: vec![1u8; 33],
-                    endpoint: "https://ln1-testnet.supernova.network".to_string(),
-                    quantum_enabled: true,
-                    environmental_score: 95.0,
-                },
-            ],
+            lightning_nodes: vec![TestnetLightningNode {
+                node_id: "ln-node-1".to_string(),
+                public_key: vec![1u8; 33],
+                endpoint: "https://ln1-testnet.supernova.network".to_string(),
+                quantum_enabled: true,
+                environmental_score: 95.0,
+            }],
             channel_params: TestnetChannelParams {
                 min_channel_size: 100_000,
                 max_channel_size: 10_000_000,
@@ -672,7 +701,7 @@ impl TestnetDeploymentManager {
             test_scenarios: vec![],
         }
     }
-    
+
     fn create_monitoring_config() -> MonitoringConfiguration {
         MonitoringConfiguration {
             dashboard_url: "https://testnet-dashboard.supernova.network".to_string(),
@@ -694,12 +723,12 @@ impl TestnetDeploymentManager {
             },
         }
     }
-    
+
     fn create_faucet_config() -> FaucetConfiguration {
         FaucetConfiguration {
             endpoint: "https://faucet-testnet.supernova.network".to_string(),
             distribution_amount: 1000, // 1000 test NOVA
-            cooldown_period: 3600, // 1 hour
+            cooldown_period: 3600,     // 1 hour
             max_daily_requests: 10,
             captcha_enabled: true,
             rate_limiting: RateLimitConfig {
@@ -708,64 +737,73 @@ impl TestnetDeploymentManager {
             },
         }
     }
-    
+
     // Deployment helper methods (simplified for audit)
-    
-    async fn deploy_single_node(&mut self, _bootstrap: &BootstrapNode) -> Result<(), DeploymentError> {
+
+    async fn deploy_single_node(
+        &mut self,
+        _bootstrap: &BootstrapNode,
+    ) -> Result<(), DeploymentError> {
         // In production: Deploy actual node infrastructure
         Ok(())
     }
-    
+
     async fn create_testnet_node_config(&self, index: u32) -> TestnetNodeConfig {
         // Create configuration for additional nodes
         self.config.node_config.clone()
     }
-    
-    async fn deploy_configured_node(&mut self, _config: TestnetNodeConfig) -> Result<(), DeploymentError> {
+
+    async fn deploy_configured_node(
+        &mut self,
+        _config: TestnetNodeConfig,
+    ) -> Result<(), DeploymentError> {
         // Deploy configured node
         Ok(())
     }
-    
+
     async fn deploy_oracle_node(&self, _oracle: &TestnetOracleNode) -> Result<(), DeploymentError> {
         // Deploy oracle infrastructure
         Ok(())
     }
-    
+
     async fn initialize_oracle_consensus(&self) -> Result<(), DeploymentError> {
         // Initialize consensus mechanism
         Ok(())
     }
-    
+
     async fn setup_test_reviewer(&self, _reviewer: TestReviewer) -> Result<(), DeploymentError> {
         // Setup Foundation reviewer account
         Ok(())
     }
-    
-    async fn deploy_lightning_node(&self, _node: &TestnetLightningNode) -> Result<(), DeploymentError> {
+
+    async fn deploy_lightning_node(
+        &self,
+        _node: &TestnetLightningNode,
+    ) -> Result<(), DeploymentError> {
         // Deploy Lightning node
         Ok(())
     }
-    
+
     async fn create_initial_lightning_channels(&self) -> Result<u32, DeploymentError> {
         // Create initial channel network
         Ok(10) // 10 initial channels
     }
-    
+
     async fn initialize_metrics_collection(&self) -> Result<(), DeploymentError> {
         // Setup metrics collection
         Ok(())
     }
-    
+
     async fn setup_public_displays(&self) -> Result<(), DeploymentError> {
         // Configure public dashboards
         Ok(())
     }
-    
+
     async fn deploy_faucet_service(&self) -> Result<(), DeploymentError> {
         // Deploy faucet backend
         Ok(())
     }
-    
+
     async fn setup_test_miner(&self, _miner: TestMiner) -> Result<(), DeploymentError> {
         // Setup test mining node
         Ok(())
@@ -1010,7 +1048,7 @@ pub enum DeploymentError {
 
 pub async fn deploy_supernova_testnet() -> Result<TestnetDeploymentStatus, DeploymentError> {
     let mut manager = TestnetDeploymentManager::new();
-    
+
     // Deploy all components
     manager.deploy_testnet_nodes().await?;
     manager.configure_environmental_oracles().await?;
@@ -1022,7 +1060,7 @@ pub async fn deploy_supernova_testnet() -> Result<TestnetDeploymentStatus, Deplo
     manager.setup_quantum_signature_testing().await?;
     manager.enable_lightning_testnet_channels().await?;
     manager.create_environmental_impact_dashboard().await?;
-    
+
     Ok(TestnetDeploymentStatus {
         network_active: true,
         nodes_running: manager.deployment_status.nodes_deployed,
@@ -1041,4 +1079,4 @@ pub struct TestnetDeploymentStatus {
     pub lightning_channels: u32,
     pub faucet_endpoint: String,
     pub dashboard_url: String,
-} 
+}

@@ -170,7 +170,7 @@ impl Default for ChainRequirements {
     fn default() -> Self {
         Self {
             min_difficulty: 1,
-            max_block_size: 1_000_000, // 1MB
+            max_block_size: 1_000_000,     // 1MB
             max_time_between_blocks: 7200, // 2 hours
             max_txs_per_block: 10_000,
             strict_input_order: true,
@@ -202,7 +202,7 @@ impl Default for IntegrityConfig {
             max_batch_size: 1000,
             trusted_checkpoints: HashMap::new(),
             requirements: ChainRequirements::default(),
-            verify_signatures: false, // Expensive, off by default
+            verify_signatures: false,   // Expensive, off by default
             utxo_sample_percentage: 10, // Check 10% of UTXOs
         }
     }

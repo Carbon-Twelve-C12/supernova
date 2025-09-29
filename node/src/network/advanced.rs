@@ -1,18 +1,17 @@
 use libp2p::{
-    Multiaddr,
-    PeerId,
-    ping::{Behaviour as Ping, Event as PingEvent},
     identify::{Behaviour as Identify, Event as IdentifyEvent},
     mdns::{tokio::Behaviour as Mdns, Event as MdnsEvent},
+    ping::{Behaviour as Ping, Event as PingEvent},
+    Multiaddr, PeerId,
 };
+use maxminddb::geoip2::City;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use serde::{Serialize, Deserialize};
-use tracing::{debug, info, warn};
 use tokio::sync::mpsc;
 use tokio::task;
-use maxminddb::geoip2::City;
+use tracing::{debug, info, warn};
 
 /// Configuration for advanced networking features
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -213,7 +212,7 @@ impl AdvancedNetworkService {
         geo_db_path: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (command_tx, command_rx) = mpsc::channel(100);
-        
+
         // Load GeoIP database if path is provided
         let geo_db = if let Some(path) = geo_db_path {
             match maxminddb::Reader::open_readfile(path) {
@@ -226,10 +225,10 @@ impl AdvancedNetworkService {
         } else {
             None
         };
-        
+
         let peer_info = Arc::new(RwLock::new(HashMap::new()));
         let stats = Arc::new(RwLock::new(ConnectionStats::default()));
-        
+
         let service = Self {
             config,
             command_tx,
@@ -237,27 +236,27 @@ impl AdvancedNetworkService {
             peer_info,
             stats,
         };
-        
+
         // Start the network service in a background task
         service.start_service(command_rx);
-        
+
         Ok(service)
     }
-    
+
     /// Start the network service in a background task
     fn start_service(&self, mut command_rx: mpsc::Receiver<NetworkCommand>) {
         let config = self.config.clone();
         let peer_info = Arc::clone(&self.peer_info);
         let stats = Arc::clone(&self.stats);
         let geo_db = self.geo_db.clone();
-        
+
         task::spawn(async move {
             info!("Starting advanced network service");
-            
+
             // Create libp2p swarm with the advanced behavior
             // This is a simplified example; in a real implementation,
             // you would create and manage the swarm here
-            
+
             // Main event loop
             loop {
                 tokio::select! {
@@ -295,107 +294,131 @@ impl AdvancedNetworkService {
                     },
                     else => {
                         // Handle swarm events, network operations, etc.
-                        
+
                         // Update connection stats periodically
                         update_connection_stats(&stats, &peer_info, &config);
-                        
+
                         // Sleep to avoid busy loop
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                 }
             }
-            
+
             info!("Advanced network service stopped");
         });
     }
-    
+
     /// Connect to a peer with the given addresses
-    pub async fn connect_to_peer(&self, peer_id: PeerId, addrs: Vec<Multiaddr>) -> Result<(), String> {
-        self.command_tx.send(NetworkCommand::Connect(peer_id, addrs))
+    pub async fn connect_to_peer(
+        &self,
+        peer_id: PeerId,
+        addrs: Vec<Multiaddr>,
+    ) -> Result<(), String> {
+        self.command_tx
+            .send(NetworkCommand::Connect(peer_id, addrs))
             .await
             .map_err(|e| format!("Failed to send connect command: {}", e))
     }
-    
+
     /// Disconnect from a peer
     pub async fn disconnect_from_peer(&self, peer_id: PeerId) -> Result<(), String> {
-        self.command_tx.send(NetworkCommand::Disconnect(peer_id))
+        self.command_tx
+            .send(NetworkCommand::Disconnect(peer_id))
             .await
             .map_err(|e| format!("Failed to send disconnect command: {}", e))
     }
-    
+
     /// Start the peer discovery process
     pub async fn start_discovery(&self) -> Result<(), String> {
-        self.command_tx.send(NetworkCommand::StartDiscovery)
+        self.command_tx
+            .send(NetworkCommand::StartDiscovery)
             .await
             .map_err(|e| format!("Failed to send discovery command: {}", e))
     }
-    
+
     /// Register with rendezvous points
     pub async fn register_rendezvous(&self) -> Result<(), String> {
-        self.command_tx.send(NetworkCommand::RegisterRendezvous)
+        self.command_tx
+            .send(NetworkCommand::RegisterRendezvous)
             .await
             .map_err(|e| format!("Failed to send rendezvous command: {}", e))
     }
-    
+
     /// Update connection limits
-    pub async fn update_connection_limits(&self, inbound: usize, outbound: usize) -> Result<(), String> {
-        self.command_tx.send(NetworkCommand::UpdateConnectionLimits(inbound, outbound))
+    pub async fn update_connection_limits(
+        &self,
+        inbound: usize,
+        outbound: usize,
+    ) -> Result<(), String> {
+        self.command_tx
+            .send(NetworkCommand::UpdateConnectionLimits(inbound, outbound))
             .await
             .map_err(|e| format!("Failed to send connection limits command: {}", e))
     }
-    
+
     /// Prioritize connection to a peer
     pub async fn prioritize_peer(&self, peer_id: PeerId, priority: i32) -> Result<(), String> {
-        self.command_tx.send(NetworkCommand::PrioritizePeer(peer_id, priority))
+        self.command_tx
+            .send(NetworkCommand::PrioritizePeer(peer_id, priority))
             .await
             .map_err(|e| format!("Failed to send prioritize peer command: {}", e))
     }
-    
+
     /// Shutdown the service
     pub async fn shutdown(&self) -> Result<(), String> {
-        self.command_tx.send(NetworkCommand::Shutdown)
+        self.command_tx
+            .send(NetworkCommand::Shutdown)
             .await
             .map_err(|e| format!("Failed to send shutdown command: {}", e))
     }
-    
+
     /// Get current connection statistics
     pub fn get_connection_stats(&self) -> ConnectionStats {
-        self.stats.read()
-            .map(|s| s.clone())
-            .unwrap_or_default()
+        self.stats.read().map(|s| s.clone()).unwrap_or_default()
     }
-    
+
     /// Get information about a connected peer
     pub fn get_peer_info(&self, peer_id: &PeerId) -> Option<PeerGeoInfo> {
-        self.peer_info.read()
+        self.peer_info
+            .read()
             .ok()
             .and_then(|info| info.get(peer_id).and_then(|p| p.geo_info.clone()))
     }
-    
+
     /// Get the geographic diversity score
     pub fn get_geo_diversity_score(&self) -> f64 {
-        self.stats.read()
+        self.stats
+            .read()
             .map(|s| s.geo_diversity_score)
             .unwrap_or(0.0)
     }
-    
+
     /// Lookup geographic information for an IP address
     fn lookup_geo_info(&self, ip: &str) -> Option<PeerGeoInfo> {
         let geo_db = self.geo_db.as_ref()?;
-        
+
         let ip_addr = match ip.parse() {
             Ok(addr) => addr,
             Err(_) => return None,
         };
-        
+
         match geo_db.lookup::<City>(ip_addr) {
             Ok(city) => {
-                let country = city.country.as_ref().and_then(|c| c.iso_code.map(|code| code.to_string()));
-                let country_name = city.country.as_ref().and_then(|c| c.names.as_ref().and_then(|n| n.get("en").map(|&s| s.to_string())));
-                let city_name = city.city.and_then(|c| c.names.and_then(|n| n.get("en").map(|&s| s.to_string())));
+                let country = city
+                    .country
+                    .as_ref()
+                    .and_then(|c| c.iso_code.map(|code| code.to_string()));
+                let country_name = city.country.as_ref().and_then(|c| {
+                    c.names
+                        .as_ref()
+                        .and_then(|n| n.get("en").map(|&s| s.to_string()))
+                });
+                let city_name = city
+                    .city
+                    .and_then(|c| c.names.and_then(|n| n.get("en").map(|&s| s.to_string())));
                 let latitude = city.location.as_ref().and_then(|l| l.latitude);
                 let longitude = city.location.as_ref().and_then(|l| l.longitude);
-                
+
                 Some(PeerGeoInfo {
                     ip: ip.to_string(),
                     country_code: country,
@@ -404,9 +427,9 @@ impl AdvancedNetworkService {
                     latitude,
                     longitude,
                     asn: None, // ASN not available in basic City database
-                    isp: None,  // ISP not available in basic City database
+                    isp: None, // ISP not available in basic City database
                 })
-            },
+            }
             Err(e) => {
                 debug!("GeoIP lookup error for {}: {}", ip, e);
                 None
@@ -419,7 +442,7 @@ impl AdvancedNetworkService {
 fn calculate_geo_diversity(peers: &HashMap<PeerId, PeerInfo>) -> f64 {
     let mut country_counts = HashMap::new();
     let mut total_with_geo = 0;
-    
+
     // Count peers by country
     for peer in peers.values() {
         if let Some(geo) = &peer.geo_info {
@@ -429,18 +452,18 @@ fn calculate_geo_diversity(peers: &HashMap<PeerId, PeerInfo>) -> f64 {
             }
         }
     }
-    
+
     if total_with_geo == 0 {
         return 0.0;
     }
-    
+
     // Calculate Shannon entropy for geographic distribution
     let mut entropy = 0.0;
     for count in country_counts.values() {
         let p = *count as f64 / total_with_geo as f64;
         entropy -= p * p.log2();
     }
-    
+
     // Normalize entropy (0.0-1.0)
     let max_entropy = (country_counts.len() as f64).log2();
     if max_entropy > 0.0 {
@@ -457,11 +480,13 @@ fn ip_to_subnet(ip: &str) -> Option<String> {
             std::net::IpAddr::V4(v4) => {
                 let octets = v4.octets();
                 Some(format!("{}.{}.{}.0/24", octets[0], octets[1], octets[2]))
-            },
+            }
             std::net::IpAddr::V6(v6) => {
                 let segments = v6.segments();
-                Some(format!("{:x}:{:x}:{:x}:{:x}::/64", 
-                    segments[0], segments[1], segments[2], segments[3]))
+                Some(format!(
+                    "{:x}:{:x}:{:x}:{:x}::/64",
+                    segments[0], segments[1], segments[2], segments[3]
+                ))
             }
         }
     } else {
@@ -479,7 +504,7 @@ fn update_connection_stats(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-        
+
     let peers = match peer_info.read() {
         Ok(guard) => guard,
         Err(_) => {
@@ -491,37 +516,40 @@ fn update_connection_stats(
         last_updated: now,
         ..Default::default()
     };
-    
+
     // Count various connection types
     for peer in peers.values() {
         match peer.direction {
             ConnectionDirection::Inbound => new_stats.inbound_connections += 1,
             ConnectionDirection::Outbound => new_stats.outbound_connections += 1,
         }
-        
+
         if peer.is_relayed {
             new_stats.relayed_connections += 1;
         } else {
             new_stats.direct_connections += 1;
         }
-        
+
         if peer.is_connectable {
             new_stats.public_peers += 1;
         } else {
             new_stats.private_peers += 1;
         }
-        
+
         // Geographic distribution
         if let Some(geo) = &peer.geo_info {
             if let Some(country) = &geo.country_code {
-                *new_stats.geo_distribution.entry(country.clone()).or_insert(0) += 1;
+                *new_stats
+                    .geo_distribution
+                    .entry(country.clone())
+                    .or_insert(0) += 1;
             }
-            
+
             if let Some(asn) = geo.asn {
                 *new_stats.asn_distribution.entry(asn).or_insert(0) += 1;
             }
         }
-        
+
         // Subnet distribution
         for addr in &peer.addresses {
             if let Some(ip) = extract_ip_from_multiaddr(addr) {
@@ -530,7 +558,7 @@ fn update_connection_stats(
                 }
             }
         }
-        
+
         // Calculate average ping time
         if let Some(ping) = peer.last_ping_ms {
             if new_stats.average_ping_ms == 0.0 {
@@ -540,10 +568,10 @@ fn update_connection_stats(
             }
         }
     }
-    
+
     // Calculate geographic diversity score
     new_stats.geo_diversity_score = calculate_geo_diversity(&peers);
-    
+
     // Update stats atomically
     if let Ok(mut stats_guard) = stats.write() {
         *stats_guard = new_stats;
@@ -555,7 +583,7 @@ fn update_connection_stats(
 /// Extract IP address from a multiaddr
 fn extract_ip_from_multiaddr(addr: &Multiaddr) -> Option<String> {
     use libp2p::core::multiaddr::Protocol;
-    
+
     for proto in addr.iter() {
         match proto {
             Protocol::Ip4(ip) => return Some(ip.to_string()),
@@ -563,6 +591,6 @@ fn extract_ip_from_multiaddr(addr: &Multiaddr) -> Option<String> {
             _ => {}
         }
     }
-    
+
     None
-} 
+}

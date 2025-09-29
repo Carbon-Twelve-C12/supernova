@@ -1,5 +1,5 @@
 //! Atomic Swap Cross-Chain Monitoring Demo
-//! 
+//!
 //! This example demonstrates the Phase 2 monitoring capabilities including:
 //! - Bitcoin blockchain monitoring
 //! - Supernova event detection
@@ -7,13 +7,11 @@
 //! - Real-time swap state tracking
 
 use btclib::atomic_swap::{
+    crypto::{HashFunction, HashLock},
+    htlc::{FeeStructure, TimeLock},
     monitor::{CrossChainMonitor, MonitorConfig, SupernovaHandle},
-    SwapSession, SwapState,
-    AtomicSwapSetup, TimeoutConfig, FeeDistribution, FeePayer,
-    SupernovaHTLC, BitcoinHTLCReference,
-    ParticipantInfo,
-    crypto::{HashLock, HashFunction},
-    htlc::{TimeLock, FeeStructure},
+    AtomicSwapSetup, BitcoinHTLCReference, FeeDistribution, FeePayer, ParticipantInfo,
+    SupernovaHTLC, SwapSession, SwapState, TimeoutConfig,
 };
 use btclib::crypto::MLDSAPrivateKey;
 use rand::rngs::OsRng;
@@ -51,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n4. Creating test swap sessions...");
     let swap1 = create_demo_swap("Alice", "Bob", 100000, 1000000000);
     let swap2 = create_demo_swap("Charlie", "Dave", 50000, 500000000);
-    
+
     // Add swaps to monitor
     monitor.add_swap(swap1.clone()).await?;
     monitor.add_swap(swap2.clone()).await?;
@@ -66,15 +64,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 6. Simulate blockchain events
     println!("\n6. Simulating blockchain events...");
-    
+
     // Give monitor time to start
     sleep(Duration::from_secs(1)).await;
-    
+
     // Check active swaps
     let active_swaps = monitor.get_active_swaps().await;
     println!("   Active swaps: {}", active_swaps.len());
     for swap in &active_swaps {
-        println!("   - Swap {}: {} BTC ↔ {} NOVA (State: {:?})",
+        println!(
+            "   - Swap {}: {} BTC ↔ {} NOVA (State: {:?})",
             hex::encode(&swap.swap_id[..8]),
             swap.bitcoin_amount,
             swap.nova_amount,
@@ -85,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 7. Simulate secret revelation on Bitcoin
     println!("\n7. Simulating secret revelation on Bitcoin blockchain...");
     sleep(Duration::from_secs(2)).await;
-    
+
     // In a real scenario, this would be detected by monitoring Bitcoin blocks
     // and the monitor would automatically trigger the claim
     println!("   Secret revealed for swap 1!");
@@ -94,10 +93,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 8. Check updated states
     println!("\n8. Checking updated swap states...");
     sleep(Duration::from_secs(1)).await;
-    
+
     let updated_swaps = monitor.get_active_swaps().await;
     for swap in &updated_swaps {
-        println!("   - Swap {}: State = {:?}",
+        println!(
+            "   - Swap {}: State = {:?}",
             hex::encode(&swap.swap_id[..8]),
             swap.state
         );
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 9. Simulate timeout scenario
     println!("\n9. Simulating timeout scenario for swap 2...");
     sleep(Duration::from_secs(2)).await;
-    
+
     // In a real scenario, the monitor would detect the timeout
     // and automatically trigger the refund
     println!("   Timeout reached for swap 2!");
@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 10. Final state check
     println!("\n10. Final swap states:");
     sleep(Duration::from_secs(1)).await;
-    
+
     let final_swaps = monitor.get_active_swaps().await;
     for swap in &final_swaps {
         let status = match swap.state {
@@ -123,10 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             SwapState::Refunded => "↩️ REFUNDED",
             _ => "⏳ PENDING",
         };
-        println!("   - Swap {}: {}",
-            hex::encode(&swap.swap_id[..8]),
-            status
-        );
+        println!("   - Swap {}: {}", hex::encode(&swap.swap_id[..8]), status);
     }
 
     // Stop monitoring
@@ -145,49 +142,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn create_demo_swap(from: &str, to: &str, btc_amount: u64, nova_amount: u64) -> SwapSession {
     let mut rng = OsRng;
-    
+
     let initiator_key = MLDSAPrivateKey::generate(&mut rng);
     let recipient_key = MLDSAPrivateKey::generate(&mut rng);
-    
+
     let initiator = ParticipantInfo {
         pubkey: initiator_key.public_key(),
         address: format!("nova1{}", from.to_lowercase()),
         refund_address: None,
     };
-    
+
     let recipient = ParticipantInfo {
         pubkey: recipient_key.public_key(),
         address: format!("nova1{}", to.to_lowercase()),
         refund_address: None,
     };
-    
+
     let hash_lock = HashLock::new(HashFunction::SHA256).unwrap();
-    
+
     let time_lock = TimeLock {
         absolute_timeout: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs() + 3600,
+            .as_secs()
+            + 3600,
         relative_timeout: 144,
         grace_period: 6,
     };
-    
+
     let fee_structure = FeeStructure {
         claim_fee: 1000,
         refund_fee: 1000,
         service_fee: None,
     };
-    
+
     let mut swap_id = [0u8; 32];
     let copy_len = std::cmp::min(8, from.len());
     swap_id[..copy_len].copy_from_slice(&from.as_bytes()[..copy_len]);
-    
+
     let timeout_config = TimeoutConfig {
         bitcoin_claim_timeout: 144,
         supernova_claim_timeout: 720,
         refund_safety_margin: 6,
     };
-    
+
     let setup = AtomicSwapSetup {
         swap_id,
         bitcoin_amount: btc_amount,
@@ -198,7 +196,7 @@ fn create_demo_swap(from: &str, to: &str, btc_amount: u64, nova_amount: u64) -> 
         },
         timeout_blocks: timeout_config,
     };
-    
+
     let nova_htlc = SupernovaHTLC::new(
         initiator.clone(),
         recipient.clone(),
@@ -206,8 +204,9 @@ fn create_demo_swap(from: &str, to: &str, btc_amount: u64, nova_amount: u64) -> 
         time_lock,
         nova_amount,
         fee_structure,
-    ).unwrap();
-    
+    )
+    .unwrap();
+
     let btc_htlc = BitcoinHTLCReference {
         txid: format!("{}btctx", from.to_lowercase()),
         vout: 0,
@@ -215,7 +214,7 @@ fn create_demo_swap(from: &str, to: &str, btc_amount: u64, nova_amount: u64) -> 
         amount: btc_amount,
         timeout_height: 500000,
     };
-    
+
     SwapSession {
         setup,
         secret: None,
@@ -231,4 +230,4 @@ fn create_demo_swap(from: &str, to: &str, btc_amount: u64, nova_amount: u64) -> 
             .unwrap()
             .as_secs(),
     }
-} 
+}

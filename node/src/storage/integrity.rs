@@ -5,16 +5,20 @@ use std::time::{Instant, SystemTime};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use crate::storage::BlockchainDB;
 use crate::storage::corruption::CorruptionHandler;
-use crate::storage::integrity::models::{IntegrityConfig, IntegrityIssue, VerificationLevel, VerificationResult};
-use crate::storage::integrity::verifiers::{BlockchainVerifier, CryptoVerifier, DatabaseVerifier, UtxoVerifier};
+use crate::storage::integrity::models::{
+    IntegrityConfig, IntegrityIssue, VerificationLevel, VerificationResult,
+};
 use crate::storage::integrity::repair::IntegrityRepairer;
+use crate::storage::integrity::verifiers::{
+    BlockchainVerifier, CryptoVerifier, DatabaseVerifier, UtxoVerifier,
+};
+use crate::storage::BlockchainDB;
 use crate::storage::StorageError;
 
 pub mod models;
-pub mod verifiers;
 pub mod repair;
+pub mod verifiers;
 
 /// Main integrity verification system for blockchain data
 pub struct IntegrityVerifier {
@@ -66,9 +70,15 @@ impl IntegrityVerifier {
     }
 
     /// Perform data integrity verification at specified level
-    pub async fn verify(&mut self, level: VerificationLevel) -> Result<VerificationResult, StorageError> {
+    pub async fn verify(
+        &mut self,
+        level: VerificationLevel,
+    ) -> Result<VerificationResult, StorageError> {
         let start_time = Instant::now();
-        info!("Starting blockchain integrity verification at {:?} level", level);
+        info!(
+            "Starting blockchain integrity verification at {:?} level",
+            level
+        );
 
         let mut issues = Vec::new();
         let mut repairs_attempted = false;
@@ -119,7 +129,10 @@ impl IntegrityVerifier {
 
                 // If repairs were successful, re-verify
                 if repairs_successful > 0 {
-                    info!("Re-verifying after {} successful repairs", repairs_successful);
+                    info!(
+                        "Re-verifying after {} successful repairs",
+                        repairs_successful
+                    );
                     issues.clear();
 
                     // Re-run verifications
@@ -158,7 +171,10 @@ impl IntegrityVerifier {
         self.last_result = Some(result.clone());
 
         if result.success {
-            info!("Integrity verification completed successfully in {:.2?}", duration);
+            info!(
+                "Integrity verification completed successfully in {:.2?}",
+                duration
+            );
         } else {
             warn!(
                 "Integrity verification found {} critical issues in {:.2?}",

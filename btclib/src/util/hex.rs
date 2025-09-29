@@ -8,7 +8,7 @@ pub fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, hex::FromHexError> {
     } else {
         hex
     };
-    
+
     hex::decode(hex_str)
 }
 
@@ -29,7 +29,7 @@ pub fn is_valid_hex(hex: &str) -> bool {
     } else {
         hex
     };
-    
+
     // Check if the string is a valid hex representation
     hex_str.chars().all(|c| c.is_ascii_hexdigit())
 }
@@ -37,28 +37,28 @@ pub fn is_valid_hex(hex: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_hex_to_bytes() {
         assert_eq!(hex_to_bytes("68656c6c6f").unwrap(), b"hello");
         assert_eq!(hex_to_bytes("0x68656c6c6f").unwrap(), b"hello");
         assert!(hex_to_bytes("invalid").is_err());
     }
-    
+
     #[test]
     fn test_bytes_to_hex() {
         assert_eq!(bytes_to_hex(b"hello"), "68656c6c6f");
     }
-    
+
     #[test]
     fn test_bytes_to_hex_prefixed() {
         assert_eq!(bytes_to_hex_prefixed(b"hello"), "0x68656c6c6f");
     }
-    
+
     #[test]
     fn test_is_valid_hex() {
         assert!(is_valid_hex("68656c6c6f"));
         assert!(is_valid_hex("0x68656c6c6f"));
         assert!(!is_valid_hex("invalid"));
     }
-} 
+}

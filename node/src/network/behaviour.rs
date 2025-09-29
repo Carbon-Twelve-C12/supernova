@@ -1,8 +1,8 @@
 use libp2p::{
-    gossipsub::{Event as GossipsubEvent, Behaviour as Gossipsub},
-    identify::{Event as IdentifyEvent, Behaviour as Identify},
-    kad::{Event as KademliaEvent, store::MemoryStore, Behaviour as Kademlia},
-    mdns::{Event as MdnsEvent, tokio::Behaviour as Mdns},
+    gossipsub::{Behaviour as Gossipsub, Event as GossipsubEvent},
+    identify::{Behaviour as Identify, Event as IdentifyEvent},
+    kad::{store::MemoryStore, Behaviour as Kademlia, Event as KademliaEvent},
+    mdns::{tokio::Behaviour as Mdns, Event as MdnsEvent},
     swarm::NetworkBehaviour,
     PeerId,
 };
@@ -65,4 +65,4 @@ impl SupernovaBehaviour {
             identify,
         }
     }
-} 
+}

@@ -4,31 +4,30 @@
 
 use btclib::environmental::{
     carbon_tracking::{
-        CarbonTracker, CarbonTrackingResult, OracleDataPoint,
-        validate_carbon_footprint_calculation, test_multi_oracle_consensus,
-        verify_environmental_data_integrity, implement_real_time_carbon_tracking,
+        implement_real_time_carbon_tracking, test_multi_oracle_consensus,
+        validate_carbon_footprint_calculation, verify_environmental_data_integrity, CarbonTracker,
+        CarbonTrackingResult, OracleDataPoint,
     },
-    renewable_validation::{
-        RenewableEnergyValidator, RenewableValidationResult, GreenMiningIncentive,
-        validate_renewable_energy_certificates, implement_green_mining_incentives,
-        verify_carbon_negative_operations, create_environmental_impact_dashboard,
-    },
+    emissions::EmissionsCalculator,
     manual_verification::{
-        ManualVerificationSystem, VerificationType, EnergyVerificationData,
-        LocationData, SubmittedDocument, DocumentType, ManualVerificationStatus,
-        VerificationDecision, ReviewFinding, FindingType, FindingSeverity,
-        submit_manual_verification_request, process_manual_verification,
-        create_quarterly_batch, generate_quarterly_report,
+        create_quarterly_batch, generate_quarterly_report, process_manual_verification,
+        submit_manual_verification_request, DocumentType, EnergyVerificationData, FindingSeverity,
+        FindingType, LocationData, ManualVerificationStatus, ManualVerificationSystem,
+        ReviewFinding, SubmittedDocument, VerificationDecision, VerificationType,
     },
     oracle::{EnvironmentalOracle, OracleError},
-    emissions::EmissionsCalculator,
-    verification::{VerificationService, RenewableCertificate, CarbonOffset},
-    types::{Region, EnergySourceType},
+    renewable_validation::{
+        create_environmental_impact_dashboard, implement_green_mining_incentives,
+        validate_renewable_energy_certificates, verify_carbon_negative_operations,
+        GreenMiningIncentive, RenewableEnergyValidator, RenewableValidationResult,
+    },
+    types::{EnergySourceType, Region},
+    verification::{CarbonOffset, RenewableCertificate, VerificationService},
 };
 
+use chrono::{Duration, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
-use chrono::{Utc, Duration};
 use tokio;
 
 #[cfg(test)]
@@ -50,12 +49,10 @@ mod phase3_environmental_tests {
         let oracle = Arc::new(EnvironmentalOracle::new(1000));
         let calculator = Arc::new(EmissionsCalculator::new());
         let verification_service = Arc::new(VerificationService::new());
-        
+
         let carbon_tracker = CarbonTracker::new(oracle.clone(), calculator.clone());
-        let renewable_validator = RenewableEnergyValidator::new(
-            verification_service.clone(),
-            oracle.clone(),
-        );
+        let renewable_validator =
+            RenewableEnergyValidator::new(verification_service.clone(), oracle.clone());
         let manual_system = ManualVerificationSystem::new();
 
         // Test 1: Carbon Footprint Validation
@@ -115,9 +112,18 @@ mod phase3_environmental_tests {
         match test_multi_oracle_consensus(tracker, oracle_data).await {
             Ok(consensus) => {
                 println!("✅ Multi-Oracle Consensus Achieved!");
-                println!("   Participating oracles: {}", consensus.participating_oracles);
-                println!("   Consensus percentage: {:.1}%", consensus.consensus_percentage);
-                println!("   Consensus value: {:.2} tonnes CO2e", consensus.consensus_value);
+                println!(
+                    "   Participating oracles: {}",
+                    consensus.participating_oracles
+                );
+                println!(
+                    "   Consensus percentage: {:.1}%",
+                    consensus.consensus_percentage
+                );
+                println!(
+                    "   Consensus value: {:.2} tonnes CO2e",
+                    consensus.consensus_value
+                );
                 println!("   Consensus achieved: {}", consensus.consensus_achieved);
             }
             Err(e) => println!("❌ Consensus failed: {}", e),
@@ -136,15 +142,29 @@ mod phase3_environmental_tests {
             100.0, // 100 MWh consumption
             energy_sources,
             Region::NorthAmerica,
-        ).await {
+        )
+        .await
+        {
             Ok(result) => {
                 println!("\n✅ Carbon Footprint Validated!");
-                println!("   Total emissions: {:.2} tonnes CO2e", result.total_emissions);
+                println!(
+                    "   Total emissions: {:.2} tonnes CO2e",
+                    result.total_emissions
+                );
                 println!("   Total offsets: {:.2} tonnes CO2e", result.total_offsets);
-                println!("   Net carbon footprint: {:.2} tonnes CO2e", result.net_carbon_footprint);
-                println!("   Renewable percentage: {:.1}%", result.renewable_percentage);
-                println!("   Environmental score: {:.1}/100", result.metrics.environmental_score);
-                
+                println!(
+                    "   Net carbon footprint: {:.2} tonnes CO2e",
+                    result.net_carbon_footprint
+                );
+                println!(
+                    "   Renewable percentage: {:.1}%",
+                    result.renewable_percentage
+                );
+                println!(
+                    "   Environmental score: {:.1}/100",
+                    result.metrics.environmental_score
+                );
+
                 if result.net_carbon_footprint < 0.0 {
                     println!("   🌱 CARBON NEGATIVE ACHIEVED!");
                 }
@@ -197,21 +217,41 @@ mod phase3_environmental_tests {
             "nova_miner_001",
             certificates,
             100.0, // 100 MWh total consumption
-        ).await {
+        )
+        .await
+        {
             Ok(result) => {
                 println!("✅ Renewable Energy Certificates Validated!");
-                println!("   Renewable percentage: {:.1}%", result.renewable_percentage);
-                println!("   Green mining score: {:.1}/100", result.green_mining_score);
-                println!("   Validated certificates: {}", result.validated_certificates.len());
-                println!("   Green incentive earned: {:.2} NOVA", result.green_incentive_nova);
+                println!(
+                    "   Renewable percentage: {:.1}%",
+                    result.renewable_percentage
+                );
+                println!(
+                    "   Green mining score: {:.1}/100",
+                    result.green_mining_score
+                );
+                println!(
+                    "   Validated certificates: {}",
+                    result.validated_certificates.len()
+                );
+                println!(
+                    "   Green incentive earned: {:.2} NOVA",
+                    result.green_incentive_nova
+                );
                 println!("   Carbon negative: {}", result.is_carbon_negative);
-                
+
                 // Environmental impact
                 let impact = &result.impact_assessment;
                 println!("\n   Environmental Impact:");
                 println!("   - CO2 avoided: {:.2} tonnes", impact.co2_avoided);
-                println!("   - Equivalent to planting {} trees", impact.trees_equivalent);
-                println!("   - Like removing {} cars from roads", impact.cars_removed_equivalent);
+                println!(
+                    "   - Equivalent to planting {} trees",
+                    impact.trees_equivalent
+                );
+                println!(
+                    "   - Like removing {} cars from roads",
+                    impact.cars_removed_equivalent
+                );
             }
             Err(e) => println!("❌ Certificate validation failed: {}", e),
         }
@@ -225,15 +265,16 @@ mod phase3_environmental_tests {
         regional_multipliers.insert(Region::Africa, 1.3); // Highest to encourage development
 
         let incentives = GreenMiningIncentive {
-            base_multiplier: 1.25, // 25% bonus for any renewable
-            full_renewable_bonus: 0.75, // 75% bonus for 100% renewable
+            base_multiplier: 1.25,       // 25% bonus for any renewable
+            full_renewable_bonus: 0.75,  // 75% bonus for 100% renewable
             carbon_negative_bonus: 0.50, // 50% bonus for carbon negative
             regional_multipliers,
-            time_based_incentives: btclib::environmental::renewable_validation::TimeBasedIncentives {
-                solar_peak_bonus: 0.20,
-                wind_peak_bonus: 0.15,
-                off_peak_penalty: -0.05,
-            },
+            time_based_incentives:
+                btclib::environmental::renewable_validation::TimeBasedIncentives {
+                    solar_peak_bonus: 0.20,
+                    wind_peak_bonus: 0.15,
+                    off_peak_penalty: -0.05,
+                },
         };
 
         match implement_green_mining_incentives(validator, incentives) {
@@ -251,36 +292,39 @@ mod phase3_environmental_tests {
 
     async fn test_carbon_negative_verification(validator: &RenewableEnergyValidator) {
         // Create carbon offset certificates
-        let offsets = vec![
-            CarbonOffset {
-                offset_id: "VCS-2024-FOREST-001".to_string(),
-                amount_tonnes: 10.0,
-                project_type: "Reforestation".to_string(),
-                project_location: "Amazon, Brazil".to_string(),
-                vintage_year: 2024,
-                issuer: "Verra".to_string(),
-                issue_date: Utc::now() - Duration::days(10),
-                expiry_date: Utc::now() + Duration::days(720),
-                certificate_hash: vec![2u8; 32],
-                registry_url: "https://verra.org/".to_string(),
-                owner_id: "nova_miner_001".to_string(),
-            },
-        ];
+        let offsets = vec![CarbonOffset {
+            offset_id: "VCS-2024-FOREST-001".to_string(),
+            amount_tonnes: 10.0,
+            project_type: "Reforestation".to_string(),
+            project_location: "Amazon, Brazil".to_string(),
+            vintage_year: 2024,
+            issuer: "Verra".to_string(),
+            issue_date: Utc::now() - Duration::days(10),
+            expiry_date: Utc::now() + Duration::days(720),
+            certificate_hash: vec![2u8; 32],
+            registry_url: "https://verra.org/".to_string(),
+            owner_id: "nova_miner_001".to_string(),
+        }];
 
         match verify_carbon_negative_operations(
             validator,
             "nova_miner_001",
-            95.0, // 95 MWh renewable
+            95.0,  // 95 MWh renewable
             100.0, // 100 MWh total
             offsets,
-        ).await {
+        )
+        .await
+        {
             Ok(is_negative) => {
                 println!("✅ Carbon Negative Verification Complete!");
-                println!("   Result: {}", if is_negative { 
-                    "🌍 CARBON NEGATIVE ACHIEVED! Leading environmental blockchain!" 
-                } else { 
-                    "Carbon neutral progress - continue improving!" 
-                });
+                println!(
+                    "   Result: {}",
+                    if is_negative {
+                        "🌍 CARBON NEGATIVE ACHIEVED! Leading environmental blockchain!"
+                    } else {
+                        "Carbon neutral progress - continue improving!"
+                    }
+                );
             }
             Err(e) => println!("❌ Verification failed: {}", e),
         }
@@ -341,7 +385,7 @@ mod phase3_environmental_tests {
                 println!("   Type: Large-scale renewable (>10MW)");
                 println!("   Review by: Supernova Foundation staff");
                 println!("   Timeline: Quarterly review process");
-                
+
                 // Simulate Foundation review
                 simulate_foundation_review(system, &request_id);
             }
@@ -352,7 +396,7 @@ mod phase3_environmental_tests {
         match create_quarterly_batch(system) {
             Ok(quarter_id) => {
                 println!("\n📊 Quarterly Batch Created: {}", quarter_id);
-                
+
                 let report = generate_quarterly_report(system, &quarter_id);
                 println!("\n📈 Quarterly Report Summary:");
                 println!("   Total requests: {}", report.total_requests_reviewed);
@@ -399,15 +443,33 @@ mod phase3_environmental_tests {
 
     fn test_environmental_dashboard(validator: &RenewableEnergyValidator) {
         let dashboard = create_environmental_impact_dashboard(validator);
-        
+
         println!("✅ Environmental Impact Dashboard Generated!");
         println!("   Total validations: {}", dashboard.total_validations);
-        println!("   Successful validations: {}", dashboard.successful_validations);
-        println!("   Total renewable energy: {:.0} MWh", dashboard.total_renewable_mwh);
-        println!("   Total CO2 avoided: {:.2} tonnes", dashboard.total_co2_avoided);
-        println!("   Total incentives paid: {:.0} NOVA", dashboard.total_incentives_paid);
-        println!("   Average renewable %: {:.1}%", dashboard.average_renewable_percentage);
-        println!("   Carbon negative miners: {}", dashboard.carbon_negative_miners);
+        println!(
+            "   Successful validations: {}",
+            dashboard.successful_validations
+        );
+        println!(
+            "   Total renewable energy: {:.0} MWh",
+            dashboard.total_renewable_mwh
+        );
+        println!(
+            "   Total CO2 avoided: {:.2} tonnes",
+            dashboard.total_co2_avoided
+        );
+        println!(
+            "   Total incentives paid: {:.0} NOVA",
+            dashboard.total_incentives_paid
+        );
+        println!(
+            "   Average renewable %: {:.1}%",
+            dashboard.average_renewable_percentage
+        );
+        println!(
+            "   Carbon negative miners: {}",
+            dashboard.carbon_negative_miners
+        );
     }
 
     fn print_phase3_summary() {
@@ -415,32 +477,32 @@ mod phase3_environmental_tests {
         println!("═══════════════════════════════════════════════════════════════");
         println!("              PHASE 3 ENVIRONMENTAL VALIDATION SUMMARY         ");
         println!("═══════════════════════════════════════════════════════════════");
-        
+
         println!("\n🌱 Environmental Oracle System: OPERATIONAL");
         println!("  ✓ Multi-oracle consensus for carbon tracking");
         println!("  ✓ Real-time environmental data validation");
         println!("  ✓ Cryptographic proof verification");
         println!("  ✓ Nova Energy expertise integrated");
-        
+
         println!("\n⚡ Renewable Energy Validation: ACTIVE");
         println!("  ✓ Automated REC verification");
         println!("  ✓ Green mining incentive distribution");
         println!("  ✓ Carbon negative achievement tracking");
         println!("  ✓ Regional renewable multipliers");
-        
+
         println!("\n📋 Manual Verification System: READY");
         println!("  ✓ Quarterly Foundation reviews");
         println!("  ✓ Large-scale renewable verification");
         println!("  ✓ Complex energy mix assessment");
         println!("  ✓ Human oversight for edge cases");
-        
+
         println!("\n🏆 SUPERNOVA ACHIEVEMENTS:");
         println!("  ✅ World's first carbon-negative blockchain");
         println!("  ✅ Quantum-resistant environmental oracles");
         println!("  ✅ Real-time carbon footprint tracking");
         println!("  ✅ Green mining incentive economy");
         println!("  ✅ Transparent environmental impact");
-        
+
         println!("\n🚀 SUPERNOVA: LEADING THE SUSTAINABLE BLOCKCHAIN REVOLUTION!");
         println!("   Where Quantum Security Meets Environmental Excellence");
         println!("═══════════════════════════════════════════════════════════════\n");
@@ -451,4 +513,4 @@ mod phase3_environmental_tests {
 #[tokio::main]
 async fn main() {
     println!("Running Supernova Phase 3 Environmental Validation Tests...");
-} 
+}

@@ -1,7 +1,7 @@
 use crate::api::types::LogEntry;
 use chrono::Utc;
-use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 lazy_static::lazy_static! {
     static ref LOG_BUFFER: Arc<Mutex<VecDeque<LogEntry>>> = Arc::new(Mutex::new(VecDeque::with_capacity(10000)));
@@ -18,21 +18,22 @@ pub fn get_recent_logs(
         Ok(b) => b,
         Err(_) => return Vec::new(), // Return empty on lock poisoned
     };
-    
-    buffer.iter()
+
+    buffer
+        .iter()
         .filter(|log| {
             // Filter by level
             if !level.is_empty() && log.level.to_lowercase() != level.to_lowercase() {
                 return false;
             }
-            
+
             // Filter by component if specified
             if let Some(comp) = component {
                 if !log.component.contains(comp) {
                     return false;
                 }
             }
-            
+
             true
         })
         .skip(offset)
@@ -47,12 +48,12 @@ pub fn add_log_entry(level: &str, component: &str, message: String) {
         Ok(b) => b,
         Err(_) => return, // Skip logging on lock poisoned
     };
-    
+
     // Remove oldest entries if buffer is full
     if buffer.len() >= 10000 {
         buffer.pop_front();
     }
-    
+
     buffer.push_back(LogEntry {
         timestamp: Utc::now().timestamp() as u64,
         level: level.to_string(),
@@ -66,14 +67,14 @@ pub fn add_log_entry(level: &str, component: &str, message: String) {
 pub fn init_logging() {
     // Set up tracing subscriber that also writes to our buffer
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    
+
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_target(true)
         .with_thread_ids(true)
         .with_level(true);
-    
+
     let buffer_layer = BufferLayer;
-    
+
     tracing_subscriber::registry()
         .with(fmt_layer)
         .with(buffer_layer)
@@ -93,11 +94,11 @@ where
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         use tracing_subscriber::field::Visit;
-        
+
         struct Visitor {
             message: String,
         }
-        
+
         impl Visit for Visitor {
             fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
                 if field.name() == "message" {
@@ -105,13 +106,13 @@ where
                 }
             }
         }
-        
+
         let mut visitor = Visitor {
             message: String::new(),
         };
-        
+
         event.record(&mut visitor);
-        
+
         let level = match *event.metadata().level() {
             tracing::Level::ERROR => "ERROR",
             tracing::Level::WARN => "WARN",
@@ -119,9 +120,9 @@ where
             tracing::Level::DEBUG => "DEBUG",
             tracing::Level::TRACE => "TRACE",
         };
-        
+
         let component = event.metadata().target();
-        
+
         add_log_entry(level, component, visitor.message);
     }
-} 
+}

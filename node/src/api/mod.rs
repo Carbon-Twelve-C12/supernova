@@ -4,12 +4,12 @@
 //! providing endpoints for blocks, transactions, wallet operations, network information,
 //! environmental data, and Lightning Network functionality.
 
-mod error;
-pub mod types;
-mod server;
-pub mod routes;
-pub mod middleware;
 pub mod docs;
+mod error;
+pub mod middleware;
+pub mod routes;
+mod server;
+pub mod types;
 // pub mod blockchain_api;  // Missing file
 // pub mod wallet_api;      // Missing file
 // pub mod mempool_api;     // Missing file
@@ -19,16 +19,16 @@ pub mod lightning_api;
 // pub mod blockchain;      // Missing file
 // pub mod wallet;          // Missing file
 // pub mod node;            // Missing file
-pub mod metrics;
 pub mod faucet_wrapper;
+pub mod metrics;
 // pub mod jsonrpc;         // Temporarily disabled due to compilation issues
 
 pub use error::{ApiError, Result};
+pub use server::{ApiConfig, ApiServer};
 pub use types::*;
-pub use server::{ApiServer, ApiConfig};
 
 // Re-export thread safety types
-pub use crate::thread_safety_fix::{ThreadSafeNode, NodeApiFacade};
+pub use crate::thread_safety_fix::{NodeApiFacade, ThreadSafeNode};
 
 use crate::node::Node;
 use std::sync::Arc;
@@ -44,9 +44,9 @@ pub fn create_api_server(node: Arc<Node>, bind_address: &str, port: u16) -> ApiS
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_api_version() {
         assert_eq!(API_VERSION, "v1");
     }
-} 
+}

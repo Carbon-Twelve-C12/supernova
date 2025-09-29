@@ -3,17 +3,16 @@
 // This replaces the fraudulent SHA-256 based implementation
 
 use rand::{CryptoRng, RngCore};
-use thiserror::Error;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fmt;
+use thiserror::Error;
 
 // Import the actual Falcon implementation
 // We'll use the pqcrypto-falcon crate which implements the Falcon algorithm
-use pqcrypto_falcon::{falcon512, falcon1024};
+use pqcrypto_falcon::{falcon1024, falcon512};
 use pqcrypto_traits::sign::{
-    PublicKey as SignPublicKey,
+    DetachedSignature as SignDetachedSignature, PublicKey as SignPublicKey,
     SecretKey as SignSecretKey,
-    DetachedSignature as SignDetachedSignature,
 };
 
 /// Falcon signature scheme errors
@@ -21,31 +20,31 @@ use pqcrypto_traits::sign::{
 pub enum FalconError {
     #[error("Invalid Falcon key: {0}")]
     InvalidKey(String),
-    
+
     #[error("Invalid Falcon signature: {0}")]
     InvalidSignature(String),
-    
+
     #[error("Unsupported Falcon security level: {0}")]
     UnsupportedSecurityLevel(u8),
-    
+
     #[error("Falcon cryptographic operation failed: {0}")]
     CryptoOperationFailed(String),
-    
+
     #[error("Invalid public key")]
     InvalidPublicKey,
-    
+
     #[error("Invalid secret key")]
     InvalidSecretKey,
-    
+
     #[error("Invalid message: {0}")]
     InvalidMessage(String),
-    
+
     #[error("Key generation failed: {0}")]
     KeyGenerationFailed(String),
-    
+
     #[error("Signing failed: {0}")]
     SigningFailed(String),
-    
+
     #[error("Verification failed: {0}")]
     VerificationFailed(String),
 }
@@ -68,12 +67,12 @@ impl FalconSecurityLevel {
             _ => Err(FalconError::UnsupportedSecurityLevel(level)),
         }
     }
-    
+
     /// Get the NIST security level
     pub fn nist_level(&self) -> u8 {
         *self as u8
     }
-    
+
     /// Get human-readable name
     pub fn name(&self) -> &'static str {
         match self {
@@ -81,7 +80,7 @@ impl FalconSecurityLevel {
             FalconSecurityLevel::Falcon1024 => "Falcon-1024",
         }
     }
-    
+
     /// Get expected public key length
     pub fn public_key_length(&self) -> usize {
         match self {
@@ -89,7 +88,7 @@ impl FalconSecurityLevel {
             FalconSecurityLevel::Falcon1024 => falcon1024::public_key_bytes(),
         }
     }
-    
+
     /// Get expected secret key length
     pub fn secret_key_length(&self) -> usize {
         match self {
@@ -97,7 +96,7 @@ impl FalconSecurityLevel {
             FalconSecurityLevel::Falcon1024 => falcon1024::secret_key_bytes(),
         }
     }
-    
+
     /// Get expected signature length
     pub fn signature_length(&self) -> usize {
         match self {
@@ -142,7 +141,7 @@ impl FalconKeyPair {
             }
         }
     }
-    
+
     /// Create from existing keys
     pub fn from_bytes(
         public_key: Vec<u8>,
@@ -153,28 +152,30 @@ impl FalconKeyPair {
         if public_key.len() != security_level.public_key_length() {
             return Err(FalconError::InvalidPublicKey);
         }
-        
+
         if !secret_key.is_empty() && secret_key.len() != security_level.secret_key_length() {
             return Err(FalconError::InvalidSecretKey);
         }
-        
+
         Ok(Self {
             public_key,
             secret_key,
             security_level,
         })
     }
-    
+
     /// Sign a message using Falcon algorithm
     pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>, FalconError> {
         if self.secret_key.is_empty() {
             return Err(FalconError::InvalidSecretKey);
         }
-        
+
         if message.is_empty() {
-            return Err(FalconError::InvalidMessage("Message cannot be empty".to_string()));
+            return Err(FalconError::InvalidMessage(
+                "Message cannot be empty".to_string(),
+            ));
         }
-        
+
         match self.security_level {
             FalconSecurityLevel::Falcon512 => {
                 let sk = falcon512::SecretKey::from_bytes(&self.secret_key)
@@ -190,20 +191,23 @@ impl FalconKeyPair {
             }
         }
     }
-    
+
     /// Verify a signature using Falcon algorithm
     pub fn verify(&self, message: &[u8], signature: &[u8]) -> Result<bool, FalconError> {
         if message.is_empty() {
-            return Err(FalconError::InvalidMessage("Message cannot be empty".to_string()));
+            return Err(FalconError::InvalidMessage(
+                "Message cannot be empty".to_string(),
+            ));
         }
-        
+
         match self.security_level {
             FalconSecurityLevel::Falcon512 => {
                 let pk = falcon512::PublicKey::from_bytes(&self.public_key)
                     .map_err(|_| FalconError::InvalidPublicKey)?;
-                let sig = falcon512::DetachedSignature::from_bytes(signature)
-                    .map_err(|_| FalconError::InvalidSignature("Invalid Falcon-512 signature".to_string()))?;
-                
+                let sig = falcon512::DetachedSignature::from_bytes(signature).map_err(|_| {
+                    FalconError::InvalidSignature("Invalid Falcon-512 signature".to_string())
+                })?;
+
                 match falcon512::verify_detached_signature(&sig, message, &pk) {
                     Ok(_) => Ok(true),
                     Err(_) => Ok(false),
@@ -212,9 +216,10 @@ impl FalconKeyPair {
             FalconSecurityLevel::Falcon1024 => {
                 let pk = falcon1024::PublicKey::from_bytes(&self.public_key)
                     .map_err(|_| FalconError::InvalidPublicKey)?;
-                let sig = falcon1024::DetachedSignature::from_bytes(signature)
-                    .map_err(|_| FalconError::InvalidSignature("Invalid Falcon-1024 signature".to_string()))?;
-                
+                let sig = falcon1024::DetachedSignature::from_bytes(signature).map_err(|_| {
+                    FalconError::InvalidSignature("Invalid Falcon-1024 signature".to_string())
+                })?;
+
                 match falcon1024::verify_detached_signature(&sig, message, &pk) {
                     Ok(_) => Ok(true),
                     Err(_) => Ok(false),
@@ -222,12 +227,12 @@ impl FalconKeyPair {
             }
         }
     }
-    
+
     /// Get the public key bytes
     pub fn public_key_bytes(&self) -> &[u8] {
         &self.public_key
     }
-    
+
     /// Get the secret key bytes (if available)
     pub fn secret_key_bytes(&self) -> Option<&[u8]> {
         if self.secret_key.is_empty() {
@@ -259,7 +264,7 @@ impl FalconParameters {
     pub fn new(security_level: FalconSecurityLevel) -> Self {
         Self { security_level }
     }
-    
+
     /// Create from numeric security level
     pub fn with_security_level(level: u8) -> Result<Self, FalconError> {
         Ok(Self {
@@ -303,7 +308,7 @@ pub fn falcon_verify(
                 .map_err(|_| FalconError::InvalidPublicKey)?;
             let sig = falcon512::DetachedSignature::from_bytes(signature)
                 .map_err(|_| FalconError::InvalidSignature("Invalid signature".to_string()))?;
-            
+
             match falcon512::verify_detached_signature(&sig, message, &pk) {
                 Ok(_) => Ok(true),
                 Err(_) => Ok(false),
@@ -314,7 +319,7 @@ pub fn falcon_verify(
                 .map_err(|_| FalconError::InvalidPublicKey)?;
             let sig = falcon1024::DetachedSignature::from_bytes(signature)
                 .map_err(|_| FalconError::InvalidSignature("Invalid signature".to_string()))?;
-            
+
             match falcon1024::verify_detached_signature(&sig, message, &pk) {
                 Ok(_) => Ok(true),
                 Err(_) => Ok(false),
@@ -327,58 +332,59 @@ pub fn falcon_verify(
 mod tests {
     use super::*;
     use rand::rngs::OsRng;
-    
+
     #[test]
     fn test_falcon512_key_generation() {
         let mut rng = OsRng;
         let keypair = FalconKeyPair::generate(&mut rng, FalconSecurityLevel::Falcon512)
             .expect("Falcon-512 key generation should succeed");
-        
+
         assert_eq!(keypair.public_key.len(), falcon512::public_key_bytes());
         assert_eq!(keypair.secret_key.len(), falcon512::secret_key_bytes());
     }
-    
+
     #[test]
     fn test_falcon1024_key_generation() {
         let mut rng = OsRng;
         let keypair = FalconKeyPair::generate(&mut rng, FalconSecurityLevel::Falcon1024)
             .expect("Falcon-1024 key generation should succeed");
-        
+
         assert_eq!(keypair.public_key.len(), falcon1024::public_key_bytes());
         assert_eq!(keypair.secret_key.len(), falcon1024::secret_key_bytes());
     }
-    
+
     #[test]
     fn test_falcon_sign_verify() {
         let mut rng = OsRng;
         let message = b"This is a test message for Falcon signatures";
-        
+
         // Test Falcon-512
         let keypair512 = FalconKeyPair::generate(&mut rng, FalconSecurityLevel::Falcon512)
             .expect("Key generation should succeed");
-        
-        let signature = keypair512.sign(message)
-            .expect("Signing should succeed");
-        
-        let valid = keypair512.verify(message, &signature)
+
+        let signature = keypair512.sign(message).expect("Signing should succeed");
+
+        let valid = keypair512
+            .verify(message, &signature)
             .expect("Verification should succeed");
         assert!(valid, "Valid signature should verify");
-        
+
         // Test with wrong message
         let wrong_message = b"This is a different message";
-        let invalid = keypair512.verify(wrong_message, &signature)
+        let invalid = keypair512
+            .verify(wrong_message, &signature)
             .expect("Verification should succeed");
         assert!(!invalid, "Invalid signature should not verify");
-        
+
         // Test Falcon-1024
         let keypair1024 = FalconKeyPair::generate(&mut rng, FalconSecurityLevel::Falcon1024)
             .expect("Key generation should succeed");
-        
-        let signature = keypair1024.sign(message)
-            .expect("Signing should succeed");
-        
-        let valid = keypair1024.verify(message, &signature)
+
+        let signature = keypair1024.sign(message).expect("Signing should succeed");
+
+        let valid = keypair1024
+            .verify(message, &signature)
             .expect("Verification should succeed");
         assert!(valid, "Valid signature should verify");
     }
-} 
+}

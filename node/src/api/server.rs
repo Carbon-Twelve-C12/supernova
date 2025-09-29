@@ -1,24 +1,24 @@
 //! API server implementation
 //!
-//! This module implements the HTTP server for the supernova API, 
+//! This module implements the HTTP server for the supernova API,
 //! handling requests, routing, and middleware.
 
-use actix_web::{web, App, HttpServer, middleware, dev::Server};
 use actix_cors::Cors;
-use std::sync::Arc;
+use actix_web::{dev::Server, middleware, web, App, HttpServer};
+use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use serde::{Deserialize, Serialize};
-use utoipa_swagger_ui::SwaggerUi;
+use std::sync::Arc;
+use tracing::{error, info, warn};
 use utoipa::OpenApi;
-use tracing::{info, error, warn};
+use utoipa_swagger_ui::SwaggerUi;
 
-use crate::node::Node;
-use crate::metrics::ApiMetrics;
-use crate::api_facade::ApiFacade;
-use super::routes;
 use super::docs::ApiDoc;
 use super::middleware::rate_limiting;
+use super::routes;
+use crate::api_facade::ApiFacade;
+use crate::metrics::ApiMetrics;
+use crate::node::Node;
 
 /// Configuration options for the API server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,14 +54,14 @@ impl Default for ApiConfig {
             enable_docs: true,
             cors_allowed_origins: vec!["*".to_string()],
             rate_limit: Some(100),
-            enable_auth: true,  // SECURITY: Authentication enabled by default
+            enable_auth: true, // SECURITY: Authentication enabled by default
             api_keys: Some(vec![
                 // Default secure API key - MUST be changed in production
-                "CHANGE-ME-IN-PRODUCTION-supernova-default-key".to_string()
+                "CHANGE-ME-IN-PRODUCTION-supernova-default-key".to_string(),
             ]),
             detailed_logging: true,
             max_json_payload_size: 5, // 5 MB
-            request_timeout: 30, // 30 seconds
+            request_timeout: 30,      // 30 seconds
         }
     }
 }
@@ -72,7 +72,7 @@ pub struct ApiServer {
     node_facade: Arc<ApiFacade>,
     /// Server configuration
     config: ApiConfig,
-    /// Bind address 
+    /// Bind address
     bind_address: String,
     /// Port
     port: u16,
@@ -85,13 +85,18 @@ impl ApiServer {
     pub fn new(node: Arc<Node>, bind_address: &str, port: u16) -> Self {
         // Create thread-safe facade
         let node_facade = Arc::new(ApiFacade::new(&node));
-        
+
         // Warn about default API key usage
         let config = ApiConfig::default();
-        if config.api_keys.as_ref().map(|keys| keys.iter().any(|k| k.contains("CHANGE-ME"))).unwrap_or(false) {
+        if config
+            .api_keys
+            .as_ref()
+            .map(|keys| keys.iter().any(|k| k.contains("CHANGE-ME")))
+            .unwrap_or(false)
+        {
             warn!("SECURITY WARNING: Using default API key. Change this in production!");
         }
-        
+
         Self {
             node_facade,
             config,
@@ -100,7 +105,7 @@ impl ApiServer {
             metrics: Arc::new(ApiMetrics::new()),
         }
     }
-    
+
     /// Set API server configuration
     pub fn with_config(mut self, config: ApiConfig) -> Self {
         self.bind_address = config.bind_address.clone();
@@ -108,14 +113,14 @@ impl ApiServer {
         self.config = config;
         self
     }
-    
+
     /// Start the API server
     pub async fn start(self) -> std::io::Result<Server> {
         let node_data = web::Data::new(self.node_facade);
         let metrics_data = web::Data::new(self.metrics.clone());
         let config = self.config.clone();
         let rate_limit = config.rate_limit.unwrap_or(100);
-        
+
         // Validate API key configuration
         if config.enable_auth {
             let api_keys = config.api_keys.clone().unwrap_or_default();
@@ -123,19 +128,19 @@ impl ApiServer {
                 error!("SECURITY ERROR: Authentication is enabled but no API keys configured");
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    "Authentication enabled but no API keys configured"
+                    "Authentication enabled but no API keys configured",
                 ));
             }
-            
+
             // Warn about default key usage
             if api_keys.iter().any(|k| k.contains("CHANGE-ME")) {
                 warn!("SECURITY WARNING: Default API key detected. This MUST be changed in production!");
             }
         }
-        
+
         // Create OpenAPI documentation
         let openapi = ApiDoc::openapi();
-        
+
         // Calculate socket address
         let socket_addr = SocketAddr::new(
             IpAddr::from_str(&self.bind_address).unwrap_or_else(|_| {
@@ -143,16 +148,16 @@ impl ApiServer {
                 // This is safe as 127.0.0.1 is always a valid IP
                 IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
             }),
-            self.port
+            self.port,
         );
-        
+
         info!("Starting API server on {}", socket_addr);
         if config.enable_auth {
             info!("API authentication is ENABLED");
         } else {
             warn!("API authentication is DISABLED - not recommended for production");
         }
-        
+
         // Set up the HTTP server
         let server = HttpServer::new(move || {
             App::new()
@@ -167,17 +172,17 @@ impl ApiServer {
                         .header("X-Version", "1.0")
                         .header("X-Frame-Options", "DENY")
                         .header("X-Content-Type-Options", "nosniff")
-                        .header("X-XSS-Protection", "1; mode=block")
+                        .header("X-XSS-Protection", "1; mode=block"),
                 )
                 .wrap(middleware::NormalizePath::new(
-                    middleware::TrailingSlash::Trim
+                    middleware::TrailingSlash::Trim,
                 ))
                 .wrap(
                     Cors::default()
                         .allow_any_origin()
                         .allow_any_method()
                         .allow_any_header()
-                        .max_age(3600)
+                        .max_age(3600),
                 )
                 .wrap(middleware::Logger::default())
                 .wrap(rate_limiting::RateLimiter::new(rate_limit))
@@ -187,15 +192,15 @@ impl ApiServer {
                 .service(
                     SwaggerUi::new("/swagger-ui/{_:.*}")
                         .url("/api-docs/openapi.json", openapi.clone())
-                        .config(utoipa_swagger_ui::Config::default())
+                        .config(utoipa_swagger_ui::Config::default()),
                 )
         })
         .client_request_timeout(std::time::Duration::from_secs(config.request_timeout))
         .bind(socket_addr)?
         .run();
-        
+
         info!("API server started on {}", socket_addr);
-        
+
         Ok(server)
     }
 }
@@ -203,7 +208,7 @@ impl ApiServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_api_config_default() {
         let config = ApiConfig::default();
@@ -213,4 +218,4 @@ mod tests {
         assert_eq!(config.cors_allowed_origins, vec!["*".to_string()]);
         assert_eq!(config.rate_limit, Some(100));
     }
-} 
+}

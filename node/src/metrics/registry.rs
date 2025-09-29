@@ -16,81 +16,81 @@ impl MetricsRegistry {
             prometheus_handle: None,
         })
     }
-    
+
     /// Create a metrics registry with custom configuration
     pub fn with_config(config: MetricsConfig) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             prometheus_handle: None,
         })
     }
-    
+
     /// Create a disabled metrics registry (for testing)
     pub fn disabled() -> Self {
         Self {
             prometheus_handle: None,
         }
     }
-    
+
     /// Check if metrics are enabled
     pub fn is_enabled(&self) -> bool {
         true
     }
-    
+
     // System metrics methods
     pub fn update_cpu_usage(&self, usage_percent: f64) {
         gauge!("system_cpu_usage_percent", usage_percent);
     }
-    
+
     pub fn update_memory_usage(&self, usage_bytes: u64) {
         gauge!("system_memory_usage_bytes", usage_bytes as f64);
     }
-    
+
     pub fn update_disk_usage(&self, usage_bytes: u64) {
         gauge!("system_disk_usage_bytes", usage_bytes as f64);
     }
-    
+
     // Blockchain metrics methods
     pub fn update_blockchain_height(&self, height: u64) {
         gauge!("blockchain_height", height as f64);
     }
-    
+
     pub fn record_block_processing_time(&self, seconds: f64) {
         histogram!("blockchain_block_processing_time_seconds", seconds);
     }
-    
+
     pub fn add_transactions(&self, count: u64) {
         counter!("blockchain_total_transactions", count);
     }
-    
+
     // Network metrics methods
     pub fn update_connected_peers(&self, count: u64) {
         gauge!("network_connected_peers", count as f64);
     }
-    
+
     pub fn add_bytes_received(&self, bytes: u64) {
         counter!("network_bytes_received", bytes);
     }
-    
+
     pub fn add_bytes_sent(&self, bytes: u64) {
         counter!("network_bytes_sent", bytes);
     }
-    
+
     // Mempool metrics methods
     pub fn update_mempool_size(&self, transaction_count: u64, bytes: u64) {
         gauge!("mempool_transactions", transaction_count as f64);
         gauge!("mempool_bytes", bytes as f64);
     }
-    
+
     pub fn record_transaction_added(&self) {
         counter!("mempool_transactions_added", 1);
     }
-    
+
     // Lightning metrics methods
     pub fn update_channel_counts(&self, active: u64, pending: u64) {
         gauge!("lightning_active_channels", active as f64);
         gauge!("lightning_pending_channels", pending as f64);
     }
-    
+
     pub fn record_payment_outcome(&self, success: bool, amount_msat: u64) {
         if success {
             counter!("lightning_payments_success", 1);
@@ -142,7 +142,9 @@ impl Default for SystemMetrics {
 }
 
 impl SystemMetrics {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for BlockchainMetrics {
@@ -152,7 +154,9 @@ impl Default for BlockchainMetrics {
 }
 
 impl BlockchainMetrics {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for NetworkMetrics {
@@ -162,7 +166,9 @@ impl Default for NetworkMetrics {
 }
 
 impl NetworkMetrics {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for ConsensusMetrics {
@@ -172,7 +178,9 @@ impl Default for ConsensusMetrics {
 }
 
 impl ConsensusMetrics {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for MempoolMetrics {
@@ -182,7 +190,9 @@ impl Default for MempoolMetrics {
 }
 
 impl MempoolMetrics {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for LightningMetrics {
@@ -192,12 +202,14 @@ impl Default for LightningMetrics {
 }
 
 impl LightningMetrics {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 /// Helper for timing operations
 pub struct TimedOperation<F>
-where 
+where
     F: FnOnce(f64),
 {
     start_time: Instant,
@@ -215,7 +227,7 @@ where
             callback: Some(callback),
         }
     }
-    
+
     /// Complete the operation and call the callback with the duration
     pub fn complete(mut self) {
         let duration = self.start_time.elapsed().as_secs_f64();
@@ -240,17 +252,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_metrics_registry() {
         let registry = MetricsRegistry::new().unwrap();
-        
+
         // Test some basic operations
         registry.update_cpu_usage(50.0);
         registry.update_blockchain_height(100);
         registry.update_connected_peers(10);
     }
-    
+
     #[test]
     fn test_timed_operation() {
         let mut called = false;
@@ -261,4 +273,4 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
-} 
+}

@@ -1,15 +1,14 @@
 /// Validation subsystem for supernova blockchain
-/// 
+///
 /// Provides tools for validating transactions, blocks, and signatures
 /// with customizable policy settings for both cryptographic and emissions compliance.
-
-use serde::{Serialize, Deserialize};
-use std::fmt;
+use serde::{Deserialize, Serialize};
 use std::error::Error as StdError;
+use std::fmt;
 
-pub mod transaction;
-pub mod crypto;
 pub mod block;
+pub mod crypto;
+pub mod transaction;
 pub mod unified_validation;
 
 #[cfg(test)]
@@ -20,19 +19,19 @@ mod block_validation_tests;
 pub enum SecurityLevel {
     /// Low security level (corresponds to security parameter 1)
     Low = 1,
-    
+
     /// Medium security level (corresponds to security parameter 3)
     Medium = 3,
-    
+
     /// High security level (corresponds to security parameter 5)
     High = 5,
-    
+
     /// Standard security for transaction validation
     Standard = 10,
-    
+
     /// Enhanced security with additional checks for transaction validation
     Enhanced = 20,
-    
+
     /// Maximum security with thorough validation
     Maximum = 30,
 }
@@ -80,16 +79,16 @@ impl From<u8> for SecurityLevel {
 pub struct ValidationMetrics {
     /// Number of successful validations
     pub success_count: u64,
-    
+
     /// Number of failed validations
     pub failure_count: u64,
-    
+
     /// Average validation time in milliseconds
     pub avg_validation_time_ms: f64,
-    
+
     /// Maximum validation time in milliseconds
     pub max_validation_time_ms: f64,
-    
+
     /// Total validation operations performed
     pub total_validations: u64,
 }
@@ -99,64 +98,64 @@ pub struct ValidationMetrics {
 pub enum ValidationError {
     /// Invalid block height
     InvalidBlockHeight(u64),
-    
+
     /// Invalid timestamp
     InvalidTimestamp(u64),
-    
+
     /// Invalid hash
     InvalidHash,
-    
+
     /// Invalid merkle root
     InvalidMerkleRoot,
-    
+
     /// Invalid difficulty
     InvalidDifficulty,
-    
+
     /// Invalid nonce
     InvalidNonce(u64),
-    
+
     /// Invalid signature
     InvalidSignature(String),
-    
+
     /// Signature error
     SignatureError(String),
-    
+
     /// Missing signature data
     MissingSignatureData,
-    
+
     /// Invalid signature scheme
     InvalidSignatureScheme,
-    
+
     /// Double spend
     DoubleSpend,
-    
+
     /// Transaction not found
     TransactionNotFound(String),
-    
+
     /// Block not found
     BlockNotFound(String),
-    
+
     /// Output not found
     OutputNotFound,
-    
+
     /// Database error
     DatabaseError(String),
-    
+
     /// Invalid script
     InvalidScript(String),
-    
+
     /// Chain error
     ChainError(String),
-    
+
     /// Checkpoint error
     CheckpointError(String),
-    
+
     /// Invalid structure
     InvalidStructure(String),
-    
+
     /// Cryptographic error
     CryptoError(String),
-    
+
     /// Generic error
     Generic(String),
 }
@@ -164,8 +163,12 @@ pub enum ValidationError {
 impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ValidationError::InvalidBlockHeight(height) => write!(f, "Invalid block height: {}", height),
-            ValidationError::InvalidTimestamp(timestamp) => write!(f, "Invalid timestamp: {}", timestamp),
+            ValidationError::InvalidBlockHeight(height) => {
+                write!(f, "Invalid block height: {}", height)
+            }
+            ValidationError::InvalidTimestamp(timestamp) => {
+                write!(f, "Invalid timestamp: {}", timestamp)
+            }
             ValidationError::InvalidHash => write!(f, "Invalid hash"),
             ValidationError::InvalidMerkleRoot => write!(f, "Invalid merkle root"),
             ValidationError::InvalidDifficulty => write!(f, "Invalid difficulty"),
@@ -175,7 +178,9 @@ impl fmt::Display for ValidationError {
             ValidationError::MissingSignatureData => write!(f, "Missing signature data"),
             ValidationError::InvalidSignatureScheme => write!(f, "Invalid signature scheme"),
             ValidationError::DoubleSpend => write!(f, "Double spend"),
-            ValidationError::TransactionNotFound(txid) => write!(f, "Transaction not found: {}", txid),
+            ValidationError::TransactionNotFound(txid) => {
+                write!(f, "Transaction not found: {}", txid)
+            }
             ValidationError::BlockNotFound(hash) => write!(f, "Block not found: {}", hash),
             ValidationError::OutputNotFound => write!(f, "Output not found"),
             ValidationError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
@@ -191,33 +196,24 @@ impl fmt::Display for ValidationError {
 
 impl StdError for ValidationError {}
 
-pub use transaction::{
-    ValidationResult,
-    ValidationConfig,
-    TransactionValidator,
-};
+pub use transaction::{TransactionValidator, ValidationConfig, ValidationResult};
 
-pub use crypto::{
-    CryptoValidator,
-    CryptoValidationConfig,
-};
+pub use crypto::{CryptoValidationConfig, CryptoValidator};
 
 pub use block::{
-    BlockValidator,
-    BlockValidationConfig,
-    BlockValidationError,
-    BlockValidationResult,
+    BlockValidationConfig, BlockValidationError, BlockValidationResult, BlockValidator,
     ValidationContext,
 };
 
 // Convenience functions for validation
-use crate::types::Block;
 use crate::types::transaction::Transaction;
+use crate::types::Block;
 
 /// Validate a block with default configuration
 pub fn validate_block(block: &Block) -> Result<(), ValidationError> {
     let validator = block::BlockValidator::new();
-    validator.validate_block(block)
+    validator
+        .validate_block(block)
         .map_err(|e| ValidationError::Generic(e.to_string()))
 }
 
@@ -230,4 +226,4 @@ pub fn validate_transaction(tx: &Transaction) -> Result<(), ValidationError> {
         Ok(transaction::ValidationResult::SoftFail(err)) => Err(err),
         Err(err) => Err(err),
     }
-} 
+}

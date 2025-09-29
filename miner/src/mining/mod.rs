@@ -1,24 +1,26 @@
 pub mod coordinator;
-pub mod template;
-pub mod worker;
-pub mod reward;
 pub mod environmental_verification;
 pub mod fraud_detection;
+pub mod reward;
+pub mod template;
+pub mod worker;
 
+#[cfg(test)]
+mod environmental_security_tests;
 #[cfg(test)]
 mod halving_test;
 #[cfg(test)]
 mod security_tests;
 #[cfg(test)]
-mod environmental_security_tests;
-#[cfg(test)]
 mod testnet_integration_tests;
 
 pub use coordinator::Miner;
+pub use environmental_verification::{EfficiencyAudit, EnvironmentalVerifier, RECCertificate};
+pub use reward::{
+    calculate_base_reward, calculate_mining_reward, EnvironmentalProfile, MiningReward,
+};
 pub use template::{BlockTemplate, MempoolInterface};
 pub use worker::MiningWorker;
-pub use reward::{EnvironmentalProfile, MiningReward, calculate_mining_reward, calculate_base_reward};
-pub use environmental_verification::{EnvironmentalVerifier, RECCertificate, EfficiencyAudit};
 
 pub const NOVA_TOTAL_SUPPLY: u64 = 42_000_000;
 pub const NOVA_BLOCK_REWARD: u64 = 50; // Initial block reward in NOVA

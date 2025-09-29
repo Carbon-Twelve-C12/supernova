@@ -1,12 +1,12 @@
 //! Trait Implementations for btclib/node Integration
-//! 
+//!
 //! This module provides systematic trait implementations to resolve
 //! trait bound errors between btclib and node layers.
 
-use serde::{Serialize, Deserialize};
-use libp2p::PeerId;
-use std::hash::{Hash, Hasher};
 use crate::metrics::performance::MetricType;
+use libp2p::PeerId;
+use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
 /// Implement Serialize for PeerId
 #[derive(Clone)]
@@ -46,8 +46,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    PeerId::from_bytes(s.as_bytes())
-        .map_err(serde::de::Error::custom)
+    PeerId::from_bytes(s.as_bytes()).map_err(serde::de::Error::custom)
 }
 
 /// Implement missing traits for MetricType
@@ -88,7 +87,7 @@ impl SafeNumericConversion for usize {
     fn to_f64_safe(&self) -> f64 {
         *self as f64
     }
-    
+
     fn to_usize_safe(&self) -> usize {
         *self
     }
@@ -98,7 +97,7 @@ impl SafeNumericConversion for u64 {
     fn to_f64_safe(&self) -> f64 {
         *self as f64
     }
-    
+
     fn to_usize_safe(&self) -> usize {
         *self as usize
     }
@@ -108,7 +107,7 @@ impl SafeNumericConversion for u32 {
     fn to_f64_safe(&self) -> f64 {
         *self as f64
     }
-    
+
     fn to_usize_safe(&self) -> usize {
         *self as usize
     }
@@ -124,7 +123,7 @@ impl IVecConversion for Vec<u8> {
     fn to_ivec(&self) -> sled::IVec {
         sled::IVec::from(self.clone())
     }
-    
+
     fn from_ivec(ivec: &sled::IVec) -> Self {
         ivec.to_vec()
     }
@@ -134,7 +133,7 @@ impl IVecConversion for [u8; 32] {
     fn to_ivec(&self) -> sled::IVec {
         sled::IVec::from(self.to_vec())
     }
-    
+
     fn from_ivec(ivec: &sled::IVec) -> Self {
         let vec = ivec.to_vec();
         let mut arr = [0u8; 32];
@@ -224,16 +223,16 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_numeric_conversion() {
         let usize_val: usize = 42;
         assert_eq!(usize_val.to_f64_safe(), 42.0);
-        
+
         let u64_val: u64 = 100;
         assert_eq!(u64_val.to_f64_safe(), 100.0);
     }
-    
+
     #[test]
     fn test_ivec_conversion() {
         let vec = vec![1, 2, 3, 4];
@@ -241,4 +240,4 @@ mod tests {
         let back: Vec<u8> = Vec::from_ivec(&ivec);
         assert_eq!(vec, back);
     }
-} 
+}

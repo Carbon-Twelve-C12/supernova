@@ -1,8 +1,11 @@
 use libp2p::{
     core::Multiaddr,
-    kad::{Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, QueryId, QueryResult, store::MemoryStore},
-    mdns::{self, Event as MdnsEvent, Config as MdnsConfig},
     identity::Keypair,
+    kad::{
+        store::MemoryStore, Behaviour as Kademlia, Config as KademliaConfig,
+        Event as KademliaEvent, QueryId, QueryResult,
+    },
+    mdns::{self, Config as MdnsConfig, Event as MdnsEvent},
     PeerId,
 };
 use std::{
@@ -62,8 +65,6 @@ enum QueryType {
     GetProviders(String),
 }
 
-
-
 impl PeerDiscovery {
     /// Create a new peer discovery system
     pub async fn new(
@@ -72,33 +73,36 @@ impl PeerDiscovery {
         enable_mdns: bool,
     ) -> Result<(Self, mpsc::Receiver<DiscoveryEvent>), Box<dyn Error>> {
         let local_peer_id = PeerId::from(keypair.public());
-        
+
         // Set up Kademlia DHT for peer discovery
         let mut kad_config = KademliaConfig::default();
         // In libp2p v0.52, protocol name is set differently
         let protocol_name = b"/supernova/kad/1.0.0".to_vec();
         kad_config.set_query_timeout(Duration::from_secs(60));
         kad_config.set_record_ttl(Some(Duration::from_secs(3600 * 24))); // 24 hours
-        
+
         let store = MemoryStore::new(local_peer_id);
         let kademlia = Kademlia::with_config(local_peer_id, store, kad_config);
-        
+
         // Set up mDNS for local network discovery if enabled
         let mdns = if enable_mdns {
             match mdns::tokio::Behaviour::new(MdnsConfig::default(), local_peer_id) {
                 Ok(mdns) => Some(mdns),
                 Err(e) => {
-                    warn!("Failed to initialize mDNS, continuing without local discovery: {}", e);
+                    warn!(
+                        "Failed to initialize mDNS, continuing without local discovery: {}",
+                        e
+                    );
                     None
                 }
             }
         } else {
             None
         };
-        
+
         // Create event channel
         let (event_tx, event_rx) = mpsc::channel(128);
-        
+
         Ok((
             Self {
                 kademlia: Some(kademlia),
@@ -113,10 +117,10 @@ impl PeerDiscovery {
                 bootstrap_interval: Duration::from_secs(3600), // Re-bootstrap every hour
                 local_peer_id,
             },
-            event_rx
+            event_rx,
         ))
     }
-    
+
     /// Start the bootstrap process
     pub fn bootstrap(&mut self) -> Result<(), Box<dyn Error>> {
         // Don't bootstrap too frequently
@@ -126,17 +130,17 @@ impl PeerDiscovery {
                 return Ok(());
             }
         }
-        
+
         info!("Starting Kademlia bootstrap process");
         self.last_bootstrap = Some(now);
-        
+
         // Add bootstrap nodes to Kademlia
         if let Some(kademlia) = &mut self.kademlia {
             for (peer_id, addr) in &self.bootstrap_nodes {
                 // The routing table is updated when we actually connect to peers
                 debug!("Bootstrap node configured: {} at {}", peer_id, addr);
             }
-            
+
             // Start bootstrap process
             match kademlia.bootstrap() {
                 Ok(query_id) => {
@@ -146,28 +150,39 @@ impl PeerDiscovery {
                 }
                 Err(e) => {
                     warn!("Failed to start bootstrap: {:?}", e);
-                    Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, 
-                                                   format!("Bootstrap failed: {:?}", e))))
+                    Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Bootstrap failed: {:?}", e),
+                    )))
                 }
             }
         } else {
-            Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, 
-                                           "Kademlia not initialized")))
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Kademlia not initialized",
+            )))
         }
     }
-    
+
     /// Handle a Kademlia event
-    pub async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> Result<(), Box<dyn Error>> {
+    pub async fn handle_kademlia_event(
+        &mut self,
+        event: KademliaEvent,
+    ) -> Result<(), Box<dyn Error>> {
         match event {
             KademliaEvent::OutboundQueryProgressed { id, result, .. } => {
                 let query_type = self.active_queries.get(&id).cloned();
-                
+
                 match (query_type, result) {
                     (Some(QueryType::Bootstrap), QueryResult::Bootstrap(Ok(_))) => {
                         info!("Kademlia bootstrap completed successfully");
                         self.bootstrap_complete = true;
                         self.active_queries.remove(&id);
-                        if let Err(e) = self.event_sender.send(DiscoveryEvent::BootstrapComplete).await {
+                        if let Err(e) = self
+                            .event_sender
+                            .send(DiscoveryEvent::BootstrapComplete)
+                            .await
+                        {
                             warn!("Failed to send bootstrap complete event: {}", e);
                         }
                     }
@@ -175,10 +190,19 @@ impl PeerDiscovery {
                         warn!("Kademlia bootstrap failed: {:?}", e);
                         self.active_queries.remove(&id);
                         // Retry bootstrap later
-                        self.last_bootstrap = Some(Instant::now() - self.bootstrap_interval + Duration::from_secs(300));
+                        self.last_bootstrap = Some(
+                            Instant::now() - self.bootstrap_interval + Duration::from_secs(300),
+                        );
                     }
-                    (Some(QueryType::FindPeer(peer_id)), QueryResult::GetClosestPeers(Ok(result))) => {
-                        debug!("Get closest peers query completed for {}: found {} peers", peer_id, result.peers.len());
+                    (
+                        Some(QueryType::FindPeer(peer_id)),
+                        QueryResult::GetClosestPeers(Ok(result)),
+                    ) => {
+                        debug!(
+                            "Get closest peers query completed for {}: found {} peers",
+                            peer_id,
+                            result.peers.len()
+                        );
                         // The GetClosestPeersOk contains the k closest peers, not addresses for a specific peer
                         // We'll need to handle this differently
                         // For now, just log the result
@@ -193,10 +217,14 @@ impl PeerDiscovery {
             }
             KademliaEvent::RoutingUpdated { peer, .. } => {
                 debug!("Kademlia routing updated for peer: {}", peer);
-                
+
                 // When a peer is added to the routing table, we get its addresses
                 // So we can notify about the discovered peer
-                if let Err(e) = self.event_sender.send(DiscoveryEvent::PeerDiscovered(peer, vec![])).await {
+                if let Err(e) = self
+                    .event_sender
+                    .send(DiscoveryEvent::PeerDiscovered(peer, vec![]))
+                    .await
+                {
                     warn!("Failed to send peer discovered event: {}", e);
                 }
             }
@@ -204,10 +232,10 @@ impl PeerDiscovery {
                 // Ignore other events
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Handle an mDNS event
     pub async fn handle_mdns_event(&mut self, event: MdnsEvent) -> Result<(), Box<dyn Error>> {
         match event {
@@ -216,28 +244,31 @@ impl PeerDiscovery {
                     if peer_id == self.local_peer_id {
                         continue; // Skip self
                     }
-                    
+
                     debug!("mDNS discovered peer: {} at {}", peer_id, addr);
-                    
+
                     // Add to known peers
                     {
                         let mut known_peers = self.known_peers.lock().unwrap();
-                        known_peers
-                            .entry(peer_id)
-                            .or_default()
-                            .push(addr.clone());
+                        known_peers.entry(peer_id).or_default().push(addr.clone());
                     }
-                    
+
                     // Add to Kademlia routing table if available
                     if let Some(kademlia) = &mut self.kademlia {
                         // In libp2p v0.52, addresses are added through the routing table when connected
-                        debug!("mDNS peer discovered, will be added to routing table upon connection");
+                        debug!(
+                            "mDNS peer discovered, will be added to routing table upon connection"
+                        );
                     }
-                    
+
                     // Notify about discovered peer
                     let mut addresses = Vec::new();
                     addresses.push(addr);
-                    if let Err(e) = self.event_sender.send(DiscoveryEvent::PeerDiscovered(peer_id, addresses)).await {
+                    if let Err(e) = self
+                        .event_sender
+                        .send(DiscoveryEvent::PeerDiscovered(peer_id, addresses))
+                        .await
+                    {
                         warn!("Failed to send peer discovered event: {}", e);
                     }
                 }
@@ -245,7 +276,7 @@ impl PeerDiscovery {
             MdnsEvent::Expired(expired) => {
                 for (peer_id, addr) in expired {
                     debug!("mDNS expired peer: {} at {}", peer_id, addr);
-                    
+
                     // Remove address from known peers
                     {
                         let mut known_peers = self.known_peers.lock().unwrap();
@@ -253,9 +284,13 @@ impl PeerDiscovery {
                             addresses.retain(|a| a != &addr);
                             if addresses.is_empty() {
                                 known_peers.remove(&peer_id);
-                                
+
                                 // Notify that peer expired
-                                if let Err(e) = self.event_sender.send(DiscoveryEvent::PeerExpired(peer_id)).await {
+                                if let Err(e) = self
+                                    .event_sender
+                                    .send(DiscoveryEvent::PeerExpired(peer_id))
+                                    .await
+                                {
                                     warn!("Failed to send peer expired event: {}", e);
                                 }
                             }
@@ -264,43 +299,41 @@ impl PeerDiscovery {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Add a verified peer
     pub fn add_verified_peer(&mut self, peer_id: PeerId) {
         if self.verified_peers.insert(peer_id) {
             debug!("Added verified peer: {}", peer_id);
         }
     }
-    
+
     /// Remove a peer from verified list
     pub fn remove_verified_peer(&mut self, peer_id: &PeerId) {
         if self.verified_peers.remove(peer_id) {
             debug!("Removed verified peer: {}", peer_id);
         }
     }
-    
+
     /// Get known peers with their addresses
     pub fn get_known_peers(&self) -> HashMap<PeerId, Vec<Multiaddr>> {
         let known_peers = self.known_peers.lock().unwrap();
         known_peers.clone()
     }
-    
+
     /// Get verified peers
     pub fn get_verified_peers(&self) -> HashSet<PeerId> {
         self.verified_peers.clone()
     }
-    
+
     /// Add a bootstrap node
     pub fn add_bootstrap_node(&mut self, peer_id: PeerId, addr: Multiaddr) {
         // Add to bootstrap nodes
         self.bootstrap_nodes.push((peer_id, addr.clone()));
-        
+
         // In libp2p v0.52, addresses are added through the routing table when connected
         debug!("Bootstrap node added: {} at {}", peer_id, addr);
     }
 }
-
- 

@@ -2,18 +2,17 @@
 //!
 //! This module provides detailed request logging for the supernova API.
 
-use actix_web::{
-    dev::{ServiceRequest, ServiceResponse, forward_ready},
-    http::header,
-    HttpMessage,
-    Error,
-};
 use actix_service::{Service, Transform};
+use actix_web::{
+    dev::{forward_ready, ServiceRequest, ServiceResponse},
+    http::header,
+    Error, HttpMessage,
+};
 use futures::future::{ready, Ready};
 use std::rc::Rc;
-use uuid::Uuid;
-use tracing::{info, error, debug};
 use std::time::Instant;
+use tracing::{debug, error, info};
+use uuid::Uuid;
 
 /// API logger middleware
 pub struct ApiLogger {}
@@ -63,7 +62,8 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>>>>;
 
     forward_ready!(service);
 
@@ -71,7 +71,11 @@ where
         let start_time = Instant::now();
         let method = req.method().clone();
         let path = req.path().to_owned();
-        let peer_addr = req.connection_info().peer_addr().unwrap_or("unknown").to_owned();
+        let peer_addr = req
+            .connection_info()
+            .peer_addr()
+            .unwrap_or("unknown")
+            .to_owned();
         let user_agent = req
             .headers()
             .get(header::USER_AGENT)
@@ -84,41 +88,51 @@ where
             .and_then(|h| h.to_str().ok())
             .unwrap_or("0")
             .to_owned();
-            
+
         // Generate a unique request ID
         let request_id = Uuid::new_v4().to_string();
-        
+
         // Clone service because it's behind an Rc
         let service = self.service.clone();
-        
+
         Box::pin(async move {
             // Add request ID to request extensions
             req.extensions_mut().insert(request_id.clone());
-            
+
             // Log the incoming request
-            debug!("Request {} - {} {} - From {} - UA: {} - Size: {}",
-                request_id, method, path, peer_addr, user_agent, content_length);
-            
+            debug!(
+                "Request {} - {} {} - From {} - UA: {} - Size: {}",
+                request_id, method, path, peer_addr, user_agent, content_length
+            );
+
             // Process the request
             let result = service.call(req).await;
-            
+
             // Get elapsed time
             let elapsed = start_time.elapsed();
-            
+
             match &result {
                 Ok(res) => {
                     // Log successful response
                     let status = res.status();
-                    info!("Response {} - {} {} - Status {} - Completed in {:?}",
-                        request_id, method, path, status.as_u16(), elapsed);
+                    info!(
+                        "Response {} - {} {} - Status {} - Completed in {:?}",
+                        request_id,
+                        method,
+                        path,
+                        status.as_u16(),
+                        elapsed
+                    );
                 }
                 Err(e) => {
                     // Log error response
-                    error!("Response {} - {} {} - Error: {} - Completed in {:?}",
-                        request_id, method, path, e, elapsed);
+                    error!(
+                        "Response {} - {} {} - Error: {} - Completed in {:?}",
+                        request_id, method, path, e, elapsed
+                    );
                 }
             }
-            
+
             result
         })
     }
@@ -177,4 +191,4 @@ mod tests {
         let resp = call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
-} 
+}

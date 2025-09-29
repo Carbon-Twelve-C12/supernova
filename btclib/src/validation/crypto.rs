@@ -2,9 +2,11 @@
 //
 // This module provides validation for cryptographic primitives.
 
-use crate::crypto::signature::{SignatureType, SignatureError, SignatureParams, SignatureVerifier};
-use crate::crypto::quantum::{QuantumScheme, ClassicalScheme, QuantumParameters, verify_quantum_signature};
-use super::{ValidationError, SecurityLevel};
+use super::{SecurityLevel, ValidationError};
+use crate::crypto::quantum::{
+    verify_quantum_signature, ClassicalScheme, QuantumParameters, QuantumScheme,
+};
+use crate::crypto::signature::{SignatureError, SignatureParams, SignatureType, SignatureVerifier};
 
 /// Validation mode for cryptographic operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,13 +24,13 @@ pub enum ValidationMode {
 pub struct CryptoValidationConfig {
     /// Security level for validation
     pub security_level: SecurityLevel,
-    
-    /// Whether quantum resistance is required 
+
+    /// Whether quantum resistance is required
     pub require_quantum_resistance: bool,
-    
+
     /// Minimum signature security level
     pub min_signature_security_level: u8,
-    
+
     /// Allowed signature types
     pub allowed_signature_types: Vec<SignatureType>,
 }
@@ -79,14 +81,14 @@ pub fn create_config_for_security_level(level: SecurityLevel) -> CryptoValidatio
             require_quantum_resistance: false,
             min_signature_security_level: 3,
             allowed_signature_types: vec![
-                    SignatureType::Classical(ClassicalScheme::Ed25519),
-                    SignatureType::Classical(ClassicalScheme::Secp256k1),
-                    SignatureType::Quantum(QuantumScheme::Falcon), // Falcon is typically faster than Dilithium
-                    SignatureType::Quantum(QuantumScheme::Dilithium),
-                    SignatureType::Quantum(QuantumScheme::SphincsPlus),
-                    SignatureType::Dilithium,
-                    SignatureType::Falcon,
-                    SignatureType::Sphincs,
+                SignatureType::Classical(ClassicalScheme::Ed25519),
+                SignatureType::Classical(ClassicalScheme::Secp256k1),
+                SignatureType::Quantum(QuantumScheme::Falcon), // Falcon is typically faster than Dilithium
+                SignatureType::Quantum(QuantumScheme::Dilithium),
+                SignatureType::Quantum(QuantumScheme::SphincsPlus),
+                SignatureType::Dilithium,
+                SignatureType::Falcon,
+                SignatureType::Sphincs,
             ],
         },
         SecurityLevel::High => CryptoValidationConfig {
@@ -123,27 +125,25 @@ impl CryptoValidator {
     pub fn new(config: CryptoValidationConfig) -> Self {
         Self { config }
     }
-    
+
     /// Validate a signature type against security requirements
     pub fn validate_signature_type(&self, sig_type: SignatureType) -> Result<(), SignatureError> {
         if !self.config.allowed_signature_types.contains(&sig_type) {
             return Err(SignatureError::UnsupportedSignatureType);
         }
-        
+
         // Check if quantum resistance is required
         if self.config.require_quantum_resistance {
             match sig_type {
-                SignatureType::Quantum(_) => {}, // Quantum signature is acceptable
-                SignatureType::Dilithium |
-                SignatureType::Falcon |
-                SignatureType::Sphincs => {}, // These are also quantum resistant
+                SignatureType::Quantum(_) => {} // Quantum signature is acceptable
+                SignatureType::Dilithium | SignatureType::Falcon | SignatureType::Sphincs => {} // These are also quantum resistant
                 _ => return Err(SignatureError::QuantumResistanceRequired),
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Validate a signature with the given parameters
     pub fn validate_signature(
         &self,
@@ -153,9 +153,10 @@ impl CryptoValidator {
         params: SignatureParams,
     ) -> Result<bool, ValidationError> {
         // Check signature type
-        self.validate_signature_type(params.sig_type)
-            .map_err(|e| ValidationError::SignatureError(format!("Invalid signature type: {}", e)))?;
-        
+        self.validate_signature_type(params.sig_type).map_err(|e| {
+            ValidationError::SignatureError(format!("Invalid signature type: {}", e))
+        })?;
+
         // Check security level
         if params.security_level < self.config.min_signature_security_level {
             return Err(ValidationError::SignatureError(format!(
@@ -163,7 +164,7 @@ impl CryptoValidator {
                 params.security_level, self.config.min_signature_security_level
             )));
         }
-        
+
         // Determine the verification method based on the signature type
         match params.sig_type {
             SignatureType::Quantum(scheme) => {
@@ -172,23 +173,25 @@ impl CryptoValidator {
                     scheme,
                     security_level: params.security_level,
                 };
-                
+
                 match verify_quantum_signature(public_key, message, signature, quantum_params) {
                     Ok(valid) => Ok(valid),
-                    Err(e) => Err(ValidationError::SignatureError(
-                        format!("Quantum signature verification error: {}", e)
-                    )),
+                    Err(e) => Err(ValidationError::SignatureError(format!(
+                        "Quantum signature verification error: {}",
+                        e
+                    ))),
                 }
-            },
+            }
             // For classical or other signature types, use the general verifier
             _ => {
                 let verifier = SignatureVerifier::new();
-                
+
                 match verifier.verify(params.sig_type, public_key, message, signature) {
                     Ok(valid) => Ok(valid),
-                    Err(e) => Err(ValidationError::SignatureError(
-                        format!("Signature verification error: {}", e)
-                    )),
+                    Err(e) => Err(ValidationError::SignatureError(format!(
+                        "Signature verification error: {}",
+                        e
+                    ))),
                 }
             }
         }

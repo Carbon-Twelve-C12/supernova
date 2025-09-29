@@ -1,14 +1,14 @@
 use crate::config::Config;
-use crate::types::transaction::Transaction;
-use crate::crypto::quantum::{QuantumKeyPair, QuantumError};
+use crate::crypto::quantum::{QuantumError, QuantumKeyPair};
 use crate::crypto::zkp::ZkpParams;
-use crate::types::extended_transaction::QuantumTransaction;
-use crate::transaction_processor::{TransactionProcessorError};
+use crate::environmental::dashboard::EmissionsTimePeriod;
 use crate::environmental::treasury::{TreasuryError, VerificationStatus};
-use crate::environmental::dashboard::{EmissionsTimePeriod};
-use thiserror::Error;
+use crate::transaction_processor::TransactionProcessorError;
+use crate::types::extended_transaction::QuantumTransaction;
+use crate::types::transaction::Transaction;
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use serde::{Serialize, Deserialize};
+use thiserror::Error;
 use tokio::net::TcpListener;
 
 /// API configuration
@@ -41,39 +41,39 @@ pub enum ApiError {
     /// Transaction processing error
     #[error("Transaction error: {0}")]
     TransactionError(String),
-    
+
     /// Quantum cryptography error
     #[error("Quantum error: {0}")]
     QuantumError(#[from] QuantumError),
-    
+
     /// Transaction error
     #[error("Transaction error: {0}")]
     ProcessorError(#[from] TransactionProcessorError),
-    
+
     /// Emissions error
     #[error("Emissions error: {0}")]
     EmissionsError(String),
-    
+
     /// Treasury error
     #[error("Treasury error: {0}")]
     TreasuryError(#[from] TreasuryError),
-    
+
     /// Configuration error
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("Failed to bind to address: {0}")]
     BindError(String),
-    
+
     #[error("Authentication failed")]
     AuthenticationFailed,
-    
+
     #[error("Rate limit exceeded")]
     RateLimitExceeded,
-    
+
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
-    
+
     #[error("Internal server error: {0}")]
     InternalError(String),
 }
@@ -90,17 +90,19 @@ pub struct supernovaApi {
 impl supernovaApi {
     /// Create a new supernova API
     pub fn new(config: Config) -> Self {
-        Self {
-            config,
-        }
+        Self { config }
     }
-    
+
     /// Create and process a transaction
-    pub fn create_transaction(&self, _inputs: Vec<Vec<u8>>, _outputs: Vec<(u64, Vec<u8>)>) -> ApiResult<Transaction> {
+    pub fn create_transaction(
+        &self,
+        _inputs: Vec<Vec<u8>>,
+        _outputs: Vec<(u64, Vec<u8>)>,
+    ) -> ApiResult<Transaction> {
         // Placeholder implementation
         Err(ApiError::ConfigError("Not implemented".to_string()))
     }
-    
+
     /// Create a quantum-resistant transaction
     pub fn create_quantum_transaction(
         &self,
@@ -110,7 +112,7 @@ impl supernovaApi {
         // Placeholder implementation
         Err(ApiError::ConfigError("Not implemented".to_string()))
     }
-    
+
     /// Create a confidential transaction with hidden amounts
     pub fn create_confidential_transaction(
         &self,
@@ -121,13 +123,13 @@ impl supernovaApi {
         // Placeholder implementation
         Err(ApiError::ConfigError("Not implemented".to_string()))
     }
-    
+
     /// Query environmental metrics
     pub fn get_environmental_metrics(&self, _period: EmissionsTimePeriod) -> ApiResult<String> {
         // Placeholder implementation
         Err(ApiError::ConfigError("Not implemented".to_string()))
     }
-    
+
     /// Register a renewable energy certificate
     pub fn register_renewable_certificate(
         &self,
@@ -155,23 +157,24 @@ impl Api {
             listener: None,
         }
     }
-    
+
     /// Start the API server
     pub async fn start(&mut self) -> Result<(), ApiError> {
-        let listener = TcpListener::bind(&self.config.bind_address).await
+        let listener = TcpListener::bind(&self.config.bind_address)
+            .await
             .map_err(|e| ApiError::BindError(e.to_string()))?;
-            
+
         println!("API server listening on {}", self.config.bind_address);
         self.listener = Some(listener);
-        
+
         Ok(())
     }
-    
+
     /// Stop the API server
     pub fn stop(&mut self) {
         self.listener = None;
     }
-    
+
     /// Get the configuration
     pub fn config(&self) -> &ApiConfig {
         &self.config
@@ -188,4 +191,4 @@ mod tests {
         assert!(config.enable_cors);
         assert_eq!(config.rate_limit_per_minute, 100);
     }
-} 
+}

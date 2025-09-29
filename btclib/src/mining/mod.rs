@@ -3,9 +3,9 @@ pub mod manager;
 pub use manager::*;
 
 // Re-export common types
+use hex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use hex;
 
 /// Mining configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +68,7 @@ impl BlockTemplate {
             reward_addresses,
         }
     }
-    
+
     /// Create a BlockTemplate from a MiningTemplate
     pub fn from_mining_template(template: &crate::mining::manager::MiningTemplate) -> Self {
         // Parse the previous hash from hex string
@@ -83,7 +83,7 @@ impl BlockTemplate {
         } else {
             [0u8; 32]
         };
-        
+
         Self {
             version: template.version,
             prev_hash,
@@ -115,7 +115,7 @@ impl MiningWorker {
         mempool: std::sync::Arc<crate::mempool::TransactionPool>,
         block_sender: tokio::sync::mpsc::UnboundedSender<crate::types::Block>,
     ) -> Self {
-        Self { 
+        Self {
             id,
             config,
             mempool,
@@ -129,30 +129,32 @@ impl MiningWorker {
         if self.running.load(std::sync::atomic::Ordering::Relaxed) {
             return; // Already running
         }
-        
-        self.running.store(true, std::sync::atomic::Ordering::Relaxed);
-        
+
+        self.running
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
         let id = self.id;
         let config = self.config.clone();
         let mempool = self.mempool.clone();
         let block_sender = self.block_sender.clone();
         let running = self.running.clone();
-        
+
         let handle = std::thread::spawn(move || {
             Self::mining_loop(id, config, mempool, block_sender, running, template);
         });
-        
+
         self.thread_handle = Some(handle);
     }
 
     pub fn stop(&mut self) {
-        self.running.store(false, std::sync::atomic::Ordering::Relaxed);
-        
+        self.running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+
         if let Some(handle) = self.thread_handle.take() {
             let _ = handle.join();
         }
     }
-    
+
     fn mining_loop(
         id: usize,
         config: MiningConfig,
@@ -162,33 +164,35 @@ impl MiningWorker {
         template: BlockTemplate,
     ) {
         use crate::types::{Block, BlockHeader, Transaction, TransactionInput, TransactionOutput};
-        
+
         use std::time::{SystemTime, UNIX_EPOCH};
-        
+
         let mut nonce = 0u32;
         let mut hash_count = 0u64;
         let start_time = std::time::Instant::now();
-        
+
         // Create coinbase transaction
         let coinbase_tx = Transaction::new(
             1,
-            vec![TransactionInput::new_coinbase(format!("Mined by worker {}", id).into_bytes())],
+            vec![TransactionInput::new_coinbase(
+                format!("Mined by worker {}", id).into_bytes(),
+            )],
             vec![TransactionOutput::new(50_000_000_00, vec![])], // 50 NOVA reward
             0,
         );
-        
+
         // Get transactions from mempool
         let mut transactions = vec![coinbase_tx];
         let mempool_txs = mempool.get_sorted_transactions();
         transactions.extend(mempool_txs.into_iter().take(1000)); // Max 1000 transactions
-        
+
         while running.load(std::sync::atomic::Ordering::Relaxed) {
             // Create block header
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            
+
             let header = BlockHeader::new(
                 template.version,
                 template.prev_hash,
@@ -197,34 +201,34 @@ impl MiningWorker {
                 template.target,
                 nonce,
             );
-            
+
             // Create block
             let mut block = Block::new(header, transactions.clone());
-            
+
             // Calculate and set merkle root
             let merkle_root = block.calculate_merkle_root();
             block.header.merkle_root = merkle_root;
-            
+
             // Check if block meets difficulty target
             let hash = block.header.hash();
             let target = block.header.target();
-            
+
             if hash <= target {
                 // Found a valid block!
                 tracing::info!("Worker {} found block with hash: {}", id, hex::encode(hash));
                 let _ = block_sender.send(block);
                 break;
             }
-            
+
             nonce = nonce.wrapping_add(1);
             hash_count += 1;
-            
+
             // Apply mining intensity throttling
             if config.mining_intensity < 1.0 {
                 let sleep_time = ((1.0 - config.mining_intensity) * 1000.0) as u64;
                 std::thread::sleep(std::time::Duration::from_micros(sleep_time));
             }
-            
+
             // Log hashrate periodically
             if hash_count % 100000 == 0 {
                 let elapsed = start_time.elapsed().as_secs_f64();
@@ -252,5 +256,8 @@ pub struct MiningMetrics {
 /// Mempool interface for mining
 #[async_trait::async_trait]
 pub trait MempoolInterface {
-    async fn get_transactions(&self, max_size: usize) -> Vec<crate::types::transaction::Transaction>;
-} 
+    async fn get_transactions(
+        &self,
+        max_size: usize,
+    ) -> Vec<crate::types::transaction::Transaction>;
+}

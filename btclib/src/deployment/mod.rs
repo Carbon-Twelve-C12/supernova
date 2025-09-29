@@ -5,7 +5,6 @@ pub mod testnet_config;
 
 // Re-export deployment types
 pub use testnet_config::{
-    TestnetConfiguration, TestnetDeploymentManager,
-    deploy_supernova_testnet, TestnetDeploymentStatus,
-    NetworkType, DeploymentError,
-}; 
+    deploy_supernova_testnet, DeploymentError, NetworkType, TestnetConfiguration,
+    TestnetDeploymentManager, TestnetDeploymentStatus,
+};

@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// Energy source types for miners
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ impl EnergySource {
             EnergySource::Unknown => false,
         }
     }
-    
+
     /// Check if an energy source is zero carbon
     pub fn is_zero_carbon(&self) -> bool {
         match self {
@@ -68,7 +68,7 @@ impl EnergySource {
             EnergySource::Unknown => false,
         }
     }
-    
+
     /// Get the default emissions factor (tonnes CO2e per MWh)
     pub fn default_emissions_factor(&self) -> f64 {
         match self {
@@ -81,8 +81,8 @@ impl EnergySource {
             EnergySource::Coal => 1.0,
             EnergySource::NaturalGas => 0.43,
             EnergySource::Oil => 0.65,
-            EnergySource::Grid => 0.475, // Global average
-            EnergySource::Other => 0.5, // Conservative estimate
+            EnergySource::Grid => 0.475,  // Global average
+            EnergySource::Other => 0.5,   // Conservative estimate
             EnergySource::Unknown => 0.0, // Default to zero for unknown sources
         }
     }
@@ -109,7 +109,7 @@ impl fmt::Display for EnergySource {
 
 impl std::str::FromStr for EnergySource {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "solar" => Ok(EnergySource::Solar),
@@ -160,7 +160,7 @@ impl Region {
             _ => Self::Global,
         }
     }
-    
+
     /// Get ISO country code for region
     pub fn to_string(&self) -> String {
         match self {
@@ -265,16 +265,16 @@ impl EmissionFactor {
             confidence: None,
         }
     }
-    
+
     /// Create a new emission factor with detailed information
     pub fn with_details(
-        region: &Region, 
-        factor: f64, 
+        region: &Region,
+        factor: f64,
         source: EmissionsDataSource,
         factor_type: EmissionsFactorType,
         year: Option<u16>,
         timestamp: Option<DateTime<Utc>>,
-        confidence: Option<f64>
+        confidence: Option<f64>,
     ) -> Self {
         Self {
             grid_emissions_factor: factor,
@@ -286,7 +286,7 @@ impl EmissionFactor {
             confidence,
         }
     }
-    
+
     /// Create default emission factors for all regions
     pub fn default_factors() -> Vec<Self> {
         vec![
@@ -295,13 +295,13 @@ impl EmissionFactor {
             Self::new(&Region::Europe, 0.28, EmissionsDataSource::EEA),
             Self::new(&Region::AsiaPacific, 0.63, EmissionsDataSource::IEA), // China
             Self::new(&Region::AsiaPacific, 0.72, EmissionsDataSource::IEA), // India
-            Self::new(&Region::Global, 0.50, EmissionsDataSource::IEA), // Russia
+            Self::new(&Region::Global, 0.50, EmissionsDataSource::IEA),      // Russia
             Self::new(&Region::AsiaPacific, 0.52, EmissionsDataSource::IEA), // Australia
             Self::new(&Region::SouthAmerica, 0.09, EmissionsDataSource::IEA), // Brazil
-            Self::new(&Region::Africa, 0.85, EmissionsDataSource::IEA), // South Africa
+            Self::new(&Region::Africa, 0.85, EmissionsDataSource::IEA),      // South Africa
         ]
     }
-    
+
     /// Create a global average factor
     pub fn global_average() -> Self {
         Self::new(&Region::Global, 0.475, EmissionsDataSource::IEA)
@@ -325,28 +325,28 @@ impl HardwareType {
     /// Get typical power consumption in watts
     pub fn power_consumption(&self) -> f64 {
         match self {
-            Self::Asic => 3000.0,   // High power ASIC
-            Self::Gpu => 1200.0,    // High-end GPU mining rig
-            Self::Cpu => 200.0,     // Modern CPU
-            Self::Other => 400.0,   // Conservative default
+            Self::Asic => 3000.0, // High power ASIC
+            Self::Gpu => 1200.0,  // High-end GPU mining rig
+            Self::Cpu => 200.0,   // Modern CPU
+            Self::Other => 400.0, // Conservative default
         }
     }
-    
+
     /// Get typical hashrate in TH/s for SHA-256
     pub fn hashrate(&self) -> f64 {
         match self {
-            Self::Asic => 100.0,    // Modern ASIC
-            Self::Gpu => 0.1,       // GPUs are inefficient for SHA-256
-            Self::Cpu => 0.001,     // CPUs are very inefficient for SHA-256
-            Self::Other => 50.0,    // Conservative estimate
+            Self::Asic => 100.0, // Modern ASIC
+            Self::Gpu => 0.1,    // GPUs are inefficient for SHA-256
+            Self::Cpu => 0.001,  // CPUs are very inefficient for SHA-256
+            Self::Other => 50.0, // Conservative estimate
         }
     }
-    
+
     /// Calculate daily energy consumption for this hardware type in kWh/day
     pub fn daily_energy_consumption(&self) -> f64 {
         let efficiency = self.energy_efficiency(); // J/TH
         let hashrate = self.hashrate(); // TH/s
-        
+
         // Convert J/TH to kWh/day
         // (J/TH) * (TH/s) * (seconds per day) / (Joules per kWh)
         efficiency * hashrate * 86400.0 / 3_600_000.0
@@ -356,7 +356,7 @@ impl HardwareType {
     pub fn energy_efficiency(&self) -> f64 {
         let power_w = self.power_consumption();
         let hashrate_ths = self.hashrate();
-        
+
         if hashrate_ths > 0.0 {
             // Convert W to J/s, then multiply by seconds per hour, divide by TH/s
             // The result is Joules per TH
@@ -396,7 +396,7 @@ impl DefaultEmissionsFactors {
     /// Create a new set of default emissions factors
     pub fn new() -> Self {
         let mut factors = HashMap::new();
-        
+
         // Add some default emission factors for common regions
         factors.insert(
             Region::NorthAmerica,
@@ -408,9 +408,9 @@ impl DefaultEmissionsFactors {
                 year: Some(2022),
                 timestamp: None,
                 confidence: Some(0.9),
-            }
+            },
         );
-        
+
         factors.insert(
             Region::Europe,
             EmissionFactor {
@@ -421,9 +421,9 @@ impl DefaultEmissionsFactors {
                 year: Some(2022),
                 timestamp: None,
                 confidence: Some(0.9),
-            }
+            },
         );
-        
+
         factors.insert(
             Region::AsiaPacific,
             EmissionFactor {
@@ -434,9 +434,9 @@ impl DefaultEmissionsFactors {
                 year: Some(2022),
                 timestamp: None,
                 confidence: Some(0.8),
-            }
+            },
         );
-        
+
         factors.insert(
             Region::Global,
             EmissionFactor {
@@ -447,14 +447,12 @@ impl DefaultEmissionsFactors {
                 year: Some(2022),
                 timestamp: None,
                 confidence: Some(0.7),
-            }
+            },
         );
-        
-        Self {
-            factors
-        }
+
+        Self { factors }
     }
 }
 
 // Type alias for backwards compatibility
-pub type EnergySourceType = EnergySource; 
+pub type EnergySourceType = EnergySource;

@@ -18,46 +18,44 @@ pub mod types;
 pub mod verification;
 
 // Re-export commonly used types with module-specific prefixes to avoid conflicts
-pub use types::{Region as TypesRegion, EnergySource, EmissionFactor, EmissionsFactorType, HardwareType as TypesHardwareType};
-pub use miner_reporting::{MinerEnvironmentalInfo, MinerReportingManager, MinerVerificationStatus};
-pub use emissions::{EmissionsTracker, EmissionCalculator, Region as EmissionsRegion, VerificationStatus, Emissions};
-pub use treasury::{EnvironmentalTreasury, EnvironmentalAssetType, EnvironmentalAssetPurchase};
-pub use dashboard::{EnvironmentalDashboard, EnvironmentalMetrics, EmissionsTimePeriod};
-pub use transparency::{TransparencyDashboard, TransparencyReport, TransparencyLevel};
+pub use dashboard::{EmissionsTimePeriod, EnvironmentalDashboard, EnvironmentalMetrics};
+pub use emissions::{
+    EmissionCalculator, Emissions, EmissionsTracker, Region as EmissionsRegion, VerificationStatus,
+};
 pub use governance::{EnvironmentalGovernance, EnvironmentalProposal, ProposalStatus};
+pub use miner_reporting::{MinerEnvironmentalInfo, MinerReportingManager, MinerVerificationStatus};
+pub use transparency::{TransparencyDashboard, TransparencyLevel, TransparencyReport};
+pub use treasury::{EnvironmentalAssetPurchase, EnvironmentalAssetType, EnvironmentalTreasury};
+pub use types::{
+    EmissionFactor, EmissionsFactorType, EnergySource, HardwareType as TypesHardwareType,
+    Region as TypesRegion,
+};
 // pub use alerting::{AlertingSystem, Alert, AlertRule};  // Temporarily disabled for compilation
-pub use verification::{RenewableCertificate, CarbonOffset, VerificationService};
 pub use oracle::{EnvironmentalOracle, OracleError, OracleInfo, OracleSubmission};
+pub use verification::{CarbonOffset, RenewableCertificate, VerificationService};
 
 // New Phase 3 modules
 pub use carbon_tracking::{
-    CarbonTracker, CarbonTrackingResult, OracleConsensusResult, 
-    OracleDataPoint, EnvironmentalMetrics as CarbonMetrics, VerificationProof,
-};
-pub use renewable_validation::{
-    RenewableEnergyValidator, RenewableValidationResult, ValidatedREC,
-    GreenMiningIncentive, EnvironmentalImpact, EnvironmentalDashboard as RenewableDashboard,
+    CarbonTracker, CarbonTrackingResult, EnvironmentalMetrics as CarbonMetrics,
+    OracleConsensusResult, OracleDataPoint, VerificationProof,
 };
 pub use manual_verification::{
-    ManualVerificationSystem, ManualVerificationRequest, ManualVerificationResult,
-    VerificationType, ManualVerificationStatus, QuarterlyReport,
+    ManualVerificationRequest, ManualVerificationResult, ManualVerificationStatus,
+    ManualVerificationSystem, QuarterlyReport, VerificationType,
+};
+pub use renewable_validation::{
+    EnvironmentalDashboard as RenewableDashboard, EnvironmentalImpact, GreenMiningIncentive,
+    RenewableEnergyValidator, RenewableValidationResult, ValidatedREC,
 };
 
 // Type aliases for common use
 pub type HardwareType = types::HardwareType;
-pub type Region = types::Region; 
+pub type Region = types::Region;
 
 // Re-export main types for easier access
 pub use self::emissions::{
-    BlockEnvironmentalData, 
+    BlockEnvironmentalData, EmissionsConfig, NetworkHashrate, RegionalEnergyData,
     TransactionEnvironmentalData,
-    RegionalEnergyData,
-    NetworkHashrate,
-    EmissionsConfig,
 };
 
-pub use self::treasury::{
-    TreasuryConfig,
-    TreasuryDistribution,
-    TreasuryAllocation,
-}; 
+pub use self::treasury::{TreasuryAllocation, TreasuryConfig, TreasuryDistribution};

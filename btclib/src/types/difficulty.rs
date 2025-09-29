@@ -1,5 +1,5 @@
 /// Difficulty adjustment utilities for the blockchain
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Difficulty target representation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -10,18 +10,18 @@ impl DifficultyTarget {
     pub fn new(bits: u32) -> Self {
         Self(bits)
     }
-    
+
     /// Get the compact bits representation
     pub fn bits(&self) -> u32 {
         self.0
     }
-    
+
     /// Convert to a 256-bit target
     pub fn to_target(&self) -> [u8; 32] {
         let bits = self.0;
         let exponent = (bits >> 24) as usize;
         let mantissa = bits & 0x00FFFFFF;
-        
+
         let mut target = [0u8; 32];
         if exponent <= 3 {
             let shift = 8 * (3 - exponent);
@@ -44,19 +44,19 @@ impl DifficultyTarget {
                 }
             }
         }
-        
+
         target
     }
-    
+
     /// Calculate difficulty from target
     pub fn difficulty(&self) -> f64 {
         let max_target = DifficultyTarget::new(0x1d00ffff).to_target();
         let current_target = self.to_target();
-        
+
         // Simplified calculation
         let max_val = u64::from_be_bytes(max_target[24..32].try_into().unwrap_or([0; 8]));
         let cur_val = u64::from_be_bytes(current_target[24..32].try_into().unwrap_or([1; 8]));
-        
+
         if cur_val == 0 {
             f64::MAX
         } else {
@@ -74,18 +74,18 @@ pub const MAX_TARGET: DifficultyTarget = DifficultyTarget(0x1d00ffff);
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_difficulty_target() {
         let target = DifficultyTarget::new(0x1d00ffff);
         assert_eq!(target.bits(), 0x1d00ffff);
-        
+
         let target_bytes = target.to_target();
         assert_eq!(target_bytes[0], 0x00);
         assert_eq!(target_bytes[1], 0x00);
         assert_eq!(target_bytes[2], 0x00);
     }
-    
+
     #[test]
     fn test_difficulty_calculation() {
         let target = DifficultyTarget::new(0x1d00ffff);
@@ -93,6 +93,9 @@ mod tests {
         assert!(difficulty > 0.0);
         // Note: The actual difficulty calculation may produce values > 1
         // This is not a security issue, just a test expectation mismatch
-        assert!(difficulty.is_finite(), "Difficulty should be a finite number");
+        assert!(
+            difficulty.is_finite(),
+            "Difficulty should be a finite number"
+        );
     }
-} 
+}

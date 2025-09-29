@@ -2,15 +2,15 @@
 // Implements quarterly manual review process by Supernova Foundation staff
 // Combines automated validation with human oversight for complex cases
 
+use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc, Duration, Datelike, TimeZone};
-use sha2::{Sha256, Digest};
 
 use crate::environmental::{
-    types::{EnergySourceType, Region},
     oracle::OracleError,
+    types::{EnergySourceType, Region},
 };
 
 /// Manual verification request for Foundation review
@@ -18,31 +18,31 @@ use crate::environmental::{
 pub struct ManualVerificationRequest {
     /// Unique request ID
     pub request_id: String,
-    
+
     /// Miner/entity requesting verification
     pub requester_id: String,
-    
+
     /// Type of verification needed
     pub verification_type: VerificationType,
-    
+
     /// Documents submitted for review
     pub submitted_documents: Vec<SubmittedDocument>,
-    
+
     /// Energy data to verify
     pub energy_data: EnergyVerificationData,
-    
+
     /// Submission timestamp
     pub submitted_at: DateTime<Utc>,
-    
+
     /// Current status
     pub status: ManualVerificationStatus,
-    
+
     /// Priority level
     pub priority: PriorityLevel,
-    
+
     /// Assigned reviewer (Foundation staff)
     pub assigned_reviewer: Option<String>,
-    
+
     /// Review deadline
     pub review_deadline: DateTime<Utc>,
 }
@@ -52,22 +52,22 @@ pub struct ManualVerificationRequest {
 pub enum VerificationType {
     /// Large-scale renewable installation (>10MW)
     LargeScaleRenewable,
-    
+
     /// Complex multi-source energy mix
     ComplexEnergyMix,
-    
+
     /// International renewable certificates
     InternationalREC,
-    
+
     /// Custom power purchase agreements
     CustomPPA,
-    
+
     /// Off-grid renewable systems
     OffGridSystem,
-    
+
     /// Novel renewable technology
     NovelTechnology,
-    
+
     /// Disputed automatic verification
     DisputedVerification,
 }
@@ -101,19 +101,19 @@ pub enum DocumentType {
 pub struct EnergyVerificationData {
     /// Total energy consumption (MWh)
     pub total_consumption_mwh: f64,
-    
+
     /// Claimed renewable energy (MWh)
     pub claimed_renewable_mwh: f64,
-    
+
     /// Energy sources breakdown
     pub energy_sources: HashMap<EnergySourceType, f64>,
-    
+
     /// Time period covered
     pub coverage_period: (DateTime<Utc>, DateTime<Utc>),
-    
+
     /// Location of operations
     pub location: LocationData,
-    
+
     /// Additional claims
     pub additional_claims: Vec<String>,
 }
@@ -131,22 +131,22 @@ pub struct LocationData {
 pub enum ManualVerificationStatus {
     /// Submitted, awaiting assignment
     Pending,
-    
+
     /// Assigned to reviewer
     UnderReview,
-    
+
     /// Additional information requested
     InfoRequested,
-    
+
     /// Approved by Foundation
     Approved,
-    
+
     /// Rejected with reasons
     Rejected(Vec<String>),
-    
+
     /// Partially approved
     PartiallyApproved(f64), // Percentage approved
-    
+
     /// Deferred to next quarter
     Deferred,
 }
@@ -164,30 +164,30 @@ pub enum PriorityLevel {
 pub struct ManualVerificationResult {
     /// Request ID
     pub request_id: String,
-    
+
     /// Reviewer details
     pub reviewer_id: String,
     pub reviewer_name: String,
-    
+
     /// Review timestamp
     pub reviewed_at: DateTime<Utc>,
-    
+
     /// Verification decision
     pub decision: VerificationDecision,
-    
+
     /// Approved renewable amount (MWh)
     pub approved_renewable_mwh: f64,
-    
+
     /// Detailed findings
     pub findings: Vec<ReviewFinding>,
-    
+
     /// Recommendations
     pub recommendations: Vec<String>,
-    
+
     /// Validity period
     pub valid_from: DateTime<Utc>,
     pub valid_until: DateTime<Utc>,
-    
+
     /// Digital signature
     pub reviewer_signature: String,
 }
@@ -231,19 +231,19 @@ pub enum FindingSeverity {
 pub struct QuarterlyReviewBatch {
     /// Quarter identifier (e.g., "2024-Q1")
     pub quarter_id: String,
-    
+
     /// Batch creation date
     pub created_at: DateTime<Utc>,
-    
+
     /// Review deadline
     pub deadline: DateTime<Utc>,
-    
+
     /// Requests in this batch
     pub requests: Vec<String>, // Request IDs
-    
+
     /// Batch status
     pub status: BatchStatus,
-    
+
     /// Statistics
     pub stats: BatchStatistics,
 }
@@ -272,19 +272,19 @@ pub struct BatchStatistics {
 pub struct ManualVerificationSystem {
     /// Pending verification requests
     pending_requests: Arc<RwLock<HashMap<String, ManualVerificationRequest>>>,
-    
+
     /// Completed verifications
     completed_verifications: Arc<RwLock<HashMap<String, ManualVerificationResult>>>,
-    
+
     /// Quarterly batches
     quarterly_batches: Arc<RwLock<HashMap<String, QuarterlyReviewBatch>>>,
-    
+
     /// Authorized reviewers (Foundation staff)
     authorized_reviewers: Arc<RwLock<HashMap<String, ReviewerProfile>>>,
-    
+
     /// Review templates and guidelines
     review_guidelines: Arc<RwLock<ReviewGuidelines>>,
-    
+
     /// System metrics
     metrics: Arc<RwLock<VerificationMetrics>>,
 }
@@ -335,7 +335,7 @@ impl ManualVerificationSystem {
             metrics: Arc::new(RwLock::new(VerificationMetrics::default())),
         }
     }
-    
+
     /// Submit a request for manual verification
     pub fn submit_manual_verification_request(
         &self,
@@ -345,13 +345,13 @@ impl ManualVerificationSystem {
         energy_data: EnergyVerificationData,
     ) -> Result<String, OracleError> {
         let request_id = self.generate_request_id(&requester_id);
-        
+
         // Determine priority based on type and scale
         let priority = self.determine_priority(&verification_type, &energy_data);
-        
+
         // Calculate review deadline (end of current quarter)
         let review_deadline = self.get_quarter_end_date(Utc::now());
-        
+
         let request = ManualVerificationRequest {
             request_id: request_id.clone(),
             requester_id,
@@ -364,23 +364,25 @@ impl ManualVerificationSystem {
             assigned_reviewer: None,
             review_deadline,
         };
-        
+
         // Validate request has required documents
         self.validate_required_documents(&request)?;
-        
+
         // Add to pending requests
-        self.pending_requests.write().unwrap()
+        self.pending_requests
+            .write()
+            .unwrap()
             .insert(request_id.clone(), request);
-        
+
         // Add to current quarter batch
         self.add_to_quarterly_batch(&request_id)?;
-        
+
         println!("📋 Manual verification request submitted: {}", request_id);
         println!("   Review deadline: {}", review_deadline.format("%Y-%m-%d"));
-        
+
         Ok(request_id)
     }
-    
+
     /// Process a manual verification (Foundation staff only)
     pub fn process_manual_verification(
         &self,
@@ -393,18 +395,20 @@ impl ManualVerificationSystem {
     ) -> Result<ManualVerificationResult, OracleError> {
         // Verify reviewer is authorized
         let reviewers = self.authorized_reviewers.read().unwrap();
-        let reviewer = reviewers.get(reviewer_id)
+        let reviewer = reviewers
+            .get(reviewer_id)
             .ok_or_else(|| OracleError::OracleNotRegistered(reviewer_id.to_string()))?;
-        
+
         // Get the request
         let mut requests = self.pending_requests.write().unwrap();
-        let request = requests.get_mut(request_id)
+        let request = requests
+            .get_mut(request_id)
             .ok_or_else(|| OracleError::VerificationFailed("Request not found".to_string()))?;
-        
+
         // Update request status
         request.status = decision.status.clone();
         request.assigned_reviewer = Some(reviewer_id.to_string());
-        
+
         // Create verification result
         let result = ManualVerificationResult {
             request_id: request_id.to_string(),
@@ -419,34 +423,43 @@ impl ManualVerificationSystem {
             valid_until: request.energy_data.coverage_period.1,
             reviewer_signature: self.generate_signature(reviewer_id, request_id),
         };
-        
+
         // Store completed verification
-        self.completed_verifications.write().unwrap()
+        self.completed_verifications
+            .write()
+            .unwrap()
             .insert(request_id.to_string(), result.clone());
-        
+
         // Update metrics
         self.update_metrics(&result);
-        
-        println!("✅ Manual verification completed for request: {}", request_id);
+
+        println!(
+            "✅ Manual verification completed for request: {}",
+            request_id
+        );
         println!("   Approved renewable: {} MWh", approved_mwh);
-        
+
         Ok(result)
     }
-    
+
     /// Get quarterly review batch
     pub fn get_quarterly_batch(&self, quarter_id: &str) -> Option<QuarterlyReviewBatch> {
-        self.quarterly_batches.read().unwrap().get(quarter_id).cloned()
+        self.quarterly_batches
+            .read()
+            .unwrap()
+            .get(quarter_id)
+            .cloned()
     }
-    
+
     /// Create quarterly review batch
     pub fn create_quarterly_batch(&self) -> Result<String, OracleError> {
         let quarter_id = self.get_current_quarter_id();
         let deadline = self.get_quarter_end_date(Utc::now());
-        
+
         // Collect all pending requests
         let pending = self.pending_requests.read().unwrap();
         let request_ids: Vec<String> = pending.keys().cloned().collect();
-        
+
         let batch = QuarterlyReviewBatch {
             quarter_id: quarter_id.clone(),
             created_at: Utc::now(),
@@ -458,32 +471,35 @@ impl ManualVerificationSystem {
                 ..Default::default()
             },
         };
-        
-        self.quarterly_batches.write().unwrap()
+
+        self.quarterly_batches
+            .write()
+            .unwrap()
             .insert(quarter_id.clone(), batch);
-        
+
         println!("📊 Quarterly review batch created: {}", quarter_id);
         println!("   Total requests: {}", request_ids.len());
         println!("   Deadline: {}", deadline.format("%Y-%m-%d"));
-        
+
         Ok(quarter_id)
     }
-    
+
     /// Assign requests to reviewers
     pub fn assign_requests_to_reviewers(&self, quarter_id: &str) -> Result<u32, OracleError> {
         let mut batches = self.quarterly_batches.write().unwrap();
-        let batch = batches.get_mut(quarter_id)
+        let batch = batches
+            .get_mut(quarter_id)
             .ok_or_else(|| OracleError::VerificationFailed("Batch not found".to_string()))?;
-        
+
         let mut requests = self.pending_requests.write().unwrap();
         let reviewers = self.authorized_reviewers.read().unwrap();
-        
+
         let mut assigned_count = 0;
-        
+
         // Simple round-robin assignment
         let reviewer_ids: Vec<String> = reviewers.keys().cloned().collect();
         let mut reviewer_index = 0;
-        
+
         for request_id in &batch.requests {
             if let Some(request) = requests.get_mut(request_id) {
                 if request.assigned_reviewer.is_none() {
@@ -494,18 +510,26 @@ impl ManualVerificationSystem {
                 }
             }
         }
-        
+
         batch.status = BatchStatus::ReadyForReview;
-        
-        println!("👥 Assigned {} requests to {} reviewers", assigned_count, reviewer_ids.len());
-        
+
+        println!(
+            "👥 Assigned {} requests to {} reviewers",
+            assigned_count,
+            reviewer_ids.len()
+        );
+
         Ok(assigned_count)
     }
-    
+
     /// Generate quarterly report
     pub fn generate_quarterly_report(&self, quarter_id: &str) -> QuarterlyReport {
-        let batch = self.quarterly_batches.read().unwrap()
-            .get(quarter_id).cloned()
+        let batch = self
+            .quarterly_batches
+            .read()
+            .unwrap()
+            .get(quarter_id)
+            .cloned()
             .unwrap_or_else(|| QuarterlyReviewBatch {
                 quarter_id: quarter_id.to_string(),
                 created_at: Utc::now(),
@@ -514,40 +538,47 @@ impl ManualVerificationSystem {
                 status: BatchStatus::Completed,
                 stats: BatchStatistics::default(),
             });
-        
+
         let completed = self.completed_verifications.read().unwrap();
-        let quarter_results: Vec<ManualVerificationResult> = completed.values()
+        let quarter_results: Vec<ManualVerificationResult> = completed
+            .values()
             .filter(|r| self.get_quarter_id(r.reviewed_at) == quarter_id)
             .cloned()
             .collect();
-        
+
         QuarterlyReport {
             quarter_id: quarter_id.to_string(),
             total_requests_reviewed: quarter_results.len() as u64,
-            total_mwh_claimed: quarter_results.iter()
+            total_mwh_claimed: quarter_results
+                .iter()
                 .map(|r| r.request_id.clone())
                 .filter_map(|id| self.pending_requests.read().unwrap().get(&id).cloned())
                 .map(|req| req.energy_data.claimed_renewable_mwh)
                 .sum(),
-            total_mwh_approved: quarter_results.iter()
+            total_mwh_approved: quarter_results
+                .iter()
                 .map(|r| r.approved_renewable_mwh)
                 .sum(),
-            approval_rate: if quarter_results.is_empty() { 0.0 } else {
-                quarter_results.iter()
+            approval_rate: if quarter_results.is_empty() {
+                0.0
+            } else {
+                quarter_results
+                    .iter()
                     .filter(|r| matches!(r.decision.status, ManualVerificationStatus::Approved))
-                    .count() as f64 / quarter_results.len() as f64
+                    .count() as f64
+                    / quarter_results.len() as f64
             },
             key_findings: self.summarize_findings(&quarter_results),
             recommendations: self.compile_recommendations(&quarter_results),
             generated_at: Utc::now(),
         }
     }
-    
+
     // Helper methods
-    
+
     fn initialize_guidelines() -> ReviewGuidelines {
         let mut doc_requirements = HashMap::new();
-        
+
         // Large scale renewable requirements
         doc_requirements.insert(
             VerificationType::LargeScaleRenewable,
@@ -558,7 +589,7 @@ impl ManualVerificationSystem {
                 DocumentType::AuditReport,
             ],
         );
-        
+
         // International REC requirements
         doc_requirements.insert(
             VerificationType::InternationalREC,
@@ -568,7 +599,7 @@ impl ManualVerificationSystem {
                 DocumentType::ThirdPartyAttestation,
             ],
         );
-        
+
         ReviewGuidelines {
             document_requirements: doc_requirements,
             review_checklists: HashMap::new(),
@@ -581,7 +612,7 @@ impl ManualVerificationSystem {
             ],
         }
     }
-    
+
     fn generate_request_id(&self, requester_id: &str) -> String {
         let timestamp = Utc::now().timestamp();
         let mut hasher = Sha256::new();
@@ -589,7 +620,7 @@ impl ManualVerificationSystem {
         hasher.update(timestamp.to_string().as_bytes());
         format!("MV-{}", hex::encode(&hasher.finalize()[..8]))
     }
-    
+
     fn determine_priority(
         &self,
         verification_type: &VerificationType,
@@ -597,30 +628,32 @@ impl ManualVerificationSystem {
     ) -> PriorityLevel {
         match verification_type {
             VerificationType::DisputedVerification => PriorityLevel::Critical,
-            VerificationType::LargeScaleRenewable if energy_data.claimed_renewable_mwh > 50000.0 => {
+            VerificationType::LargeScaleRenewable
+                if energy_data.claimed_renewable_mwh > 50000.0 =>
+            {
                 PriorityLevel::High
             }
             VerificationType::NovelTechnology => PriorityLevel::High,
             _ => PriorityLevel::Medium,
         }
     }
-    
+
     fn get_current_quarter_id(&self) -> String {
         let now = Utc::now();
         let quarter = (now.month() - 1) / 3 + 1;
         format!("{}-Q{}", now.year(), quarter)
     }
-    
+
     fn get_quarter_id(&self, date: DateTime<Utc>) -> String {
         let quarter = (date.month() - 1) / 3 + 1;
         format!("{}-Q{}", date.year(), quarter)
     }
-    
+
     fn get_quarter_end_date(&self, date: DateTime<Utc>) -> DateTime<Utc> {
         let quarter = (date.month() - 1) / 3 + 1;
         let end_month = quarter * 3;
         let year = date.year();
-        
+
         let end_day = match end_month {
             3 => 31,
             6 => 30,
@@ -628,56 +661,62 @@ impl ManualVerificationSystem {
             12 => 31,
             _ => unreachable!(),
         };
-        
+
         Utc.with_ymd_and_hms(year, end_month, end_day, 23, 59, 59)
             .single()
             .expect("Invalid date")
     }
-    
+
     fn validate_required_documents(
         &self,
         request: &ManualVerificationRequest,
     ) -> Result<(), OracleError> {
         let guidelines = self.review_guidelines.read().unwrap();
-        
-        if let Some(required_docs) = guidelines.document_requirements.get(&request.verification_type) {
-            let submitted_types: HashSet<_> = request.submitted_documents.iter()
+
+        if let Some(required_docs) = guidelines
+            .document_requirements
+            .get(&request.verification_type)
+        {
+            let submitted_types: HashSet<_> = request
+                .submitted_documents
+                .iter()
                 .map(|d| &d.document_type)
                 .collect();
-            
+
             for required in required_docs {
                 if !submitted_types.contains(required) {
-                    return Err(OracleError::VerificationFailed(
-                        format!("Missing required document type: {:?}", required)
-                    ));
+                    return Err(OracleError::VerificationFailed(format!(
+                        "Missing required document type: {:?}",
+                        required
+                    )));
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn add_to_quarterly_batch(&self, request_id: &str) -> Result<(), OracleError> {
         let quarter_id = self.get_current_quarter_id();
         let mut batches = self.quarterly_batches.write().unwrap();
-        
-        let batch = batches.entry(quarter_id.clone()).or_insert_with(|| {
-            QuarterlyReviewBatch {
+
+        let batch = batches
+            .entry(quarter_id.clone())
+            .or_insert_with(|| QuarterlyReviewBatch {
                 quarter_id: quarter_id.clone(),
                 created_at: Utc::now(),
                 deadline: self.get_quarter_end_date(Utc::now()),
                 requests: Vec::new(),
                 status: BatchStatus::Preparing,
                 stats: BatchStatistics::default(),
-            }
-        });
-        
+            });
+
         batch.requests.push(request_id.to_string());
         batch.stats.total_requests += 1;
-        
+
         Ok(())
     }
-    
+
     fn generate_signature(&self, reviewer_id: &str, request_id: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(reviewer_id.as_bytes());
@@ -685,47 +724,46 @@ impl ManualVerificationSystem {
         hasher.update(Utc::now().timestamp().to_string().as_bytes());
         hex::encode(hasher.finalize())
     }
-    
+
     fn update_metrics(&self, result: &ManualVerificationResult) {
         let mut metrics = self.metrics.write().unwrap();
         metrics.completed_reviews += 1;
         metrics.total_mwh_verified += result.approved_renewable_mwh;
-        
+
         if matches!(result.decision.status, ManualVerificationStatus::Approved) {
             let current_approvals = metrics.approval_rate * metrics.completed_reviews as f64;
             metrics.approval_rate = (current_approvals + 1.0) / metrics.completed_reviews as f64;
         }
     }
-    
+
     fn summarize_findings(&self, results: &[ManualVerificationResult]) -> Vec<String> {
         let mut summary = Vec::new();
-        
-        let total_findings: usize = results.iter()
-            .map(|r| r.findings.len())
-            .sum();
-        
-        let critical_findings: usize = results.iter()
+
+        let total_findings: usize = results.iter().map(|r| r.findings.len()).sum();
+
+        let critical_findings: usize = results
+            .iter()
             .flat_map(|r| &r.findings)
             .filter(|f| matches!(f.severity, FindingSeverity::Critical))
             .count();
-        
+
         summary.push(format!("Total findings: {}", total_findings));
         summary.push(format!("Critical findings: {}", critical_findings));
-        
+
         summary
     }
-    
+
     fn compile_recommendations(&self, results: &[ManualVerificationResult]) -> Vec<String> {
         let mut all_recommendations = Vec::new();
-        
+
         for result in results {
             all_recommendations.extend(result.recommendations.clone());
         }
-        
+
         // Deduplicate and sort
         all_recommendations.sort();
         all_recommendations.dedup();
-        
+
         all_recommendations
     }
 }
@@ -752,7 +790,12 @@ pub fn submit_manual_verification_request(
     documents: Vec<SubmittedDocument>,
     energy_data: EnergyVerificationData,
 ) -> Result<String, OracleError> {
-    system.submit_manual_verification_request(requester_id, verification_type, documents, energy_data)
+    system.submit_manual_verification_request(
+        requester_id,
+        verification_type,
+        documents,
+        energy_data,
+    )
 }
 
 pub fn process_manual_verification(
@@ -778,6 +821,9 @@ pub fn create_quarterly_batch(system: &ManualVerificationSystem) -> Result<Strin
     system.create_quarterly_batch()
 }
 
-pub fn generate_quarterly_report(system: &ManualVerificationSystem, quarter_id: &str) -> QuarterlyReport {
+pub fn generate_quarterly_report(
+    system: &ManualVerificationSystem,
+    quarter_id: &str,
+) -> QuarterlyReport {
     system.generate_quarterly_report(quarter_id)
-} 
+}

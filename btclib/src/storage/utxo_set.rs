@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use memmap2::{MmapMut, MmapOptions};
@@ -10,7 +10,7 @@ use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
 use crate::wallet::quantum_wallet::QuantumAddress;
 // use bitcoin::{Address, ScriptBuf};
 
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// Size of merkle tree leaf node in bytes
 const MERKLE_LEAF_SIZE: usize = 32 + 8 + 2 + 8; // hash + value + script_type + script_length
@@ -117,7 +117,11 @@ impl UtxoSet {
     }
 
     /// Create a new UTXO set with persistent storage
-    pub fn new_persistent(db_path: &str, cache_capacity: usize, use_mmap: bool) -> std::io::Result<Self> {
+    pub fn new_persistent(
+        db_path: &str,
+        cache_capacity: usize,
+        use_mmap: bool,
+    ) -> std::io::Result<Self> {
         let initial_commitment = UtxoCommitment {
             root_hash: [0; 32],
             utxo_count: 0,
@@ -161,7 +165,11 @@ impl UtxoSet {
             let mmap = unsafe { MmapOptions::new().map_mut(&file)? };
             self.mmap = Some(Arc::new(Mutex::new(mmap)));
 
-            info!("Initialized memory-mapped UTXO database at {} with size {}MB", path, initial_size / 1024 / 1024);
+            info!(
+                "Initialized memory-mapped UTXO database at {} with size {}MB",
+                path,
+                initial_size / 1024 / 1024
+            );
         }
 
         Ok(())
@@ -242,11 +250,11 @@ impl UtxoSet {
         if let Some(entry) = &result {
             let mut commitment = self.commitment.write().map_err(|e| e.to_string())?;
             commitment.utxo_count = commitment.utxo_count.saturating_sub(1);
-            
+
             // Get the amount
             let amount = entry.amount();
             commitment.total_value = commitment.total_value.saturating_sub(amount);
-            
+
             // Full merkle tree update would be done periodically
         }
 
@@ -268,13 +276,13 @@ impl UtxoSet {
         // Look in cache first
         {
             let cache = self.cache.read().map_err(|e| e.to_string())?;
-            
+
             if let Some(entry) = cache.get(outpoint) {
                 // Update statistics
                 let mut stats = self.stats.write().map_err(|e| e.to_string())?;
                 stats.hits += 1;
                 stats.operation_time += start_time.elapsed();
-                
+
                 return Ok(Some(entry.clone()));
             }
         }
@@ -283,13 +291,13 @@ impl UtxoSet {
         if self.use_mmap {
             // Look up in index
             let index = self.index.read().map_err(|e| e.to_string())?;
-            
+
             if index.contains_key(outpoint) {
                 // In a real implementation, we would:
                 // 1. Get the offset from the index
                 // 2. Load from mmap at that offset
                 // 3. Deserialize the entry
-                
+
                 // For the stub implementation, we just return None
                 // Note: In a real implementation, this would add the entry to cache
             }
@@ -341,16 +349,16 @@ impl UtxoSet {
     /// Update the UTXO commitment (recalculate Merkle root)
     pub fn update_commitment(&self, block_height: u32) -> Result<UtxoCommitment, String> {
         let start_time = Instant::now();
-        
+
         // Get all UTXOs (from cache and potentially disk)
         let all_utxos = self.get_all_utxos()?;
-        
+
         // Calculate total value
         let total_value = all_utxos.iter().map(|entry| entry.amount()).sum();
-        
+
         // Build simplified Merkle tree (real implementation would be more complex)
         let root_hash = self.calculate_merkle_root(&all_utxos)?;
-        
+
         // Update commitment
         let new_commitment = UtxoCommitment {
             root_hash,
@@ -358,21 +366,25 @@ impl UtxoSet {
             total_value,
             block_height,
         };
-        
+
         {
             let mut commitment = self.commitment.write().map_err(|e| e.to_string())?;
             *commitment = new_commitment.clone();
         }
-        
+
         // Update stats
         {
             let mut stats = self.stats.write().map_err(|e| e.to_string())?;
             stats.operation_time += start_time.elapsed();
         }
-        
-        info!("Updated UTXO commitment at height {}: {} UTXOs, {} total value",
-              block_height, all_utxos.len(), total_value);
-        
+
+        info!(
+            "Updated UTXO commitment at height {}: {} UTXOs, {} total value",
+            block_height,
+            all_utxos.len(),
+            total_value
+        );
+
         Ok(new_commitment)
     }
 
@@ -381,54 +393,54 @@ impl UtxoSet {
         if utxos.is_empty() {
             return Ok([0; 32]);
         }
-        
+
         // For simplicity, we'll hash all UTXOs together
         // A real implementation would build a proper Merkle tree
         let hasher = Sha256::new();
-        
+
         for entry in utxos {
             // Hash the entry
             let mut hasher = Sha256::new();
             hasher.update(entry.outpoint.txid);
             hasher.update(entry.outpoint.vout.to_le_bytes());
-            
+
             // Hash value
             let amount = entry.amount();
             hasher.update(amount.to_le_bytes());
-            
+
             // Hash script (simplified)
             let script = &entry.output.pub_key_script;
             hasher.update(script);
-            
+
             // Hash metadata
             hasher.update(entry.height.to_le_bytes());
             hasher.update([entry.is_coinbase as u8]);
             hasher.update([entry.is_confirmed as u8]);
         }
-        
+
         let result = hasher.finalize();
         let mut root_hash = [0u8; 32];
         root_hash.copy_from_slice(&result[..32]);
-        
+
         Ok(root_hash)
     }
 
     /// Get all UTXOs in the set
     fn get_all_utxos(&self) -> Result<Vec<UtxoEntry>, String> {
         let mut all_utxos = Vec::new();
-        
+
         // Get UTXOs from cache
         {
             let cache = self.cache.read().map_err(|e| e.to_string())?;
             all_utxos.extend(cache.values().cloned());
         }
-        
+
         // If using mmap, also get UTXOs from disk
         if self.use_mmap {
             // In a real implementation, would scan the index and load from disk
             // For simplicity, we'll just use what's in cache
         }
-        
+
         Ok(all_utxos)
     }
 
@@ -437,29 +449,29 @@ impl UtxoSet {
         if !self.use_mmap || self.mmap.is_none() {
             return Ok(());
         }
-        
+
         let start_time = Instant::now();
-        
+
         // Get entries to flush
         let entries_to_flush = {
             let cache = self.cache.read().map_err(|e| e.to_string())?;
             cache.values().cloned().collect::<Vec<_>>()
         };
-        
+
         if entries_to_flush.is_empty() {
             return Ok(());
         }
-        
+
         // In a real implementation, would serialize entries and write to mmap
         // For simplicity, we'll just log
         info!("Flushed {} UTXOs to disk", entries_to_flush.len());
-        
+
         // Update stats
         {
             let mut stats = self.stats.write().map_err(|e| e.to_string())?;
             stats.operation_time += start_time.elapsed();
         }
-        
+
         Ok(())
     }
 
@@ -469,40 +481,38 @@ impl UtxoSet {
             let cache = self.cache.read().map_err(|e| e.to_string())?;
             cache.len()
         };
-        
+
         if cache_size <= self.cache_capacity {
             return Ok(());
         }
-        
+
         // Flush to disk first if using persistent storage
         if self.use_mmap {
             self.flush()?;
         }
-        
+
         // Calculate entries to remove
         let entries_to_remove = cache_size - self.cache_capacity;
         if entries_to_remove == 0 {
             return Ok(());
         }
-        
+
         // Select entries to remove (oldest or least recently used)
         // For simplicity, we'll just remove random entries
         {
             let mut cache = self.cache.write().map_err(|e| e.to_string())?;
-            let keys_to_remove: Vec<OutPoint> = cache.keys()
-                .take(entries_to_remove)
-                .cloned()
-                .collect();
-                
+            let keys_to_remove: Vec<OutPoint> =
+                cache.keys().take(entries_to_remove).cloned().collect();
+
             for key in keys_to_remove {
                 cache.remove(&key);
             }
-            
+
             // Update stats
             let mut stats = self.stats.write().map_err(|e| e.to_string())?;
             stats.entries = cache.len();
         }
-        
+
         Ok(())
     }
 
@@ -522,13 +532,13 @@ impl UtxoSet {
                 return 0; // Return 0 balance on error
             }
         };
-        
+
         for entry in cache.values() {
             if entry.output.pub_key_script == script_pubkey {
                 balance += entry.amount();
             }
         }
-        
+
         balance
     }
 
@@ -539,19 +549,19 @@ impl UtxoSet {
             let mut cache = self.cache.write().map_err(|e| e.to_string())?;
             cache.clear();
         }
-        
+
         // Clear index
         {
             let mut index = self.index.write().map_err(|e| e.to_string())?;
             index.clear();
         }
-        
+
         // Clear spent outpoints
         {
             let mut spent = self.spent_outpoints.write().map_err(|e| e.to_string())?;
             spent.clear();
         }
-        
+
         // Reset commitment
         {
             let mut commitment = self.commitment.write().map_err(|e| e.to_string())?;
@@ -562,15 +572,15 @@ impl UtxoSet {
                 block_height: 0,
             };
         }
-        
+
         // Reset stats
         {
             let mut stats = self.stats.write().map_err(|e| e.to_string())?;
             *stats = UtxoCacheStats::default();
         }
-        
+
         info!("UTXO set cleared");
-        
+
         Ok(())
     }
 
@@ -587,12 +597,12 @@ impl UtxoSet {
 
         for entry in cache.values() {
             // if address_scripts.iter().any(|s| s.as_bytes() == entry.output.pub_key_script) {
-                utxos.push(entry.clone());
+            utxos.push(entry.clone());
             // }
         }
         utxos
     }
-    
+
     /// Get the count of UTXOs in the set
     pub fn get_count(&self) -> usize {
         self.cache.read().unwrap().len()
@@ -603,14 +613,14 @@ impl UtxoSet {
 mod tests {
     use super::*;
     use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
-    
+
     fn create_test_utxo(txid: &str, vout: u32, value: u64) -> UtxoEntry {
         // Convert hex string to [u8; 32]
         let mut txid_bytes = [0u8; 32];
         if txid.len() >= 64 {
             hex::decode_to_slice(txid, &mut txid_bytes).unwrap();
         }
-        
+
         UtxoEntry {
             outpoint: OutPoint {
                 txid: txid_bytes,
@@ -622,50 +632,50 @@ mod tests {
             is_confirmed: true,
         }
     }
-    
+
     #[test]
     fn test_utxo_add_get_remove() {
         let utxo_set = UtxoSet::new_in_memory(100);
-        
+
         // Add a UTXO
         let utxo = create_test_utxo("tx1", 0, 1000);
         assert!(utxo_set.add(utxo.clone()).is_ok());
-        
+
         // Get the UTXO
         let result = utxo_set.get(&utxo.outpoint).unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().amount(), 1000);
-        
+
         // Remove the UTXO
         let removed = utxo_set.remove(&utxo.outpoint).unwrap();
         assert!(removed.is_some());
         assert_eq!(removed.unwrap().amount(), 1000);
-        
+
         // Verify it's gone
         assert!(!utxo_set.contains(&utxo.outpoint).unwrap());
         assert!(utxo_set.get(&utxo.outpoint).unwrap().is_none());
     }
-    
+
     #[test]
     fn test_utxo_commitment() {
         let utxo_set = UtxoSet::new_in_memory(100);
-        
+
         // Add some UTXOs
         let utxo1 = create_test_utxo("tx1", 0, 1000);
         let utxo2 = create_test_utxo("tx2", 1, 2000);
-        
+
         assert!(utxo_set.add(utxo1).is_ok());
         assert!(utxo_set.add(utxo2).is_ok());
-        
+
         // Update commitment
         let commitment = utxo_set.update_commitment(10).unwrap();
-        
+
         // Verify commitment values
         assert_eq!(commitment.utxo_count, 2);
         assert_eq!(commitment.total_value, 3000);
         assert_eq!(commitment.block_height, 10);
-        
+
         // Root hash should not be zero
         assert_ne!(commitment.root_hash, [0; 32]);
     }
-} 
+}

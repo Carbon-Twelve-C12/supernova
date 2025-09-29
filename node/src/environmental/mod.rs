@@ -1,15 +1,14 @@
-use sysinfo::{System, Disks};
-use std::collections::HashMap;
-use std::sync::{RwLock, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::error;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Mutex, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+use sysinfo::{Disks, System};
 use thiserror::Error;
+use tracing::error;
 
 use crate::api::types::environmental::{
-    EnvironmentalImpact, ResourceUtilization,
-    EnvironmentalSettings, EnergyUsageHistory,
-    EnergySource as ApiEnergySource,
+    EnergySource as ApiEnergySource, EnergyUsageHistory, EnvironmentalImpact,
+    EnvironmentalSettings, ResourceUtilization,
 };
 
 /// Internal settings for environmental monitoring with extended fields
@@ -85,7 +84,7 @@ impl EnvironmentalMonitor {
     pub fn new() -> Self {
         let mut system = System::new_all();
         system.refresh_all();
-        
+
         // Default settings
         let settings = EnvironmentalSettingsInternal {
             monitoring_enabled: true,
@@ -98,17 +97,17 @@ impl EnvironmentalMonitor {
             energy_efficiency_target: Some(0.5),
             location_code: Some("global".to_string()),
         };
-        
+
         // Initialize with some common emission factors (g CO2e/kWh)
         let mut emission_factors = HashMap::new();
         emission_factors.insert("us".to_string(), 417.0);
         emission_factors.insert("eu".to_string(), 295.0);
         emission_factors.insert("cn".to_string(), 609.0);
         emission_factors.insert("global".to_string(), 475.0);
-        
+
         // Initialize energy mix data
         let mut energy_mix = HashMap::new();
-        
+
         // Global average energy mix
         let mut global_mix = HashMap::new();
         global_mix.insert(EnergySourceType::Coal, 38.0);
@@ -119,7 +118,7 @@ impl EnvironmentalMonitor {
         global_mix.insert(EnergySourceType::Solar, 3.0);
         global_mix.insert(EnergySourceType::Other, 5.0);
         energy_mix.insert("global".to_string(), global_mix);
-        
+
         Self {
             settings: RwLock::new(settings),
             system: Mutex::new(system),
@@ -130,18 +129,24 @@ impl EnvironmentalMonitor {
             start_time: SystemTime::now(),
         }
     }
-    
+
     /// Get comprehensive environmental impact data
-    pub fn get_environmental_impact(&self, period: u64, detail: &str) -> Result<EnvironmentalImpact, EnvironmentalError> {
+    pub fn get_environmental_impact(
+        &self,
+        period: u64,
+        detail: &str,
+    ) -> Result<EnvironmentalImpact, EnvironmentalError> {
         if period == 0 {
-            return Err(EnvironmentalError::InvalidTimePeriod("Period must be greater than 0".to_string()));
+            return Err(EnvironmentalError::InvalidTimePeriod(
+                "Period must be greater than 0".to_string(),
+            ));
         }
-        
+
         // Get energy and carbon data
         let energy_data = self.get_energy_usage(period, true)?;
         let carbon_data = self.get_carbon_footprint(period, true)?;
         let resource_data = self.get_resource_utilization(period)?;
-        
+
         // Calculate additional metrics
         let transaction_count = self.estimate_transaction_count(period);
         let energy_per_tx = if transaction_count > 0 {
@@ -149,19 +154,19 @@ impl EnvironmentalMonitor {
         } else {
             None
         };
-        
+
         let carbon_per_tx = if transaction_count > 0 {
             Some(carbon_data.total_emissions_g / transaction_count as f64)
         } else {
             None
         };
-        
+
         // Calculate efficiency improvements
         let efficiency_improvement: Option<f64> = None; // Simplified for now
-        
+
         // Calculate renewable percentage
         let renewable_percentage = self.calculate_renewable_percentage();
-        
+
         // Since the API EnvironmentalImpact type only has basic fields, we'll create a simple one
         Ok(EnvironmentalImpact {
             carbon_emissions_g_per_hour: carbon_data.total_emissions_g,
@@ -183,18 +188,26 @@ impl EnvironmentalMonitor {
                 .unwrap_or(0),
         })
     }
-    
+
     /// Get energy usage data
-    pub fn get_energy_usage(&self, period: u64, include_history: bool) -> Result<crate::api::types::EnergyUsage, EnvironmentalError> {
+    pub fn get_energy_usage(
+        &self,
+        period: u64,
+        include_history: bool,
+    ) -> Result<crate::api::types::EnergyUsage, EnvironmentalError> {
         if period == 0 {
-            return Err(EnvironmentalError::InvalidTimePeriod("Period must be greater than 0".to_string()));
+            return Err(EnvironmentalError::InvalidTimePeriod(
+                "Period must be greater than 0".to_string(),
+            ));
         }
-        
+
         // Calculate energy usage based on system resources
-        let mut system = self.system.lock()
+        let mut system = self
+            .system
+            .lock()
             .map_err(|_| EnvironmentalError::InvalidSetting("System lock poisoned".to_string()))?;
         system.refresh_cpu();
-        
+
         // Get global CPU usage - in sysinfo 0.29, we need to calculate it from all CPUs
         let cpus = system.cpus();
         let cpu_usage = if !cpus.is_empty() {
@@ -202,24 +215,25 @@ impl EnvironmentalMonitor {
         } else {
             0.0
         } as f64;
-        
+
         // Estimate energy usage based on CPU usage and a base consumption model
         // This is a simplified model and would be replaced with more accurate measurements
         let base_power_watts = 80.0; // Base power consumption when idle
         let max_power_watts = 200.0; // Maximum power consumption at full load
-        let current_power_watts = base_power_watts + (max_power_watts - base_power_watts) * cpu_usage;
-        
+        let current_power_watts =
+            base_power_watts + (max_power_watts - base_power_watts) * cpu_usage;
+
         // Convert watts to kWh for the specified period
         let hours = period as f64 / 3600.0;
         let total_energy_kwh = current_power_watts * hours / 1000.0;
-        
+
         // Calculate renewable percentage
         let renewable_percentage = self.calculate_renewable_percentage() / 100.0;
-        
+
         // Calculate renewable and non-renewable consumption
         let renewable_consumption = total_energy_kwh * renewable_percentage;
         let non_renewable_consumption = total_energy_kwh * (1.0 - renewable_percentage);
-        
+
         // Store this reading in history (internal tracking)
         if let Ok(mut energy_history) = self.energy_history.write() {
             // Add current reading to history
@@ -231,22 +245,25 @@ impl EnvironmentalMonitor {
                 usage: total_energy_kwh,
                 power: current_power_watts,
             };
-            
+
             energy_history.push(history_entry);
-            
+
             // Trim history based on retention settings
-            let retention_seconds = self.settings.read()
-            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?
-            .data_retention_days * 86400;
+            let retention_seconds = self
+                .settings
+                .read()
+                .map_err(|_| {
+                    EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string())
+                })?
+                .data_retention_days
+                * 86400;
             let current_timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            energy_history.retain(|entry| {
-                current_timestamp - entry.timestamp < retention_seconds
-            });
+            energy_history.retain(|entry| current_timestamp - entry.timestamp < retention_seconds);
         }
-        
+
         // Return the API type
         Ok(crate::api::types::EnergyUsage {
             timestamp: SystemTime::now()
@@ -261,13 +278,17 @@ impl EnvironmentalMonitor {
             history: if include_history {
                 // Read energy history for the response
                 if let Ok(energy_history) = self.energy_history.read() {
-                    Some(energy_history.clone().into_iter().map(|h| {
-                        crate::api::types::environmental::EnergyUsageHistory {
-                            timestamp: h.timestamp,
-                            usage: h.usage,
-                            power: h.power,
-                        }
-                    }).collect())
+                    Some(
+                        energy_history
+                            .clone()
+                            .into_iter()
+                            .map(|h| crate::api::types::environmental::EnergyUsageHistory {
+                                timestamp: h.timestamp,
+                                usage: h.usage,
+                                power: h.power,
+                            })
+                            .collect(),
+                    )
                 } else {
                     None
                 }
@@ -276,51 +297,65 @@ impl EnvironmentalMonitor {
             },
         })
     }
-    
+
     /// Get carbon footprint data
-    pub fn get_carbon_footprint(&self, period: u64, include_offsets: bool) -> Result<crate::api::types::CarbonFootprint, EnvironmentalError> {
+    pub fn get_carbon_footprint(
+        &self,
+        period: u64,
+        include_offsets: bool,
+    ) -> Result<crate::api::types::CarbonFootprint, EnvironmentalError> {
         if period == 0 {
-            return Err(EnvironmentalError::InvalidTimePeriod("Period must be greater than 0".to_string()));
+            return Err(EnvironmentalError::InvalidTimePeriod(
+                "Period must be greater than 0".to_string(),
+            ));
         }
-        
+
         // Get energy usage
         let energy_data = self.get_energy_usage(period, false)?;
-        
+
         // Get emissions factor for the current region
-        let emission_factor = self.emission_factors
+        let emission_factor = self
+            .emission_factors
             .get(&self.node_location)
             .cloned()
             .unwrap_or(475.0); // Default global average if region not found
-        
+
         // Calculate total emissions
         let total_emissions_g = energy_data.total_energy_kwh * emission_factor;
-        
+
         // Calculate carbon intensity (g CO2e per kWh)
         let intensity = emission_factor;
-        
+
         // Get offsets if enabled and requested
-        let offsets = if include_offsets && self.settings.read()
-            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?
-            .carbon_offset_enabled {
-            Some(vec![
-                crate::api::types::CarbonOffset {
-                    id: format!("offset_{}", SystemTime::now()
+        let offsets = if include_offsets
+            && self
+                .settings
+                .read()
+                .map_err(|_| {
+                    EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string())
+                })?
+                .carbon_offset_enabled
+        {
+            Some(vec![crate::api::types::CarbonOffset {
+                id: format!(
+                    "offset_{}",
+                    SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs())
-                        .unwrap_or(0)),
-                    quantity_g: total_emissions_g * 0.5, // Apply 50% offset
-                    provider: "Gold Standard".to_string(),
-                    verification: Some("Gold Standard".to_string()),
-                    timestamp: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0),
-                }
-            ])
+                        .unwrap_or(0)
+                ),
+                quantity_g: total_emissions_g * 0.5, // Apply 50% offset
+                provider: "Gold Standard".to_string(),
+                verification: Some("Gold Standard".to_string()),
+                timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+            }])
         } else {
             None
         };
-        
+
         // Calculate net emissions after offsets
         let net_emissions_g = if let Some(offset_list) = &offsets {
             let total_offset = offset_list.iter().map(|o| o.quantity_g).sum::<f64>(); // Convert grams to grams
@@ -328,10 +363,10 @@ impl EnvironmentalMonitor {
         } else {
             total_emissions_g
         };
-        
+
         // Get emissions sources
         let emissions_sources = self.get_emissions_sources();
-        
+
         Ok(crate::api::types::CarbonFootprint {
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -346,17 +381,24 @@ impl EnvironmentalMonitor {
             renewable_percentage: self.calculate_renewable_percentage(),
         })
     }
-    
+
     /// Get resource utilization data
-    pub fn get_resource_utilization(&self, period: u64) -> Result<ResourceUtilization, EnvironmentalError> {
+    pub fn get_resource_utilization(
+        &self,
+        period: u64,
+    ) -> Result<ResourceUtilization, EnvironmentalError> {
         if period == 0 {
-            return Err(EnvironmentalError::InvalidTimePeriod("Period must be greater than 0".to_string()));
+            return Err(EnvironmentalError::InvalidTimePeriod(
+                "Period must be greater than 0".to_string(),
+            ));
         }
-        
-        let mut system = self.system.lock()
+
+        let mut system = self
+            .system
+            .lock()
             .map_err(|_| EnvironmentalError::InvalidSetting("System lock poisoned".to_string()))?;
         system.refresh_all();
-        
+
         // Calculate CPU usage - in sysinfo 0.29, we need to calculate it from all CPUs
         let cpus = system.cpus();
         let cpu_usage = if !cpus.is_empty() {
@@ -364,7 +406,7 @@ impl EnvironmentalMonitor {
         } else {
             0.0
         } as f64;
-        
+
         // Calculate memory usage
         let total_memory = system.total_memory() as f64;
         let used_memory = system.used_memory() as f64;
@@ -373,23 +415,23 @@ impl EnvironmentalMonitor {
         } else {
             0.0
         };
-        
+
         // Calculate disk usage
         let mut total_disk = 0.0;
         let mut used_disk = 0.0;
-        
+
         let disks = Disks::new_with_refreshed_list();
         for disk in &disks {
             total_disk += disk.total_space() as f64;
             used_disk += (disk.total_space() - disk.available_space()) as f64;
         }
-        
+
         let disk_usage = if total_disk > 0.0 {
             (used_disk / total_disk) * 100.0
         } else {
             0.0
         };
-        
+
         let resource_data = ResourceUtilization {
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -405,14 +447,15 @@ impl EnvironmentalMonitor {
                 .unwrap_or_default()
                 .as_secs(),
         };
-        
+
         Ok(resource_data)
     }
-    
+
     /// Get current environmental settings (converted to API type)
     pub fn get_settings(&self) -> Result<EnvironmentalSettings, EnvironmentalError> {
-        let internal_settings = self.settings.read()
-            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?;
+        let internal_settings = self.settings.read().map_err(|_| {
+            EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string())
+        })?;
         Ok(EnvironmentalSettings {
             monitoring_enabled: internal_settings.monitoring_enabled,
             emission_tracking_enabled: internal_settings.emission_tracking_enabled,
@@ -425,12 +468,16 @@ impl EnvironmentalMonitor {
             location_code: internal_settings.location_code.clone(),
         })
     }
-    
+
     /// Update environmental settings (partial update from API type)
-    pub fn update_settings(&self, new_settings: EnvironmentalSettings) -> Result<EnvironmentalSettings, EnvironmentalError> {
-        let mut internal_settings = self.settings.write()
-            .map_err(|_| EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string()))?;
-        
+    pub fn update_settings(
+        &self,
+        new_settings: EnvironmentalSettings,
+    ) -> Result<EnvironmentalSettings, EnvironmentalError> {
+        let mut internal_settings = self.settings.write().map_err(|_| {
+            EnvironmentalError::InvalidSetting("Settings lock poisoned".to_string())
+        })?;
+
         // Update only the fields that exist in the API type
         internal_settings.monitoring_enabled = new_settings.monitoring_enabled;
         internal_settings.emission_tracking_enabled = new_settings.emission_tracking_enabled;
@@ -441,12 +488,12 @@ impl EnvironmentalMonitor {
         internal_settings.data_retention_days = new_settings.data_retention_days;
         internal_settings.energy_efficiency_target = new_settings.energy_efficiency_target;
         internal_settings.location_code = new_settings.location_code.clone();
-        
+
         drop(internal_settings);
-        
+
         Ok(new_settings)
     }
-    
+
     /// Helper method to estimate transaction count for a period
     fn estimate_transaction_count(&self, period: u64) -> u64 {
         // This would typically come from the node's transaction processing metrics
@@ -454,45 +501,49 @@ impl EnvironmentalMonitor {
         let tx_per_second = 5.0; // Estimated average transactions per second
         (tx_per_second * period as f64) as u64
     }
-    
+
     /// Helper method to get energy sources based on configured location
     fn get_energy_sources(&self) -> Vec<ApiEnergySource> {
         if let Some(energy_mix) = self.energy_mix.get(&self.node_location) {
-            energy_mix.iter().map(|(source_type, percentage)| {
-                let name = match source_type {
-                    EnergySourceType::Coal => "Coal",
-                    EnergySourceType::NaturalGas => "Natural Gas",
-                    EnergySourceType::Nuclear => "Nuclear",
-                    EnergySourceType::Hydro => "Hydro",
-                    EnergySourceType::Wind => "Wind",
-                    EnergySourceType::Solar => "Solar",
-                    EnergySourceType::Geothermal => "Geothermal",
-                    EnergySourceType::Other => "Other",
-                };
-                let renewable = matches!(source_type, 
-                    EnergySourceType::Hydro | 
-                    EnergySourceType::Wind | 
-                    EnergySourceType::Solar | 
-                    EnergySourceType::Geothermal
-                );
-                
-                // Return as enum variant based on the source type
-                match source_type {
-                    EnergySourceType::Coal => ApiEnergySource::Coal,
-                    EnergySourceType::NaturalGas => ApiEnergySource::NaturalGas,
-                    EnergySourceType::Nuclear => ApiEnergySource::Nuclear,
-                    EnergySourceType::Hydro => ApiEnergySource::Hydro,
-                    EnergySourceType::Wind => ApiEnergySource::Wind,
-                    EnergySourceType::Solar => ApiEnergySource::Solar,
-                    EnergySourceType::Geothermal => ApiEnergySource::Geothermal,
-                    EnergySourceType::Other => ApiEnergySource::Other,
-                }
-            }).collect()
+            energy_mix
+                .iter()
+                .map(|(source_type, percentage)| {
+                    let name = match source_type {
+                        EnergySourceType::Coal => "Coal",
+                        EnergySourceType::NaturalGas => "Natural Gas",
+                        EnergySourceType::Nuclear => "Nuclear",
+                        EnergySourceType::Hydro => "Hydro",
+                        EnergySourceType::Wind => "Wind",
+                        EnergySourceType::Solar => "Solar",
+                        EnergySourceType::Geothermal => "Geothermal",
+                        EnergySourceType::Other => "Other",
+                    };
+                    let renewable = matches!(
+                        source_type,
+                        EnergySourceType::Hydro
+                            | EnergySourceType::Wind
+                            | EnergySourceType::Solar
+                            | EnergySourceType::Geothermal
+                    );
+
+                    // Return as enum variant based on the source type
+                    match source_type {
+                        EnergySourceType::Coal => ApiEnergySource::Coal,
+                        EnergySourceType::NaturalGas => ApiEnergySource::NaturalGas,
+                        EnergySourceType::Nuclear => ApiEnergySource::Nuclear,
+                        EnergySourceType::Hydro => ApiEnergySource::Hydro,
+                        EnergySourceType::Wind => ApiEnergySource::Wind,
+                        EnergySourceType::Solar => ApiEnergySource::Solar,
+                        EnergySourceType::Geothermal => ApiEnergySource::Geothermal,
+                        EnergySourceType::Other => ApiEnergySource::Other,
+                    }
+                })
+                .collect()
         } else {
             vec![]
         }
     }
-    
+
     /// Helper method to get emissions sources
     fn get_emissions_sources(&self) -> Vec<crate::api::types::EmissionsSource> {
         vec![
@@ -501,7 +552,7 @@ impl EnvironmentalMonitor {
             crate::api::types::EmissionsSource::Manufacturing,
         ]
     }
-    
+
     /// Calculate renewable percentage based on location and settings
     fn calculate_renewable_percentage(&self) -> f64 {
         // First check if a value is manually set in settings
@@ -513,7 +564,6 @@ impl EnvironmentalMonitor {
             tracing::warn!("Failed to read settings: lock poisoned, using default");
         }
 
-        
         // Otherwise calculate based on energy mix of the region
         if let Some(energy_mix) = self.energy_mix.get(&self.node_location) {
             let renewable_sources = [
@@ -522,8 +572,9 @@ impl EnvironmentalMonitor {
                 EnergySourceType::Solar,
                 EnergySourceType::Geothermal,
             ];
-            
-            renewable_sources.iter()
+
+            renewable_sources
+                .iter()
                 .filter_map(|source| energy_mix.get(source))
                 .sum()
         } else {
@@ -531,16 +582,20 @@ impl EnvironmentalMonitor {
             20.0
         }
     }
-    
+
     /// Calculate environmental score
-    fn calculate_environmental_score(&self, energy_data: &crate::api::types::EnergyUsage, carbon_data: &crate::api::types::CarbonFootprint) -> f64 {
+    fn calculate_environmental_score(
+        &self,
+        energy_data: &crate::api::types::EnergyUsage,
+        carbon_data: &crate::api::types::CarbonFootprint,
+    ) -> f64 {
         // Simple scoring algorithm: higher renewable percentage = better score
         // Lower emissions = better score
         let renewable_score = self.calculate_renewable_percentage();
         let emission_score = 100.0 - (carbon_data.total_emissions_g / 1000.0).min(100.0);
         (renewable_score + emission_score) / 2.0
     }
-    
+
     /// Calculate green mining bonus
     fn calculate_green_mining_bonus(&self, energy_data: &crate::api::types::EnergyUsage) -> f64 {
         // Bonus percentage based on renewable energy usage
@@ -553,16 +608,19 @@ impl EnvironmentalMonitor {
             0.0
         }
     }
-    
+
     /// Calculate carbon offsets based on emissions data
     fn calculate_carbon_offsets(&self, carbon_data: &crate::api::types::CarbonFootprint) -> f64 {
         // Convert grams to metric tons
         let emissions_tons = carbon_data.total_emissions_g / 1_000_000.0;
-        
+
         // If carbon offset is enabled and we have offsets, calculate total
-        if self.settings.read()
+        if self
+            .settings
+            .read()
             .map(|s| s.carbon_offset_enabled)
-            .unwrap_or(false) {
+            .unwrap_or(false)
+        {
             if let Some(offsets) = &carbon_data.offsets {
                 // Sum all offsets and convert from grams to tons
                 offsets.iter().map(|o| o.quantity_g / 1_000_000.0).sum()
@@ -573,12 +631,12 @@ impl EnvironmentalMonitor {
             0.0
         }
     }
-    
+
     /// Calculate network usage as percentage of bandwidth
     fn calculate_network_usage(&self, period: u64) -> f64 {
         // In a real implementation, this would track actual network I/O
         // For now, we'll estimate based on node activity
-        
+
         // Get system network stats if available
         let system = match self.system.lock() {
             Ok(s) => s,
@@ -587,12 +645,12 @@ impl EnvironmentalMonitor {
                 return 0.01 * period as f64; // Return conservative estimate
             }
         };
-        
+
         // Estimate network usage based on period and typical node activity
         // Assume average of 1 MB/s for an active node
         let avg_bandwidth_mbps = 10.0; // 10 Mbps typical node bandwidth
         let avg_usage_mbps = 1.0; // 1 Mbps average usage
-        
+
         // Calculate percentage usage
         (avg_usage_mbps / avg_bandwidth_mbps) * 100.0
     }
@@ -607,42 +665,42 @@ impl Default for EnvironmentalMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_monitor_creation() {
         let monitor = EnvironmentalMonitor::new();
         assert!(monitor.settings.read().unwrap().monitoring_enabled);
     }
-    
+
     #[test]
     fn test_energy_usage_calculation() {
         let monitor = EnvironmentalMonitor::new();
         let energy_data = monitor.get_energy_usage(3600, false).unwrap();
-        
+
         // Energy should be positive
         assert!(energy_data.total_consumption > 0.0);
         assert!(energy_data.renewable_consumption > 0.0);
         assert!(energy_data.non_renewable_consumption > 0.0);
     }
-    
+
     #[test]
     fn test_carbon_footprint_calculation() {
         let monitor = EnvironmentalMonitor::new();
         let carbon_data = monitor.get_carbon_footprint(3600, true).unwrap();
-        
+
         // Carbon emissions should be positive
         assert!(carbon_data.total_emissions_g > 0.0);
-        
+
         // Renewable percentage should be between 0 and 100
         assert!(carbon_data.renewable_percentage >= 0.0);
         assert!(carbon_data.renewable_percentage <= 100.0);
     }
-    
+
     #[test]
     fn test_resource_utilization() {
         let monitor = EnvironmentalMonitor::new();
         let resource_data = monitor.get_resource_utilization(300).unwrap();
-        
+
         // Resource utilization should be between 0 and 100
         assert!(resource_data.cpu_usage >= 0.0);
         assert!(resource_data.cpu_usage <= 100.0);
@@ -651,11 +709,11 @@ mod tests {
         assert!(resource_data.disk_usage >= 0.0);
         assert!(resource_data.disk_usage <= 100.0);
     }
-    
+
     #[test]
     fn test_settings_update() {
         let monitor = EnvironmentalMonitor::new();
-        
+
         let new_settings = EnvironmentalSettings {
             monitoring_enabled: true,
             emission_tracking_enabled: true,
@@ -667,22 +725,22 @@ mod tests {
             energy_efficiency_target: Some(0.5),
             location_code: Some("us".to_string()),
         };
-        
+
         let updated = monitor.update_settings(new_settings.clone()).unwrap();
-        
+
         assert!(updated.carbon_offset_enabled);
         assert!(updated.emission_tracking_enabled);
         assert!(updated.monitoring_enabled);
     }
-    
+
     #[test]
     fn test_environmental_impact() {
         let monitor = EnvironmentalMonitor::new();
         let impact = monitor.get_environmental_impact(86400, "standard").unwrap();
-        
+
         // Ensure basic metrics are present
         assert!(impact.carbon_emissions_g_per_hour > 0.0);
         assert!(impact.renewable_percentage >= 0.0);
         assert!(impact.renewable_percentage <= 100.0);
     }
-} 
+}

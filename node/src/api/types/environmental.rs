@@ -1,6 +1,6 @@
+use actix_web::{HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use actix_web::{HttpResponse, Responder};
 
 /// Energy source types
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
@@ -91,7 +91,7 @@ pub struct EnvironmentalImpact {
 
 impl Responder for EnvironmentalImpact {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -177,4 +177,4 @@ pub struct EnvironmentalSettings {
     pub energy_efficiency_target: Option<f64>,
     /// Geographic location code for emissions calculation
     pub location_code: Option<String>,
-} 
+}

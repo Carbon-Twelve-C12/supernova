@@ -1,10 +1,10 @@
 // supernova CLI Client
 // This binary provides a command-line interface for interacting with the supernova blockchain
 
+mod commands;
 mod config;
 mod rpc;
 mod wallet;
-mod commands;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -29,9 +29,12 @@ fn print_banner() {
     ║                                                               ║
     ╚═══════════════════════════════════════════════════════════════╝
     "#;
-    
+
     println!("{}", banner.bright_cyan().bold());
-    println!("{}", "    CLI v1.0.0 - Command-line interface for the Supernova blockchain".bright_white());
+    println!(
+        "{}",
+        "    CLI v1.0.0 - Command-line interface for the Supernova blockchain".bright_white()
+    );
     println!();
 }
 
@@ -41,25 +44,25 @@ fn print_banner() {
 struct Cli {
     #[command(subcommand)]
     command: Commands,
-    
+
     #[arg(short, long, default_value = "http://localhost:8332")]
     rpc_url: String,
-    
+
     #[arg(short = 'u', long)]
     rpc_user: Option<String>,
-    
+
     #[arg(short = 'p', long)]
     rpc_password: Option<String>,
-    
+
     #[arg(short, long)]
     debug: bool,
-    
+
     #[arg(short, long)]
     network: Option<String>,
-    
+
     #[arg(short, long)]
     format: Option<String>,
-    
+
     #[arg(long)]
     no_banner: bool,
 }
@@ -68,43 +71,43 @@ struct Cli {
 enum Commands {
     /// Get blockchain information
     GetBlockchainInfo,
-    
+
     /// Get network information
     GetNetworkInfo,
-    
+
     /// Get mining information
     GetMiningInfo,
-    
+
     /// Get peer information
     GetPeerInfo,
-    
+
     /// Get block by height
     GetBlock {
         #[arg(value_name = "HEIGHT")]
         height: u64,
     },
-    
+
     /// Get transaction by ID
     GetTransaction {
         #[arg(value_name = "TXID")]
         txid: String,
     },
-    
+
     /// Generate new address
     GetNewAddress,
-    
+
     /// Get wallet balance
     GetBalance,
-    
+
     /// Send transaction
     SendToAddress {
         #[arg(value_name = "ADDRESS")]
         address: String,
-        
+
         #[arg(value_name = "AMOUNT")]
         amount: f64,
     },
-    
+
     /// Atomic swap operations
     #[command(subcommand)]
     Swap(commands::swap::SwapCommand),
@@ -210,12 +213,12 @@ enum ConfigCommands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    
+
     // Display banner unless in JSON mode or explicitly disabled
     if !cli.no_banner && cli.format.as_deref() != Some("json") {
         print_banner();
     }
-    
+
     // Initialize logger
     let env = if cli.debug {
         Env::default().default_filter_or("debug")
@@ -223,10 +226,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Env::default().default_filter_or("info")
     };
     env_logger::init_from_env(env);
-    
+
     // Load configuration
     let mut config = config::Config::load()?;
-    
+
     // Override with CLI arguments
     config.rpc_url = cli.rpc_url;
     if let Some(network) = cli.network {
@@ -238,7 +241,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "table" => config::OutputFormat::Table,
             "text" => config::OutputFormat::Text,
             _ => {
-                eprintln!("{} Invalid format: {}. Using default.", "✗".red().bold(), format);
+                eprintln!(
+                    "{} Invalid format: {}. Using default.",
+                    "✗".red().bold(),
+                    format
+                );
                 config.output_format
             }
         };
@@ -246,7 +253,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cli.debug {
         config.debug = true;
     }
-    
+
     // Execute command
     let result = match cli.command {
         Commands::GetBlockchainInfo => {
@@ -263,7 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "size_on_disk": 0,
                 "pruned": false
             })
-        },
+        }
         Commands::GetNetworkInfo => {
             json!({
                 "version": 10000,
@@ -276,7 +283,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "connections": 0,
                 "networks": []
             })
-        },
+        }
         Commands::GetMiningInfo => {
             json!({
                 "blocks": 0,
@@ -285,10 +292,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "pooledtx": 0,
                 "chain": "testnet"
             })
-        },
+        }
         Commands::GetPeerInfo => {
             json!([])
-        },
+        }
         Commands::GetBlock { height } => {
             json!({
                 "hash": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -306,7 +313,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "previousblockhash": null,
                 "nextblockhash": null
             })
-        },
+        }
         Commands::GetTransaction { txid } => {
             json!({
                 "txid": txid,
@@ -320,33 +327,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "vout": [],
                 "hex": ""
             })
-        },
+        }
         Commands::GetNewAddress => {
             json!({
                 "address": "testnet1qnewaddress000000000000000000000000000"
             })
-        },
+        }
         Commands::GetBalance => {
             json!({
                 "balance": 0.0,
                 "unconfirmed_balance": 0.0,
                 "immature_balance": 0.0
             })
-        },
+        }
         Commands::SendToAddress { address, amount } => {
             json!({
                 "txid": "0000000000000000000000000000000000000000000000000000000000000000",
                 "address": address,
                 "amount": amount
             })
-        },
+        }
         Commands::Swap(cmd) => {
             commands::swap::execute(commands::swap::SwapCmd { command: cmd }, &config).await?;
             return Ok(()); // Commands handle their own output
-        },
+        }
     };
-    
+
     println!("{}", serde_json::to_string_pretty(&result)?);
-    
+
     Ok(())
-} 
+}

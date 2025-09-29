@@ -1,23 +1,23 @@
 //! Hash functions for the Supernova blockchain
 
-use sha2::{Sha256, Sha512, Digest};
 use blake3;
-use std::fmt::Debug;
 use hex;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256, Sha512};
 use std::fmt;
-use serde::{Serialize, Deserialize};
+use std::fmt::Debug;
 
 /// Hash trait for different hashing algorithms
 pub trait Hash: Debug + Send + Sync {
     /// Hash data and return the digest
     fn hash(&self, data: &[u8]) -> Vec<u8>;
-    
+
     /// Get the name of the hash algorithm
     fn algorithm_name(&self) -> &'static str;
-    
+
     /// Get the output size of the hash in bytes
     fn output_size(&self) -> usize;
-    
+
     /// Hash multiple data items by concatenating them
     fn hash_multiple(&self, data: &[&[u8]]) -> Vec<u8> {
         // Combine all data into a single buffer
@@ -39,11 +39,11 @@ impl Hash for Sha256Hash {
         hasher.update(data);
         hasher.finalize().to_vec()
     }
-    
+
     fn algorithm_name(&self) -> &'static str {
         "SHA-256"
     }
-    
+
     fn output_size(&self) -> usize {
         32 // 256 bits = 32 bytes
     }
@@ -59,11 +59,11 @@ impl Hash for Sha512Hash {
         hasher.update(data);
         hasher.finalize().to_vec()
     }
-    
+
     fn algorithm_name(&self) -> &'static str {
         "SHA-512"
     }
-    
+
     fn output_size(&self) -> usize {
         64 // 512 bits = 64 bytes
     }
@@ -78,11 +78,11 @@ impl Hash for Blake3Hash {
         let hash = blake3::hash(data);
         hash.as_bytes().to_vec()
     }
-    
+
     fn algorithm_name(&self) -> &'static str {
         "BLAKE3"
     }
-    
+
     fn output_size(&self) -> usize {
         32 // 256 bits = 32 bytes
     }
@@ -97,16 +97,16 @@ impl Hash for DoubleSha256Hash {
         let mut hasher1 = Sha256::new();
         hasher1.update(data);
         let first_hash = hasher1.finalize();
-        
+
         let mut hasher2 = Sha256::new();
         hasher2.update(first_hash);
         hasher2.finalize().to_vec()
     }
-    
+
     fn algorithm_name(&self) -> &'static str {
         "Double-SHA-256"
     }
-    
+
     fn output_size(&self) -> usize {
         32 // 256 bits = 32 bytes
     }
@@ -130,7 +130,7 @@ impl Hash for HashAlgorithm {
             HashAlgorithm::DoubleSha256(h) => h.hash(data),
         }
     }
-    
+
     fn algorithm_name(&self) -> &'static str {
         match self {
             HashAlgorithm::Sha256(h) => h.algorithm_name(),
@@ -139,7 +139,7 @@ impl Hash for HashAlgorithm {
             HashAlgorithm::DoubleSha256(h) => h.algorithm_name(),
         }
     }
-    
+
     fn output_size(&self) -> usize {
         match self {
             HashAlgorithm::Sha256(h) => h.output_size(),
@@ -150,7 +150,7 @@ impl Hash for HashAlgorithm {
     }
 }
 
-/// supernovaHash - A composite hash that combines multiple algorithms 
+/// supernovaHash - A composite hash that combines multiple algorithms
 /// for increased quantum resistance
 #[derive(Debug, Clone)]
 pub struct supernovaHash {
@@ -168,13 +168,10 @@ impl supernovaHash {
             secondary: HashAlgorithm::Sha256(Sha256Hash),
         }
     }
-    
+
     /// Create a new supernovaHash with custom algorithms
     pub fn with_algorithms(primary: HashAlgorithm, secondary: HashAlgorithm) -> Self {
-        Self {
-            primary,
-            secondary,
-        }
+        Self { primary, secondary }
     }
 }
 
@@ -188,26 +185,26 @@ impl Hash for supernovaHash {
     fn hash(&self, data: &[u8]) -> Vec<u8> {
         // Hash with primary algorithm
         let primary_hash = self.primary.hash(data);
-        
+
         // Hash the primary result with the secondary algorithm
         let secondary_hash = self.secondary.hash(&primary_hash);
-        
+
         // XOR the two hashes together to combine them
         // If the output sizes are different, use the smaller one
         let min_size = std::cmp::min(primary_hash.len(), secondary_hash.len());
         let mut combined = Vec::with_capacity(min_size);
-        
+
         for i in 0..min_size {
             combined.push(primary_hash[i] ^ secondary_hash[i]);
         }
-        
+
         combined
     }
-    
+
     fn algorithm_name(&self) -> &'static str {
         "supernovaHash"
     }
-    
+
     fn output_size(&self) -> usize {
         std::cmp::min(self.primary.output_size(), self.secondary.output_size())
     }
@@ -225,8 +222,7 @@ pub fn hash_to_hex(hash: &[u8]) -> String {
 }
 
 /// A 256-bit hash
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct CryptoHash([u8; 32]);
 
 impl CryptoHash {
@@ -234,17 +230,17 @@ impl CryptoHash {
     pub fn new(bytes: [u8; 32]) -> Self {
         CryptoHash(bytes)
     }
-    
+
     /// Get the bytes of the hash
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
-    
+
     /// Convert to a hex string
     pub fn to_hex(&self) -> String {
         hex::encode(self.0)
     }
-    
+
     /// Create from a hex string
     pub fn from_hex(hex_str: &str) -> Result<Self, hex::FromHexError> {
         let bytes = hex::decode(hex_str)?;
@@ -268,7 +264,6 @@ impl fmt::Display for CryptoHash {
         write!(f, "{}", self.to_hex())
     }
 }
-
 
 impl AsRef<[u8]> for CryptoHash {
     fn as_ref(&self) -> &[u8] {
@@ -307,11 +302,11 @@ pub fn hash256(data: &[u8]) -> [u8; 32] {
 
 /// Compute RIPEMD160(SHA256(data))
 pub fn hash160(data: &[u8]) -> [u8; 20] {
-    use ripemd::{Ripemd160, Digest as RipemdDigest};
-    
+    use ripemd::{Digest as RipemdDigest, Ripemd160};
+
     let sha256_hash = Sha256::digest(data);
     let ripemd_hash = Ripemd160::digest(sha256_hash);
-    
+
     let mut result = [0u8; 20];
     result.copy_from_slice(&ripemd_hash);
     result
@@ -320,53 +315,53 @@ pub fn hash160(data: &[u8]) -> [u8; 20] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_sha256() {
         let hasher = Sha256Hash;
         let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
-        
+
         // Known SHA-256 hash for the input
         assert_eq!(hash.len(), 32);
     }
-    
+
     #[test]
     fn test_blake3() {
         let hasher = Blake3Hash;
         let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
-        
+
         assert_eq!(hash.len(), 32);
     }
-    
+
     #[test]
     fn test_double_sha256() {
         let hasher = DoubleSha256Hash;
         let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
-        
+
         assert_eq!(hash.len(), 32);
     }
-    
+
     #[test]
     fn test_supernova_hash() {
         let hasher = supernovaHash::new();
         let data = b"Hello, supernova!";
         let hash = hasher.hash(data);
-        
+
         assert_eq!(hash.len(), 32);
     }
-    
+
     #[test]
     fn test_hash_multiple() {
         let hasher = Sha256Hash;
         let data1 = b"Hello";
         let data2 = b", supernova!";
-        
+
         let hash1 = hasher.hash_multiple(&[data1, data2]);
         let hash2 = hasher.hash(b"Hello, supernova!");
-        
+
         assert_eq!(hash1, hash2);
     }
-} 
+}

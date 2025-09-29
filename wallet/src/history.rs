@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -27,7 +27,7 @@ pub enum TransactionDirection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransactionStatus {
     Pending,
-    Confirmed(u32),  // Number of confirmations
+    Confirmed(u32), // Number of confirmations
     Failed,
 }
 
@@ -63,16 +63,20 @@ impl TransactionHistory {
         history.load()?;
         Ok(history)
     }
-    
+
     /// Add a transaction to history
     pub fn add_transaction(&mut self, record: TransactionRecord) -> Result<(), HistoryError> {
         self.transactions.insert(record.hash.clone(), record);
         self.save()?;
         Ok(())
     }
-    
+
     /// Update transaction status
-    pub fn update_transaction_status(&mut self, hash: &str, status: TransactionStatus) -> Result<(), HistoryError> {
+    pub fn update_transaction_status(
+        &mut self,
+        hash: &str,
+        status: TransactionStatus,
+    ) -> Result<(), HistoryError> {
         if let Some(record) = self.transactions.get_mut(hash) {
             record.status = status;
             self.save()?;
@@ -81,7 +85,7 @@ impl TransactionHistory {
             Err(HistoryError::TransactionNotFound)
         }
     }
-    
+
     /// Update transaction label
     pub fn add_transaction_label(&mut self, hash: &str, label: String) -> Result<(), HistoryError> {
         if let Some(record) = self.transactions.get_mut(hash) {
@@ -92,9 +96,13 @@ impl TransactionHistory {
             Err(HistoryError::TransactionNotFound)
         }
     }
-    
+
     /// Update transaction category
-    pub fn add_transaction_category(&mut self, hash: &str, category: String) -> Result<(), HistoryError> {
+    pub fn add_transaction_category(
+        &mut self,
+        hash: &str,
+        category: String,
+    ) -> Result<(), HistoryError> {
         if let Some(record) = self.transactions.get_mut(hash) {
             record.category = Some(category);
             self.save()?;
@@ -103,7 +111,7 @@ impl TransactionHistory {
             Err(HistoryError::TransactionNotFound)
         }
     }
-    
+
     /// Update transaction tag
     pub fn add_transaction_tag(&mut self, hash: &str, tag: String) -> Result<(), HistoryError> {
         if let Some(record) = self.transactions.get_mut(hash) {
@@ -114,63 +122,65 @@ impl TransactionHistory {
             Err(HistoryError::TransactionNotFound)
         }
     }
-    
+
     /// Get transaction by hash
     pub fn get_transaction(&self, hash: &str) -> Option<&TransactionRecord> {
         self.transactions.get(hash)
     }
-    
+
     /// Get all transactions
     pub fn get_all_transactions(&self) -> Vec<&TransactionRecord> {
         let mut transactions: Vec<_> = self.transactions.values().collect();
         transactions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         transactions
     }
-    
+
     /// Get recent transactions
     pub fn get_recent_transactions(&self, count: usize) -> Vec<&TransactionRecord> {
         let mut transactions = self.get_all_transactions();
         transactions.truncate(count);
         transactions
     }
-    
+
     /// Get transactions by category
     pub fn get_transactions_by_category(&self, category: &str) -> Vec<&TransactionRecord> {
-        self.transactions.values()
+        self.transactions
+            .values()
             .filter(|tx| tx.category.as_deref() == Some(category))
             .collect()
     }
-    
+
     /// Get transactions by tag
     pub fn get_transactions_by_tag(&self, tag: &str) -> Vec<&TransactionRecord> {
-        self.transactions.values()
+        self.transactions
+            .values()
             .filter(|tx| tx.tags.contains(&tag.to_string()))
             .collect()
     }
-    
+
     /// Get total sent amount
     pub fn get_total_sent(&self) -> u64 {
-        self.transactions.values()
+        self.transactions
+            .values()
             .filter(|tx| matches!(tx.direction, TransactionDirection::Sent))
             .map(|tx| tx.amount)
             .sum()
     }
-    
+
     /// Get total received amount
     pub fn get_total_received(&self) -> u64 {
-        self.transactions.values()
+        self.transactions
+            .values()
             .filter(|tx| matches!(tx.direction, TransactionDirection::Received))
             .map(|tx| tx.amount)
             .sum()
     }
-    
+
     /// Get total fees paid
     pub fn get_total_fees(&self) -> u64 {
-        self.transactions.values()
-            .map(|tx| tx.fee)
-            .sum()
+        self.transactions.values().map(|tx| tx.fee).sum()
     }
-    
+
     /// Calculate net flow (received - sent - fees)
     pub fn get_net_flow(&self) -> i64 {
         let sent = self.get_total_sent() as i64;
@@ -197,7 +207,9 @@ impl std::fmt::Display for TransactionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TransactionStatus::Pending => write!(f, "Pending"),
-            TransactionStatus::Confirmed(confirmations) => write!(f, "Confirmed ({})", confirmations),
+            TransactionStatus::Confirmed(confirmations) => {
+                write!(f, "Confirmed ({})", confirmations)
+            }
             TransactionStatus::Failed => write!(f, "Failed"),
         }
     }
@@ -234,20 +246,49 @@ mod tests {
         assert_eq!(history.get_transaction("test_hash").unwrap().amount, 1000);
 
         // Update status
-        history.update_transaction_status("test_hash", TransactionStatus::Confirmed(1)).unwrap();
-        assert!(matches!(history.get_transaction("test_hash").unwrap().status, TransactionStatus::Confirmed(1)));
+        history
+            .update_transaction_status("test_hash", TransactionStatus::Confirmed(1))
+            .unwrap();
+        assert!(matches!(
+            history.get_transaction("test_hash").unwrap().status,
+            TransactionStatus::Confirmed(1)
+        ));
 
         // Add label
-        history.add_transaction_label("test_hash", "Test Transaction".to_string()).unwrap();
-        assert_eq!(history.get_transaction("test_hash").unwrap().label.as_deref(), Some("Test Transaction"));
+        history
+            .add_transaction_label("test_hash", "Test Transaction".to_string())
+            .unwrap();
+        assert_eq!(
+            history
+                .get_transaction("test_hash")
+                .unwrap()
+                .label
+                .as_deref(),
+            Some("Test Transaction")
+        );
 
         // Add category
-        history.add_transaction_category("test_hash", "Test Category".to_string()).unwrap();
-        assert_eq!(history.get_transaction("test_hash").unwrap().category.as_deref(), Some("Test Category"));
+        history
+            .add_transaction_category("test_hash", "Test Category".to_string())
+            .unwrap();
+        assert_eq!(
+            history
+                .get_transaction("test_hash")
+                .unwrap()
+                .category
+                .as_deref(),
+            Some("Test Category")
+        );
 
         // Add tag
-        history.add_transaction_tag("test_hash", "test".to_string()).unwrap();
-        assert!(history.get_transaction("test_hash").unwrap().tags.contains(&"test".to_string()));
+        history
+            .add_transaction_tag("test_hash", "test".to_string())
+            .unwrap();
+        assert!(history
+            .get_transaction("test_hash")
+            .unwrap()
+            .tags
+            .contains(&"test".to_string()));
 
         // Test totals
         assert_eq!(history.get_total_sent(), 1000);

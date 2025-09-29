@@ -1,5 +1,5 @@
-// supernova Blockchain Library
-// Core implementation of the supernova blockchain
+// Supernova Blockchain Library
+// Core implementation of the Supernova blockchain
 
 // Enforce panic-free code in production
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
@@ -8,7 +8,18 @@
 #![cfg_attr(not(test), warn(clippy::unimplemented))]
 #![cfg_attr(not(test), warn(clippy::todo))]
 #![cfg_attr(not(test), warn(clippy::unreachable))]
-#![cfg_attr(not(test), warn(clippy::indexing_slicing))]
+// Allow certain warnings in the entire crate for pragmatic reasons
+#![allow(dead_code)] // Many functions are exposed as library API
+#![allow(clippy::too_many_arguments)] // Complex blockchain functions need many params
+#![allow(clippy::large_enum_variant)] // Blockchain data structures can be large
+#![allow(clippy::type_complexity)] // Complex types are sometimes necessary
+#![allow(clippy::indexing_slicing)] // We check bounds before indexing
+#![allow(clippy::manual_clamp)] // More readable than clamp in some cases
+
+// Test-specific allows
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+#![cfg_attr(test, allow(clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::panic))]
 
 // Public modules
 pub mod api;
@@ -65,63 +76,36 @@ pub use crate::validation::ValidationError;
 // Re-export public API
 pub use crate::api::{Api, ApiConfig};
 pub use crate::config::supernovaConfig;
-pub use crate::environmental::{
-    EmissionsTracker, 
-    Emissions, 
-    EnvironmentalTreasury, 
-    EnvironmentalAssetType,
-    EnvironmentalDashboard, 
-    EmissionsTimePeriod
-};
-pub use crate::verification::{
-    VerificationService,
-    VerificationStatus,
-};
-pub use crate::consensus_verification::{
-    ConsensusVerificationFramework, 
-    VerificationReport, 
-    ConsensusProperty
-};
 pub use crate::consensus::{DifficultyAdjustment, DifficultyAdjustmentConfig};
-pub use crate::validation::{
-    BlockValidator, 
-    BlockValidationConfig, 
-    TransactionValidator
+pub use crate::consensus_verification::{
+    ConsensusProperty, ConsensusVerificationFramework, VerificationReport,
 };
-pub use crate::mempool::{TransactionPool, TransactionPoolConfig, MempoolError};
-pub use crate::util::merkle::{MerkleTree, MerkleProof, MerkleError};
+pub use crate::environmental::{
+    Emissions, EmissionsTimePeriod, EmissionsTracker, EnvironmentalAssetType,
+    EnvironmentalDashboard, EnvironmentalTreasury,
+};
 pub use crate::errors::{supernovaError, supernovaResult};
+pub use crate::mempool::{MempoolError, TransactionPool, TransactionPoolConfig};
+pub use crate::util::merkle::{MerkleError, MerkleProof, MerkleTree};
+pub use crate::validation::{BlockValidationConfig, BlockValidator, TransactionValidator};
+pub use crate::verification::{VerificationService, VerificationStatus};
 
 // Re-export Lightning types when feature is enabled
 #[cfg(feature = "lightning")]
 pub use lightning::{
-    LightningNetwork,
-    LightningConfig,
-    LightningNetworkError,
-    Channel,
-    ChannelId,
-    ChannelState,
-    ChannelConfig,
-    Invoice,
-    PaymentHash,
-    PaymentPreimage,
-    Router,
-    LightningWallet,
+    Channel, ChannelConfig, ChannelId, ChannelState, Invoice, LightningConfig, LightningNetwork,
+    LightningNetworkError, LightningWallet, PaymentHash, PaymentPreimage, Router,
 };
 
 // Re-export security audit types
 pub use crate::security::{
-    QuantumSecurityAuditReport,
-    EnvironmentalSystemAuditReport,
-    prepare_quantum_security_audit,
-    prepare_environmental_system_audit,
+    prepare_environmental_system_audit, prepare_quantum_security_audit,
+    EnvironmentalSystemAuditReport, QuantumSecurityAuditReport,
 };
 
 // Re-export deployment types
 pub use crate::deployment::{
-    TestnetConfiguration,
-    deploy_supernova_testnet,
-    TestnetDeploymentStatus,
+    deploy_supernova_testnet, TestnetConfiguration, TestnetDeploymentStatus,
 };
 
 // Add the freeze module to the library

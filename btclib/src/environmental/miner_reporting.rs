@@ -1,8 +1,10 @@
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use tracing::info;
+use crate::environmental::types::{
+    EmissionFactor, EnergySource as TypesEnergySource, HardwareType as TypesHardwareType, Region,
+};
 use chrono::{DateTime, Utc};
-use crate::environmental::types::{EnergySource as TypesEnergySource, EmissionFactor, HardwareType as TypesHardwareType, Region};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tracing::info;
 
 /// Status of miner verification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -163,11 +165,7 @@ pub struct MinerEnvironmentalInfo {
 
 impl MinerEnvironmentalInfo {
     /// Create a new miner environmental info record
-    pub fn new(
-        miner_id: String,
-        name: String,
-        region: Region,
-    ) -> Self {
+    pub fn new(miner_id: String, name: String, region: Region) -> Self {
         Self {
             miner_id,
             name,
@@ -192,7 +190,10 @@ impl MinerEnvironmentalInfo {
     }
 
     /// Calculate carbon footprint based on energy mix and regional emission factors
-    pub fn calculate_carbon_footprint(&mut self, emission_factors: &HashMap<Region, EmissionFactor>) -> Result<f64, String> {
+    pub fn calculate_carbon_footprint(
+        &mut self,
+        emission_factors: &HashMap<Region, EmissionFactor>,
+    ) -> Result<f64, String> {
         if self.energy_consumption_kwh_day <= 0.0 {
             return Err("Energy consumption must be greater than zero".to_string());
         }
@@ -200,7 +201,12 @@ impl MinerEnvironmentalInfo {
         // Get emission factor for the region
         let emission_factor = match emission_factors.get(&self.region) {
             Some(factor) => factor,
-            None => return Err(format!("No emission factor available for region {:?}", self.region)),
+            None => {
+                return Err(format!(
+                    "No emission factor available for region {:?}",
+                    self.region
+                ))
+            }
         };
 
         // Calculate annual energy consumption in MWh
@@ -215,15 +221,15 @@ impl MinerEnvironmentalInfo {
 
         // Apply reductions for RECs and offsets
         let mut final_footprint = carbon_footprint;
-        
+
         // RECs effectively reduce the non-renewable portion
         if self.has_rec_certificates {
             // This calculation assumes RECs cover the renewable percentage declared
             // A more complex implementation would track specific REC quantities
-            final_footprint = carbon_footprint * 
-                (1.0 - (self.renewable_percentage / 100.0).min(1.0).max(0.0));
+            final_footprint =
+                carbon_footprint * (1.0 - (self.renewable_percentage / 100.0).min(1.0).max(0.0));
         }
-        
+
         // Carbon offsets directly reduce the final footprint
         if self.has_carbon_offsets {
             // This is a simplified model; a real implementation would track
@@ -238,15 +244,22 @@ impl MinerEnvironmentalInfo {
     }
 
     /// Update the energy source mix
-    pub fn update_energy_sources(&mut self, sources: HashMap<TypesEnergySource, f64>) -> Result<(), String> {
+    pub fn update_energy_sources(
+        &mut self,
+        sources: HashMap<TypesEnergySource, f64>,
+    ) -> Result<(), String> {
         // Validate that percentages sum to approximately 100%
         let total: f64 = sources.values().sum();
         if (total - 100.0).abs() > 1.0 {
-            return Err(format!("Energy source percentages should sum to approximately 100%, got {}", total));
+            return Err(format!(
+                "Energy source percentages should sum to approximately 100%, got {}",
+                total
+            ));
         }
 
         // Calculate renewable percentage
-        let renewable_percentage = sources.iter()
+        let renewable_percentage = sources
+            .iter()
             .filter(|(source, _)| source.is_renewable())
             .map(|(_, percentage)| percentage)
             .sum();
@@ -375,13 +388,15 @@ impl MinerEnvironmentalInfo {
     pub fn calculate_environmental_score(&mut self) -> f64 {
         // Base score starts with renewable percentage (0-50 points)
         let renewable_score = (self.renewable_percentage / 100.0) * 50.0;
-        
+
         // Add points for REC certificates (0-20 points)
         let rec_score = if self.has_rec_certificates {
-            let verified_recs = self.rec_certificates.iter()
+            let verified_recs = self
+                .rec_certificates
+                .iter()
                 .filter(|rec| rec.verification_status == MinerVerificationStatus::Verified)
                 .count();
-            
+
             if verified_recs > 0 {
                 20.0
             } else {
@@ -390,13 +405,15 @@ impl MinerEnvironmentalInfo {
         } else {
             0.0
         };
-        
+
         // Add points for carbon offsets (0-10 points)
         let offset_score = if self.has_carbon_offsets {
-            let verified_offsets = self.carbon_offsets.iter()
+            let verified_offsets = self
+                .carbon_offsets
+                .iter()
                 .filter(|offset| offset.verification_status == MinerVerificationStatus::Verified)
                 .count();
-            
+
             if verified_offsets > 0 {
                 10.0
             } else {
@@ -405,7 +422,7 @@ impl MinerEnvironmentalInfo {
         } else {
             0.0
         };
-        
+
         // Add points for location verification (0-10 points)
         let location_score = if let Some(verification) = &self.location_verification {
             match verification.method {
@@ -419,37 +436,37 @@ impl MinerEnvironmentalInfo {
         } else {
             0.0
         };
-        
+
         // Add points for energy efficiency (0-10 points)
         let efficiency_score = if let Some(efficiency) = self.calculate_energy_efficiency() {
             // Lower J/TH is better
-            
-            
+
             match efficiency {
-                e if e < 25.0 => 10.0,  // Most efficient ASICs
-                e if e < 35.0 => 8.0,   // Very efficient
-                e if e < 50.0 => 6.0,   // Efficient
-                e if e < 75.0 => 4.0,   // Moderate
-                e if e < 100.0 => 2.0,  // Below average
-                _ => 0.0,               // Inefficient
+                e if e < 25.0 => 10.0, // Most efficient ASICs
+                e if e < 35.0 => 8.0,  // Very efficient
+                e if e < 50.0 => 6.0,  // Efficient
+                e if e < 75.0 => 4.0,  // Moderate
+                e if e < 100.0 => 2.0, // Below average
+                _ => 0.0,              // Inefficient
             }
         } else {
             0.0
         };
-        
+
         // Total score (0-100)
-        let total_score = renewable_score + rec_score + offset_score + location_score + efficiency_score;
-        
+        let total_score =
+            renewable_score + rec_score + offset_score + location_score + efficiency_score;
+
         // Update the score
         self.environmental_score = Some(total_score);
-        
+
         total_score
     }
 
     /// Calculate carbon footprint with REC and offset prioritization
     pub fn calculate_carbon_footprint_with_prioritization(
-        &mut self, 
-        emission_factors: &HashMap<Region, EmissionFactor>
+        &mut self,
+        emission_factors: &HashMap<Region, EmissionFactor>,
     ) -> Result<f64, String> {
         if self.energy_consumption_kwh_day <= 0.0 {
             return Err("Energy consumption must be greater than zero".to_string());
@@ -458,7 +475,12 @@ impl MinerEnvironmentalInfo {
         // Get emission factor for the region
         let emission_factor = match emission_factors.get(&self.region) {
             Some(factor) => factor,
-            None => return Err(format!("No emission factor available for region {:?}", self.region)),
+            None => {
+                return Err(format!(
+                    "No emission factor available for region {:?}",
+                    self.region
+                ))
+            }
         };
 
         // Calculate annual energy consumption in MWh
@@ -466,57 +488,65 @@ impl MinerEnvironmentalInfo {
 
         // Calculate gross carbon footprint (without RECs or offsets)
         let gross_footprint = annual_energy_mwh * emission_factor.grid_emissions_factor;
-        
+
         // Apply reductions based on verified RECs (given top priority)
         let mut remaining_footprint = gross_footprint;
-        
+
         // First apply RECs (full reduction of covered portion)
-        let rec_covered_mwh: f64 = self.rec_certificates.iter()
+        let rec_covered_mwh: f64 = self
+            .rec_certificates
+            .iter()
             .filter(|cert| cert.verification_status == MinerVerificationStatus::Verified)
             .map(|cert| cert.amount_mwh)
             .sum();
-        
+
         let rec_coverage_ratio = (rec_covered_mwh / annual_energy_mwh).min(1.0);
         remaining_footprint = gross_footprint * (1.0 - rec_coverage_ratio);
-        
+
         // Then apply carbon offsets to remaining footprint
-        let offset_tonnes: f64 = self.carbon_offsets.iter()
+        let offset_tonnes: f64 = self
+            .carbon_offsets
+            .iter()
             .filter(|offset| offset.verification_status == MinerVerificationStatus::Verified)
             .map(|offset| offset.amount_tonnes)
             .sum();
-        
+
         // Directly subtract verified offsets from remaining footprint
         remaining_footprint = (remaining_footprint - offset_tonnes).max(0.0);
-        
+
         // Update the carbon footprint field
         self.carbon_footprint_tonnes_year = Some(remaining_footprint);
 
         Ok(remaining_footprint)
     }
-    
+
     /// Check if miner has verified RECs
     pub fn has_verified_recs(&self) -> bool {
-        self.rec_certificates.iter()
+        self.rec_certificates
+            .iter()
             .any(|cert| cert.verification_status == MinerVerificationStatus::Verified)
     }
-    
+
     /// Check if miner has verified carbon offsets
     pub fn has_verified_offsets(&self) -> bool {
-        self.carbon_offsets.iter()
+        self.carbon_offsets
+            .iter()
             .any(|offset| offset.verification_status == MinerVerificationStatus::Verified)
     }
-    
+
     /// Get total verified REC amount in MWh
     pub fn total_verified_recs_mwh(&self) -> f64 {
-        self.rec_certificates.iter()
+        self.rec_certificates
+            .iter()
             .filter(|cert| cert.verification_status == MinerVerificationStatus::Verified)
             .map(|cert| cert.amount_mwh)
             .sum()
     }
-    
+
     /// Get total verified offset amount in tonnes CO2e
     pub fn total_verified_offsets_tonnes(&self) -> f64 {
-        self.carbon_offsets.iter()
+        self.carbon_offsets
+            .iter()
             .filter(|offset| offset.verification_status == MinerVerificationStatus::Verified)
             .map(|offset| offset.amount_tonnes)
             .sum()
@@ -555,7 +585,10 @@ impl MinerReportingManager {
     /// Register a new miner
     pub fn register_miner(&mut self, info: MinerEnvironmentalInfo) -> Result<(), String> {
         if self.miners.contains_key(&info.miner_id) {
-            return Err(format!("Miner with ID {} is already registered", info.miner_id));
+            return Err(format!(
+                "Miner with ID {} is already registered",
+                info.miner_id
+            ));
         }
 
         let miner_id = info.miner_id.clone();
@@ -612,28 +645,29 @@ impl MinerReportingManager {
 
     /// Get miners with verified renewable energy claims
     pub fn get_verified_green_miners(&self) -> Vec<&MinerEnvironmentalInfo> {
-        self.miners.values()
+        self.miners
+            .values()
             .filter(|info| {
-                info.is_verification_valid() && 
-                info.renewable_percentage >= 50.0 &&
-                info.has_rec_certificates
+                info.is_verification_valid()
+                    && info.renewable_percentage >= 50.0
+                    && info.has_rec_certificates
             })
             .collect()
     }
 
     /// Get miners with carbon offset claims
     pub fn get_offset_miners(&self) -> Vec<&MinerEnvironmentalInfo> {
-        self.miners.values()
-            .filter(|info| {
-                info.has_carbon_offsets &&
-                info.is_verification_valid()
-            })
+        self.miners
+            .values()
+            .filter(|info| info.has_carbon_offsets && info.is_verification_valid())
             .collect()
     }
 
     /// Calculate average efficiency of all miners
     pub fn calculate_average_efficiency(&self) -> Option<f64> {
-        let efficiencies: Vec<f64> = self.miners.values()
+        let efficiencies: Vec<f64> = self
+            .miners
+            .values()
             .filter_map(|info| info.calculate_energy_efficiency())
             .collect();
 
@@ -646,14 +680,18 @@ impl MinerReportingManager {
 
     /// Compare a miner's efficiency to the hardware baseline
     pub fn compare_to_baseline(&self, miner_id: &str) -> Result<f64, String> {
-        let info = self.get_miner(miner_id)
+        let info = self
+            .get_miner(miner_id)
             .ok_or_else(|| format!("Miner with ID {} not found", miner_id))?;
 
-        let efficiency = info.calculate_energy_efficiency()
+        let efficiency = info
+            .calculate_energy_efficiency()
             .ok_or_else(|| "Cannot calculate efficiency without hashrate".to_string())?;
 
         // Find the most efficient hardware type as a baseline
-        let baseline = info.hardware_types.iter()
+        let baseline = info
+            .hardware_types
+            .iter()
             .filter_map(|hw| self.hardware_baselines.get(hw))
             .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .ok_or_else(|| "No baseline available for miner's hardware types".to_string())?;
@@ -665,64 +703,73 @@ impl MinerReportingManager {
     /// Generate a network-wide environmental report
     pub fn generate_report(&self) -> MinerEnvironmentalReport {
         let miners = self.list_miners();
-        
+
         // Count verified miners
-        let verified_miners = miners.iter()
+        let verified_miners = miners
+            .iter()
             .filter(|miner| miner.is_verification_valid())
             .count();
-        
+
         // Calculate average renewable percentage
         let average_renewable_percentage = if !miners.is_empty() {
-            miners.iter()
+            miners
+                .iter()
                 .map(|miner| miner.renewable_percentage)
-                .sum::<f64>() / miners.len() as f64
+                .sum::<f64>()
+                / miners.len() as f64
         } else {
             0.0
         };
-        
+
         // Calculate total hashrate
-        let total_hashrate = miners.iter()
-            .map(|miner| miner.total_hashrate)
-            .sum();
-        
+        let total_hashrate = miners.iter().map(|miner| miner.total_hashrate).sum();
+
         // Calculate total energy consumption
-        let total_energy_consumption = miners.iter()
+        let total_energy_consumption = miners
+            .iter()
             .map(|miner| miner.energy_consumption_kwh_day)
             .sum();
-        
+
         // Count miners with verified RECs
-        let green_miners = miners.iter()
+        let green_miners = miners
+            .iter()
             .filter(|miner| miner.has_verified_recs())
             .count();
-        
+
         // Count miners with offsets
-        let offset_miners = miners.iter()
+        let offset_miners = miners
+            .iter()
             .filter(|miner| miner.has_verified_offsets())
             .count();
-        
+
         // Calculate average efficiency
-        let efficiency_values: Vec<f64> = miners.iter()
+        let efficiency_values: Vec<f64> = miners
+            .iter()
             .filter_map(|miner| miner.calculate_energy_efficiency())
             .collect();
-        
+
         let average_efficiency = if !efficiency_values.is_empty() {
             Some(efficiency_values.iter().sum::<f64>() / efficiency_values.len() as f64)
         } else {
             None
         };
-        
+
         // Calculate REC coverage percentage
         let rec_coverage_percentage = if total_energy_consumption > 0.0 {
-            let total_verified_recs_mwh: f64 = miners.iter()
+            let total_verified_recs_mwh: f64 = miners
+                .iter()
                 .map(|miner| miner.total_verified_recs_mwh())
                 .sum();
-            
+
             let annual_energy_mwh = total_energy_consumption * 365.0 / 1000.0;
-            Some(f64::min(total_verified_recs_mwh / annual_energy_mwh * 100.0, 100.0))
+            Some(f64::min(
+                total_verified_recs_mwh / annual_energy_mwh * 100.0,
+                100.0,
+            ))
         } else {
             None
         };
-        
+
         MinerEnvironmentalReport {
             timestamp: chrono::Utc::now(),
             total_miners: miners.len(),
@@ -762,29 +809,29 @@ impl MinerReportingManager {
                 miner_info.add_verification(
                     verification.provider.clone(),
                     verification.reference.clone(),
-                    verification.status
+                    verification.status,
                 );
             }
-            
+
             // Determine report status based on verification status
             match verification.status {
                 MinerVerificationStatus::Verified => {
                     // Approve the report
                     self.update_miner_status(miner_id, true);
                     true
-                },
+                }
                 MinerVerificationStatus::Rejected => {
                     // Reject the report
                     self.update_miner_status(miner_id, false);
                     true
-                },
+                }
                 _ => false,
             }
         } else {
             false
         }
     }
-    
+
     /// Update miner status after verification
     fn update_miner_status(&mut self, miner_id: &str, verified: bool) {
         // Implementation would update status in a real system
@@ -795,7 +842,7 @@ impl MinerReportingManager {
     pub fn calculate_network_renewable_percentage(&self) -> f64 {
         let mut total_renewable = 0.0;
         let mut total_miners = 0;
-        
+
         // Use miners information directly instead of reports
         for miner_info in self.miners.values() {
             if miner_info.is_verification_valid() {
@@ -803,7 +850,7 @@ impl MinerReportingManager {
                 total_miners += 1;
             }
         }
-        
+
         if total_miners > 0 {
             total_renewable / total_miners as f64
         } else {
@@ -813,16 +860,16 @@ impl MinerReportingManager {
 
     /// Verify miner location using multiple methods
     pub fn verify_miner_location(
-        &mut self, 
-        miner_id: &str, 
+        &mut self,
+        miner_id: &str,
         method: LocationVerificationMethod,
-        evidence: Option<String>
+        evidence: Option<String>,
     ) -> Result<(), String> {
         let miner = match self.miners.get_mut(miner_id) {
             Some(miner) => miner,
             None => return Err(format!("Miner with ID {} not found", miner_id)),
         };
-        
+
         // Determine confidence level based on verification method
         let confidence = match method {
             LocationVerificationMethod::MultiFactor => 0.95,
@@ -832,7 +879,7 @@ impl MinerReportingManager {
             LocationVerificationMethod::IPGeolocation => 0.6,
             LocationVerificationMethod::SelfDeclared => 0.3,
         };
-        
+
         // Create verification record
         let verification = LocationVerification {
             method,
@@ -842,49 +889,51 @@ impl MinerReportingManager {
             evidence_reference: evidence,
             status: MinerVerificationStatus::Verified,
         };
-        
+
         // Update miner record
         miner.set_location_verification(verification);
-        
+
         Ok(())
     }
-    
+
     /// Verify REC certificate
     pub fn verify_rec_certificate(
-        &mut self, 
-        miner_id: &str, 
-        certificate_id: &str
+        &mut self,
+        miner_id: &str,
+        certificate_id: &str,
     ) -> Result<(), String> {
         let miner = match self.miners.get_mut(miner_id) {
             Some(miner) => miner,
             None => return Err(format!("Miner with ID {} not found", miner_id)),
         };
-        
+
         // Find the certificate
-        let cert_index = miner.rec_certificates.iter()
+        let cert_index = miner
+            .rec_certificates
+            .iter()
             .position(|cert| cert.certificate_id == certificate_id)
             .ok_or_else(|| format!("Certificate with ID {} not found", certificate_id))?;
-        
+
         // In a real system, this would connect to a REC verification service
         // For now, we just simulate verification
-        
+
         // Update verification status
         miner.rec_certificates[cert_index].verification_status = MinerVerificationStatus::Verified;
         miner.rec_certificates[cert_index].last_verified = Some(Utc::now());
-        
+
         // Update miner's REC status
         miner.has_rec_certificates = true;
-        
+
         Ok(())
     }
-    
+
     /// Calculate fee discount with REC prioritization
     pub fn calculate_fee_discount_with_rec_priority(&self, miner_id: &str) -> f64 {
         let info = match self.miners.get(miner_id) {
             Some(info) => info,
             None => return 0.0, // No discount for non-registered miners
         };
-        
+
         // Base discount from renewable percentage
         let base_discount = if info.renewable_percentage >= 95.0 {
             10.0 // 10% discount for 95%+ renewable
@@ -897,26 +946,26 @@ impl MinerReportingManager {
         } else {
             0.0 // No discount for less than 25% renewable
         };
-        
+
         // REC bonus - prioritize RECs over everything else
         let rec_bonus = if info.has_verified_recs() {
             // Calculate REC coverage percentage relative to energy consumption
             let annual_energy_mwh = info.energy_consumption_kwh_day * 365.0 / 1000.0;
             let rec_coverage = (info.total_verified_recs_mwh() / annual_energy_mwh).min(1.0);
-            
+
             // Bonus based on REC coverage
             rec_coverage * 5.0 // Up to 5% additional discount
         } else {
             0.0
         };
-        
+
         // Offset bonus - smaller bonus for offsets
         let offset_bonus = if info.has_verified_offsets() {
             2.0 // 2% additional discount for verified offsets
         } else {
             0.0
         };
-        
+
         // Location verification bonus
         let location_bonus = if let Some(verification) = &info.location_verification {
             if verification.status == MinerVerificationStatus::Verified {
@@ -927,79 +976,89 @@ impl MinerReportingManager {
         } else {
             0.0
         };
-        
+
         // Total discount
         base_discount + rec_bonus + offset_bonus + location_bonus
     }
-    
+
     /// Get miners with verified REC certificates (prioritize over offsets)
     pub fn get_verified_rec_miners(&self) -> Vec<&MinerEnvironmentalInfo> {
-        self.miners.values()
+        self.miners
+            .values()
             .filter(|info| info.has_verified_recs())
             .collect()
     }
-    
+
     /// Generate a network-wide environmental report with REC prioritization
     pub fn generate_report_with_rec_priority(&self) -> MinerEnvironmentalReport {
         let miners = self.list_miners();
-        
+
         // Count verified miners
-        let verified_miners = miners.iter()
+        let verified_miners = miners
+            .iter()
             .filter(|miner| miner.is_verification_valid())
             .count();
-        
+
         // Calculate average renewable percentage
         let average_renewable_percentage = if !miners.is_empty() {
-            miners.iter()
+            miners
+                .iter()
                 .map(|miner| miner.renewable_percentage)
-                .sum::<f64>() / miners.len() as f64
+                .sum::<f64>()
+                / miners.len() as f64
         } else {
             0.0
         };
-        
+
         // Calculate total hashrate
-        let total_hashrate = miners.iter()
-            .map(|miner| miner.total_hashrate)
-            .sum();
-        
+        let total_hashrate = miners.iter().map(|miner| miner.total_hashrate).sum();
+
         // Calculate total energy consumption
-        let total_energy_consumption = miners.iter()
+        let total_energy_consumption = miners
+            .iter()
             .map(|miner| miner.energy_consumption_kwh_day)
             .sum();
-        
+
         // Count miners with verified RECs
-        let green_miners = miners.iter()
+        let green_miners = miners
+            .iter()
             .filter(|miner| miner.has_verified_recs())
             .count();
-        
+
         // Count miners with offsets
-        let offset_miners = miners.iter()
+        let offset_miners = miners
+            .iter()
             .filter(|miner| miner.has_verified_offsets())
             .count();
-        
+
         // Calculate average efficiency
-        let efficiency_values: Vec<f64> = miners.iter()
+        let efficiency_values: Vec<f64> = miners
+            .iter()
             .filter_map(|miner| miner.calculate_energy_efficiency())
             .collect();
-        
+
         let average_efficiency = if !efficiency_values.is_empty() {
             Some(efficiency_values.iter().sum::<f64>() / efficiency_values.len() as f64)
         } else {
             None
         };
-        
+
         // Calculate REC coverage percentage with priority to verified RECs
         let rec_coverage_percentage = if total_energy_consumption > 0.0 {
-            let total_verified_recs_mwh: f64 = miners.iter()
+            let total_verified_recs_mwh: f64 = miners
+                .iter()
                 .map(|miner| miner.total_verified_recs_mwh())
                 .sum();
-            
+
             let annual_energy_mwh = total_energy_consumption * 365.0 / 1000.0;
-            Some(f64::min(total_verified_recs_mwh / annual_energy_mwh * 100.0, 100.0))
+            Some(f64::min(
+                total_verified_recs_mwh / annual_energy_mwh * 100.0,
+                100.0,
+            ))
         } else {
             None
         };
-        
+
         MinerEnvironmentalReport {
             timestamp: chrono::Utc::now(),
             total_miners: miners.len(),
@@ -1044,7 +1103,7 @@ pub struct MinerEnvironmentalReport {
 mod tests {
     use super::*;
     use crate::test_common::*;
-    
+
     #[test]
     fn test_miner_carbon_footprint_calculation() {
         // Create emission factors
@@ -1061,36 +1120,36 @@ mod tests {
                 confidence: Some(0.95),
             },
         );
-        
+
         // Create miner info
         let mut miner = MinerEnvironmentalInfo::new(
             "miner1".to_string(),
             "Test Miner".to_string(),
             Region::NorthAmerica,
         );
-        
+
         // Update energy consumption
         miner.update_performance_metrics(100.0, 2400.0).unwrap(); // 100 TH/s, 2400 kWh/day
-        
+
         // Update energy sources (50% renewable)
         let mut sources = HashMap::new();
         sources.insert(TypesEnergySource::Solar, 30.0);
         sources.insert(TypesEnergySource::Wind, 20.0);
         sources.insert(TypesEnergySource::Coal, 50.0);
         miner.update_energy_sources(sources).unwrap();
-        
+
         // Calculate carbon footprint
         let footprint = miner.calculate_carbon_footprint(&emission_factors).unwrap();
-        
+
         // Expected calculation:
         // Annual energy = 2400 kWh/day * 365 days / 1000 = 876 MWh
         // Non-renewable = 876 MWh * 0.5 = 438 MWh
         // Footprint = 438 MWh * 0.4 tonnes/MWh = 175.2 tonnes CO2e
-        
+
         // Allow for small floating-point differences
         assert!((footprint - 175.2).abs() < 0.1);
     }
-    
+
     #[test]
     fn test_rec_and_offset_impact() {
         // Create emission factors
@@ -1107,39 +1166,39 @@ mod tests {
                 confidence: Some(0.95),
             },
         );
-        
+
         // Create miner info
         let mut miner = MinerEnvironmentalInfo::new(
             "miner2".to_string(),
             "Green Miner".to_string(),
             Region::Europe,
         );
-        
+
         // Set metrics
         miner.update_performance_metrics(200.0, 4800.0).unwrap(); // 200 TH/s, 4800 kWh/day
-        
+
         // 80% renewable energy
         let mut sources = HashMap::new();
         sources.insert(TypesEnergySource::Hydro, 50.0);
         sources.insert(TypesEnergySource::Wind, 30.0);
         sources.insert(TypesEnergySource::NaturalGas, 20.0);
         miner.update_energy_sources(sources).unwrap();
-        
+
         // Calculate baseline footprint (without RECs or offsets)
         let baseline = miner.calculate_carbon_footprint(&emission_factors).unwrap();
-        
+
         // Add RECs
         miner.update_rec_status(true, Some("https://recs.example.com".to_string()));
         let with_recs = miner.calculate_carbon_footprint(&emission_factors).unwrap();
-        
+
         // RECs should reduce footprint substantially
         assert!(with_recs < baseline);
-        
+
         // Add offsets
         miner.update_offset_status(true, Some("https://offsets.example.com".to_string()));
         let with_both = miner.calculate_carbon_footprint(&emission_factors).unwrap();
-        
+
         // Adding offsets should reduce further
         assert!(with_both < with_recs);
     }
-} 
+}

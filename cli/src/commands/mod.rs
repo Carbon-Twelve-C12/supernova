@@ -1,9 +1,9 @@
 pub mod blockchain;
-pub mod wallet;
-pub mod transaction;
-pub mod mining;
 pub mod config;
+pub mod mining;
 pub mod swap;
+pub mod transaction;
+pub mod wallet;
 
 use crate::config::OutputFormat;
 use anyhow::Result;
@@ -11,7 +11,11 @@ use colored::*;
 use serde::Serialize;
 
 /// Format output based on user preference
-pub fn format_output<T: Serialize>(data: T, format: &OutputFormat, title: Option<&str>) -> Result<()> {
+pub fn format_output<T: Serialize>(
+    data: T,
+    format: &OutputFormat,
+    title: Option<&str>,
+) -> Result<()> {
     match format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&data)?);
@@ -50,4 +54,4 @@ pub fn print_warning(message: &str) {
 /// Print info message
 pub fn print_info(message: &str) {
     println!("{} {}", "ℹ".blue().bold(), message.blue());
-} 
+}

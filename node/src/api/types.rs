@@ -3,10 +3,10 @@
 //! This module defines the data structures used in the supernova API for
 //! serializing and deserializing requests and responses.
 
+use actix_web::{HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
-use actix_web::{HttpResponse, Responder};
 
 // Import and re-export environmental types
 pub mod environmental;
@@ -34,7 +34,7 @@ impl<T> ApiResponse<T> {
             error: None,
         }
     }
-    
+
     /// Create an error response
     pub fn error(message: impl Into<String>) -> Self {
         Self {
@@ -649,8 +649,6 @@ pub struct EmissionsInfo {
     /// Net emissions after offsets
     pub net_emissions: f64,
 }
-
-
 
 //
 // Lightning Network data types
@@ -1699,7 +1697,7 @@ pub struct EnergyUsageHistory {
 
 impl Responder for BlockchainInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1707,7 +1705,7 @@ impl Responder for BlockchainInfo {
 
 impl Responder for BlockInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1715,7 +1713,7 @@ impl Responder for BlockInfo {
 
 impl Responder for TransactionInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1723,7 +1721,7 @@ impl Responder for TransactionInfo {
 
 impl Responder for TransactionSubmissionResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1731,7 +1729,7 @@ impl Responder for TransactionSubmissionResponse {
 
 impl Responder for BlockchainStats {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1739,7 +1737,7 @@ impl Responder for BlockchainStats {
 
 impl Responder for MempoolInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1747,7 +1745,7 @@ impl Responder for MempoolInfo {
 
 impl Responder for MempoolTransaction {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1755,7 +1753,7 @@ impl Responder for MempoolTransaction {
 
 impl Responder for MempoolStatistics {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1763,7 +1761,7 @@ impl Responder for MempoolStatistics {
 
 impl Responder for BalanceInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1771,7 +1769,7 @@ impl Responder for BalanceInfo {
 
 impl Responder for AddressInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1779,7 +1777,7 @@ impl Responder for AddressInfo {
 
 impl Responder for TransactionList {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1787,7 +1785,7 @@ impl Responder for TransactionList {
 
 impl Responder for SignResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1795,7 +1793,7 @@ impl Responder for SignResponse {
 
 impl Responder for VerifyResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1803,7 +1801,7 @@ impl Responder for VerifyResponse {
 
 impl Responder for SendResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1811,7 +1809,7 @@ impl Responder for SendResponse {
 
 impl Responder for LabelResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1819,7 +1817,7 @@ impl Responder for LabelResponse {
 
 impl Responder for AddressResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1827,7 +1825,7 @@ impl Responder for AddressResponse {
 
 impl Responder for BackupResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1835,7 +1833,7 @@ impl Responder for BackupResponse {
 
 impl Responder for UTXOList {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1843,7 +1841,7 @@ impl Responder for UTXOList {
 
 impl Responder for EnergyUsage {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1851,7 +1849,7 @@ impl Responder for EnergyUsage {
 
 impl Responder for CarbonFootprint {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1859,7 +1857,7 @@ impl Responder for CarbonFootprint {
 
 impl Responder for ResourceUtilization {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1867,7 +1865,7 @@ impl Responder for ResourceUtilization {
 
 impl Responder for EnvironmentalSettings {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1875,7 +1873,7 @@ impl Responder for EnvironmentalSettings {
 
 impl Responder for EmissionsInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1883,7 +1881,7 @@ impl Responder for EmissionsInfo {
 
 impl Responder for EnvironmentalTreasuryStatus {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1891,7 +1889,7 @@ impl Responder for EnvironmentalTreasuryStatus {
 
 impl Responder for EnergyUsageHistory {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1899,7 +1897,7 @@ impl Responder for EnergyUsageHistory {
 
 impl Responder for LoadAverage {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1907,7 +1905,7 @@ impl Responder for LoadAverage {
 
 impl Responder for NodeInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1915,7 +1913,7 @@ impl Responder for NodeInfo {
 
 impl Responder for SystemInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1923,7 +1921,7 @@ impl Responder for SystemInfo {
 
 impl Responder for NodeStatus {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1931,7 +1929,7 @@ impl Responder for NodeStatus {
 
 impl Responder for VersionInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1939,7 +1937,7 @@ impl Responder for VersionInfo {
 
 impl Responder for NodeMetrics {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1947,7 +1945,7 @@ impl Responder for NodeMetrics {
 
 impl Responder for FaucetInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1955,7 +1953,7 @@ impl Responder for FaucetInfo {
 
 impl Responder for BackupInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1963,7 +1961,7 @@ impl Responder for BackupInfo {
 
 impl Responder for DebugInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1971,7 +1969,7 @@ impl Responder for DebugInfo {
 
 impl Responder for MempoolTransactionSubmissionResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1979,7 +1977,7 @@ impl Responder for MempoolTransactionSubmissionResponse {
 
 impl Responder for TransactionValidationResult {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1987,7 +1985,7 @@ impl Responder for TransactionValidationResult {
 
 impl Responder for TransactionFees {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -1995,7 +1993,7 @@ impl Responder for TransactionFees {
 
 impl Responder for NetworkInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2003,7 +2001,7 @@ impl Responder for NetworkInfo {
 
 impl Responder for ConnectionCount {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2011,7 +2009,7 @@ impl Responder for ConnectionCount {
 
 impl Responder for PeerInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2019,7 +2017,7 @@ impl Responder for PeerInfo {
 
 impl Responder for PeerAddResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2027,7 +2025,7 @@ impl Responder for PeerAddResponse {
 
 impl Responder for BandwidthUsage {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2035,7 +2033,7 @@ impl Responder for BandwidthUsage {
 
 impl Responder for MiningInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2043,7 +2041,7 @@ impl Responder for MiningInfo {
 
 impl Responder for MiningTemplate {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2051,7 +2049,7 @@ impl Responder for MiningTemplate {
 
 impl Responder for SubmitBlockResponse {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2059,7 +2057,7 @@ impl Responder for SubmitBlockResponse {
 
 impl Responder for MiningStats {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2067,7 +2065,7 @@ impl Responder for MiningStats {
 
 impl Responder for MiningStatus {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2075,7 +2073,7 @@ impl Responder for MiningStatus {
 
 impl Responder for MiningConfiguration {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2083,7 +2081,7 @@ impl Responder for MiningConfiguration {
 
 impl Responder for WalletInfo {
     type Body = actix_web::body::BoxBody;
-    
+
     fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(self)
     }
@@ -2105,4 +2103,4 @@ mod tests {
         assert_eq!(error.data, None);
         assert_eq!(error.error, Some("Test error".to_string()));
     }
-} 
+}

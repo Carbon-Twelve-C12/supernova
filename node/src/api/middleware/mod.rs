@@ -5,11 +5,11 @@
 
 pub mod auth;
 pub mod auth_rate_limiter;
-pub mod rate_limiting;
 pub mod logging;
+pub mod rate_limiting;
 
 // Re-export middleware components
 pub use auth::ApiAuth;
 pub use auth_rate_limiter::{AuthRateLimiter, AuthRateLimiterConfig};
+pub use logging::ApiLogger;
 pub use rate_limiting::RateLimiter;
-pub use logging::ApiLogger; 

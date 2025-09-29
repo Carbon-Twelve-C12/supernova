@@ -4,8 +4,8 @@
 //! to find a valid block hash.
 
 use btclib::types::Block;
-use std::thread;
 use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
 
 pub struct ProofOfWork;
 
@@ -32,4 +32,4 @@ impl ProofOfWork {
 
         receiver.recv().ok()
     }
-} 
+}

@@ -1,17 +1,17 @@
 use bitcoin::{
-    network::Network,
-    secp256k1::{Secp256k1},
-    Address, PrivateKey, PublicKey, Transaction,
+    absolute::LockTime,
     hashes::Hash,
-    sighash::{SighashCache, EcdsaSighashType},
-    Amount,
-    TxIn, TxOut, OutPoint, ScriptBuf, Witness, Sequence,
-    absolute::LockTime, transaction::Version,
+    network::Network,
+    secp256k1::Secp256k1,
+    sighash::{EcdsaSighashType, SighashCache},
+    transaction::Version,
+    Address, Amount, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction, TxIn,
+    TxOut, Witness,
 };
-use std::str::FromStr;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use serde::{Serialize, Deserialize};
+use std::str::FromStr;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalletError {
@@ -71,7 +71,10 @@ impl Wallet {
         })
     }
 
-    pub fn from_private_key(private_key: PrivateKey, network: Network) -> Result<Self, WalletError> {
+    pub fn from_private_key(
+        private_key: PrivateKey,
+        network: Network,
+    ) -> Result<Self, WalletError> {
         Ok(Self {
             private_key,
             network,
@@ -92,31 +95,35 @@ impl Wallet {
 
     pub fn sign_transaction(&self, tx: &mut Transaction) -> Result<(), WalletError> {
         let secp = Secp256k1::new();
-        
+
         // First, collect all the signature hashes without borrowing tx mutably
         let mut signatures = Vec::new();
         for input_index in 0..tx.input.len() {
             // Get the corresponding UTXO
             let input = &tx.input[input_index];
-            let _utxo = self.find_utxo(input.previous_output.txid.to_raw_hash().to_byte_array(), input.previous_output.vout)
+            let _utxo = self
+                .find_utxo(
+                    input.previous_output.txid.to_raw_hash().to_byte_array(),
+                    input.previous_output.vout,
+                )
                 .ok_or(WalletError::UTXONotFound)?;
-            
+
             // Create signature hash
             let sighash = self.create_signature_hash(tx, input_index)?;
-            
+
             // Sign the hash
             let msg = bitcoin::secp256k1::Message::from_digest_slice(&sighash)
                 .map_err(|e| WalletError::SigningError(e.to_string()))?;
-                
+
             let signature = secp.sign_ecdsa(&msg, &self.private_key.inner);
-            
+
             // Create signature with sighash flag
             let mut sig_serialized = signature.serialize_der().to_vec();
             sig_serialized.push(EcdsaSighashType::All as u8);
-            
+
             signatures.push(sig_serialized);
         }
-        
+
         // Now apply the signatures to the transaction
         let public_key = self.get_public_key();
         for (input_index, input) in tx.input.iter_mut().enumerate() {
@@ -124,11 +131,11 @@ impl Wallet {
             let mut witness_stack = Witness::new();
             witness_stack.push(signatures[input_index].clone());
             witness_stack.push(public_key.to_bytes());
-            
+
             // Set witness
             input.witness = witness_stack;
         }
-        
+
         Ok(())
     }
 
@@ -142,27 +149,30 @@ impl Wallet {
             .map_err(|_| WalletError::InvalidAddress(recipient.to_string()))?
             .require_network(self.network)
             .map_err(|_| WalletError::InvalidAddress(recipient.to_string()))?;
-        
+
         // Calculate total amount needed
         let total_needed = amount + fee;
-        
+
         // Select UTXOs to use as inputs
         let selected_utxos = self.select_utxos(total_needed)?;
-        
+
         // Calculate total input amount
         let total_input: u64 = selected_utxos.iter().map(|utxo| utxo.amount).sum();
-        
+
         // Calculate change amount
         let change_amount = total_input - total_needed;
-        
+
         // Create inputs
-        let inputs: Vec<TxIn> = selected_utxos.iter()
+        let inputs: Vec<TxIn> = selected_utxos
+            .iter()
             .map(|utxo| {
                 let outpoint = OutPoint {
-                    txid: bitcoin::Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::from_byte_array(utxo.tx_hash)),
+                    txid: bitcoin::Txid::from_raw_hash(
+                        bitcoin::hashes::sha256d::Hash::from_byte_array(utxo.tx_hash),
+                    ),
                     vout: utxo.output_index,
                 };
-                
+
                 TxIn {
                     previous_output: outpoint,
                     script_sig: ScriptBuf::new(),
@@ -171,46 +181,39 @@ impl Wallet {
                 }
             })
             .collect();
-        
+
         // Create output to recipient
-        let mut outputs: Vec<TxOut> = vec![
-            TxOut {
-                value: Amount::from_sat(amount),
-                script_pubkey: recipient_address.script_pubkey(),
-            }
-        ];
-        
+        let mut outputs: Vec<TxOut> = vec![TxOut {
+            value: Amount::from_sat(amount),
+            script_pubkey: recipient_address.script_pubkey(),
+        }];
+
         // Add change output if necessary
         if change_amount > 0 {
             let change_address = self.get_address()?;
-            outputs.push(
-                TxOut {
-                    value: Amount::from_sat(change_amount),
-                    script_pubkey: change_address.script_pubkey(),
-                }
-            );
+            outputs.push(TxOut {
+                value: Amount::from_sat(change_amount),
+                script_pubkey: change_address.script_pubkey(),
+            });
         }
-        
+
         // Create transaction
         let mut tx = Transaction {
-            version: Version::TWO, // Default version
+            version: Version::TWO,     // Default version
             lock_time: LockTime::ZERO, // No lock time
             input: inputs,
             output: outputs,
         };
-        
+
         // Sign transaction
         self.sign_transaction(&mut tx)?;
-        
+
         Ok(tx)
     }
 
     /// Get wallet balance
     pub fn get_balance(&self) -> u64 {
-        self.utxos.values()
-            .flatten()
-            .map(|utxo| utxo.amount)
-            .sum()
+        self.utxos.values().flatten().map(|utxo| utxo.amount).sum()
     }
 
     /// Send a transaction
@@ -222,10 +225,10 @@ impl Wallet {
     ) -> Result<[u8; 32], WalletError> {
         // Create and sign transaction
         let transaction = self.create_transaction(recipient, amount, fee)?;
-        
+
         // Broadcast the transaction to the network
         self.broadcast_transaction(&transaction)?;
-        
+
         let tx_hash = transaction.txid().to_raw_hash().to_byte_array();
         Ok(tx_hash)
     }
@@ -234,36 +237,44 @@ impl Wallet {
     pub fn broadcast_transaction(&self, transaction: &Transaction) -> Result<(), WalletError> {
         // Serialize the transaction
         let tx_data = bitcoin::consensus::encode::serialize(transaction);
-        
+
         // In a real implementation, this would connect to the P2P network or an RPC interface
         // and broadcast the transaction to the network
-        
+
         // For now, we'll use a simple HTTP request to a node's RPC interface
         let node_url = std::env::var("SUPERNOVA_NODE_URL")
             .unwrap_or_else(|_| "http://localhost:9332".to_string());
-        
+
         let client = reqwest::blocking::Client::new();
-        let response = client.post(format!("{}/api/v1/mempool/transactions", node_url))
+        let response = client
+            .post(format!("{}/api/v1/mempool/transactions", node_url))
             .header("Content-Type", "application/octet-stream")
             .body(tx_data)
             .send()
-            .map_err(|e| WalletError::NetworkError(format!("Failed to broadcast transaction: {}", e)))?;
-        
+            .map_err(|e| {
+                WalletError::NetworkError(format!("Failed to broadcast transaction: {}", e))
+            })?;
+
         if !response.status().is_success() {
             return Err(WalletError::NetworkError(format!(
-                "Failed to broadcast transaction: HTTP status {}", 
+                "Failed to broadcast transaction: HTTP status {}",
                 response.status()
             )));
         }
-        
+
         Ok(())
     }
 
     /// Create signature hash for an input
-    fn create_signature_hash(&self, transaction: &Transaction, input_index: usize) -> Result<[u8; 32], WalletError> {
+    fn create_signature_hash(
+        &self,
+        transaction: &Transaction,
+        input_index: usize,
+    ) -> Result<[u8; 32], WalletError> {
         let mut sighash_cache = SighashCache::new(transaction);
-        let total_amount = Amount::from_sat(self.utxos.values().flatten().map(|utxo| utxo.amount).sum());
-        
+        let total_amount =
+            Amount::from_sat(self.utxos.values().flatten().map(|utxo| utxo.amount).sum());
+
         let sighash = sighash_cache
             .p2wpkh_signature_hash(
                 input_index,
@@ -278,9 +289,9 @@ impl Wallet {
 
     /// Find a UTXO by transaction hash and output index
     fn find_utxo(&self, tx_hash: [u8; 32], output_index: u32) -> Option<&UTXO> {
-        self.utxos.get(&tx_hash)
-            .and_then(|utxos| utxos.iter()
-                .find(|utxo| utxo.output_index == output_index))
+        self.utxos
+            .get(&tx_hash)
+            .and_then(|utxos| utxos.iter().find(|utxo| utxo.output_index == output_index))
     }
 
     /// Select UTXOs for spending
@@ -303,9 +314,7 @@ impl Wallet {
 
     /// Add a new UTXO to the wallet
     pub fn add_utxo(&mut self, utxo: UTXO) {
-        self.utxos.entry(utxo.tx_hash)
-            .or_default()
-            .push(utxo);
+        self.utxos.entry(utxo.tx_hash).or_default().push(utxo);
     }
 
     /// Remove a spent UTXO
@@ -317,7 +326,7 @@ impl Wallet {
             }
         }
     }
-    
+
     /// Save wallet to file
     pub fn save(&self) -> Result<(), WalletError> {
         let json = serde_json::to_string_pretty(&self)?;
@@ -333,13 +342,16 @@ impl Serialize for Wallet {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        
+
         // Create a serializable structure
         let mut state = serializer.serialize_struct("Wallet", 4)?;
         state.serialize_field("private_key", &self.private_key.to_wif())?;
         state.serialize_field("network", &self.network)?;
         state.serialize_field("utxos", &self.utxos)?;
-        state.serialize_field("wallet_path", &self.wallet_path.to_string_lossy().to_string())?;
+        state.serialize_field(
+            "wallet_path",
+            &self.wallet_path.to_string_lossy().to_string(),
+        )?;
         state.end()
     }
 }
@@ -357,13 +369,13 @@ impl<'de> Deserialize<'de> for Wallet {
             utxos: HashMap<[u8; 32], Vec<UTXO>>,
             wallet_path: String,
         }
-        
+
         let data = WalletData::deserialize(deserializer)?;
-        
+
         // Parse private key from WIF
-        let private_key = PrivateKey::from_wif(&data.private_key)
-            .map_err(serde::de::Error::custom)?;
-        
+        let private_key =
+            PrivateKey::from_wif(&data.private_key).map_err(serde::de::Error::custom)?;
+
         Ok(Wallet {
             private_key,
             network: data.network,
@@ -418,20 +430,22 @@ mod tests {
     fn test_insufficient_funds() {
         let wallet = Wallet::new(Network::Testnet).unwrap();
         let recipient_address = "tb1q7cy0njxmsxfj7qx282t0h499w6apaul6xuson5";
-        
+
         // Should panic with unimplemented!()
-        wallet.create_transaction(recipient_address, 100_000, 1_000).unwrap();
+        wallet
+            .create_transaction(recipient_address, 100_000, 1_000)
+            .unwrap();
     }
 
     #[test]
     fn test_wallet_persistence() {
         let dir = tempdir().unwrap();
         let wallet_path = dir.path().join("wallet.json");
-        
+
         // Create and save wallet
         let mut wallet = Wallet::new(Network::Testnet).unwrap();
         let address = wallet.get_address().unwrap().to_string();
-        
+
         let utxo = UTXO {
             tx_hash: [1u8; 32],
             output_index: 0,

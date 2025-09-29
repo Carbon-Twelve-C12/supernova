@@ -1,14 +1,13 @@
+use crate::api::ApiConfig;
+use config::{Config, ConfigError, Environment, File};
+use notify::{self, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use std::fs;
-use tracing::{info, warn, error};
-use config::{Config, ConfigError, Environment, File};
-use notify::{self, Watcher, RecommendedWatcher, RecursiveMode};
-use crate::api::ApiConfig;
+use tracing::{error, info, warn};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct NodeConfig {
     pub network: NetworkConfig,
     pub storage: StorageConfig,
@@ -32,7 +31,7 @@ pub struct NetworkConfig {
     pub ban_threshold: u32,
     #[serde(with = "duration_serde")]
     pub ban_duration: Duration,
-    
+
     // Added network configuration options
     pub key_path: Option<PathBuf>,
     pub network_id: String,
@@ -177,7 +176,6 @@ mod duration_serde {
     }
 }
 
-
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
@@ -185,11 +183,11 @@ impl Default for NetworkConfig {
             max_peers: 50,
             bootstrap_nodes: vec![],
             peer_ping_interval: Duration::from_secs(20), // Faster pings for 2.5-min blocks
-            max_outbound_connections: 32, // More connections for faster propagation
+            max_outbound_connections: 32,                // More connections for faster propagation
             max_inbound_connections: 128,
             ban_threshold: 100,
             ban_duration: Duration::from_secs(24 * 60 * 60),
-            
+
             // New defaults
             key_path: None,
             network_id: "supernova-mainnet".to_string(),
@@ -282,7 +280,7 @@ impl Default for TestnetConfig {
             network_id: "testnet".to_string(),
             enable_faucet: false,
             faucet_amount: 1000000000000000000, // 1 trillion satoshis
-            faucet_cooldown: 60, // 1 minute
+            faucet_cooldown: 60,                // 1 minute
             faucet_max_balance: 1000000000000000000, // 1 trillion satoshis
             enable_test_mining: false,
             test_mining_difficulty: 1,
@@ -333,7 +331,10 @@ impl NodeConfig {
         if config_path.exists() {
             config = config.add_source(File::with_name("config/node.toml"));
         } else {
-            warn!("Configuration file not found at {:?}, using defaults", config_path);
+            warn!(
+                "Configuration file not found at {:?}, using defaults",
+                config_path
+            );
             if let Err(e) = Self::create_default_config(&config_path) {
                 warn!("Failed to create default config file: {}", e);
             }
@@ -367,7 +368,10 @@ impl NodeConfig {
             Ok(new_config) => {
                 if let Err(e) = new_config.validate() {
                     error!("Invalid configuration: {}", e);
-                    return Err(ConfigError::Message(format!("Invalid configuration: {}", e)));
+                    return Err(ConfigError::Message(format!(
+                        "Invalid configuration: {}",
+                        e
+                    )));
                 }
                 *self = new_config;
                 info!("Configuration reloaded successfully");
@@ -385,28 +389,26 @@ impl NodeConfig {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         let watcher_result = RecommendedWatcher::new(
-            move |res: Result<notify::Event, notify::Error>| {
-                match res {
-                    Ok(event) => {
-                        if event.kind.is_modify() {
-                            if let Err(e) = tx.try_send(()) {
-                                match e {
-                                    tokio::sync::mpsc::error::TrySendError::Full(_) => {
-                                        error!("Config reload channel full");
-                                    }
-                                    tokio::sync::mpsc::error::TrySendError::Closed(_) => {
-                                        error!("Config reload channel closed");
-                                    }
+            move |res: Result<notify::Event, notify::Error>| match res {
+                Ok(event) => {
+                    if event.kind.is_modify() {
+                        if let Err(e) = tx.try_send(()) {
+                            match e {
+                                tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                                    error!("Config reload channel full");
+                                }
+                                tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                                    error!("Config reload channel closed");
                                 }
                             }
                         }
                     }
-                    Err(e) => error!("Config watch error: {}", e),
                 }
+                Err(e) => error!("Config watch error: {}", e),
             },
             notify::Config::default(),
         );
-        
+
         let mut watcher = match watcher_result {
             Ok(w) => w,
             Err(e) => return Err(ConfigError::Foreign(Box::new(NotifyError(e)))),
@@ -416,7 +418,7 @@ impl NodeConfig {
         if let Err(e) = watch_result {
             return Err(ConfigError::Foreign(Box::new(NotifyError(e))));
         }
-        
+
         Ok(rx)
     }
 
@@ -424,11 +426,11 @@ impl NodeConfig {
         let default_config = Self::default();
         let toml = toml::to_string_pretty(&default_config)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        
+
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        
+
         fs::write(path, toml)?;
         info!("Created default configuration file at {:?}", path);
         Ok(())
@@ -439,13 +441,19 @@ impl NodeConfig {
         if let Err(e) = fs::create_dir_all(&config.storage.db_path) {
             return Err(ConfigError::Foreign(Box::new(IoError(e))));
         }
-        info!("Ensured storage directory exists at {:?}", config.storage.db_path);
+        info!(
+            "Ensured storage directory exists at {:?}",
+            config.storage.db_path
+        );
 
         // Create backup directory
         if let Err(e) = fs::create_dir_all(&config.backup.backup_dir) {
             return Err(ConfigError::Foreign(Box::new(IoError(e))));
         }
-        info!("Ensured backup directory exists at {:?}", config.backup.backup_dir);
+        info!(
+            "Ensured backup directory exists at {:?}",
+            config.backup.backup_dir
+        );
 
         Ok(())
     }
@@ -471,7 +479,9 @@ impl NodeConfig {
             return Err("max_outbound_connections must be greater than 0".to_string());
         }
         if self.network.min_outbound_connections > self.network.max_outbound_connections {
-            return Err("min_outbound_connections cannot exceed max_outbound_connections".to_string());
+            return Err(
+                "min_outbound_connections cannot exceed max_outbound_connections".to_string(),
+            );
         }
         if self.network.connection_timeout.as_secs() < 1 {
             return Err("connection_timeout must be at least 1 second".to_string());
@@ -479,7 +489,9 @@ impl NodeConfig {
         if self.network.peer_diversity.max_inbound_ratio <= 0.0 {
             return Err("max_inbound_ratio must be positive".to_string());
         }
-        if self.network.peer_diversity.min_diversity_score < 0.0 || self.network.peer_diversity.min_diversity_score > 1.0 {
+        if self.network.peer_diversity.min_diversity_score < 0.0
+            || self.network.peer_diversity.min_diversity_score > 1.0
+        {
             return Err("min_diversity_score must be between 0.0 and 1.0".to_string());
         }
 

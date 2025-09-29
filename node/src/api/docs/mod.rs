@@ -6,8 +6,8 @@ pub mod openapi;
 
 pub use openapi::init as init_openapi;
 
-use utoipa::OpenApi;
 use super::types;
+use utoipa::OpenApi;
 
 /// Generate OpenAPI documentation
 #[derive(OpenApi)]
@@ -216,7 +216,7 @@ const SUCCESS_RESPONSE_EXAMPLE: &str = r#"
 pub mod jsonrpc {
     /// JSON-RPC documentation
     pub struct JsonRpcDoc;
-    
+
     impl JsonRpcDoc {
         /// Generate JSON-RPC documentation
         pub fn generate() -> String {
@@ -310,8 +310,8 @@ Or in case of an error:
 - `-32004`: Wallet error - Error in wallet operations
 - `-32005`: Network error - Error in network operations
             "#;
-            
+
             doc.to_string()
         }
     }
-} 
+}

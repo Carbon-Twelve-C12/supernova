@@ -10,13 +10,13 @@
 #![warn(clippy::unreachable)]
 #![warn(clippy::indexing_slicing)]
 
-use node::Node;
+use clap::Parser;
 use node::config::NodeConfig;
 use node::metrics::performance::PerformanceMonitor;
-use tracing::{info, error, warn};
-use clap::Parser;
+use node::Node;
 use std::sync::Arc;
 use tokio::signal;
+use tracing::{error, info, warn};
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
@@ -25,11 +25,11 @@ struct Args {
     /// Start with animation
     #[arg(long)]
     with_animation: bool,
-    
+
     /// Configuration file path
     #[arg(short, long, default_value = "config.toml")]
     config: String,
-    
+
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
@@ -42,9 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize logging
     let log_level = if args.debug { "debug" } else { "info" };
-    tracing_subscriber::fmt()
-        .with_env_filter(log_level)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(log_level).init();
 
     // Show animation if requested
     if args.with_animation {
@@ -54,16 +52,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Load configuration
-    let config = NodeConfig::load()
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to load configuration: {}", e);
-            std::process::exit(1);
-        });
-    
+    let config = NodeConfig::load().unwrap_or_else(|e| {
+        eprintln!("Failed to load configuration: {}", e);
+        std::process::exit(1);
+    });
+
     // Check if this is a testnet deployment
-    let is_testnet = config.node.network_name.to_lowercase().contains("test") || 
-                     config.testnet.enabled;
-    
+    let is_testnet =
+        config.node.network_name.to_lowercase().contains("test") || config.testnet.enabled;
+
     // Display logo and info
     if is_testnet {
         info!("Starting Supernova Testnet node...");
@@ -75,7 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Network: {}", config.node.network_name);
         info!("Chain ID: {}", config.node.chain_id);
         if config.testnet.enable_faucet {
-            info!("Faucet: Enabled (amount: {} NOVA)", config.testnet.faucet_amount as f64 / 100_000_000.0);
+            info!(
+                "Faucet: Enabled (amount: {} NOVA)",
+                config.testnet.faucet_amount as f64 / 100_000_000.0
+            );
         }
     } else {
         info!("Starting Supernova node...");
@@ -85,19 +85,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create and start node
     let node = Arc::new(Node::new(config.clone()).await?);
-    
+
     // Start the node
     node.start().await?;
-    
+
     // Start API server if configured (check if bind_address and port are set)
     let api_server_handle = if !config.api.bind_address.is_empty() && config.api.port > 0 {
-        info!("Starting API server on {}:{}", config.api.bind_address, config.api.port);
+        info!(
+            "Starting API server on {}:{}",
+            config.api.bind_address, config.api.port
+        );
         let api_server = node::api::create_api_server(
             Arc::clone(&node),
             &config.api.bind_address,
             config.api.port,
         );
-        
+
         // Start the API server and get the server handle
         match api_server.start().await {
             Ok(server) => {
@@ -115,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("API server disabled or not configured");
         None
     };
-    
+
     info!("Node started successfully");
     info!("Press Ctrl+C to stop the node");
 

@@ -9,23 +9,17 @@ pub use crate::crypto::hash::Hash;
 
 // Re-export validation functionality
 pub use crate::validation::{
-    ValidationError,
-    ValidationResult,
-    BlockValidator,
-    TransactionValidator,
+    BlockValidator, TransactionValidator, ValidationError, ValidationResult,
 };
 
 // Export Consensus functionality
-pub use crate::consensus::{
-    DifficultyAdjustment,
-    DifficultyAdjustmentConfig,
-};
+pub use crate::consensus::{DifficultyAdjustment, DifficultyAdjustmentConfig};
 
 // Export UTXO functionality
 pub use crate::storage::utxo_set::UtxoSet;
 
-// This module organizes the core blockchain components for easier imports 
+// This module organizes the core blockchain components for easier imports
 
 pub mod difficulty;
 
-pub use difficulty::{calculate_difficulty_from_bits, calculate_hashrate}; 
+pub use difficulty::{calculate_difficulty_from_bits, calculate_hashrate};

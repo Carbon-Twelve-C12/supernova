@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use libp2p::PeerId;
 use libp2p::multiaddr::Protocol;
+use libp2p::PeerId;
 use tracing::{debug, info, warn};
 
 /// Represents a subnet for diversity tracking
@@ -199,7 +199,11 @@ impl PeerDiversityManager {
     }
 
     /// Create a new peer diversity manager with custom settings
-    pub fn with_config(min_diversity_score: f64, strategy: ConnectionStrategy, max_rate: usize) -> Self {
+    pub fn with_config(
+        min_diversity_score: f64,
+        strategy: ConnectionStrategy,
+        max_rate: usize,
+    ) -> Self {
         Self {
             subnet_distribution: DashMap::new(),
             asn_distribution: DashMap::new(),
@@ -216,24 +220,29 @@ impl PeerDiversityManager {
             suspicious_subnets: DashMap::new(),
         }
     }
-    
+
     /// Set custom Eclipse prevention configuration
     pub fn set_eclipse_prevention_config(&mut self, config: EclipsePreventionConfig) {
         self.eclipse_config = config;
     }
-    
+
     /// Add a peer to the protected list (never rotated)
     pub fn add_protected_peer(&mut self, peer_id: PeerId) {
         self.protected_peers.insert(peer_id);
     }
-    
+
     /// Remove a peer from the protected list
     pub fn remove_protected_peer(&mut self, peer_id: &PeerId) {
         self.protected_peers.remove(peer_id);
     }
 
     /// Register a new peer with the diversity manager
-    pub fn register_peer(&self, peer_id: PeerId, addr: &libp2p::Multiaddr, is_inbound: bool) -> bool {
+    pub fn register_peer(
+        &self,
+        peer_id: PeerId,
+        addr: &libp2p::Multiaddr,
+        is_inbound: bool,
+    ) -> bool {
         // Extract IP from multiaddr
         let ip = match Self::extract_ip_from_multiaddr(addr) {
             Some(ip) => ip,
@@ -249,7 +258,7 @@ impl PeerDiversityManager {
             warn!("Connection rate limit exceeded for subnet: {:?}", subnet);
             return false;
         }
-        
+
         // Check if this would exceed per-subnet limits
         if is_inbound && self.would_exceed_subnet_limits(&subnet) {
             warn!("Connection would exceed subnet limits for: {:?}", subnet);
@@ -296,10 +305,10 @@ impl PeerDiversityManager {
 
         // Store peer info
         self.peer_info.insert(peer_id, peer_info);
-        
+
         // Update inbound connection tracking
         self.inbound_connections.insert(peer_id, is_inbound);
-        
+
         true
     }
 
@@ -307,10 +316,13 @@ impl PeerDiversityManager {
     pub fn update_peer_score(&self, peer_id: &PeerId, score_delta: f64) {
         if let Some(mut peer_info) = self.peer_info.get_mut(peer_id) {
             peer_info.connection_score += score_delta;
-            debug!("Updated score for peer {:?} to {}", peer_id, peer_info.connection_score);
+            debug!(
+                "Updated score for peer {:?} to {}",
+                peer_id, peer_info.connection_score
+            );
         }
     }
-    
+
     /// Flag suspicious peer behavior
     pub fn flag_suspicious_behavior(&self, peer_id: &PeerId, behavior_type: SuspiciousBehavior) {
         if let Some(mut peer_info) = self.peer_info.get_mut(peer_id) {
@@ -318,33 +330,35 @@ impl PeerDiversityManager {
                 SuspiciousBehavior::AddressFlooding => {
                     peer_info.behavior_flags.address_flooding = true;
                     peer_info.connection_score -= 5.0;
-                },
+                }
                 SuspiciousBehavior::ConflictingHeaders => {
                     peer_info.behavior_flags.conflicting_headers = true;
                     peer_info.connection_score -= 10.0;
-                },
+                }
                 SuspiciousBehavior::RoutingPoisoning => {
                     peer_info.behavior_flags.routing_poisoning = true;
                     peer_info.connection_score -= 20.0;
-                    
+
                     // Mark subnet as suspicious
                     self.suspicious_subnets
                         .entry(peer_info.subnet.clone())
                         .and_modify(|count| *count += 1)
                         .or_insert(1);
-                },
+                }
                 SuspiciousBehavior::SuspiciousConnectionPattern => {
                     peer_info.behavior_flags.suspicious_connection_pattern = true;
                     peer_info.connection_score -= 5.0;
-                },
+                }
                 SuspiciousBehavior::AggressiveAdvertising => {
                     peer_info.behavior_flags.aggressive_advertising = true;
                     peer_info.connection_score -= 3.0;
-                },
+                }
             }
-            
-            debug!("Flagged suspicious behavior {:?} for peer {:?}, new score: {}", 
-                  behavior_type, peer_id, peer_info.connection_score);
+
+            debug!(
+                "Flagged suspicious behavior {:?} for peer {:?}, new score: {}",
+                behavior_type, peer_id, peer_info.connection_score
+            );
         }
     }
 
@@ -352,7 +366,7 @@ impl PeerDiversityManager {
     fn check_connection_rate(&self, subnet: &IpSubnet) -> bool {
         let now = Instant::now();
         let one_minute_ago = now - Duration::from_secs(60);
-        
+
         let mut attempts = match self.connection_attempts.write() {
             Ok(guard) => guard,
             Err(_) => {
@@ -360,23 +374,23 @@ impl PeerDiversityManager {
                 return false; // Deny connection on lock failure
             }
         };
-        
+
         // Clean up old attempts
         for (_, timestamps) in attempts.iter_mut() {
             timestamps.retain(|&timestamp| timestamp >= one_minute_ago);
         }
-        
+
         // Check and update rate for this subnet
         let subnet_attempts = attempts.entry(subnet.clone()).or_insert_with(Vec::new);
-        
+
         if subnet_attempts.len() >= self.max_connection_rate {
             return false;
         }
-        
+
         subnet_attempts.push(now);
         true
     }
-    
+
     /// Check if adding a connection would exceed subnet limits
     fn would_exceed_subnet_limits(&self, subnet: &IpSubnet) -> bool {
         // Check subnet connection limit
@@ -385,102 +399,120 @@ impl PeerDiversityManager {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Check if we need to perform peer rotation
     pub fn check_rotation_needed(&self) -> bool {
         // If rotation is disabled, never rotate
         if !self.eclipse_config.enable_automatic_rotation {
             return false;
         }
-        
+
         // Check if enough time has passed since last rotation
         if self.last_rotation.elapsed() >= self.eclipse_config.rotation_interval {
             return true;
         }
-        
+
         // Also check for signs of an eclipse attack
         // 1. Sudden influx of connections from the same subnet
         for entry in self.subnet_distribution.iter() {
             if *entry.value() > self.eclipse_config.max_connections_per_subnet * 2 {
-                warn!("Possible eclipse attack: Subnet {:?} has too many connections", entry.key());
+                warn!(
+                    "Possible eclipse attack: Subnet {:?} has too many connections",
+                    entry.key()
+                );
                 return true;
             }
         }
-        
+
         // 2. Too many inbound connections relative to outbound
-        let inbound_count = self.inbound_connections.iter().filter(|e| *e.value()).count();
-        let outbound_count = self.inbound_connections.iter().filter(|e| !*e.value()).count();
-        
-        if outbound_count > 0 && inbound_count as f64 / outbound_count as f64 > self.eclipse_config.max_inbound_ratio {
+        let inbound_count = self
+            .inbound_connections
+            .iter()
+            .filter(|e| *e.value())
+            .count();
+        let outbound_count = self
+            .inbound_connections
+            .iter()
+            .filter(|e| !*e.value())
+            .count();
+
+        if outbound_count > 0
+            && inbound_count as f64 / outbound_count as f64 > self.eclipse_config.max_inbound_ratio
+        {
             warn!("Possible eclipse attack: Too many inbound connections");
             return true;
         }
-        
+
         // 3. Suspicious behavior detected
         if !self.suspicious_subnets.is_empty() {
             for entry in self.suspicious_subnets.iter() {
                 if *entry.value() >= 2 {
-                    warn!("Possible eclipse attack: Multiple suspicious behaviors from subnet {:?}", entry.key());
+                    warn!(
+                        "Possible eclipse attack: Multiple suspicious behaviors from subnet {:?}",
+                        entry.key()
+                    );
                     return true;
                 }
             }
         }
-        
+
         false
     }
-    
+
     /// Create a rotation plan for peers
     /// Returns (peers_to_disconnect, number_to_disconnect)
     pub fn create_rotation_plan(&self) -> (Vec<PeerId>, usize) {
         let mut peers_to_disconnect = Vec::new();
         let mut disconnection_count = 0;
-        
+
         // Determine how many peers to rotate (20-30% of connected peers)
-        let connected_peers: Vec<_> = self.peer_info.iter()
+        let connected_peers: Vec<_> = self
+            .peer_info
+            .iter()
             .filter(|entry| !self.protected_peers.contains(entry.key()))
             .map(|entry| (*entry.key(), entry.value().clone()))
             .collect();
-            
+
         if connected_peers.is_empty() {
             return (Vec::new(), 0);
         }
-        
+
         // Aim to rotate 20-30% of peers
         let target_rotation_count = (connected_peers.len() as f64 * 0.2).ceil() as usize;
-        
+
         // First, identify overrepresented subnets
         let mut subnet_counts: HashMap<IpSubnet, Vec<(PeerId, f64)>> = HashMap::new();
-        
+
         for (peer_id, info) in connected_peers.iter() {
             subnet_counts
                 .entry(info.subnet.clone())
                 .or_default()
                 .push((*peer_id, info.connection_score));
         }
-        
+
         // Sort subnets by count, descending
         let mut subnet_list: Vec<_> = subnet_counts
             .iter()
             .map(|(subnet, peers)| (subnet.clone(), peers.len()))
             .collect();
-            
+
         subnet_list.sort_by(|a, b| b.1.cmp(&a.1));
-        
+
         // First disconnect from overrepresented subnets
         for (subnet, count) in subnet_list {
             if count <= self.eclipse_config.max_connections_per_subnet {
                 continue;
             }
-            
+
             // Get peers from this subnet
             let mut subnet_peers = subnet_counts[&subnet].clone();
-            
+
             // Sort by score, disconnect lowest scores first
             subnet_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            
+
             // Disconnect excess peers
             let excess_count = count - self.eclipse_config.max_connections_per_subnet;
             for i in 0..excess_count {
@@ -491,7 +523,7 @@ impl PeerDiversityManager {
                 }
             }
         }
-        
+
         // If we haven't reached target, disconnect additional peers based on score
         if disconnection_count < target_rotation_count {
             // Get remaining peers (exclude already selected)
@@ -500,10 +532,11 @@ impl PeerDiversityManager {
                 .filter(|(peer_id, _)| !peers_to_disconnect.contains(peer_id))
                 .map(|(peer_id, info)| (*peer_id, info.connection_score))
                 .collect();
-                
+
             // Sort by score, lowest first
-            remaining_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            
+            remaining_peers
+                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
             // Take additional peers up to target
             let additional_needed = target_rotation_count - disconnection_count;
             for i in 0..additional_needed {
@@ -513,23 +546,25 @@ impl PeerDiversityManager {
                 }
             }
         }
-        
+
         (peers_to_disconnect, disconnection_count)
     }
-    
+
     /// Perform forced peer rotation and return peers to disconnect
     pub fn perform_forced_rotation(&mut self) -> Vec<PeerId> {
         let (peers_to_disconnect, _count) = self.create_rotation_plan();
-        
+
         // Update last rotation time
         self.last_rotation = Instant::now();
-        
+
         // Log rotation
         if !peers_to_disconnect.is_empty() {
-            info!("Performing peer rotation for eclipse prevention, disconnecting {} peers",
-                 peers_to_disconnect.len());
+            info!(
+                "Performing peer rotation for eclipse prevention, disconnecting {} peers",
+                peers_to_disconnect.len()
+            );
         }
-        
+
         peers_to_disconnect
     }
 
@@ -539,32 +574,33 @@ impl PeerDiversityManager {
         let subnet_entropy = self.calculate_entropy_usize(&self.subnet_distribution);
         let asn_entropy = self.calculate_entropy_usize(&self.asn_distribution);
         let geo_entropy = self.calculate_entropy_usize(&self.geographic_distribution);
-        
+
         // Weight the different entropy scores
         // Higher entropy = more diverse = better
-        let weighted_score = 
-            subnet_entropy * 0.5 + 
-            asn_entropy * 0.3 + 
-            geo_entropy * 0.2;
-            
-        debug!("Diversity score: {:.4} (subnet: {:.4}, ASN: {:.4}, geo: {:.4})", 
-            weighted_score, subnet_entropy, asn_entropy, geo_entropy);
-            
+        let weighted_score = subnet_entropy * 0.5 + asn_entropy * 0.3 + geo_entropy * 0.2;
+
+        debug!(
+            "Diversity score: {:.4} (subnet: {:.4}, ASN: {:.4}, geo: {:.4})",
+            weighted_score, subnet_entropy, asn_entropy, geo_entropy
+        );
+
         weighted_score
     }
-    
+
     /// Calculate entropy of a distribution (Shannon entropy) for usize values
-    fn calculate_entropy_usize<K: std::hash::Hash + Eq>(&self, 
-                                                      distribution: &DashMap<K, usize>) -> f64 {
+    fn calculate_entropy_usize<K: std::hash::Hash + Eq>(
+        &self,
+        distribution: &DashMap<K, usize>,
+    ) -> f64 {
         if distribution.is_empty() {
             return 0.0;
         }
-        
+
         let total: f64 = distribution.iter().map(|entry| *entry.value() as f64).sum();
         if total == 0.0 {
             return 0.0;
         }
-        
+
         let mut entropy = 0.0;
         for entry in distribution.iter() {
             let p: f64 = *entry.value() as f64 / total;
@@ -572,7 +608,7 @@ impl PeerDiversityManager {
                 entropy -= p * p.log2();
             }
         }
-        
+
         // Normalize to 0-1 range
         let max_entropy = (distribution.len() as f64).log2();
         if max_entropy > 0.0 {
@@ -581,64 +617,73 @@ impl PeerDiversityManager {
             0.0
         }
     }
-    
+
     /// Get a list of underrepresented subnets for improved diversity
     pub fn get_underrepresented_subnets(&self) -> Vec<IpSubnet> {
-        let mut subnet_counts: Vec<_> = self.subnet_distribution.iter()
+        let mut subnet_counts: Vec<_> = self
+            .subnet_distribution
+            .iter()
             .map(|entry| (entry.key().clone(), *entry.value()))
             .collect();
-            
+
         subnet_counts.sort_by_key(|&(_, count)| count);
-        
+
         // Return the least represented subnets
-        subnet_counts.iter()
+        subnet_counts
+            .iter()
             .take(5) // Take top 5 underrepresented subnets
             .map(|(subnet, _)| subnet.clone())
             .collect()
     }
-    
+
     /// Suggest peers to connect to for optimal diversity
     pub fn suggest_connection_targets(&self, count: usize) -> Vec<PeerAddress> {
         // Identify underrepresented subnets, ASNs, regions
         let underrep_subnets = self.get_underrepresented_subnets();
-        
+
         // In a real implementation, we would:
         // 1. Look through known peers (from peer database)
         // 2. Find peers from underrepresented subnets/ASNs/regions
         // 3. Prioritize those with good reputation
         // 4. Return a diverse set of targets
-        
+
         // For now, return a placeholder
         Vec::new()
     }
-    
+
     /// Get peers from most overrepresented subnets
     pub fn get_overrepresented_peers(&self, count: usize) -> Vec<PeerId> {
         // Find subnets with too many connections
-        let mut subnet_counts: Vec<_> = self.subnet_distribution.iter()
+        let mut subnet_counts: Vec<_> = self
+            .subnet_distribution
+            .iter()
             .map(|entry| (entry.key().clone(), *entry.value()))
             .collect();
-            
+
         // Sort descending by count
         subnet_counts.sort_by(|a, b| b.1.cmp(&a.1));
-        
+
         let mut result = Vec::new();
-        
+
         // For each overrepresented subnet
         for (subnet, subnet_count) in subnet_counts {
             if subnet_count <= self.eclipse_config.max_connections_per_subnet {
                 continue;
             }
-            
+
             // Find peers in this subnet sorted by score
-            let mut subnet_peers: Vec<_> = self.peer_info.iter()
-                .filter(|entry| entry.value().subnet == subnet && !self.protected_peers.contains(entry.key()))
+            let mut subnet_peers: Vec<_> = self
+                .peer_info
+                .iter()
+                .filter(|entry| {
+                    entry.value().subnet == subnet && !self.protected_peers.contains(entry.key())
+                })
                 .map(|entry| (*entry.key(), entry.value().connection_score))
                 .collect();
-                
+
             // Sort by score (lowest first)
             subnet_peers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            
+
             // Add the worst-scoring peers from this subnet
             let to_take = subnet_count - self.eclipse_config.max_connections_per_subnet;
             for (peer_id, _) in subnet_peers.iter().take(to_take) {
@@ -648,7 +693,7 @@ impl PeerDiversityManager {
                 }
             }
         }
-        
+
         result
     }
 
@@ -663,14 +708,14 @@ impl PeerDiversityManager {
         }
         None
     }
-    
+
     /// Get region for an IP address
     /// In production, would use a GeoIP database
     fn get_region_for_ip(&self, _ip: &IpAddr) -> Option<String> {
         // Placeholder - would use GeoIP lookup in production
         None
     }
-    
+
     /// Get ASN for an IP address
     /// In production, would use an ASN database
     fn get_asn_for_ip(&self, _ip: &IpAddr) -> Option<u32> {
@@ -704,39 +749,40 @@ pub enum SuspiciousBehavior {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::Ipv4Addr;
     use libp2p::multiaddr::Multiaddr;
-    
+    use std::net::Ipv4Addr;
+
     #[test]
     fn test_subnet_containment() {
         let subnet = IpSubnet::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)), 24);
-        
+
         // These should be in the subnet
         assert!(subnet.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(subnet.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 254))));
-        
+
         // These should not be in the subnet
         assert!(!subnet.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 2, 1))));
         assert!(!subnet.contains(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
     }
-    
+
     #[test]
     fn test_connection_rate_limiting() {
-        let manager = PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 2);
+        let manager =
+            PeerDiversityManager::with_config(0.6, ConnectionStrategy::BalancedDiversity, 2);
         let subnet = IpSubnet::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)), 24);
-        
+
         // First two connections should be allowed
         assert!(manager.check_connection_rate(&subnet));
         assert!(manager.check_connection_rate(&subnet));
-        
+
         // Third connection should be rate limited
         assert!(!manager.check_connection_rate(&subnet));
-        
+
         // Different subnet should be allowed
         let other_subnet = IpSubnet::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)), 24);
         assert!(manager.check_connection_rate(&other_subnet));
     }
-    
+
     #[test]
     fn test_extract_ip_from_multiaddr() {
         let addr: Multiaddr = "/ip4/192.168.1.1/tcp/8000".parse().unwrap();
@@ -744,17 +790,17 @@ mod tests {
             PeerDiversityManager::extract_ip_from_multiaddr(&addr),
             Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)))
         );
-        
+
         let addr_v6: Multiaddr = "/ip6/::1/tcp/8000".parse().unwrap();
         assert_eq!(
             PeerDiversityManager::extract_ip_from_multiaddr(&addr_v6),
             Some(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)))
         );
-        
+
         let no_ip: Multiaddr = "/tcp/8000".parse().unwrap();
         assert_eq!(
             PeerDiversityManager::extract_ip_from_multiaddr(&no_ip),
             None
         );
     }
-} 
+}

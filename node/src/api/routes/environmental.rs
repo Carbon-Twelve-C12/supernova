@@ -3,8 +3,8 @@ use crate::api::types::EnvironmentalSettings;
 use crate::environmental::EnvironmentalMonitor;
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
-use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
+use utoipa::{IntoParams, ToSchema};
 
 /// Configure environmental API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -27,7 +27,7 @@ struct GetEnvironmentalImpactParams {
     /// Time period in seconds for which to retrieve data (default: 86400 - 1 day)
     #[param(default = "86400")]
     period: Option<u64>,
-    
+
     /// Level of detail for the report (default: "standard")
     #[param(default = "standard")]
     detail: Option<String>,
@@ -51,10 +51,13 @@ pub async fn get_environmental_impact(
 ) -> ApiResult<HttpResponse> {
     let period = params.period.unwrap_or(3600);
     let detail = params.detail.as_deref().unwrap_or("standard");
-    
+
     match environmental.get_environmental_impact(period, detail) {
         Ok(impact) => Ok(HttpResponse::Ok().json(impact)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to get environmental impact: {}", e))),
+        Err(e) => Err(ApiError::internal_error(format!(
+            "Failed to get environmental impact: {}",
+            e
+        ))),
     }
 }
 
@@ -66,7 +69,7 @@ struct GetEnergyUsageParams {
     /// Time period in seconds for which to retrieve data (default: 3600 - 1 hour)
     #[param(default = "3600")]
     period: Option<u64>,
-    
+
     /// Whether to include historical data (default: false)
     #[param(default = "false")]
     include_history: Option<bool>,
@@ -90,10 +93,13 @@ pub async fn get_energy_usage(
 ) -> ApiResult<HttpResponse> {
     let period = params.period.unwrap_or(3600);
     let include_history = params.include_history.unwrap_or(false);
-    
+
     match environmental.get_energy_usage(period, include_history) {
         Ok(energy_data) => Ok(HttpResponse::Ok().json(energy_data)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to get energy usage: {}", e))),
+        Err(e) => Err(ApiError::internal_error(format!(
+            "Failed to get energy usage: {}",
+            e
+        ))),
     }
 }
 
@@ -105,7 +111,7 @@ struct GetCarbonFootprintParams {
     /// Time period in seconds for which to retrieve data (default: 86400 - 1 day)
     #[param(default = "86400")]
     period: Option<u64>,
-    
+
     /// Whether to include offset information (default: true)
     #[param(default = "true")]
     include_offsets: Option<bool>,
@@ -129,10 +135,13 @@ pub async fn get_carbon_footprint(
 ) -> ApiResult<HttpResponse> {
     let period = params.period.unwrap_or(3600);
     let include_offsets = params.include_offsets.unwrap_or(false);
-    
+
     match environmental.get_carbon_footprint(period, include_offsets) {
         Ok(carbon_data) => Ok(HttpResponse::Ok().json(carbon_data)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to get carbon footprint: {}", e))),
+        Err(e) => Err(ApiError::internal_error(format!(
+            "Failed to get carbon footprint: {}",
+            e
+        ))),
     }
 }
 
@@ -163,10 +172,13 @@ pub async fn get_resource_utilization(
     params: web::Query<ResourceUtilizationParams>,
 ) -> ApiResult<HttpResponse> {
     let period = params.period.unwrap_or(3600);
-    
+
     match environmental.get_resource_utilization(period) {
         Ok(resource_data) => Ok(HttpResponse::Ok().json(resource_data)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to get resource utilization: {}", e))),
+        Err(e) => Err(ApiError::internal_error(format!(
+            "Failed to get resource utilization: {}",
+            e
+        ))),
     }
 }
 
@@ -186,7 +198,10 @@ pub async fn get_environmental_settings(
 ) -> ApiResult<HttpResponse> {
     match environmental.get_settings() {
         Ok(settings) => Ok(HttpResponse::Ok().json(settings)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to get environmental settings: {}", e))),
+        Err(e) => Err(ApiError::internal_error(format!(
+            "Failed to get environmental settings: {}",
+            e
+        ))),
     }
 }
 
@@ -209,6 +224,9 @@ pub async fn update_environmental_settings(
 ) -> ApiResult<HttpResponse> {
     match environmental.update_settings(request.into_inner()) {
         Ok(updated_settings) => Ok(HttpResponse::Ok().json(updated_settings)),
-        Err(e) => Err(ApiError::internal_error(format!("Failed to update environmental settings: {}", e))),
+        Err(e) => Err(ApiError::internal_error(format!(
+            "Failed to update environmental settings: {}",
+            e
+        ))),
     }
-} 
+}

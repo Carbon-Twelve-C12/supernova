@@ -1,18 +1,18 @@
 //! Native atomic swap implementation between Bitcoin and Supernova blockchains
-//! 
+//!
 //! This module provides trustless peer-to-peer atomic swaps using Hash Time-Locked
 //! Contracts (HTLCs) with quantum-resistant cryptography on the Supernova side
 //! while maintaining compatibility with Bitcoin's Script language.
 
-pub mod htlc;
-pub mod bitcoin_adapter;
-pub mod monitor;
-pub mod crypto;
 pub mod api;
-pub mod error;
-pub mod websocket;
+pub mod bitcoin_adapter;
 pub mod cache;
+pub mod crypto;
+pub mod error;
+pub mod htlc;
 pub mod metrics;
+pub mod monitor;
+pub mod websocket;
 
 // Privacy features - Phase 4
 #[cfg(feature = "atomic-swap")]
@@ -24,15 +24,15 @@ pub mod zk_swap;
 // #[cfg(test)]
 // mod tests;
 
-pub use htlc::{SupernovaHTLC, HTLCState, TimeLock, ParticipantInfo};
-pub use error::{AtomicSwapError, HTLCError, SwapError};
-pub use monitor::{CrossChainMonitor, SwapSummary};
 pub use api::AtomicSwapRPC;
 pub use cache::{AtomicSwapCache, CacheConfig};
+pub use error::{AtomicSwapError, HTLCError, SwapError};
+pub use htlc::{HTLCState, ParticipantInfo, SupernovaHTLC, TimeLock};
 pub use metrics::init_metrics;
+pub use monitor::{CrossChainMonitor, SwapSummary};
 
 use crate::crypto::{MLDSAPublicKey, MLDSASignature};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Configuration for atomic swap operations
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,17 +42,17 @@ pub struct AtomicSwapConfig {
     pub bitcoin_rpc_url: String,
     pub bitcoin_rpc_user: Option<String>,
     pub bitcoin_rpc_pass: Option<String>,
-    
+
     /// Security settings
     pub min_btc_confirmations: u32,
     pub min_nova_confirmations: u32,
     pub timeout_delta: u32,
     pub refund_grace_period: u32,
-    
+
     /// Amount limits
     pub min_swap_amount_btc: u64,
     pub max_swap_amount_btc: u64,
-    
+
     /// Rate limiting
     pub max_swaps_per_hour: u32,
     pub max_swaps_per_address: u32,
@@ -69,7 +69,7 @@ impl Default for AtomicSwapConfig {
             min_nova_confirmations: 60,
             timeout_delta: 144, // ~24 hours in Bitcoin blocks
             refund_grace_period: 6,
-            min_swap_amount_btc: 10_000, // 0.0001 BTC
+            min_swap_amount_btc: 10_000,        // 0.0001 BTC
             max_swap_amount_btc: 1_000_000_000, // 10 BTC
             max_swaps_per_hour: 100,
             max_swaps_per_address: 10,
@@ -104,9 +104,9 @@ pub enum FeePayer {
 /// Timeout configuration for the swap
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TimeoutConfig {
-    pub bitcoin_claim_timeout: u32,      // In Bitcoin blocks
-    pub supernova_claim_timeout: u32,    // In Supernova blocks
-    pub refund_safety_margin: u32,       // Additional blocks for safety
+    pub bitcoin_claim_timeout: u32,   // In Bitcoin blocks
+    pub supernova_claim_timeout: u32, // In Supernova blocks
+    pub refund_safety_margin: u32,    // Additional blocks for safety
 }
 
 /// Active swap session tracking
@@ -195,11 +195,11 @@ mod tests {
     fn test_swap_state_transitions() {
         let state = SwapState::Initializing;
         assert_eq!(state, SwapState::Initializing);
-        
+
         let state = SwapState::Failed("test error".to_string());
         match state {
             SwapState::Failed(msg) => assert_eq!(msg, "test error"),
             _ => panic!("Expected Failed state"),
         }
     }
-} 
+}

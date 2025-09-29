@@ -1,21 +1,21 @@
 //! API authentication middleware
 //!
 //! This module provides API key authentication for the Supernova API.
-//! 
+//!
 //! SECURITY: Authentication is MANDATORY. Empty API key lists are rejected to prevent bypass.
 
-use std::future::{ready, Ready};
-use std::rc::Rc;
-use std::sync::Arc;
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     error::ErrorUnauthorized,
     http::header,
     Error,
 };
-use tracing::{warn, error};
+use std::future::{ready, Ready};
+use std::rc::Rc;
+use std::sync::Arc;
+use tracing::{error, warn};
 
-use super::auth_rate_limiter::{AuthRateLimiter, AuthRateLimiterConfig, AuthBlockedError};
+use super::auth_rate_limiter::{AuthBlockedError, AuthRateLimiter, AuthRateLimiterConfig};
 
 /// API authentication middleware
 pub struct ApiAuth {
@@ -25,7 +25,7 @@ pub struct ApiAuth {
 
 impl ApiAuth {
     /// Create a new authentication middleware with the given API keys
-    /// 
+    ///
     /// # Security
     /// Requires at least one API key to prevent authentication bypass
     pub fn new(api_keys: Vec<String>) -> Result<Self, &'static str> {
@@ -33,7 +33,7 @@ impl ApiAuth {
             error!("SECURITY: Attempted to create ApiAuth with empty API key list");
             return Err("At least one API key must be configured for security");
         }
-        
+
         // Validate API keys are not empty strings
         for key in &api_keys {
             if key.trim().is_empty() {
@@ -41,13 +41,13 @@ impl ApiAuth {
                 return Err("API keys cannot be empty or whitespace");
             }
         }
-        
+
         Ok(Self {
             api_keys: Rc::new(api_keys),
             rate_limiter: Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default())),
         })
     }
-    
+
     /// Create authentication middleware for testing only
     #[cfg(test)]
     pub fn new_unchecked(api_keys: Vec<String>) -> Self {
@@ -94,7 +94,8 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>>>>;
 
     forward_ready!(service);
 
@@ -105,17 +106,21 @@ where
             .peer_addr()
             .unwrap_or("unknown")
             .to_string();
-        
+
         // Check if IP is blocked due to too many failed attempts
         if self.rate_limiter.is_blocked(&client_ip) {
-            warn!("SECURITY: Blocked IP {} attempted authentication", client_ip);
+            warn!(
+                "SECURITY: Blocked IP {} attempted authentication",
+                client_ip
+            );
             return Box::pin(async move {
                 Err(AuthBlockedError {
                     block_duration_secs: 3600, // 1 hour default
-                }.into())
+                }
+                .into())
             });
         }
-        
+
         // Skip authentication for OPTIONS requests (pre-flight CORS)
         if req.method() == actix_web::http::Method::OPTIONS {
             let fut = self.service.call(req);
@@ -124,7 +129,7 @@ where
                 Ok(res)
             });
         }
-        
+
         // Skip authentication for documentation routes
         if req.path().starts_with("/swagger-ui") || req.path().starts_with("/api-docs") {
             let fut = self.service.call(req);
@@ -136,7 +141,7 @@ where
 
         // Extract API key from Authorization header
         let auth_header = req.headers().get(header::AUTHORIZATION);
-        
+
         // Check if API key is valid
         let is_authorized = match auth_header {
             Some(auth) => {
@@ -147,7 +152,7 @@ where
                     } else {
                         auth_str
                     };
-                    
+
                     // SECURITY: Authentication is mandatory - no bypass allowed
                     self.api_keys.contains(&api_key.to_string())
                 } else {
@@ -159,11 +164,11 @@ where
 
         let rate_limiter = self.rate_limiter.clone();
         let client_ip_clone = client_ip.clone();
-        
+
         if is_authorized {
             // Record successful authentication
             rate_limiter.record_successful_auth(&client_ip_clone);
-            
+
             let fut = self.service.call(req);
             Box::pin(async move {
                 let res = fut.await?;
@@ -172,16 +177,11 @@ where
         } else {
             // Record failed authentication attempt
             rate_limiter.record_failed_attempt(&client_ip);
-            
+
             // Log unauthorized access attempt
-            warn!(
-                "Unauthorized API access attempt from {}",
-                client_ip
-            );
-            
-            Box::pin(async move {
-                Err(ErrorUnauthorized("Invalid API key"))
-            })
+            warn!("Unauthorized API access attempt from {}", client_ip);
+
+            Box::pin(async move { Err(ErrorUnauthorized("Invalid API key")) })
         }
     }
 }
@@ -257,22 +257,25 @@ mod tests {
         // Test that empty API key list is rejected
         let result = ApiAuth::new(vec![]);
         assert!(result.is_err());
-        assert_eq!(result.err().unwrap(), "At least one API key must be configured for security");
-        
+        assert_eq!(
+            result.err().unwrap(),
+            "At least one API key must be configured for security"
+        );
+
         // Test that empty string keys are rejected
         let result = ApiAuth::new(vec!["".to_string()]);
         assert!(result.is_err());
-        
+
         // Test that whitespace keys are rejected
         let result = ApiAuth::new(vec!["   ".to_string()]);
         assert!(result.is_err());
     }
-    
+
     #[actix_web::test]
     async fn test_no_auth_bypass() {
         // Ensure authentication cannot be bypassed
         let auth = ApiAuth::new_unchecked(vec!["secure-key".to_string()]);
-        
+
         let app = init_service(
             App::new()
                 .wrap(auth)
@@ -281,13 +284,11 @@ mod tests {
         .await;
 
         // Request without auth header should fail
-        let req = TestRequest::get()
-            .uri("/secure")
-            .to_request();
+        let req = TestRequest::get().uri("/secure").to_request();
 
         let resp = call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
-        
+
         // Request with wrong key should fail
         let req = TestRequest::get()
             .uri("/secure")
@@ -297,4 +298,4 @@ mod tests {
         let resp = call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
-} 
+}

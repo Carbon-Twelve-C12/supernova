@@ -4,11 +4,11 @@ use bitcoin::{
     secp256k1::{Secp256k1, SecretKey},
     Address, PrivateKey,
 };
+use btclib::storage::utxo_set::UtxoSet;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use thiserror::Error;
-use rand::RngCore;
-use btclib::storage::utxo_set::UtxoSet;
 
 #[derive(Error, Debug)]
 pub enum HDWalletError {
@@ -61,11 +61,11 @@ impl HDWallet {
         // Generate entropy for a 12-word mnemonic (128 bits = 16 bytes)
         let mut entropy = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut entropy);
-        
+
         // Create mnemonic from entropy
         let mnemonic = Mnemonic::from_entropy(&entropy)
             .map_err(|e| HDWalletError::InvalidMnemonic(e.to_string()))?;
-        
+
         Ok(Self {
             mnemonic: mnemonic.to_string(),
             network,
@@ -74,7 +74,11 @@ impl HDWallet {
         })
     }
 
-    pub fn from_mnemonic(mnemonic: &str, network: Network, wallet_path: PathBuf) -> Result<Self, HDWalletError> {
+    pub fn from_mnemonic(
+        mnemonic: &str,
+        network: Network,
+        wallet_path: PathBuf,
+    ) -> Result<Self, HDWalletError> {
         Mnemonic::parse_in_normalized(Language::English, mnemonic)
             .map_err(|e| HDWalletError::InvalidMnemonic(e.to_string()))?;
         Ok(Self {
@@ -90,14 +94,18 @@ impl HDWallet {
         std::fs::write(&self.wallet_path, json)?;
         Ok(())
     }
-    
+
     pub fn load(wallet_path: PathBuf) -> Result<Self, HDWalletError> {
         let json = std::fs::read_to_string(&wallet_path)?;
         let wallet: Self = serde_json::from_str(&json)?;
         Ok(wallet)
     }
 
-    pub fn create_account(&mut self, name: String, account_type: AccountType) -> Result<(), HDWalletError> {
+    pub fn create_account(
+        &mut self,
+        name: String,
+        account_type: AccountType,
+    ) -> Result<(), HDWalletError> {
         let account = HDAccount {
             name: name.clone(),
             account_type,
@@ -110,9 +118,11 @@ impl HDWallet {
     }
 
     pub fn get_new_address(&mut self, account_name: &str) -> Result<HDAddress, HDWalletError> {
-        let account = self.accounts.get_mut(account_name)
+        let account = self
+            .accounts
+            .get_mut(account_name)
             .ok_or_else(|| HDWalletError::AccountNotFound(account_name.to_string()))?;
-            
+
         let secp = Secp256k1::new();
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let private_key = PrivateKey::new(secret_key, self.network);
@@ -136,8 +146,14 @@ impl HDWallet {
         Ok(hd_address)
     }
 
-    pub fn get_balance(&self, account_name: &str, utxo_set: &UtxoSet) -> Result<u64, HDWalletError> {
-        let account = self.accounts.get(account_name)
+    pub fn get_balance(
+        &self,
+        account_name: &str,
+        utxo_set: &UtxoSet,
+    ) -> Result<u64, HDWalletError> {
+        let account = self
+            .accounts
+            .get(account_name)
             .ok_or_else(|| HDWalletError::AccountNotFound(account_name.to_string()))?;
 
         let mut balance = 0;
@@ -160,14 +176,16 @@ impl HDWallet {
     }
 
     pub fn list_accounts(&self) -> Vec<(u32, &HDAccount)> {
-        self.accounts.iter()
+        self.accounts
+            .iter()
             .enumerate()
             .map(|(i, (_, account))| (i as u32, account))
             .collect()
     }
 
     pub fn get_address_count(&self) -> usize {
-        self.accounts.values()
+        self.accounts
+            .values()
             .map(|account| account.addresses.len())
             .sum()
     }

@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
-use chrono::{DateTime, Utc};
 use btclib::testnet::faucet::{Faucet as BtclibFaucet, FaucetError};
+use chrono::{DateTime, Utc};
+use std::sync::{Arc, Mutex};
 
 /// Status information for the faucet
 pub struct FaucetStatus {
@@ -41,30 +41,38 @@ impl FaucetWrapper {
     /// Create a new faucet wrapper
     pub fn new(distribution_amount: u64, cooldown_secs: u64, initial_balance: u64) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(BtclibFaucet::new(distribution_amount, cooldown_secs))),
+            inner: Arc::new(Mutex::new(BtclibFaucet::new(
+                distribution_amount,
+                cooldown_secs,
+            ))),
             balance: Arc::new(Mutex::new(initial_balance)),
             recent_transactions: Arc::new(Mutex::new(Vec::new())),
             distribution_amount,
             cooldown_secs,
         }
     }
-    
+
     /// Get faucet status
     pub async fn status(&self) -> Result<FaucetStatus, FaucetError> {
-        let balance = *self.balance.lock()
+        let balance = *self
+            .balance
+            .lock()
             .map_err(|e| FaucetError::Internal(format!("Lock poisoned: {}", e)))?;
-        let transactions = self.recent_transactions.lock()
+        let transactions = self
+            .recent_transactions
+            .lock()
             .map_err(|e| FaucetError::Internal(format!("Lock poisoned: {}", e)))?;
-        
-        let transactions_today = transactions.iter()
+
+        let transactions_today = transactions
+            .iter()
             .filter(|tx| {
                 let today = Utc::now().date_naive();
                 tx.timestamp.date_naive() == today
             })
             .count() as u32;
-        
+
         let last_distribution = transactions.last().map(|tx| tx.timestamp);
-        
+
         Ok(FaucetStatus {
             is_active: balance > 0,
             balance,
@@ -74,55 +82,63 @@ impl FaucetWrapper {
             distribution_amount: self.distribution_amount,
         })
     }
-    
+
     /// Distribute coins to an address
     pub async fn distribute_coins(&self, address: &str) -> Result<DistributionResult, FaucetError> {
         // Check balance
         {
-            let balance = self.balance.lock()
+            let balance = self
+                .balance
+                .lock()
                 .map_err(|e| FaucetError::Internal(format!("Lock poisoned: {}", e)))?;
             if *balance < self.distribution_amount {
                 return Err(FaucetError::InsufficientFunds);
             }
         }
-        
+
         // Use inner faucet to handle cooldown and validation
         let amount = {
-            let mut faucet = self.inner.lock()
+            let mut faucet = self
+                .inner
+                .lock()
                 .map_err(|e| FaucetError::Internal(format!("Lock poisoned: {}", e)))?;
             faucet.distribute_coins(address)?
         };
-        
+
         // Deduct from balance
         {
-            let mut balance = self.balance.lock()
+            let mut balance = self
+                .balance
+                .lock()
                 .map_err(|e| FaucetError::Internal(format!("Lock poisoned: {}", e)))?;
             *balance -= amount;
         }
-        
+
         // Create transaction record
         let timestamp = Utc::now();
         let txid = format!("{:x}", timestamp.timestamp());
-        
+
         let transaction = RecentTransaction {
             txid: txid.clone(),
             recipient: address.to_string(),
             amount,
             timestamp,
         };
-        
+
         // Add to recent transactions
         {
-            let mut transactions = self.recent_transactions.lock()
+            let mut transactions = self
+                .recent_transactions
+                .lock()
                 .map_err(|e| FaucetError::Internal(format!("Lock poisoned: {}", e)))?;
             transactions.push(transaction);
-            
+
             // Keep only last 100 transactions
             if transactions.len() > 100 {
                 transactions.remove(0);
             }
         }
-        
+
         Ok(DistributionResult {
             txid,
             amount,
@@ -130,10 +146,12 @@ impl FaucetWrapper {
             timestamp,
         })
     }
-    
+
     /// Get recent transactions
     pub async fn get_recent_transactions(&self) -> Result<Vec<RecentTransaction>, FaucetError> {
-        let transactions = self.recent_transactions.lock()
+        let transactions = self
+            .recent_transactions
+            .lock()
             .map_err(|e| FaucetError::Internal(format!("Lock poisoned: {}", e)))?;
         Ok(transactions.clone().into_iter().rev().take(10).collect())
     }
@@ -149,4 +167,4 @@ impl Clone for RecentTransaction {
             timestamp: self.timestamp,
         }
     }
-} 
+}

@@ -1,12 +1,12 @@
-use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
-use tracing::debug;
 use actix_web::{web, HttpResponse};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tracing::debug;
 use utoipa::ToSchema;
 
-use crate::node::Node;
 use crate::api::error::ApiError;
+use crate::node::Node;
 use btclib::testnet::faucet::FaucetError;
 
 /// Faucet status response
@@ -72,7 +72,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         web::scope("/faucet")
             .route("/status", web::get().to(get_faucet_status))
             .route("/send", web::post().to(request_tokens))
-            .route("/transactions", web::get().to(get_recent_transactions))
+            .route("/transactions", web::get().to(get_recent_transactions)),
     );
 }
 
@@ -90,18 +90,27 @@ pub async fn get_faucet_status(
     node: web::Data<Arc<Node>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     debug!("Getting faucet status");
-    
+
     // Get faucet from node
     let faucet = match node.get_faucet() {
         Ok(Some(f)) => f,
-        Ok(None) => return Ok(HttpResponse::ServiceUnavailable().json(
-            ApiError::service_unavailable("Faucet is not enabled on this node")
-        )),
-        Err(e) => return Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(format!("Failed to get faucet: {}", e))
-        )),
+        Ok(None) => {
+            return Ok(
+                HttpResponse::ServiceUnavailable().json(ApiError::service_unavailable(
+                    "Faucet is not enabled on this node",
+                )),
+            )
+        }
+        Err(e) => {
+            return Ok(
+                HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
+                    "Failed to get faucet: {}",
+                    e
+                ))),
+            )
+        }
     };
-    
+
     // Get faucet status
     match faucet.get_faucet_status().await {
         Ok(status) => Ok(HttpResponse::Ok().json(FaucetStatusResponse {
@@ -112,9 +121,12 @@ pub async fn get_faucet_status(
             cooldown_secs: status.cooldown_secs,
             distribution_amount: status.distribution_amount,
         })),
-        Err(e) => Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(format!("Failed to get faucet status: {}", e))
-        )),
+        Err(e) => Ok(
+            HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
+                "Failed to get faucet status: {}",
+                e
+            ))),
+        ),
     }
 }
 
@@ -136,25 +148,33 @@ pub async fn request_tokens(
     request: web::Json<FaucetRequest>,
 ) -> Result<HttpResponse, actix_web::Error> {
     debug!("Processing faucet request for address: {}", request.address);
-    
+
     // Validate request
     if request.address.is_empty() {
-        return Ok(HttpResponse::BadRequest().json(
-            ApiError::bad_request("Recipient address cannot be empty")
-        ));
+        return Ok(HttpResponse::BadRequest()
+            .json(ApiError::bad_request("Recipient address cannot be empty")));
     }
-    
+
     // Get faucet from node
     let faucet = match node.get_faucet() {
         Ok(Some(f)) => f,
-        Ok(None) => return Ok(HttpResponse::ServiceUnavailable().json(
-            ApiError::service_unavailable("Faucet is not enabled on this node")
-        )),
-        Err(e) => return Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(format!("Failed to get faucet: {}", e))
-        )),
+        Ok(None) => {
+            return Ok(
+                HttpResponse::ServiceUnavailable().json(ApiError::service_unavailable(
+                    "Faucet is not enabled on this node",
+                )),
+            )
+        }
+        Err(e) => {
+            return Ok(
+                HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
+                    "Failed to get faucet: {}",
+                    e
+                ))),
+            )
+        }
     };
-    
+
     // Request tokens
     match faucet.request_faucet_coins(&request.address).await {
         Ok(result) => Ok(HttpResponse::Ok().json(FaucetResponse {
@@ -164,30 +184,28 @@ pub async fn request_tokens(
             timestamp: result.timestamp,
         })),
         Err(e) => match e {
-            FaucetError::CooldownPeriod { remaining_time } => {
-                Ok(HttpResponse::TooManyRequests().json(
-                    ApiError::rate_limited(format!("Please wait {} seconds before requesting again", remaining_time))
-                ))
-            },
-            FaucetError::DailyLimitExceeded => {
-                Ok(HttpResponse::TooManyRequests().json(
-                    ApiError::rate_limited("Daily distribution limit reached for this address/IP")
-                ))
-            },
-            FaucetError::InsufficientFunds => {
-                Ok(HttpResponse::ServiceUnavailable().json(
-                    ApiError::service_unavailable("Faucet has insufficient funds")
-                ))
-            },
-            FaucetError::InvalidAddress(_) => {
-                Ok(HttpResponse::BadRequest().json(
-                    ApiError::bad_request("Invalid recipient address")
-                ))
-            },
-            _ => Ok(HttpResponse::InternalServerError().json(
-                ApiError::internal_error(format!("Failed to distribute coins: {}", e))
+            FaucetError::CooldownPeriod { remaining_time } => Ok(HttpResponse::TooManyRequests()
+                .json(ApiError::rate_limited(format!(
+                    "Please wait {} seconds before requesting again",
+                    remaining_time
+                )))),
+            FaucetError::DailyLimitExceeded => Ok(HttpResponse::TooManyRequests().json(
+                ApiError::rate_limited("Daily distribution limit reached for this address/IP"),
             )),
-        }
+            FaucetError::InsufficientFunds => Ok(HttpResponse::ServiceUnavailable().json(
+                ApiError::service_unavailable("Faucet has insufficient funds"),
+            )),
+            FaucetError::InvalidAddress(_) => {
+                Ok(HttpResponse::BadRequest()
+                    .json(ApiError::bad_request("Invalid recipient address")))
+            }
+            _ => Ok(
+                HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
+                    "Failed to distribute coins: {}",
+                    e
+                ))),
+            ),
+        },
     }
 }
 
@@ -205,23 +223,33 @@ pub async fn get_recent_transactions(
     node: web::Data<Arc<Node>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     debug!("Getting recent faucet transactions");
-    
+
     // Get faucet from node
     let faucet = match node.get_faucet() {
         Ok(Some(f)) => f,
-        Ok(None) => return Ok(HttpResponse::ServiceUnavailable().json(
-            ApiError::service_unavailable("Faucet is not enabled on this node")
-        )),
-        Err(e) => return Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(format!("Failed to get faucet: {}", e))
-        )),
+        Ok(None) => {
+            return Ok(
+                HttpResponse::ServiceUnavailable().json(ApiError::service_unavailable(
+                    "Faucet is not enabled on this node",
+                )),
+            )
+        }
+        Err(e) => {
+            return Ok(
+                HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
+                    "Failed to get faucet: {}",
+                    e
+                ))),
+            )
+        }
     };
-    
+
     // Get recent transactions
     match faucet.get_recent_faucet_transactions().await {
         Ok(transactions) => {
             // Convert to response format
-            let tx_responses = transactions.into_iter()
+            let tx_responses = transactions
+                .into_iter()
                 .map(|tx| FaucetTransaction {
                     txid: tx.txid,
                     recipient: tx.recipient,
@@ -229,13 +257,16 @@ pub async fn get_recent_transactions(
                     timestamp: tx.timestamp,
                 })
                 .collect();
-            
+
             Ok(HttpResponse::Ok().json(RecentTransactionsResponse {
                 transactions: tx_responses,
             }))
-        },
-        Err(e) => Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(format!("Failed to get recent transactions: {}", e))
-        )),
+        }
+        Err(e) => Ok(
+            HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
+                "Failed to get recent transactions: {}",
+                e
+            ))),
+        ),
     }
 }

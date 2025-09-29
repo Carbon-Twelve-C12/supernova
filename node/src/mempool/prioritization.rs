@@ -1,9 +1,9 @@
-use std::collections::{HashMap, HashSet};
-use btclib::types::transaction::Transaction;
-use std::cmp::Ordering;
-use std::time::SystemTime;
 use crate::config;
-use serde::{Serialize, Deserialize};
+use btclib::types::transaction::Transaction;
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
+use std::time::SystemTime;
 
 /// Configuration for transaction prioritization
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,7 +23,7 @@ pub struct PrioritizationConfig {
 impl From<config::MempoolConfig> for PrioritizationConfig {
     fn from(config: config::MempoolConfig) -> Self {
         Self {
-            max_ancestor_size: 101_000,  // ~100KB
+            max_ancestor_size: 101_000, // ~100KB
             min_ancestor_fee_rate: config.min_fee_rate as u64,
             enabled: true,
             consider_descendants: true,
@@ -35,8 +35,8 @@ impl From<config::MempoolConfig> for PrioritizationConfig {
 impl Default for PrioritizationConfig {
     fn default() -> Self {
         Self {
-            max_ancestor_size: 101_000,  // ~100KB
-            min_ancestor_fee_rate: 1,    // 1 nova/byte
+            max_ancestor_size: 101_000, // ~100KB
+            min_ancestor_fee_rate: 1,   // 1 nova/byte
             enabled: true,
             consider_descendants: true,
             fee_rate_decay: 0.0,
@@ -72,8 +72,9 @@ impl PrioritizedTransaction {
         let age_hours = SystemTime::now()
             .duration_since(self.timestamp)
             .unwrap_or_default()
-            .as_secs_f64() / 3600.0;
-        
+            .as_secs_f64()
+            / 3600.0;
+
         let decay_factor: f64 = 1.0 - (config.fee_rate_decay * age_hours);
         self.fee_rate as f64 * decay_factor.max(0.0)
     }
@@ -93,26 +94,31 @@ impl TransactionPrioritizer {
     }
 
     /// Add a transaction to the prioritizer
-    pub fn add_transaction(&mut self, transaction: Transaction, fee_rate: u64, size: usize) -> bool {
+    pub fn add_transaction(
+        &mut self,
+        transaction: Transaction,
+        fee_rate: u64,
+        size: usize,
+    ) -> bool {
         let tx_hash = transaction.hash();
-        
+
         // Create prioritized transaction
         let mut ptx = PrioritizedTransaction::new(transaction, fee_rate, size);
-        
+
         // Calculate ancestors
         let ancestors = self.calculate_ancestors(&ptx.transaction);
         if !self.validate_ancestor_limits(&ancestors, size) {
             return false;
         }
         ptx.ancestors = ancestors;
-        
+
         // Update descendant information for ancestors
         for ancestor_hash in &ptx.ancestors {
             if let Some(ancestor) = self.transactions.get_mut(ancestor_hash) {
                 ancestor.descendants.insert(tx_hash);
             }
         }
-        
+
         self.transactions.insert(tx_hash, ptx);
         true
     }
@@ -135,7 +141,7 @@ impl TransactionPrioritizer {
                             .inputs()
                             .iter()
                             .map(|input| input.prev_tx_hash())
-                            .filter(|hash| self.transactions.contains_key(hash))
+                            .filter(|hash| self.transactions.contains_key(hash)),
                     );
                 }
             }
@@ -154,7 +160,8 @@ impl TransactionPrioritizer {
             .iter()
             .filter_map(|hash| self.transactions.get(hash))
             .map(|tx| tx.size)
-            .sum::<usize>() + tx_size;
+            .sum::<usize>()
+            + tx_size;
 
         if ancestor_size >= self.config.max_ancestor_size {
             return false;
@@ -166,7 +173,7 @@ impl TransactionPrioritizer {
     /// Get transactions sorted by priority
     pub fn get_prioritized_transactions(&self) -> Vec<&Transaction> {
         let mut txs: Vec<_> = self.transactions.values().collect();
-        
+
         // Sort by effective fee rate
         txs.sort_by(|a, b| {
             b.effective_fee_rate(&self.config)
@@ -202,7 +209,7 @@ impl TransactionPrioritizer {
     pub fn get_transaction_fee_rate(&self, tx_hash: &[u8; 32]) -> Option<u64> {
         self.transactions.get(tx_hash).map(|tx| tx.fee_rate)
     }
-    
+
     /// Remove a transaction from the prioritizer
     pub fn remove_transaction(&mut self, tx_hash: &[u8; 32]) -> Option<Transaction> {
         if let Some(ptx) = self.transactions.remove(tx_hash) {
@@ -212,7 +219,7 @@ impl TransactionPrioritizer {
                     ancestor.descendants.remove(tx_hash);
                 }
             }
-            
+
             // Return the transaction
             Some(ptx.transaction)
         } else {
@@ -242,7 +249,7 @@ mod tests {
 
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         let tx2 = create_test_transaction([2u8; 32], 40_000_000);
-        
+
         // Store hashes for comparison
         let tx1_hash = tx1.hash();
         let tx2_hash = tx2.hash();
@@ -251,7 +258,7 @@ mod tests {
         assert!(prioritizer.add_transaction(tx2, 2, 250));
 
         let sorted = prioritizer.get_prioritized_transactions();
-        assert_eq!(sorted[0].hash(), tx2_hash);  // Higher fee rate should be first
+        assert_eq!(sorted[0].hash(), tx2_hash); // Higher fee rate should be first
         assert_eq!(sorted[1].hash(), tx1_hash);
     }
 
@@ -268,6 +275,6 @@ mod tests {
 
         assert!(prioritizer.add_transaction(tx1, 1, 250));
         assert!(prioritizer.add_transaction(tx2, 1, 250));
-        assert!(!prioritizer.add_transaction(tx3, 1, 250));  // Should fail due to ancestor limit
+        assert!(!prioritizer.add_transaction(tx3, 1, 250)); // Should fail due to ancestor limit
     }
 }

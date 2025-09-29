@@ -1,16 +1,9 @@
+use crate::api::routes::{
+    blockchain, environmental, faucet, lightning, mempool, mining, network, node,
+};
+use crate::api::types;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use utoipa::{Modify, OpenApi};
-use crate::api::types;
-use crate::api::routes::{
-    blockchain,
-    mempool,
-    network,
-    mining,
-    environmental,
-    lightning,
-    node,
-    faucet,
-};
 
 /// API security schema modification
 struct SecurityAddon;
@@ -224,4 +217,4 @@ pub struct ApiDoc;
 /// Initialize the OpenAPI documentation
 pub fn init() -> utoipa::openapi::OpenApi {
     ApiDoc::openapi()
-} 
+}

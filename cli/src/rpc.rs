@@ -116,10 +116,10 @@ impl RpcClient {
             .timeout(Duration::from_secs(timeout))
             .build()
             .context("Failed to create HTTP client")?;
-        
+
         Ok(Self { client, url })
     }
-    
+
     pub async fn call<T>(&self, method: &str, params: serde_json::Value) -> Result<T>
     where
         T: for<'de> Deserialize<'de>,
@@ -130,92 +130,92 @@ impl RpcClient {
             params,
             id: 1,
         };
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&self.url)
             .json(&request)
             .send()
             .await
             .context("Failed to send RPC request")?;
-        
+
         let rpc_response: RpcResponse<T> = response
             .json()
             .await
             .context("Failed to parse RPC response")?;
-        
+
         if let Some(error) = rpc_response.error {
             anyhow::bail!("RPC error {}: {}", error.code, error.message);
         }
-        
-        rpc_response.result
-            .context("Empty RPC response")
+
+        rpc_response.result.context("Empty RPC response")
     }
-    
+
     // Blockchain methods
     pub async fn get_blockchain_info(&self) -> Result<BlockchainInfo> {
         self.call("getblockchaininfo", json!([])).await
     }
-    
+
     pub async fn get_node_info(&self) -> Result<NodeInfo> {
         self.call("getinfo", json!([])).await
     }
-    
+
     pub async fn get_peer_info(&self) -> Result<Vec<PeerInfo>> {
         self.call("getpeerinfo", json!([])).await
     }
-    
+
     pub async fn get_mempool_info(&self) -> Result<MempoolInfo> {
         self.call("getmempoolinfo", json!([])).await
     }
-    
+
     pub async fn get_mining_info(&self) -> Result<MiningInfo> {
         self.call("getmininginfo", json!([])).await
     }
-    
+
     pub async fn get_environmental_metrics(&self) -> Result<EnvironmentalMetrics> {
         self.call("getenvironmentalmetrics", json!([])).await
     }
-    
+
     // Address methods
     pub async fn get_balance(&self, address: &str) -> Result<AddressBalance> {
         self.call("getaddressbalance", json!([address])).await
     }
-    
+
     pub async fn get_new_address(&self) -> Result<String> {
         self.call("getnewaddress", json!([])).await
     }
-    
+
     // Transaction methods
     pub async fn send_transaction(&self, to: &str, amount: f64) -> Result<String> {
         self.call("sendtoaddress", json!([to, amount])).await
     }
-    
+
     pub async fn get_transaction(&self, txid: &str) -> Result<TransactionInfo> {
         self.call("gettransaction", json!([txid])).await
     }
-    
+
     // Mining methods
     pub async fn start_mining(&self, threads: u32) -> Result<bool> {
         self.call("setgenerate", json!([true, threads])).await
     }
-    
+
     pub async fn stop_mining(&self) -> Result<bool> {
         self.call("setgenerate", json!([false])).await
     }
-    
+
     // Utility methods
     pub async fn validate_address(&self, address: &str) -> Result<bool> {
         #[derive(Deserialize)]
         struct ValidateResult {
             isvalid: bool,
         }
-        
+
         let result: ValidateResult = self.call("validateaddress", json!([address])).await?;
         Ok(result.isvalid)
     }
-    
+
     pub async fn ping(&self) -> Result<()> {
         self.call::<serde_json::Value>("ping", json!([])).await?;
         Ok(())
     }
-} 
+}

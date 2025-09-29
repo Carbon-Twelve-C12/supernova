@@ -8,4 +8,4 @@ fn main() {
         .rustc_semver()
         .emit()
         .expect("Failed to generate build information");
-} 
+}

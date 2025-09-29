@@ -1,10 +1,10 @@
 //! Script Builder for Supernova
-//! 
+//!
 //! This module provides utilities for building valid scripts.
 
 use crate::script::opcodes::Opcode;
-use sha2::{Sha256, Digest};
-use ripemd::{Ripemd160, Digest as RipemdDigest};
+use ripemd::{Digest as RipemdDigest, Ripemd160};
+use sha2::{Digest, Sha256};
 
 /// Script builder
 #[derive(Debug, Clone)]
@@ -21,21 +21,19 @@ impl Default for ScriptBuilder {
 impl ScriptBuilder {
     /// Create a new empty script builder
     pub fn new() -> Self {
-        Self {
-            script: Vec::new(),
-        }
+        Self { script: Vec::new() }
     }
-    
+
     /// Push an opcode
     pub fn push_opcode(mut self, opcode: Opcode) -> Self {
         self.script.push(opcode.to_byte());
         self
     }
-    
+
     /// Push data
     pub fn push_data(mut self, data: &[u8]) -> Self {
         let len = data.len();
-        
+
         if len <= 75 {
             // Direct push
             self.script.push(len as u8);
@@ -56,10 +54,10 @@ impl ScriptBuilder {
             self.script.extend_from_slice(&(len as u32).to_le_bytes());
             self.script.extend_from_slice(data);
         }
-        
+
         self
     }
-    
+
     /// Push a number
     pub fn push_number(self, num: i64) -> Self {
         match num {
@@ -88,18 +86,18 @@ impl ScriptBuilder {
             }
         }
     }
-    
+
     /// Build the final script
     pub fn build(self) -> Vec<u8> {
         self.script
     }
-    
+
     /// Create a P2PKH script
     pub fn pay_to_pubkey_hash(pubkey_hash: &[u8]) -> Vec<u8> {
         if pubkey_hash.len() != 20 {
             panic!("Invalid pubkey hash length");
         }
-        
+
         Self::new()
             .push_opcode(Opcode::OP_DUP)
             .push_opcode(Opcode::OP_HASH160)
@@ -108,77 +106,77 @@ impl ScriptBuilder {
             .push_opcode(Opcode::OP_CHECKSIG)
             .build()
     }
-    
+
     /// Create a P2SH script
     pub fn pay_to_script_hash(script_hash: &[u8]) -> Vec<u8> {
         if script_hash.len() != 20 {
             panic!("Invalid script hash length");
         }
-        
+
         Self::new()
             .push_opcode(Opcode::OP_HASH160)
             .push_data(script_hash)
             .push_opcode(Opcode::OP_EQUAL)
             .build()
     }
-    
+
     /// Create a P2WPKH script
     pub fn pay_to_witness_pubkey_hash(pubkey_hash: &[u8]) -> Vec<u8> {
         if pubkey_hash.len() != 20 {
             panic!("Invalid pubkey hash length");
         }
-        
+
         Self::new()
             .push_opcode(Opcode::OP_0)
             .push_data(pubkey_hash)
             .build()
     }
-    
+
     /// Create a P2WSH script
     pub fn pay_to_witness_script_hash(script_hash: &[u8]) -> Vec<u8> {
         if script_hash.len() != 32 {
             panic!("Invalid script hash length");
         }
-        
+
         Self::new()
             .push_opcode(Opcode::OP_0)
             .push_data(script_hash)
             .build()
     }
-    
+
     /// Create a multisig script
     pub fn multisig(threshold: u8, pubkeys: &[Vec<u8>]) -> Vec<u8> {
         if threshold == 0 || threshold > pubkeys.len() as u8 {
             panic!("Invalid multisig threshold");
         }
-        
+
         if pubkeys.len() > 16 {
             panic!("Too many pubkeys for multisig");
         }
-        
+
         let mut builder = Self::new();
-        
+
         // Push threshold
         builder = builder.push_number(threshold as i64);
-        
+
         // Push all pubkeys
         for pubkey in pubkeys {
             builder = builder.push_data(pubkey);
         }
-        
+
         // Push pubkey count
         builder = builder.push_number(pubkeys.len() as i64);
-        
+
         // Push CHECKMULTISIG
         builder.push_opcode(Opcode::OP_CHECKMULTISIG).build()
     }
-    
+
     /// Hash a public key to get pubkey hash
     pub fn hash_pubkey(pubkey: &[u8]) -> Vec<u8> {
         let mut sha = Sha256::new();
         sha.update(pubkey);
         let sha_result = sha.finalize();
-        
+
         let mut ripemd = Ripemd160::new();
         ripemd.update(sha_result);
         ripemd.finalize().to_vec()
@@ -190,16 +188,16 @@ fn encode_script_number(num: i64) -> Vec<u8> {
     if num == 0 {
         return vec![];
     }
-    
+
     let mut bytes = Vec::new();
     let neg = num < 0;
     let mut abs_num = if neg { -num } else { num } as u64;
-    
+
     while abs_num > 0 {
         bytes.push((abs_num & 0xff) as u8);
         abs_num >>= 8;
     }
-    
+
     // If the most significant byte has the high bit set,
     // add an extra byte to indicate sign
     if bytes.last().unwrap() & 0x80 != 0 {
@@ -212,19 +210,19 @@ fn encode_script_number(num: i64) -> Vec<u8> {
         let last = bytes.len() - 1;
         bytes[last] |= 0x80;
     }
-    
+
     bytes
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_p2pkh_script() {
         let pubkey_hash = vec![0u8; 20];
         let script = ScriptBuilder::pay_to_pubkey_hash(&pubkey_hash);
-        
+
         assert_eq!(script[0], 0x76); // OP_DUP
         assert_eq!(script[1], 0xa9); // OP_HASH160
         assert_eq!(script[2], 0x14); // Push 20 bytes
@@ -232,7 +230,7 @@ mod tests {
         assert_eq!(script[23], 0x88); // OP_EQUALVERIFY
         assert_eq!(script[24], 0xac); // OP_CHECKSIG
     }
-    
+
     #[test]
     fn test_script_number_encoding() {
         assert_eq!(encode_script_number(0), vec![] as Vec<u8>);
@@ -243,13 +241,13 @@ mod tests {
         assert_eq!(encode_script_number(255), vec![0xff, 0x00]);
         assert_eq!(encode_script_number(256), vec![0x00, 0x01]);
     }
-    
+
     #[test]
     fn test_multisig_script() {
         let pubkey1 = vec![0x02; 33];
         let pubkey2 = vec![0x03; 33];
         let script = ScriptBuilder::multisig(2, &[pubkey1.clone(), pubkey2.clone()]);
-        
+
         assert_eq!(script[0], 0x52); // OP_2
         assert_eq!(script[1], 33); // Push 33 bytes
         assert_eq!(&script[2..35], &pubkey1[..]);
@@ -258,4 +256,4 @@ mod tests {
         assert_eq!(script[69], 0x52); // OP_2
         assert_eq!(script[70], 0xae); // OP_CHECKMULTISIG
     }
-} 
+}

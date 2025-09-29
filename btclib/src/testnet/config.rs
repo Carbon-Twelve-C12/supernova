@@ -267,24 +267,25 @@ impl Default for TestNetConfig {
             max_difficulty_adjustment_factor: 4.0, // Allow up to 4x difficulty change
             genesis_config: GenesisConfig {
                 timestamp: 1672531200, // June 1, 2025
-                initial_distribution: vec![
-                    CoinDistribution {
-                        address: "test1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq".to_string(),
-                        amount: 420_000_000_000, // 4.2 million NOVA for test faucet
-                    },
-                ],
+                initial_distribution: vec![CoinDistribution {
+                    address: "test1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+                        .to_string(),
+                    amount: 420_000_000_000, // 4.2 million NOVA for test faucet
+                }],
                 message: "supernova Test Network Genesis Block".to_string(),
                 test_accounts: vec![
                     TestAccount {
                         name: "Alice".to_string(),
-                        address: "test1alice1111111111111111111111111111111111111111111111111".to_string(),
+                        address: "test1alice1111111111111111111111111111111111111111111111111"
+                            .to_string(),
                         balance: 100_000_000_000, // 1000 NOVA
                         is_miner: true,
                         private_key: None,
                     },
                     TestAccount {
                         name: "Bob".to_string(),
-                        address: "test1bob111111111111111111111111111111111111111111111111111".to_string(),
+                        address: "test1bob111111111111111111111111111111111111111111111111111"
+                            .to_string(),
                         balance: 50_000_000_000, // 500 NOVA
                         is_miner: false,
                         private_key: None,
@@ -293,7 +294,7 @@ impl Default for TestNetConfig {
             },
             enable_faucet: true,
             faucet_distribution_amount: 10_000_000_000, // 100 NOVA equivalent
-            faucet_cooldown_secs: 3600, // 1 hour
+            faucet_cooldown_secs: 3600,                 // 1 hour
             p2p_port: 18444,
             rpc_port: 18443,
             network_simulation: Some(NetworkSimulationConfig {
@@ -352,7 +353,7 @@ impl Default for TestNetConfig {
 /// Difficulty calculation module for test networks
 pub mod difficulty {
     use super::*;
-    
+
     /// Calculate the next difficulty based on the time taken to mine the last window of blocks
     pub fn calculate_next_difficulty(
         config: &TestNetConfig,
@@ -362,34 +363,34 @@ pub mod difficulty {
         if window_blocks.len() < 2 {
             return current_difficulty; // Not enough blocks to adjust
         }
-        
+
         // Sort blocks by height to ensure correct order
         let mut sorted_blocks = window_blocks.to_vec();
         sorted_blocks.sort_by_key(|&(height, _)| height);
-        
+
         let window_size = sorted_blocks.len() as u64;
         let first_block = sorted_blocks.first().unwrap();
         let last_block = sorted_blocks.last().unwrap();
-        
+
         // Calculate the actual time taken for this window
         let time_diff = last_block.1.saturating_sub(first_block.1);
         if time_diff == 0 {
             return current_difficulty; // Avoid division by zero
         }
-        
+
         // Calculate the expected time for this window
         let expected_time = config.target_block_time_secs * (window_size - 1);
-        
+
         // Calculate the adjustment factor
         let mut adjustment_factor = expected_time as f64 / time_diff as f64;
-        
+
         // Limit the adjustment factor
         let max_factor = config.max_difficulty_adjustment_factor;
         adjustment_factor = adjustment_factor.max(1.0 / max_factor).min(max_factor);
-        
+
         // Apply the adjustment
         let new_difficulty = (current_difficulty as f64 * adjustment_factor) as u64;
-        
+
         // Ensure difficulty doesn't drop below the initial level
         new_difficulty.max(config.initial_difficulty)
     }
@@ -398,28 +399,28 @@ pub mod difficulty {
 /// Testnet presets for different testing scenarios
 pub mod presets {
     use super::*;
-    
+
     /// Create a high-speed testnet configuration
     pub fn create_high_speed_testnet() -> TestNetConfig {
         let mut config = TestNetConfig::default();
         config.network_name = "supernova-highspeed".to_string();
         config.target_block_time_secs = 5; // 5 seconds between blocks
         config.difficulty_adjustment_window = 10; // Adjust every 10 blocks
-        
+
         // Enable auto-mining for continuous block generation
         if let Some(auto_mining) = config.auto_mining.as_mut() {
             auto_mining.enabled = true;
             auto_mining.block_interval_secs = 5;
         }
-        
+
         config
     }
-    
+
     /// Create a network simulation testnet
     pub fn create_simulation_testnet() -> TestNetConfig {
         let mut config = TestNetConfig::default();
         config.network_name = "supernova-netsim".to_string();
-        
+
         // Enable network simulation
         let mut sim_config = config.network_simulation.unwrap_or_default();
         sim_config.enabled = true;
@@ -428,7 +429,7 @@ pub mod presets {
         sim_config.packet_loss_percent = 2;
         sim_config.bandwidth_limit_kbps = 1000;
         sim_config.jitter_ms = 50;
-        
+
         // Add periodic network disruptions
         sim_config.disruption_schedule = Some(DisruptionSchedule {
             frequency_secs: 600, // Every 10 minutes
@@ -436,34 +437,34 @@ pub mod presets {
             affected_nodes_percent: 30,
             disruption_type: DisruptionType::HighLatency { latency_ms: 2000 },
         });
-        
+
         config.network_simulation = Some(sim_config);
-        
+
         config
     }
-    
+
     /// Create a testnet preset for performance testing
     pub fn create_performance_testnet() -> TestNetConfig {
         let mut config = TestNetConfig::default();
         config.network_name = "supernova-perftest".to_string();
         config.target_block_time_secs = 150; // 2.5 minutes for stable timing matching mainnet
-        
+
         // Disable network simulation for optimal performance
         if let Some(sim_config) = config.network_simulation.as_mut() {
             sim_config.enabled = false;
         }
-        
+
         // Use memory storage for faster performance
         config.storage.in_memory = true;
-        
+
         config
     }
-    
+
     /// Create a testnet for regression testing
     pub fn create_regression_testnet() -> TestNetConfig {
         let mut config = TestNetConfig::default();
         config.network_name = "supernova-regression".to_string();
-        
+
         // Make network deterministic by disabling random elements
         if let Some(sim_config) = config.network_simulation.as_mut() {
             sim_config.enabled = true;
@@ -472,67 +473,73 @@ pub mod presets {
             sim_config.simulate_clock_drift = false;
             sim_config.disruption_schedule = None;
         }
-        
+
         // Use fixed difficulty for predictable block times
         config.target_block_time_secs = 15;
         config.max_difficulty_adjustment_factor = 1.0; // No adjustment
-        
+
         config
     }
-    
+
     /// Create a testnet with clock drift for consensus testing
     pub fn create_clock_drift_testnet() -> TestNetConfig {
         let mut config = TestNetConfig::default();
         config.network_name = "supernova-clockdrift".to_string();
-        
+
         // Enable clock drift simulation
         if let Some(sim_config) = config.network_simulation.as_mut() {
             sim_config.enabled = true;
             sim_config.simulate_clock_drift = true;
             sim_config.max_clock_drift_ms = 5000; // 5 seconds drift
         }
-        
+
         config
     }
-    
+
     /// Create a testnet for stress testing with high transaction volume
     pub fn create_stress_test_testnet() -> TestNetConfig {
         let mut config = TestNetConfig::default();
         config.network_name = "supernova-stress".to_string();
-        
+
         // Fast blocks
         config.target_block_time_secs = 5;
-        
+
         // Configure for high transaction throughput
         config.tx_propagation.max_relay_count = 10000;
         config.tx_propagation.base_delay_ms = 50; // Faster propagation
-        
+
         // Auto-mining with large blocks
         if let Some(auto_mining) = config.auto_mining.as_mut() {
             auto_mining.enabled = true;
             auto_mining.max_transactions_per_block = 5000;
         }
-        
+
         config
     }
-    
+
     /// Create a testnet for fork resolution testing
     pub fn create_fork_testnet() -> TestNetConfig {
         let mut config = TestNetConfig::default();
         config.network_name = "supernova-fork".to_string();
-        
+
         // Enable network simulation with partition capability
         if let Some(sim_config) = config.network_simulation.as_mut() {
             sim_config.enabled = true;
             sim_config.topology = NetworkTopology::Custom {
                 connections: vec![
                     // Two groups of nodes with minimal connections between them
-                    (0, 1), (1, 2), (2, 3), (3, 0), // Group A
-                    (4, 5), (5, 6), (6, 7), (7, 4), // Group B
+                    (0, 1),
+                    (1, 2),
+                    (2, 3),
+                    (3, 0), // Group A
+                    (4, 5),
+                    (5, 6),
+                    (6, 7),
+                    (7, 4), // Group B
                     (0, 4), // Single connection between groups
-                ]
+                ],
             };
-            
+
             // Schedule periodic partitioning
             sim_config.disruption_schedule = Some(DisruptionSchedule {
                 frequency_secs: 300, // Every 5 minutes
@@ -541,7 +548,7 @@ pub mod presets {
                 disruption_type: DisruptionType::Disconnection,
             });
         }
-        
+
         config
     }
-} 
+}

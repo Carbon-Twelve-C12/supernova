@@ -20,7 +20,7 @@ impl Journal {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub fn add_entry(&mut self, entry_type: String, data: serde_json::Value) {
         self.entries.push(JournalEntry {
             timestamp: Utc::now(),
@@ -28,8 +28,8 @@ impl Journal {
             data,
         });
     }
-    
+
     pub fn get_entries(&self) -> &[JournalEntry] {
         &self.entries
     }
-} 
+}

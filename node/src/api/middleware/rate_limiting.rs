@@ -2,18 +2,18 @@
 //!
 //! This module provides rate limiting functionality for the supernova API.
 
-use std::collections::HashMap;
-use std::future::{ready, Ready};
-use std::rc::Rc;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     http::StatusCode,
     HttpResponse, ResponseError,
 };
-use tracing::warn;
 use serde_json::json;
+use std::collections::HashMap;
+use std::future::{ready, Ready};
+use std::rc::Rc;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tracing::warn;
 
 /// Rate limit error
 #[derive(Debug)]
@@ -41,7 +41,7 @@ impl ResponseError for RateLimitError {
         // Include Retry-After header
         let mut res = HttpResponse::TooManyRequests();
         res.insert_header(("Retry-After", self.window_secs.to_string()));
-        
+
         res.json(json!({
             "success": false,
             "error": format!("Rate limit exceeded: {} requests per {} seconds", self.rate, self.window_secs),
@@ -84,7 +84,7 @@ impl RateLimiter {
             }),
         }
     }
-    
+
     /// Create a new rate limiter with custom window duration
     pub fn with_window(rate: u32, window_secs: u64) -> Self {
         Self {
@@ -131,7 +131,8 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = actix_web::Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>>>>;
 
     forward_ready!(service);
 
@@ -151,7 +152,7 @@ where
             .peer_addr()
             .unwrap_or("unknown")
             .to_string();
-            
+
         // Skip rate limiting for documentation routes
         if req.path().starts_with("/swagger-ui") || req.path().starts_with("/api-docs") {
             let fut = self.service.call(req);
@@ -175,12 +176,10 @@ where
                 });
             }
         };
-        
+
         // Clean up expired entries
-        clients.retain(|_, entry| {
-            now.duration_since(entry.first_request) < window
-        });
-        
+        clients.retain(|_, entry| now.duration_since(entry.first_request) < window);
+
         // Get current client's entry
         let entry = clients.entry(ip.clone()).or_insert_with(|| RateLimitEntry {
             first_request: now,
@@ -259,7 +258,7 @@ mod tests {
         for i in 0..6 {
             let req = TestRequest::get().uri("/").to_request();
             let resp = call_service(&app, req).await;
-            
+
             if i < 5 {
                 assert_eq!(resp.status(), StatusCode::OK);
             } else {
@@ -279,9 +278,11 @@ mod tests {
 
         // Make 10 requests to documentation (should bypass rate limiting)
         for _ in 0..10 {
-            let req = TestRequest::get().uri("/swagger-ui/index.html").to_request();
+            let req = TestRequest::get()
+                .uri("/swagger-ui/index.html")
+                .to_request();
             let resp = call_service(&app, req).await;
             assert_eq!(resp.status(), StatusCode::OK);
         }
     }
-} 
+}

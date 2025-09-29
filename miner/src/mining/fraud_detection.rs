@@ -1,29 +1,29 @@
 //! Fraud Detection Module for Environmental Claims
-//! 
+//!
 //! This module implements statistical anomaly detection to identify
 //! potentially fraudulent environmental claims.
 
-use super::{EnvironmentalProfile, RECCertificate, EfficiencyAudit};
+use super::{EfficiencyAudit, EnvironmentalProfile, RECCertificate};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
 
 /// Configuration for fraud detection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FraudDetectionConfig {
     /// Enable anomaly detection
     pub enabled: bool,
-    
+
     /// Z-score threshold for anomaly detection
     pub anomaly_threshold: f64,
-    
+
     /// Minimum samples before detection activates
     pub min_samples: usize,
-    
+
     /// Time window for analysis (seconds)
     pub analysis_window: u64,
-    
+
     /// Enable pattern matching
     pub enable_pattern_matching: bool,
 }
@@ -73,24 +73,36 @@ impl ClaimStatistics {
         self.sum_mwh += point.total_mwh;
         self.sum_mwh_sq += point.total_mwh * point.total_mwh;
     }
-    
+
     fn mean_renewable(&self) -> f64 {
-        if self.count == 0 { 0.0 } else { self.sum_renewable / self.count as f64 }
+        if self.count == 0 {
+            0.0
+        } else {
+            self.sum_renewable / self.count as f64
+        }
     }
-    
+
     fn std_dev_renewable(&self) -> f64 {
-        if self.count < 2 { return 0.0; }
+        if self.count < 2 {
+            return 0.0;
+        }
         let mean = self.mean_renewable();
         let variance = (self.sum_renewable_sq / self.count as f64) - (mean * mean);
         variance.max(0.0).sqrt()
     }
-    
+
     fn mean_efficiency(&self) -> f64 {
-        if self.count == 0 { 0.0 } else { self.sum_efficiency / self.count as f64 }
+        if self.count == 0 {
+            0.0
+        } else {
+            self.sum_efficiency / self.count as f64
+        }
     }
-    
+
     fn std_dev_efficiency(&self) -> f64 {
-        if self.count < 2 { return 0.0; }
+        if self.count < 2 {
+            return 0.0;
+        }
         let mean = self.mean_efficiency();
         let variance = (self.sum_efficiency_sq / self.count as f64) - (mean * mean);
         variance.max(0.0).sqrt()
@@ -109,20 +121,35 @@ pub struct FraudDetector {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SuspiciousActivity {
     /// Renewable percentage anomaly
-    RenewableAnomaly { z_score: f64, value: f64, mean: f64, std_dev: f64 },
-    
+    RenewableAnomaly {
+        z_score: f64,
+        value: f64,
+        mean: f64,
+        std_dev: f64,
+    },
+
     /// Efficiency score anomaly
-    EfficiencyAnomaly { z_score: f64, value: f64, mean: f64, std_dev: f64 },
-    
+    EfficiencyAnomaly {
+        z_score: f64,
+        value: f64,
+        mean: f64,
+        std_dev: f64,
+    },
+
     /// Certificate volume anomaly
-    VolumeAnomaly { z_score: f64, value: f64, mean: f64, std_dev: f64 },
-    
+    VolumeAnomaly {
+        z_score: f64,
+        value: f64,
+        mean: f64,
+        std_dev: f64,
+    },
+
     /// Rapid claim submissions
     RapidSubmissions { count: usize, time_window: u64 },
-    
+
     /// Duplicate certificate patterns
     DuplicatePattern { certificate_ids: Vec<String> },
-    
+
     /// Impossible efficiency claims
     ImpossibleEfficiency { claimed: f64, theoretical_max: f64 },
 }
@@ -136,7 +163,7 @@ impl FraudDetector {
             suspicious_patterns: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     /// Analyze an environmental claim for fraud
     pub async fn analyze_claim(
         &self,
@@ -148,9 +175,9 @@ impl FraudDetector {
         if !self.config.enabled {
             return Vec::new();
         }
-        
+
         let mut suspicious_activities = Vec::new();
-        
+
         // Create data point
         let total_mwh: f64 = certificates.iter().map(|c| c.coverage_mwh).sum();
         let data_point = ClaimDataPoint {
@@ -161,57 +188,58 @@ impl FraudDetector {
             certificate_count: certificates.len(),
             total_mwh,
         };
-        
+
         // Update statistics
         let mut stats = self.statistics.write().await;
         stats.update(&data_point);
-        
+
         // Perform anomaly detection if we have enough samples
         if stats.count >= self.config.min_samples {
             // Check renewable percentage anomaly
             if let Some(anomaly) = self.check_renewable_anomaly(&data_point, &stats) {
                 suspicious_activities.push(anomaly);
             }
-            
+
             // Check efficiency anomaly
             if let Some(anomaly) = self.check_efficiency_anomaly(&data_point, &stats) {
                 suspicious_activities.push(anomaly);
             }
         }
         drop(stats);
-        
+
         // Check for impossible efficiency claims
         if let Some(audit) = audit {
             if let Some(anomaly) = self.check_impossible_efficiency(audit) {
                 suspicious_activities.push(anomaly);
             }
         }
-        
+
         // Pattern detection
         if self.config.enable_pattern_matching {
             let patterns = self.detect_patterns(miner_id, &data_point).await;
             suspicious_activities.extend(patterns);
         }
-        
+
         // Store historical data
         let mut history = self.historical_data.write().await;
         history.push(data_point);
-        
+
         // Clean old data
         let cutoff = current_timestamp() - self.config.analysis_window;
         history.retain(|point| point.timestamp > cutoff);
-        
+
         // Record suspicious activities
         if !suspicious_activities.is_empty() {
             let mut patterns = self.suspicious_patterns.write().await;
-            patterns.entry(miner_id.to_string())
+            patterns
+                .entry(miner_id.to_string())
                 .or_insert_with(Vec::new)
                 .extend(suspicious_activities.clone());
         }
-        
+
         suspicious_activities
     }
-    
+
     fn check_renewable_anomaly(
         &self,
         point: &ClaimDataPoint,
@@ -219,7 +247,7 @@ impl FraudDetector {
     ) -> Option<SuspiciousActivity> {
         let mean = stats.mean_renewable();
         let std_dev = stats.std_dev_renewable();
-        
+
         if std_dev > 0.0 {
             let z_score = (point.renewable_percentage - mean).abs() / std_dev;
             if z_score > self.config.anomaly_threshold {
@@ -233,7 +261,7 @@ impl FraudDetector {
         }
         None
     }
-    
+
     fn check_efficiency_anomaly(
         &self,
         point: &ClaimDataPoint,
@@ -241,7 +269,7 @@ impl FraudDetector {
     ) -> Option<SuspiciousActivity> {
         let mean = stats.mean_efficiency();
         let std_dev = stats.std_dev_efficiency();
-        
+
         if std_dev > 0.0 {
             let z_score = (point.efficiency_score - mean).abs() / std_dev;
             if z_score > self.config.anomaly_threshold {
@@ -255,7 +283,7 @@ impl FraudDetector {
         }
         None
     }
-    
+
     fn check_impossible_efficiency(&self, audit: &EfficiencyAudit) -> Option<SuspiciousActivity> {
         // Theoretical maximum efficiency for current technology
         match audit.hash_rate_per_watt {
@@ -266,7 +294,7 @@ impl FraudDetector {
             _ => None,
         }
     }
-    
+
     async fn detect_patterns(
         &self,
         miner_id: &str,
@@ -274,47 +302,46 @@ impl FraudDetector {
     ) -> Vec<SuspiciousActivity> {
         let mut patterns = Vec::new();
         let history = self.historical_data.read().await;
-        
+
         // Check for rapid submissions
-        let recent_claims: Vec<_> = history.iter()
+        let recent_claims: Vec<_> = history
+            .iter()
             .filter(|p| p.miner_id == miner_id)
             .filter(|p| p.timestamp > current_timestamp() - 3600) // Last hour
             .collect();
-        
+
         if recent_claims.len() > 10 {
             patterns.push(SuspiciousActivity::RapidSubmissions {
                 count: recent_claims.len(),
                 time_window: 3600,
             });
         }
-        
+
         patterns
     }
-    
+
     /// Get fraud risk score for a miner (0.0 - 1.0)
     pub async fn get_risk_score(&self, miner_id: &str) -> f64 {
         let patterns = self.suspicious_patterns.read().await;
-        
+
         if let Some(activities) = patterns.get(miner_id) {
             // Simple scoring: more activities = higher risk
-            
+
             (activities.len() as f64 / 10.0).min(1.0)
         } else {
             0.0
         }
     }
-    
+
     /// Get detailed fraud report for a miner
     pub async fn get_fraud_report(&self, miner_id: &str) -> Option<FraudReport> {
         let patterns = self.suspicious_patterns.read().await;
-        
-        patterns.get(miner_id).map(|activities| {
-            FraudReport {
-                miner_id: miner_id.to_string(),
-                risk_score: (activities.len() as f64 / 10.0).min(1.0),
-                suspicious_activities: activities.clone(),
-                timestamp: current_timestamp(),
-            }
+
+        patterns.get(miner_id).map(|activities| FraudReport {
+            miner_id: miner_id.to_string(),
+            risk_score: (activities.len() as f64 / 10.0).min(1.0),
+            suspicious_activities: activities.clone(),
+            timestamp: current_timestamp(),
         })
     }
 }
@@ -338,12 +365,12 @@ fn current_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_anomaly_detection() {
         let config = FraudDetectionConfig::default();
         let detector = FraudDetector::new(config);
-        
+
         // Add normal claims to build baseline
         for i in 0..100 {
             let profile = EnvironmentalProfile {
@@ -352,32 +379,28 @@ mod tests {
                 verified: true,
                 rec_coverage: 0.5,
             };
-            
-            detector.analyze_claim(
-                &format!("miner_{}", i),
-                &profile,
-                &[],
-                None,
-            ).await;
+
+            detector
+                .analyze_claim(&format!("miner_{}", i), &profile, &[], None)
+                .await;
         }
-        
+
         // Submit anomalous claim
         let anomaly_profile = EnvironmentalProfile {
             renewable_percentage: 0.99, // Very high
-            efficiency_score: 0.95,    // Very high
+            efficiency_score: 0.95,     // Very high
             verified: true,
             rec_coverage: 0.99,
         };
-        
-        let activities = detector.analyze_claim(
-            "suspicious_miner",
-            &anomaly_profile,
-            &[],
-            None,
-        ).await;
-        
+
+        let activities = detector
+            .analyze_claim("suspicious_miner", &anomaly_profile, &[], None)
+            .await;
+
         // Should detect anomalies
         assert!(!activities.is_empty());
-        assert!(activities.iter().any(|a| matches!(a, SuspiciousActivity::RenewableAnomaly { .. })));
+        assert!(activities
+            .iter()
+            .any(|a| matches!(a, SuspiciousActivity::RenewableAnomaly { .. })));
     }
-} 
+}

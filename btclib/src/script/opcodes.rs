@@ -1,5 +1,5 @@
 //! Script Opcodes for Supernova
-//! 
+//!
 //! This module defines all opcodes supported by the Supernova script system.
 
 use std::fmt;
@@ -260,49 +260,47 @@ impl Opcode {
             _ => None,
         }
     }
-    
+
     /// Get the byte value of this opcode
     pub fn to_byte(&self) -> u8 {
         *self as u8
     }
-    
+
     /// Check if this opcode is disabled
     pub fn is_disabled(&self) -> bool {
-        matches!(self, 
-            Opcode::OP_CAT |
-            Opcode::OP_SUBSTR |
-            Opcode::OP_LEFT |
-            Opcode::OP_RIGHT |
-            Opcode::OP_INVERT |
-            Opcode::OP_AND |
-            Opcode::OP_OR |
-            Opcode::OP_XOR |
-            Opcode::OP_2MUL |
-            Opcode::OP_2DIV |
-            Opcode::OP_MUL |
-            Opcode::OP_DIV |
-            Opcode::OP_MOD |
-            Opcode::OP_LSHIFT |
-            Opcode::OP_RSHIFT
+        matches!(
+            self,
+            Opcode::OP_CAT
+                | Opcode::OP_SUBSTR
+                | Opcode::OP_LEFT
+                | Opcode::OP_RIGHT
+                | Opcode::OP_INVERT
+                | Opcode::OP_AND
+                | Opcode::OP_OR
+                | Opcode::OP_XOR
+                | Opcode::OP_2MUL
+                | Opcode::OP_2DIV
+                | Opcode::OP_MUL
+                | Opcode::OP_DIV
+                | Opcode::OP_MOD
+                | Opcode::OP_LSHIFT
+                | Opcode::OP_RSHIFT
         )
     }
-    
+
     /// Check if this is a push opcode
     pub fn is_push_opcode(&self) -> bool {
-        matches!(self,
-            Opcode::OP_PUSHDATA1 |
-            Opcode::OP_PUSHDATA2 |
-            Opcode::OP_PUSHDATA4
+        matches!(
+            self,
+            Opcode::OP_PUSHDATA1 | Opcode::OP_PUSHDATA2 | Opcode::OP_PUSHDATA4
         )
     }
-    
+
     /// Check if this is a conditional opcode
     pub fn is_conditional(&self) -> bool {
-        matches!(self,
-            Opcode::OP_IF |
-            Opcode::OP_NOTIF |
-            Opcode::OP_ELSE |
-            Opcode::OP_ENDIF
+        matches!(
+            self,
+            Opcode::OP_IF | Opcode::OP_NOTIF | Opcode::OP_ELSE | Opcode::OP_ENDIF
         )
     }
 }
@@ -541,4 +539,4 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::OP_NOP9,
     Opcode::OP_NOP10,
     Opcode::OP_INVALIDOPCODE,
-]; 
+];

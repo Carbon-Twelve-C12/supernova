@@ -2,34 +2,29 @@
 // Implements carbon-conscious payment routing with environmental optimization
 // Prioritizes renewable energy nodes and carbon-negative routes
 
-use std::collections::{HashMap, BinaryHeap};
-use std::sync::{Arc, RwLock};
-use std::cmp::Ordering;
-use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
+use std::sync::{Arc, RwLock};
 
-use crate::lightning::quantum_lightning::{
-    GreenLightningRoute, GreenRouteHop,
-};
-use crate::environmental::{
-    carbon_tracking::CarbonTracker,
-    types::Region,
-};
+use crate::environmental::{carbon_tracking::CarbonTracker, types::Region};
+use crate::lightning::quantum_lightning::{GreenLightningRoute, GreenRouteHop};
 
 /// Green routing optimizer for Lightning Network
 pub struct GreenLightningRouter {
     /// Network graph with environmental data
     network_graph: Arc<RwLock<EnvironmentalNetworkGraph>>,
-    
+
     /// Routing algorithm parameters
     routing_params: Arc<RwLock<GreenRoutingParameters>>,
-    
+
     /// Carbon tracker
     carbon_tracker: Arc<CarbonTracker>,
-    
+
     /// Route cache
     route_cache: Arc<RwLock<HashMap<RouteCacheKey, CachedRoute>>>,
-    
+
     /// Performance metrics
     metrics: Arc<RwLock<RoutingMetrics>>,
 }
@@ -39,10 +34,10 @@ pub struct GreenLightningRouter {
 pub struct EnvironmentalNetworkGraph {
     /// Nodes with environmental data
     pub nodes: HashMap<NodeId, EnvironmentalNode>,
-    
+
     /// Channels between nodes
     pub channels: HashMap<ChannelId, EnvironmentalChannel>,
-    
+
     /// Environmental zones
     pub zones: HashMap<Region, EnvironmentalZone>,
 }
@@ -54,21 +49,21 @@ pub struct EnvironmentalNode {
     pub node_id: NodeId,
     pub public_key: Vec<u8>,
     pub alias: String,
-    
+
     /// Environmental data
     pub renewable_percentage: f64,
     pub carbon_footprint_per_tx: f64,
     pub green_certified: bool,
     pub environmental_score: f64,
-    
+
     /// Carbon offset status
     pub carbon_negative: bool,
     pub monthly_carbon_saved: f64,
-    
+
     /// Location
     pub region: Region,
     pub coordinates: Option<(f64, f64)>,
-    
+
     /// Routing preferences
     pub prefers_green_routes: bool,
     pub green_fee_discount: f64,
@@ -83,20 +78,20 @@ pub struct EnvironmentalChannel {
     pub node1: NodeId,
     #[serde(with = "serde_arrays")]
     pub node2: NodeId,
-    
+
     /// Channel capacity
     pub capacity_sats: u64,
     pub available_balance: u64,
-    
+
     /// Routing fees
     pub base_fee_msat: u32,
     pub fee_rate_ppm: u32,
-    
+
     /// Environmental metrics
     pub carbon_footprint: f64,
     pub renewable_powered: bool,
     pub environmental_score: f64,
-    
+
     /// Performance
     pub success_rate: f64,
     pub avg_settlement_time: f64,
@@ -120,12 +115,12 @@ pub struct GreenRoutingParameters {
     pub carbon_weight: f64,
     pub renewable_weight: f64,
     pub reliability_weight: f64,
-    
+
     /// Constraints
     pub max_carbon_per_route: f64,
     pub min_renewable_percentage: f64,
     pub max_route_length: usize,
-    
+
     /// Incentives
     pub green_node_preference: f64,
     pub carbon_negative_bonus: f64,
@@ -175,7 +170,7 @@ impl GreenLightningRouter {
             green_node_preference: 1.2,
             carbon_negative_bonus: 1.5,
         };
-        
+
         Self {
             network_graph: Arc::new(RwLock::new(EnvironmentalNetworkGraph {
                 nodes: HashMap::new(),
@@ -188,36 +183,36 @@ impl GreenLightningRouter {
             metrics: Arc::new(RwLock::new(RoutingMetrics::default())),
         }
     }
-    
+
     /// Calculate route carbon footprint
-    pub fn calculate_route_carbon_footprint(
-        &self,
-        route: &GreenLightningRoute,
-    ) -> f64 {
+    pub fn calculate_route_carbon_footprint(&self, route: &GreenLightningRoute) -> f64 {
         println!("🌿 Calculating route carbon footprint");
-        
+
         let mut total_carbon = 0.0;
-        
+
         for hop in &route.hops {
             // Hop carbon footprint
             total_carbon += hop.carbon_footprint;
-            
+
             // Additional factors
             if !hop.green_certified {
                 total_carbon += 0.0001; // Penalty for non-green nodes
             }
         }
-        
+
         // Apply route length factor
         let length_factor = 1.0 + (route.hops.len() as f64 - 1.0) * 0.05;
         total_carbon *= length_factor;
-        
+
         println!("  Route carbon footprint: {:.6} kg CO2e", total_carbon);
-        println!("  Per hop average: {:.6} kg CO2e", total_carbon / route.hops.len() as f64);
-        
+        println!(
+            "  Per hop average: {:.6} kg CO2e",
+            total_carbon / route.hops.len() as f64
+        );
+
         total_carbon
     }
-    
+
     /// Optimize route for renewable energy nodes
     pub async fn optimize_for_renewable_energy_nodes(
         &self,
@@ -226,7 +221,7 @@ impl GreenLightningRouter {
         amount_sats: u64,
     ) -> Result<GreenLightningRoute, RoutingError> {
         println!("⚡ Optimizing route for renewable energy");
-        
+
         // Check cache first
         let cache_key = RouteCacheKey {
             source,
@@ -234,42 +229,44 @@ impl GreenLightningRouter {
             amount_sats,
             prefer_green: true,
         };
-        
+
         if let Some(cached) = self.get_cached_route(&cache_key) {
             println!("  Using cached green route");
             return Ok(cached);
         }
-        
+
         // Find optimal green route
-        let route = self.find_optimal_green_route(
-            source,
-            destination,
-            amount_sats,
-        )?;
-        
+        let route = self.find_optimal_green_route(source, destination, amount_sats)?;
+
         // Cache the route
         self.cache_route(cache_key, route.clone());
-        
+
         // Update metrics
         self.update_routing_metrics(&route);
-        
+
         println!("✅ Green route optimized:");
-        println!("  Renewable percentage: {:.1}%", route.average_renewable_percentage);
-        println!("  Carbon footprint: {:.6} kg CO2e", route.total_carbon_footprint);
+        println!(
+            "  Renewable percentage: {:.1}%",
+            route.average_renewable_percentage
+        );
+        println!(
+            "  Carbon footprint: {:.6} kg CO2e",
+            route.total_carbon_footprint
+        );
         println!("  Route score: {:.1}/100", route.route_score);
-        
+
         Ok(route)
     }
-    
+
     /// Apply environmental routing preferences
     pub fn apply_environmental_routing_preferences(
         &self,
         preferences: EnvironmentalRoutingPreferences,
     ) -> Result<(), RoutingError> {
         println!("🌍 Applying environmental routing preferences");
-        
+
         let mut params = self.routing_params.write().unwrap();
-        
+
         // Update weights based on preferences
         match preferences.priority {
             RoutingPriority::LowestCarbon => {
@@ -293,42 +290,41 @@ impl GreenLightningRouter {
                 params.renewable_weight = 0.25;
             }
         }
-        
+
         // Apply constraints
         if let Some(max_carbon) = preferences.max_carbon_footprint {
             params.max_carbon_per_route = max_carbon;
         }
-        
+
         if let Some(min_renewable) = preferences.min_renewable_percentage {
             params.min_renewable_percentage = min_renewable;
         }
-        
+
         println!("  Priority: {:?}", preferences.priority);
         println!("  Max carbon: {:.6} kg CO2e", params.max_carbon_per_route);
         println!("  Min renewable: {:.1}%", params.min_renewable_percentage);
-        
+
         Ok(())
     }
-    
+
     /// Incentivize green Lightning nodes
     pub fn incentivize_green_lightning_nodes(&self) -> GreenIncentiveProgram {
         println!("💚 Green Lightning incentive program active");
-        
+
         let graph = self.network_graph.read().unwrap();
-        
+
         // Calculate network-wide stats
         let total_nodes = graph.nodes.len();
-        let green_nodes = graph.nodes.values()
-            .filter(|n| n.green_certified)
-            .count();
-        let carbon_negative_nodes = graph.nodes.values()
-            .filter(|n| n.carbon_negative)
-            .count();
-        
-        let avg_renewable: f64 = graph.nodes.values()
+        let green_nodes = graph.nodes.values().filter(|n| n.green_certified).count();
+        let carbon_negative_nodes = graph.nodes.values().filter(|n| n.carbon_negative).count();
+
+        let avg_renewable: f64 = graph
+            .nodes
+            .values()
             .map(|n| n.renewable_percentage)
-            .sum::<f64>() / total_nodes.max(1) as f64;
-        
+            .sum::<f64>()
+            / total_nodes.max(1) as f64;
+
         // Create incentive tiers
         let incentives = GreenIncentiveProgram {
             base_tier: GreenIncentiveTier {
@@ -360,16 +356,19 @@ impl GreenLightningRouter {
                 total_carbon_saved: self.metrics.read().unwrap().total_carbon_saved,
             },
         };
-        
-        println!("  Green nodes: {}/{} ({:.1}%)", 
-                 green_nodes, total_nodes, 
-                 (green_nodes as f64 / total_nodes as f64) * 100.0);
+
+        println!(
+            "  Green nodes: {}/{} ({:.1}%)",
+            green_nodes,
+            total_nodes,
+            (green_nodes as f64 / total_nodes as f64) * 100.0
+        );
         println!("  Carbon negative nodes: {}", carbon_negative_nodes);
         println!("  Network renewable average: {:.1}%", avg_renewable);
-        
+
         incentives
     }
-    
+
     /// Measure payment carbon footprint
     pub fn measure_payment_carbon_footprint(
         &self,
@@ -377,19 +376,19 @@ impl GreenLightningRouter {
         route: &GreenLightningRoute,
     ) -> PaymentEnvironmentalImpact {
         let base_carbon = route.total_carbon_footprint;
-        
+
         // Scale by payment size (larger payments have slightly higher impact)
         let size_factor = 1.0 + (payment_amount_sats as f64 / 1_000_000_000.0).ln().max(0.0) * 0.01;
         let total_carbon = base_carbon * size_factor;
-        
+
         // Calculate savings vs traditional payment
         let traditional_carbon = 0.01; // Traditional payment carbon estimate
         let carbon_saved = traditional_carbon - total_carbon;
-        
+
         // Environmental equivalents
         let trees_equivalent = (carbon_saved.abs() * 50.0) as u32;
         let miles_equivalent = (carbon_saved.abs() * 2.5) as u32;
-        
+
         PaymentEnvironmentalImpact {
             payment_amount_sats,
             route_length: route.hops.len(),
@@ -402,7 +401,7 @@ impl GreenLightningRouter {
             is_carbon_negative: total_carbon < 0.0,
         }
     }
-    
+
     /// Calculate environmental savings
     pub fn calculate_environmental_savings(
         &self,
@@ -410,22 +409,25 @@ impl GreenLightningRouter {
     ) -> EnvironmentalSavingsReport {
         let metrics = self.metrics.read().unwrap();
         let graph = self.network_graph.read().unwrap();
-        
+
         // Calculate period savings
         let total_payments = metrics.total_routes_calculated;
         let green_payments = metrics.green_routes_found;
         let carbon_negative_payments = metrics.carbon_negative_routes;
-        
+
         // Traditional payment carbon (estimated)
         let traditional_total_carbon = total_payments as f64 * 0.01;
         let actual_total_carbon = metrics.average_carbon_per_route * total_payments as f64;
         let total_carbon_saved = traditional_total_carbon - actual_total_carbon;
-        
+
         // Network-wide impact
-        let network_renewable_average = graph.nodes.values()
+        let network_renewable_average = graph
+            .nodes
+            .values()
             .map(|n| n.renewable_percentage)
-            .sum::<f64>() / graph.nodes.len().max(1) as f64;
-        
+            .sum::<f64>()
+            / graph.nodes.len().max(1) as f64;
+
         EnvironmentalSavingsReport {
             time_period,
             total_payments,
@@ -437,7 +439,7 @@ impl GreenLightningRouter {
             environmental_milestones: self.calculate_milestones(total_carbon_saved),
         }
     }
-    
+
     /// Generate green payment certificate
     pub fn generate_green_payment_certificate(
         &self,
@@ -445,7 +447,7 @@ impl GreenLightningRouter {
         impact: &PaymentEnvironmentalImpact,
     ) -> GreenPaymentCertificate {
         let cert_id = self.generate_certificate_id(payment_id);
-        
+
         let achievement_level = if impact.is_carbon_negative {
             "Carbon Negative Champion 🌍"
         } else if impact.renewable_percentage >= 90.0 {
@@ -455,7 +457,7 @@ impl GreenLightningRouter {
         } else {
             "Eco-Conscious Payer 🌿"
         };
-        
+
         GreenPaymentCertificate {
             certificate_id: cert_id,
             payment_id: payment_id.to_string(),
@@ -467,39 +469,44 @@ impl GreenLightningRouter {
             verification_hash: self.generate_verification_hash(payment_id, impact),
         }
     }
-    
+
     /// Publish environmental Lightning statistics
     pub fn publish_environmental_lightning_stats(&self) -> EnvironmentalLightningStats {
         let metrics = self.metrics.read().unwrap();
         let graph = self.network_graph.read().unwrap();
-        
+
         // Calculate zone statistics
         let mut zone_stats = Vec::new();
         for (region, zone) in &graph.zones {
             zone_stats.push(ZoneEnvironmentalStats {
                 region: *region,
-                green_nodes_percentage: (zone.green_nodes_count as f64 / zone.total_nodes as f64) * 100.0,
+                green_nodes_percentage: (zone.green_nodes_count as f64 / zone.total_nodes as f64)
+                    * 100.0,
                 average_renewable: zone.average_renewable_percentage,
                 carbon_intensity: zone.carbon_intensity,
             });
         }
-        
+
         EnvironmentalLightningStats {
             timestamp: Utc::now(),
             total_green_routes: metrics.green_routes_found,
             total_carbon_saved_kg: metrics.total_carbon_saved,
-            carbon_negative_routes_percentage: 
-                (metrics.carbon_negative_routes as f64 / metrics.total_routes_calculated.max(1) as f64) * 100.0,
-            network_renewable_average: graph.nodes.values()
+            carbon_negative_routes_percentage: (metrics.carbon_negative_routes as f64
+                / metrics.total_routes_calculated.max(1) as f64)
+                * 100.0,
+            network_renewable_average: graph
+                .nodes
+                .values()
                 .map(|n| n.renewable_percentage)
-                .sum::<f64>() / graph.nodes.len().max(1) as f64,
+                .sum::<f64>()
+                / graph.nodes.len().max(1) as f64,
             top_green_nodes: self.get_top_green_nodes(&graph, 10),
             zone_statistics: zone_stats,
         }
     }
-    
+
     // Helper methods
-    
+
     fn find_optimal_green_route(
         &self,
         source: NodeId,
@@ -508,12 +515,12 @@ impl GreenLightningRouter {
     ) -> Result<GreenLightningRoute, RoutingError> {
         let graph = self.network_graph.read().unwrap();
         let params = self.routing_params.read().unwrap();
-        
+
         // Use modified Dijkstra's algorithm with environmental weights
         let mut distances: HashMap<NodeId, f64> = HashMap::new();
         let mut previous: HashMap<NodeId, Option<(NodeId, ChannelId)>> = HashMap::new();
         let mut heap = BinaryHeap::new();
-        
+
         // Initialize
         distances.insert(source, 0.0);
         heap.push(RouteNode {
@@ -522,7 +529,7 @@ impl GreenLightningRouter {
             carbon_footprint: 0.0,
             renewable_percentage: 100.0,
         });
-        
+
         while let Some(current) = heap.pop() {
             if current.node_id == destination {
                 // Reconstruct path
@@ -534,11 +541,11 @@ impl GreenLightningRouter {
                     amount_sats,
                 );
             }
-            
+
             if current.cost > *distances.get(&current.node_id).unwrap_or(&f64::MAX) {
                 continue;
             }
-            
+
             // Explore neighbors
             for (channel_id, channel) in &graph.channels {
                 let next_node = if channel.node1 == current.node_id {
@@ -548,7 +555,7 @@ impl GreenLightningRouter {
                 } else {
                     continue;
                 };
-                
+
                 // Calculate edge cost with environmental factors
                 let edge_cost = self.calculate_edge_cost(
                     channel,
@@ -556,27 +563,28 @@ impl GreenLightningRouter {
                     amount_sats,
                     &params,
                 );
-                
+
                 let next_cost = current.cost + edge_cost;
-                
+
                 if next_cost < *distances.get(&next_node).unwrap_or(&f64::MAX) {
                     distances.insert(next_node, next_cost);
                     previous.insert(next_node, Some((current.node_id, *channel_id)));
-                    
+
                     heap.push(RouteNode {
                         node_id: next_node,
                         cost: next_cost,
                         carbon_footprint: current.carbon_footprint + channel.carbon_footprint,
-                        renewable_percentage: 
-                            (current.renewable_percentage + graph.nodes[&next_node].renewable_percentage) / 2.0,
+                        renewable_percentage: (current.renewable_percentage
+                            + graph.nodes[&next_node].renewable_percentage)
+                            / 2.0,
                     });
                 }
             }
         }
-        
+
         Err(RoutingError::NoRouteFound)
     }
-    
+
     fn calculate_edge_cost(
         &self,
         channel: &EnvironmentalChannel,
@@ -585,33 +593,33 @@ impl GreenLightningRouter {
         params: &GreenRoutingParameters,
     ) -> f64 {
         // Fee component
-        let fee_msat = channel.base_fee_msat as u64 + 
-                      (amount_sats * channel.fee_rate_ppm as u64 / 1_000_000);
+        let fee_msat =
+            channel.base_fee_msat as u64 + (amount_sats * channel.fee_rate_ppm as u64 / 1_000_000);
         let fee_cost = (fee_msat as f64 / 1000.0) * params.fee_weight;
-        
+
         // Carbon component
         let carbon_cost = channel.carbon_footprint * params.carbon_weight * 10000.0;
-        
+
         // Renewable component (inverse - higher renewable = lower cost)
         let renewable_cost = (100.0 - node.renewable_percentage) * params.renewable_weight;
-        
+
         // Reliability component
         let reliability_cost = (1.0 - channel.success_rate) * params.reliability_weight * 1000.0;
-        
+
         // Apply bonuses
         let mut total_cost = fee_cost + carbon_cost + renewable_cost + reliability_cost;
-        
+
         if node.green_certified {
             total_cost /= params.green_node_preference;
         }
-        
+
         if node.carbon_negative {
             total_cost /= params.carbon_negative_bonus;
         }
-        
+
         total_cost
     }
-    
+
     fn reconstruct_green_route(
         &self,
         source: NodeId,
@@ -624,16 +632,16 @@ impl GreenLightningRouter {
         let mut current = destination;
         let mut total_fees = 0u64;
         let mut total_carbon = 0.0;
-        
+
         // Reconstruct path
         while current != source {
             if let Some(Some((prev_node, channel_id))) = previous.get(&current) {
                 let channel = &graph.channels[channel_id];
                 let node = &graph.nodes[&current];
-                
-                let fee_msat = channel.base_fee_msat as u64 + 
-                              (amount_sats * channel.fee_rate_ppm as u64 / 1_000_000);
-                
+
+                let fee_msat = channel.base_fee_msat as u64
+                    + (amount_sats * channel.fee_rate_ppm as u64 / 1_000_000);
+
                 hops.push(GreenRouteHop {
                     node_pubkey: node.public_key.clone(),
                     channel_id: *channel_id,
@@ -642,7 +650,7 @@ impl GreenLightningRouter {
                     carbon_footprint: channel.carbon_footprint,
                     green_certified: node.green_certified,
                 });
-                
+
                 total_fees += fee_msat / 1000;
                 total_carbon += channel.carbon_footprint;
                 current = *prev_node;
@@ -650,21 +658,18 @@ impl GreenLightningRouter {
                 return Err(RoutingError::NoRouteFound);
             }
         }
-        
+
         hops.reverse();
-        
+
         // Calculate averages
-        let avg_renewable = hops.iter()
-            .map(|h| h.renewable_percentage)
-            .sum::<f64>() / hops.len() as f64;
-        
-        let green_count = hops.iter()
-            .filter(|h| h.green_certified)
-            .count();
-        
+        let avg_renewable =
+            hops.iter().map(|h| h.renewable_percentage).sum::<f64>() / hops.len() as f64;
+
+        let green_count = hops.iter().filter(|h| h.green_certified).count();
+
         // Calculate route score
         let route_score = self.calculate_route_score(&hops, total_carbon, avg_renewable);
-        
+
         Ok(GreenLightningRoute {
             hops,
             total_capacity_sats: amount_sats,
@@ -675,7 +680,7 @@ impl GreenLightningRouter {
             route_score,
         })
     }
-    
+
     fn calculate_route_score(
         &self,
         hops: &[GreenRouteHop],
@@ -683,77 +688,80 @@ impl GreenLightningRouter {
         avg_renewable: f64,
     ) -> f64 {
         let mut score = 50.0; // Base score
-        
+
         // Carbon impact (up to -25/+25 points)
         if total_carbon < 0.0 {
             score += 25.0; // Carbon negative bonus
         } else {
             score -= total_carbon * 2500.0; // Penalty for carbon
         }
-        
+
         // Renewable percentage (up to 25 points)
         score += avg_renewable * 0.25;
-        
+
         // Green node percentage (up to 10 points)
-        let green_percentage = hops.iter()
-            .filter(|h| h.green_certified)
-            .count() as f64 / hops.len() as f64;
+        let green_percentage =
+            hops.iter().filter(|h| h.green_certified).count() as f64 / hops.len() as f64;
         score += green_percentage * 10.0;
-        
+
         // Route length penalty
         score -= (hops.len() as f64 - 1.0) * 2.0;
-        
+
         score.max(0.0).min(100.0)
     }
-    
+
     fn get_cached_route(&self, key: &RouteCacheKey) -> Option<GreenLightningRoute> {
         let cache = self.route_cache.read().unwrap();
-        
+
         if let Some(cached) = cache.get(key) {
             if cached.expires_at > Utc::now() {
                 return Some(cached.route.clone());
             }
         }
-        
+
         None
     }
-    
+
     fn cache_route(&self, key: RouteCacheKey, route: GreenLightningRoute) {
         let mut cache = self.route_cache.write().unwrap();
-        
-        cache.insert(key, CachedRoute {
-            route,
-            cached_at: Utc::now(),
-            expires_at: Utc::now() + chrono::Duration::minutes(5),
-        });
+
+        cache.insert(
+            key,
+            CachedRoute {
+                route,
+                cached_at: Utc::now(),
+                expires_at: Utc::now() + chrono::Duration::minutes(5),
+            },
+        );
     }
-    
+
     fn update_routing_metrics(&self, route: &GreenLightningRoute) {
         let mut metrics = self.metrics.write().unwrap();
-        
+
         metrics.total_routes_calculated += 1;
-        
+
         if route.average_renewable_percentage >= 75.0 {
             metrics.green_routes_found += 1;
         }
-        
+
         if route.total_carbon_footprint < 0.0 {
             metrics.carbon_negative_routes += 1;
         }
-        
+
         // Update average
-        let old_total = metrics.average_carbon_per_route * (metrics.total_routes_calculated - 1) as f64;
-        metrics.average_carbon_per_route = 
+        let old_total =
+            metrics.average_carbon_per_route * (metrics.total_routes_calculated - 1) as f64;
+        metrics.average_carbon_per_route =
             (old_total + route.total_carbon_footprint) / metrics.total_routes_calculated as f64;
-        
+
         // Track savings
         let traditional_carbon = 0.01; // Estimated traditional payment carbon
         metrics.total_carbon_saved += traditional_carbon - route.total_carbon_footprint;
     }
-    
+
     fn calculate_milestones(&self, carbon_saved: f64) -> Vec<String> {
         let mut milestones = Vec::new();
-        
+
         if carbon_saved >= 1000.0 {
             milestones.push("🏆 1 Tonne CO2 Saved!".to_string());
         }
@@ -763,38 +771,46 @@ impl GreenLightningRouter {
         if carbon_saved >= 100000.0 {
             milestones.push("🌟 100 Tonnes CO2 Saved!".to_string());
         }
-        
+
         milestones
     }
-    
+
     fn generate_certificate_id(&self, payment_id: &str) -> String {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(payment_id.as_bytes());
         hasher.update(Utc::now().timestamp().to_string().as_bytes());
         format!("GPC-{}", hex::encode(&hasher.finalize()[..8]))
     }
-    
-    fn generate_verification_hash(&self, payment_id: &str, impact: &PaymentEnvironmentalImpact) -> String {
-        use sha2::{Sha256, Digest};
+
+    fn generate_verification_hash(
+        &self,
+        payment_id: &str,
+        impact: &PaymentEnvironmentalImpact,
+    ) -> String {
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(payment_id.as_bytes());
         hasher.update(impact.total_carbon_kg.to_string().as_bytes());
         hasher.update(impact.renewable_percentage.to_string().as_bytes());
         hex::encode(hasher.finalize())
     }
-    
-    fn get_top_green_nodes(&self, graph: &EnvironmentalNetworkGraph, count: usize) -> Vec<TopGreenNode> {
-        let mut nodes: Vec<_> = graph.nodes.values()
-            .filter(|n| n.green_certified)
-            .collect();
-        
+
+    fn get_top_green_nodes(
+        &self,
+        graph: &EnvironmentalNetworkGraph,
+        count: usize,
+    ) -> Vec<TopGreenNode> {
+        let mut nodes: Vec<_> = graph.nodes.values().filter(|n| n.green_certified).collect();
+
         nodes.sort_by(|a, b| {
-            b.environmental_score.partial_cmp(&a.environmental_score)
+            b.environmental_score
+                .partial_cmp(&a.environmental_score)
                 .unwrap_or(Ordering::Equal)
         });
-        
-        nodes.into_iter()
+
+        nodes
+            .into_iter()
             .take(count)
             .map(|n| TopGreenNode {
                 alias: n.alias.clone(),
@@ -825,7 +841,10 @@ impl PartialEq for RouteNode {
 
 impl Ord for RouteNode {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.cost.partial_cmp(&self.cost).unwrap_or(Ordering::Equal)
+        other
+            .cost
+            .partial_cmp(&self.cost)
+            .unwrap_or(Ordering::Equal)
     }
 }
 
@@ -983,7 +1002,9 @@ pub async fn optimize_for_renewable_energy_nodes(
     destination: [u8; 33],
     amount_sats: u64,
 ) -> Result<GreenLightningRoute, RoutingError> {
-    router.optimize_for_renewable_energy_nodes(source, destination, amount_sats).await
+    router
+        .optimize_for_renewable_energy_nodes(source, destination, amount_sats)
+        .await
 }
 
 pub fn apply_environmental_routing_preferences(
@@ -993,8 +1014,6 @@ pub fn apply_environmental_routing_preferences(
     router.apply_environmental_routing_preferences(preferences)
 }
 
-pub fn incentivize_green_lightning_nodes(
-    router: &GreenLightningRouter,
-) -> GreenIncentiveProgram {
+pub fn incentivize_green_lightning_nodes(router: &GreenLightningRouter) -> GreenIncentiveProgram {
     router.incentivize_green_lightning_nodes()
-} 
+}

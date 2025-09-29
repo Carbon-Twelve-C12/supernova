@@ -2,11 +2,5 @@
 // Re-exports from types::transaction for backwards compatibility
 
 pub use crate::types::transaction::{
-    Transaction,
-    TransactionInput,
-    TransactionOutput,
-    TransactionError,
-    OutPoint,
-    TxIn,
-    TxOut,
-}; 
+    OutPoint, Transaction, TransactionError, TransactionInput, TransactionOutput, TxIn, TxOut,
+};

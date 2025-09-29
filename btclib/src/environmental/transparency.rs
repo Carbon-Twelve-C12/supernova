@@ -1,11 +1,11 @@
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
-use crate::environmental::verification::{RenewableCertificate, CarbonOffset};
-use crate::environmental::miner_reporting::MinerVerificationStatus;
 use crate::environmental::emissions::VerificationStatus;
+use crate::environmental::miner_reporting::MinerVerificationStatus;
+use crate::environmental::verification::{CarbonOffset, RenewableCertificate};
 
 /// Level of transparency in reporting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -196,37 +196,39 @@ impl TransparencyDashboard {
     /// Add renewable certificates to the report
     fn add_certificates_to_report(&self, report: &mut ReportData) {
         let certificates = &self.certificates;
-        
+
         // Calculate total MWh
-        let total_mwh: f64 = certificates.iter()
-            .map(|c| c.amount_kwh)
-            .sum();
-            
+        let total_mwh: f64 = certificates.iter().map(|c| c.amount_kwh).sum();
+
         report.total_renewable_energy_mwh = total_mwh;
-        
+
         // Break down by energy type
         let mut energy_type_breakdown = HashMap::new();
         let mut verification_providers = Vec::new();
         let mut verification_status_breakdown = HashMap::new();
-        
+
         for cert in certificates {
             // Add to energy type breakdown
-            *energy_type_breakdown.entry("Renewable".to_string()).or_insert(0.0) += cert.amount_kwh;
-            
+            *energy_type_breakdown
+                .entry("Renewable".to_string())
+                .or_insert(0.0) += cert.amount_kwh;
+
             // Count certificates by verification status
-            *verification_status_breakdown.entry(MinerVerificationStatus::Verified).or_insert(0) += 1;
-            
+            *verification_status_breakdown
+                .entry(MinerVerificationStatus::Verified)
+                .or_insert(0) += 1;
+
             // Track verification providers
             if !verification_providers.contains(&cert.issuer) {
                 verification_providers.push(cert.issuer.clone());
             }
-            
+
             // Check verification status
             if cert.verification_status == VerificationStatus::Verified {
                 report.verified_mwh += cert.amount_kwh;
             }
         }
-        
+
         report.rec_stats = Some(RECCertificateSummary {
             total_mwh,
             certificate_count: certificates.len(),
@@ -235,41 +237,43 @@ impl TransparencyDashboard {
             verification_status_breakdown,
         });
     }
-    
+
     /// Add carbon offsets to the report
     fn add_offsets_to_report(&self, report: &mut ReportData) {
         let offsets = &self.offsets;
-        
+
         // Calculate total tonnes CO2e
-        let total_tonnes: f64 = offsets.iter()
-            .map(|o| o.amount_tonnes)
-            .sum();
-            
+        let total_tonnes: f64 = offsets.iter().map(|o| o.amount_tonnes).sum();
+
         report.total_offset_tonnes = total_tonnes;
-        
+
         // Break down by project type
         let mut project_type_breakdown = HashMap::new();
         let mut verification_providers = Vec::new();
         let mut verification_status_breakdown = HashMap::new();
-        
+
         for offset in offsets {
             // Add to project type breakdown
-            *project_type_breakdown.entry("Carbon Offset".to_string()).or_insert(0.0) += offset.amount_tonnes;
-            
+            *project_type_breakdown
+                .entry("Carbon Offset".to_string())
+                .or_insert(0.0) += offset.amount_tonnes;
+
             // Track verification providers
             if !verification_providers.contains(&offset.issuer) {
                 verification_providers.push(offset.issuer.clone());
             }
-            
+
             // Count offsets by verification status
-            *verification_status_breakdown.entry(MinerVerificationStatus::Verified).or_insert(0) += 1;
-            
+            *verification_status_breakdown
+                .entry(MinerVerificationStatus::Verified)
+                .or_insert(0) += 1;
+
             // Check verification status
             if offset.verification_status == VerificationStatus::Verified {
                 report.verified_tonnes += offset.amount_tonnes;
             }
         }
-        
+
         report.offset_stats = Some(CarbonOffsetSummary {
             total_tonnes,
             offset_count: offsets.len(),
@@ -309,10 +313,10 @@ impl TransparencyDashboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_report_generation() {
         // This is just a stub test implementation
         println!("Test transparency report generation");
     }
-} 
+}

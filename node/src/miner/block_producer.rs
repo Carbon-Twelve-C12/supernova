@@ -4,13 +4,13 @@
 //! to perform proof-of-work computations.
 
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
 
 use crate::mempool::TransactionPool;
 use crate::storage::ChainState;
 use btclib::types::{Block, BlockHeader, Transaction};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 pub struct BlockProducer {
     mempool: Arc<TransactionPool>,
@@ -19,7 +19,10 @@ pub struct BlockProducer {
 
 impl BlockProducer {
     pub fn new(mempool: Arc<TransactionPool>, chain_state: Arc<RwLock<ChainState>>) -> Self {
-        Self { mempool, chain_state }
+        Self {
+            mempool,
+            chain_state,
+        }
     }
 
     pub async fn create_block_template(&self) -> Result<Block, String> {
@@ -30,14 +33,14 @@ impl BlockProducer {
 
         // Create coinbase transaction
         let coinbase = self.create_coinbase_transaction(height);
-        
+
         // Get transactions from mempool sorted by fee
         let mempool_txs = self.mempool.get_sorted_transactions();
-        
+
         // Limit to reasonable number of transactions
         let max_txs = 1000;
         let mempool_txs: Vec<_> = mempool_txs.into_iter().take(max_txs).collect();
-        
+
         // Combine coinbase with mempool transactions
         let mut transactions = vec![coinbase];
         transactions.extend(mempool_txs);
@@ -79,12 +82,12 @@ impl BlockProducer {
                     hasher.update(chunk[0]); // Duplicate last hash if odd number
                 }
                 let result = hasher.finalize();
-                
+
                 // Double SHA-256
                 let mut hasher = Sha256::new();
                 hasher.update(result);
                 let double_hash = hasher.finalize();
-                
+
                 let mut hash = [0u8; 32];
                 hash.copy_from_slice(&double_hash);
                 next_level.push(hash);
@@ -100,4 +103,4 @@ impl BlockProducer {
         // Placeholder implementation
         Transaction::new(1, vec![], vec![], 0)
     }
-} 
+}

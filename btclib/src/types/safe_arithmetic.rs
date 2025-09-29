@@ -44,7 +44,8 @@ pub fn safe_sub(a: u64, b: u64) -> Result<u64, ArithmeticError> {
 
 /// Safe multiplication that returns an error on overflow
 pub fn safe_mul(a: u64, b: u64) -> Result<u64, ArithmeticError> {
-    a.checked_mul(b).ok_or(ArithmeticError::MultiplicationOverflow)
+    a.checked_mul(b)
+        .ok_or(ArithmeticError::MultiplicationOverflow)
 }
 
 /// Safe division that returns an error on division by zero
@@ -83,21 +84,30 @@ mod tests {
     #[test]
     fn test_safe_add() {
         assert_eq!(safe_add(100, 200), Ok(300));
-        assert_eq!(safe_add(u64::MAX, 1), Err(ArithmeticError::AdditionOverflow));
+        assert_eq!(
+            safe_add(u64::MAX, 1),
+            Err(ArithmeticError::AdditionOverflow)
+        );
         assert_eq!(safe_add(u64::MAX - 10, 10), Ok(u64::MAX));
     }
 
     #[test]
     fn test_safe_sub() {
         assert_eq!(safe_sub(300, 200), Ok(100));
-        assert_eq!(safe_sub(100, 200), Err(ArithmeticError::SubtractionOverflow));
+        assert_eq!(
+            safe_sub(100, 200),
+            Err(ArithmeticError::SubtractionOverflow)
+        );
         assert_eq!(safe_sub(100, 100), Ok(0));
     }
 
     #[test]
     fn test_safe_mul() {
         assert_eq!(safe_mul(100, 200), Ok(20000));
-        assert_eq!(safe_mul(u64::MAX, 2), Err(ArithmeticError::MultiplicationOverflow));
+        assert_eq!(
+            safe_mul(u64::MAX, 2),
+            Err(ArithmeticError::MultiplicationOverflow)
+        );
         assert_eq!(safe_mul(1000, 0), Ok(0));
     }
 
@@ -112,7 +122,7 @@ mod tests {
     fn test_calculate_fee_safe() {
         // Normal fee calculation
         assert_eq!(calculate_fee_safe(100, 250), Ok(25000));
-        
+
         // Overflow protection
         assert_eq!(
             calculate_fee_safe(u64::MAX, 2),
@@ -124,7 +134,7 @@ mod tests {
     fn test_sum_safe() {
         let values = vec![100, 200, 300];
         assert_eq!(sum_safe(values.into_iter()), Ok(600));
-        
+
         let overflow_values = vec![u64::MAX - 100, 200];
         assert_eq!(
             sum_safe(overflow_values.into_iter()),
@@ -135,12 +145,12 @@ mod tests {
     #[test]
     fn test_percentage_safe() {
         assert_eq!(percentage_safe(1000, 10), Ok(100)); // 10% of 1000
-        assert_eq!(percentage_safe(500, 50), Ok(250));  // 50% of 500
-        
+        assert_eq!(percentage_safe(500, 50), Ok(250)); // 50% of 500
+
         // Overflow protection
         assert_eq!(
             percentage_safe(u64::MAX, 200),
             Err(ArithmeticError::MultiplicationOverflow)
         );
     }
-} 
+}

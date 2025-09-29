@@ -1,7 +1,6 @@
 // CLI module - functionality moved to separate cli crate
 // This module is kept for backwards compatibility
 
-
 pub struct CliConfig {
     pub rpc_url: String,
     pub network: String,
@@ -14,4 +13,4 @@ impl Default for CliConfig {
             network: "mainnet".to_string(),
         }
     }
-} 
+}

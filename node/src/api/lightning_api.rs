@@ -16,10 +16,10 @@ use serde::{Deserialize, Serialize};
 pub struct OpenChannelRequest {
     /// Remote peer ID
     pub peer_id: String,
-    
+
     /// Channel capacity in millanova
     pub capacity: u64,
-    
+
     /// Amount to push to the remote side (in millanova)
     pub push_amount: u64,
 }
@@ -29,7 +29,7 @@ pub struct OpenChannelRequest {
 pub struct CloseChannelRequest {
     /// Channel ID
     pub channel_id: String,
-    
+
     /// Whether to force close the channel
     pub force_close: bool,
 }
@@ -39,10 +39,10 @@ pub struct CloseChannelRequest {
 pub struct CreateInvoiceRequest {
     /// Amount in millisatoshis
     pub amount_msat: u64,
-    
+
     /// Description
     pub description: String,
-    
+
     /// Expiry time in seconds
     pub expiry_seconds: u32,
 }
@@ -59,10 +59,10 @@ pub struct PayInvoiceRequest {
 pub struct LightningResponse<T> {
     /// Success status
     pub success: bool,
-    
+
     /// Result of the operation
     pub data: Option<T>,
-    
+
     /// Error message
     pub error: Option<String>,
 }
@@ -75,7 +75,7 @@ impl<T> LightningResponse<T> {
             error: None,
         }
     }
-    
+
     pub fn error(message: String) -> Self {
         Self {
             success: false,
@@ -95,40 +95,40 @@ pub fn lightning_routes(
         .and(warp::body::json())
         .and(with_node(node_clone))
         .and_then(handle_open_channel);
-    
+
     let node_clone = node.clone();
     let close_channel = warp::path!("lightning" / "channel" / "close")
         .and(warp::post())
         .and(warp::body::json())
         .and(with_node(node_clone))
         .and_then(handle_close_channel);
-    
+
     let node_clone = node.clone();
     let create_invoice = warp::path!("lightning" / "invoice" / "create")
         .and(warp::post())
         .and(warp::body::json())
         .and(with_node(node_clone))
         .and_then(handle_create_invoice);
-    
+
     let node_clone = node.clone();
     let pay_invoice = warp::path!("lightning" / "invoice" / "pay")
         .and(warp::post())
         .and(warp::body::json())
         .and(with_node(node_clone))
         .and_then(handle_pay_invoice);
-    
+
     let node_clone = node.clone();
     let list_channels = warp::path!("lightning" / "channels")
         .and(warp::get())
         .and(with_node(node_clone))
         .and_then(handle_list_channels);
-    
+
     let node_clone = node.clone();
     let get_channel_info = warp::path!("lightning" / "channel" / String)
         .and(warp::get())
         .and(with_node(node_clone))
         .and_then(handle_get_channel_info);
-    
+
     open_channel
         .or(close_channel)
         .or(create_invoice)
@@ -156,7 +156,7 @@ async fn handle_open_channel(
             return Ok(warp::reply::json(&response));
         }
     };
-    
+
     match node.open_payment_channel(&request.peer_id, request.capacity, request.push_amount).await {
         Ok(channel_id) => {
             let response = LightningResponse::success(channel_id);
@@ -181,7 +181,7 @@ async fn handle_close_channel(
             return Ok(warp::reply::json(&response));
         }
     };
-    
+
     match node.close_payment_channel(&request.channel_id, request.force_close).await {
         Ok(tx_id) => {
             let response = LightningResponse::success(tx_id);
@@ -206,7 +206,7 @@ async fn handle_create_invoice(
             return Ok(warp::reply::json(&response));
         }
     };
-    
+
     match node.create_invoice(request.amount_msat, &request.description, request.expiry_seconds) {
         Ok(invoice) => {
             let response = LightningResponse::success(invoice);
@@ -231,7 +231,7 @@ async fn handle_pay_invoice(
             return Ok(warp::reply::json(&response));
         }
     };
-    
+
     match node.pay_invoice(&request.invoice).await {
         Ok(preimage) => {
             let response = LightningResponse::success(preimage);
@@ -255,7 +255,7 @@ async fn handle_list_channels(
             return Ok(warp::reply::json(&response));
         }
     };
-    
+
     match node.list_channels() {
         Ok(channels) => {
             let response = LightningResponse::success(channels);
@@ -280,7 +280,7 @@ async fn handle_get_channel_info(
             return Ok(warp::reply::json(&response));
         }
     };
-    
+
     match node.get_channel_info(&channel_id) {
         Ok(info) => {
             let response = LightningResponse::success(info);
@@ -295,13 +295,12 @@ async fn handle_get_channel_info(
 */
 
 // Placeholder for Lightning API - will be re-enabled after thread safety fixes
-pub fn lightning_routes() -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path("lightning")
-        .and(warp::any())
-        .map(|| {
-            warp::reply::with_status(
-                "Lightning API temporarily disabled",
-                warp::http::StatusCode::SERVICE_UNAVAILABLE,
-            )
-        })
-} 
+pub fn lightning_routes(
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path("lightning").and(warp::any()).map(|| {
+        warp::reply::with_status(
+            "Lightning API temporarily disabled",
+            warp::http::StatusCode::SERVICE_UNAVAILABLE,
+        )
+    })
+}

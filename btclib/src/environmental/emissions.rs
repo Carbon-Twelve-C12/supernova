@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-use thiserror::Error;
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
-use crate::types::transaction::Transaction;
-use crate::environmental::types::{EmissionsDataSource, EmissionsFactorType};
 use crate::environmental::oracle::EnvironmentalOracle;
-use reqwest::Client;
-use tokio::sync::RwLock;
-use std::sync::Arc;
+use crate::environmental::types::{EmissionsDataSource, EmissionsFactorType};
 use crate::types::block::Block;
+use crate::types::transaction::Transaction;
+use chrono::{DateTime, Utc};
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use thiserror::Error;
+use tokio::sync::RwLock;
 
 /// Environmental data announcement for network sharing
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,25 +86,25 @@ pub type NetworkEmissionsData = NetworkEmissions;
 pub enum EmissionsError {
     #[error("Invalid region code: {0}")]
     InvalidRegion(String),
-    
+
     #[error("Missing emissions factor for region: {0}")]
     MissingEmissionsFactor(String),
-    
+
     #[error("Invalid time range for calculation")]
     InvalidTimeRange,
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("Data source error: {0}")]
     DataSourceError(String),
-    
+
     #[error("API error: {0}")]
     ApiError(String),
-    
+
     #[error("Network error: {0}")]
     NetworkError(String),
-    
+
     #[error("Verification error: {0}")]
     VerificationError(String),
 }
@@ -174,9 +174,9 @@ pub enum HardwareType {
     /// ASIC miners
     ASIC(String), // Model name
     /// GPU mining rigs
-    GPU(String),  // Model name
+    GPU(String), // Model name
     /// CPU mining
-    CPU(String),  // Model name
+    CPU(String), // Model name
     /// Other hardware types
     Other(String),
 }
@@ -315,46 +315,46 @@ pub struct Emissions {
 pub struct EmissionsConfig {
     /// Whether emissions tracking is enabled
     pub enabled: bool,
-    
+
     /// Default emission factor for unknown regions (gCO2e/kWh)
     pub default_emission_factor: f64,
-    
+
     /// Emissions API endpoint
     pub emissions_api_endpoint: Option<String>,
-    
+
     /// API key for emissions data service
     pub emissions_api_key: Option<String>,
-    
+
     /// Preferred emissions data source
     pub preferred_data_source: Option<EmissionsDataSource>,
-    
+
     /// Whether to use marginal emissions data when available
     pub use_marginal_emissions: bool,
-    
+
     /// Percentage of network hashrate that is known/tracked (0-100)
     pub known_hashrate_percentage: f64,
-    
+
     /// Default network efficiency in Joules per Terahash
     pub default_network_efficiency: f64,
-    
+
     /// Update frequency for emissions data in hours
     pub data_update_frequency_hours: u32,
-    
+
     /// Whether to cache emissions factors locally
     pub cache_emissions_factors: bool,
-    
+
     /// Whether to verify miner location claims
     pub verify_miner_locations: bool,
-    
+
     /// Whether to prioritize REC verification
     pub prioritize_rec_verification: bool,
-    
+
     /// Mining power usage effectiveness factor
     pub mining_pue_factor: f64,
-    
+
     /// Default carbon intensity if no regional data is available
     pub default_carbon_intensity: f64,
-    
+
     /// Default renewable percentage if no regional data is available
     pub default_renewable_percentage: f64,
 }
@@ -363,7 +363,7 @@ impl Default for EmissionsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            default_emission_factor: 450.0,  // 450 gCO2e/kWh (global average)
+            default_emission_factor: 450.0, // 450 gCO2e/kWh (global average)
             emissions_api_endpoint: None,
             emissions_api_key: None,
             preferred_data_source: Some(EmissionsDataSource::IEA),
@@ -410,7 +410,7 @@ impl EmissionsTracker {
         } else {
             None
         };
-        
+
         Self {
             region_hashrates: HashMap::new(),
             region_emission_factors: HashMap::new(),
@@ -427,35 +427,35 @@ impl EmissionsTracker {
     pub fn default() -> Self {
         Self::new(EmissionsConfig::default())
     }
-    
+
     /// Load predefined emissions factors for common regions
     pub fn load_default_emission_factors(&mut self) {
         let factors = EmissionFactor::default_factors();
-        
+
         for factor in factors {
             let region_name = factor.region_name.clone();
             let region_parts: Vec<&str> = region_name.split('-').collect();
-            
+
             let region = if region_parts.len() > 1 {
                 Region::with_sub_region(region_parts[0], region_parts[1])
             } else {
                 Region::new(&region_name)
             };
-            
+
             self.region_emission_factors.insert(region, factor);
         }
     }
-    
+
     /// Register a mining pool's energy information
     pub fn register_pool_energy_info(&mut self, pool_id: PoolId, info: PoolEnergyInfo) {
         self.pool_energy_info.insert(pool_id, info);
     }
-    
+
     /// Update the hashrate distribution by region
     pub fn update_region_hashrate(&mut self, region: Region, hashrate: HashRate) {
         self.region_hashrates.insert(region, hashrate);
     }
-    
+
     /// Fetch the latest emissions factors from API
     pub async fn fetch_latest_emissions_factors(&mut self) -> Result<(), EmissionsError> {
         if let Some(api_endpoint) = &self.config.emissions_api_endpoint {
@@ -466,76 +466,83 @@ impl EmissionsTracker {
                     self.http_client.as_ref().unwrap()
                 }
             };
-            
+
             // Build API request URL
             let request_url = format!("{}/emissions-factors", api_endpoint);
-            
+
             // Add API key if configured
             let request = if let Some(api_key) = &self.config.emissions_api_key {
-                client.get(&request_url)
+                client
+                    .get(&request_url)
                     .header("Authorization", format!("Bearer {}", api_key))
             } else {
                 client.get(&request_url)
             };
-            
+
             // Make API request
             let response = match request.send().await {
                 Ok(response) => response,
                 Err(e) => return Err(EmissionsError::NetworkError(e.to_string())),
             };
-            
+
             if !response.status().is_success() {
                 return Err(EmissionsError::ApiError(format!(
-                    "API returned error: {}", response.status()
+                    "API returned error: {}",
+                    response.status()
                 )));
             }
-            
+
             // Parse response
             let factors: Vec<EmissionFactor> = match response.json().await {
                 Ok(factors) => factors,
-                Err(e) => return Err(EmissionsError::ApiError(format!(
-                    "Failed to parse API response: {}", e
-                ))),
+                Err(e) => {
+                    return Err(EmissionsError::ApiError(format!(
+                        "Failed to parse API response: {}",
+                        e
+                    )))
+                }
             };
-            
+
             // Update emission factors
             for factor in factors.iter() {
                 let region_name = factor.region_name.clone();
                 let region_parts: Vec<&str> = region_name.split('-').collect();
-                
+
                 let region = if region_parts.len() > 1 {
                     Region::with_sub_region(region_parts[0], region_parts[1])
                 } else {
                     Region::new(&region_name)
                 };
-                
+
                 match factor.factor_type {
                     EmissionsFactorType::GridAverage => {
-                        self.region_emission_factors.insert(region.clone(), factor.clone());
-                    },
+                        self.region_emission_factors
+                            .insert(region.clone(), factor.clone());
+                    }
                     _ => {
-                        self.alt_emission_factors.insert((region, factor.factor_type), factor.clone());
+                        self.alt_emission_factors
+                            .insert((region, factor.factor_type), factor.clone());
                     }
                 }
             }
-            
+
             self.last_update = Some(Utc::now());
-            
+
             Ok(())
         } else {
             Err(EmissionsError::ConfigError(
-                "No emissions API endpoint configured".to_string()
+                "No emissions API endpoint configured".to_string(),
             ))
         }
     }
-    
+
     /// Get the best available emissions factor for a region
     fn get_best_emissions_factor(&self, region: &Region) -> Option<&EmissionFactor> {
         // First check if we have a direct match for the region
         if let Some(factor) = self.region_emission_factors.get(region) {
             return Some(factor);
         }
-        
+
         // Try to find a match based on country and sub_region
         if let Some(sub_region) = &region.sub_region {
             // Try with just the country and sub_region
@@ -544,67 +551,81 @@ impl EmissionsTracker {
                 return Some(factor);
             }
         }
-        
+
         // Try with just the country
         let country_region = Region::new(&region.country_code);
         if let Some(factor) = self.region_emission_factors.get(&country_region) {
             return Some(factor);
         }
-        
+
         // Use global average as last resort
         let global_region = Region::new("GLOBAL");
         self.region_emission_factors.get(&global_region)
     }
-    
+
     /// Get the best available marginal emissions factor for a region
     fn get_marginal_emissions_factor(&self, region: &Region) -> Option<&EmissionFactor> {
         // First check if we have a direct match for the region with marginal type
-        if let Some(factor) = self.alt_emission_factors.get(&(region.clone(), EmissionsFactorType::Marginal)) {
+        if let Some(factor) = self
+            .alt_emission_factors
+            .get(&(region.clone(), EmissionsFactorType::Marginal))
+        {
             return Some(factor);
         }
-        
+
         // Try to find a match based on country and sub_region
         if let Some(sub_region) = &region.sub_region {
             // Try with just the country and sub_region
             let parent_region = Region::with_sub_region(&region.country_code, sub_region);
-            if let Some(factor) = self.alt_emission_factors.get(&(parent_region, EmissionsFactorType::Marginal)) {
+            if let Some(factor) = self
+                .alt_emission_factors
+                .get(&(parent_region, EmissionsFactorType::Marginal))
+            {
                 return Some(factor);
             }
         }
-        
+
         // Try with just the country
         let country_region = Region::new(&region.country_code);
-        if let Some(factor) = self.alt_emission_factors.get(&(country_region, EmissionsFactorType::Marginal)) {
+        if let Some(factor) = self
+            .alt_emission_factors
+            .get(&(country_region, EmissionsFactorType::Marginal))
+        {
             return Some(factor);
         }
-        
+
         // Fallback to grid average if no marginal data
         self.get_best_emissions_factor(region)
     }
-    
+
     /// Calculate total network emissions for a given time period using Filecoin Green-inspired methodology
-    pub fn calculate_network_emissions(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Emissions, EmissionsError> {
+    pub fn calculate_network_emissions(
+        &self,
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+    ) -> Result<Emissions, EmissionsError> {
         if start_time >= end_time {
             return Err(EmissionsError::InvalidTimeRange);
         }
-        
+
         // Duration in hours
         let duration_hours = (end_time - start_time).num_seconds() as f64 / 3600.0;
-        
+
         // Sum hashrate across all known regions
         let known_hashrate: f64 = self.region_hashrates.values().map(|hr| hr.0).sum();
-        
+
         // Estimate total network hashrate based on known percentage
         let total_hashrate = if self.config.known_hashrate_percentage > 0.0 {
             known_hashrate / (self.config.known_hashrate_percentage / 100.0)
         } else {
             known_hashrate
         };
-        
+
         // Calculate energy consumption using Cambridge methodology
-        let energy_per_second = total_hashrate * 1e12 * self.config.default_network_efficiency / 1e9; // Convert J/s to kW
+        let energy_per_second =
+            total_hashrate * 1e12 * self.config.default_network_efficiency / 1e9; // Convert J/s to kW
         let total_energy_kwh = energy_per_second * duration_hours;
-        
+
         // Calculate emissions for known regions
         let mut location_based_emissions = 0.0;
         let mut market_based_emissions = 0.0;
@@ -612,103 +633,108 @@ impl EmissionsTracker {
         let mut known_energy = 0.0;
         let mut renewable_total = 0.0;
         let mut known_renewable_energy = 0.0;
-        
+
         // Track confidence levels
         let mut confidence_sum = 0.0;
         let mut confidence_count = 0;
-        
+
         for (region, hashrate) in &self.region_hashrates {
             let region_hashrate_percentage = hashrate.0 / known_hashrate;
             let region_energy = total_energy_kwh * region_hashrate_percentage;
             known_energy += region_energy;
-            
+
             // Get emission factor for this region
             let emission_factor = match self.get_best_emissions_factor(region) {
                 Some(factor) => factor.grid_emissions_factor * 1000.0, // Convert tonnes/MWh to kg/kWh
-                None => self.config.default_emission_factor / 1000.0, // Convert g to kg
+                None => self.config.default_emission_factor / 1000.0,  // Convert g to kg
             };
-            
+
             // Calculate location-based emissions (without RECs)
             let region_location_emissions = region_energy * emission_factor;
             location_based_emissions += region_location_emissions;
-            
+
             // If enabled, get marginal emissions factor
             if self.config.use_marginal_emissions {
                 let marginal_factor = match self.get_marginal_emissions_factor(region) {
                     Some(factor) => factor.grid_emissions_factor * 1000.0, // Convert tonnes/MWh to kg/kWh
                     None => emission_factor, // Fall back to average if no marginal data
                 };
-                
+
                 let region_marginal_emissions = region_energy * marginal_factor;
                 marginal_emissions += region_marginal_emissions;
             }
-            
+
             // Check for confidence levels
             let confidence = 0.7; // Default confidence level
             confidence_sum += confidence;
             confidence_count += 1;
-            
+
             // Check for renewable percentage data for mining pools in this region
-            let region_pools: Vec<_> = self.pool_energy_info
+            let region_pools: Vec<_> = self
+                .pool_energy_info
                 .iter()
                 .filter(|(_, info)| info.regions.contains(region))
                 .collect();
-                
+
             if !region_pools.is_empty() {
-                let avg_renewable = region_pools.iter()
+                let avg_renewable = region_pools
+                    .iter()
                     .map(|(_, info)| info.renewable_percentage)
-                    .sum::<f64>() / region_pools.len() as f64;
-                    
+                    .sum::<f64>()
+                    / region_pools.len() as f64;
+
                 renewable_total += region_hashrate_percentage * avg_renewable;
                 known_renewable_energy += region_energy * (avg_renewable / 100.0);
-                
+
                 // Calculate market-based emissions (with RECs)
                 // For pools with verified RECs, we count renewable energy as zero emissions
                 let mut region_market_emissions = region_location_emissions;
-                
+
                 for (_, info) in &region_pools {
                     if let Some(rec_info) = &info.rec_certificates {
                         if rec_info.verification_status == VerificationStatus::Verified {
                             // Reduce emissions based on verified REC percentage
-                            let rec_percentage = (rec_info.amount_mwh * 1000.0 / region_energy).min(1.0);
+                            let rec_percentage =
+                                (rec_info.amount_mwh * 1000.0 / region_energy).min(1.0);
                             region_market_emissions *= 1.0 - rec_percentage;
                         }
                     }
                 }
-                
+
                 market_based_emissions += region_market_emissions;
             } else {
                 // Without pools, market-based = location-based
                 market_based_emissions += region_location_emissions;
             }
         }
-        
+
         // Calculate unknown emissions using default factor
         let unknown_energy = total_energy_kwh - known_energy;
         let unknown_emissions = unknown_energy * (self.config.default_emission_factor / 1000.0);
-        
-        let total_location_emissions_tonnes = (location_based_emissions + unknown_emissions) / 1000.0;
+
+        let total_location_emissions_tonnes =
+            (location_based_emissions + unknown_emissions) / 1000.0;
         let total_market_emissions_tonnes = (market_based_emissions + unknown_emissions) / 1000.0;
         let total_marginal_emissions_tonnes = if self.config.use_marginal_emissions {
             (marginal_emissions + unknown_emissions) / 1000.0
         } else {
             total_location_emissions_tonnes
         };
-        
+
         // Calculate overall renewable percentage if we have data
         let renewable_percentage = if known_energy > 0.0 {
             Some((known_renewable_energy / total_energy_kwh) * 100.0)
         } else {
             None
         };
-        
+
         // Calculate confidence level
         let confidence_level = if confidence_count > 0 {
             Some(confidence_sum / confidence_count as f64)
         } else {
             None
         };
-        
+
         Ok(Emissions {
             tonnes_co2e: total_location_emissions_tonnes,
             energy_kwh: total_energy_kwh,
@@ -724,7 +750,7 @@ impl EmissionsTracker {
             confidence_level,
         })
     }
-    
+
     /// Verify renewable energy certificate claims through oracle consensus
     pub fn verify_rec_claim(&self, certificate: &RECCertificateInfo) -> VerificationStatus {
         // Use the oracle system for real verification
@@ -742,7 +768,7 @@ impl EmissionsTracker {
             if certificate.generation_end < now - chrono::Duration::days(365) {
                 return VerificationStatus::Expired;
             }
-            
+
             // Without oracle, can only do basic checks
             if certificate.certificate_url.is_some() && !certificate.certificate_id.is_empty() {
                 VerificationStatus::Pending // Cannot verify without oracle
@@ -751,21 +777,25 @@ impl EmissionsTracker {
             }
         }
     }
-    
+
     /// Estimate emissions for a single transaction
-    pub fn estimate_transaction_emissions(&self, transaction: &Transaction) -> Result<Emissions, EmissionsError> {
+    pub fn estimate_transaction_emissions(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<Emissions, EmissionsError> {
         // Get the current network energy intensity per transaction
         let avg_tx_energy_kwh = self.estimate_transaction_energy(transaction)?;
-        
+
         // Get the weighted emission factor based on hashrate distribution
-        let (weighted_emission_factor, confidence_level) = self.calculate_weighted_emission_factor();
-        
+        let (weighted_emission_factor, confidence_level) =
+            self.calculate_weighted_emission_factor();
+
         let emissions_tonnes = avg_tx_energy_kwh * weighted_emission_factor / 1000000.0; // Convert g to tonnes
-        
+
         // Calculate market-based emissions (considering RECs)
         let renewable_percentage = self.calculate_network_renewable_percentage();
         let market_based_emissions = emissions_tonnes * (1.0 - (renewable_percentage / 100.0));
-        
+
         // Marginal emissions calculation if enabled
         let marginal_emissions = if self.config.use_marginal_emissions {
             let (weighted_marginal_factor, _) = self.calculate_weighted_marginal_factor();
@@ -773,7 +803,7 @@ impl EmissionsTracker {
         } else {
             None
         };
-        
+
         Ok(Emissions {
             tonnes_co2e: emissions_tonnes,
             energy_kwh: avg_tx_energy_kwh,
@@ -785,32 +815,38 @@ impl EmissionsTracker {
             confidence_level: Some(confidence_level),
         })
     }
-    
+
     /// Estimate energy consumption for a transaction
-    fn estimate_transaction_energy(&self, transaction: &Transaction) -> Result<f64, EmissionsError> {
+    fn estimate_transaction_energy(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<f64, EmissionsError> {
         // For now, use a simple size-based estimation
         let tx_size = transaction.calculate_size();
         let energy_per_byte = 0.0000002; // kWh per byte (example value)
         Ok(tx_size as f64 * energy_per_byte)
     }
-    
+
     /// Calculate emissions for an entire block
-    pub async fn calculate_block_emissions(&self, block: &Block) -> Result<Emissions, EmissionsError> {
+    pub async fn calculate_block_emissions(
+        &self,
+        block: &Block,
+    ) -> Result<Emissions, EmissionsError> {
         let mut total_energy = 0.0;
-        
+
         // Calculate energy for all transactions in the block
         for tx in &block.transactions {
             total_energy += self.estimate_transaction_energy(tx)?;
         }
-        
+
         // Add block mining energy (example: 50 kWh per block)
         let mining_energy = 50.0;
         total_energy += mining_energy;
-        
+
         // Get current emission factor
         let emission_factor = self.get_current_emission_factor()?;
         let tonnes_co2e = total_energy * emission_factor / 1000.0; // Convert kg to tonnes
-        
+
         Ok(Emissions {
             tonnes_co2e,
             energy_kwh: total_energy,
@@ -822,116 +858,116 @@ impl EmissionsTracker {
             confidence_level: None,
         })
     }
-    
+
     /// Get the current emission factor in kg CO2e per kWh
     fn get_current_emission_factor(&self) -> Result<f64, EmissionsError> {
         // Return the default global emission factor
         Ok(self.config.default_emission_factor)
     }
-    
+
     /// Get the current renewable energy percentage
     fn get_renewable_percentage(&self) -> Option<f64> {
         // Return a default value for now
         Some(25.0) // 25% renewable
     }
-    
+
     /// Calculate weighted emission factor based on hashrate distribution
     fn calculate_weighted_emission_factor(&self) -> (f64, f64) {
         let mut weighted_emission_factor = 0.0;
         let mut total_weight = 0.0;
         let mut confidence_sum = 0.0;
         let mut confidence_count = 0;
-        
+
         for (region, hashrate) in &self.region_hashrates {
             if let Some(factor) = self.get_best_emissions_factor(region) {
                 weighted_emission_factor += factor.grid_emissions_factor * 1000.0 * hashrate.0; // Convert to g/kWh
                 total_weight += hashrate.0;
-                
+
                 let confidence = factor.confidence.unwrap_or(0.7); // Default confidence level
                 confidence_sum += confidence;
                 confidence_count += 1;
             }
         }
-        
+
         let final_factor = if total_weight > 0.0 {
             weighted_emission_factor / total_weight
         } else {
             self.config.default_emission_factor
         };
-        
+
         let confidence = if confidence_count > 0 {
             confidence_sum / confidence_count as f64
         } else {
             0.7 // Default confidence level
         };
-        
+
         (final_factor, confidence)
     }
-    
+
     /// Calculate weighted marginal emission factor based on hashrate distribution
     fn calculate_weighted_marginal_factor(&self) -> (f64, f64) {
         let mut weighted_emission_factor = 0.0;
         let mut total_weight = 0.0;
         let mut confidence_sum = 0.0;
         let mut confidence_count = 0;
-        
+
         for (region, hashrate) in &self.region_hashrates {
             if let Some(factor) = self.get_marginal_emissions_factor(region) {
                 weighted_emission_factor += factor.grid_emissions_factor * 1000.0 * hashrate.0; // Convert to g/kWh
                 total_weight += hashrate.0;
-                
+
                 let confidence = factor.confidence.unwrap_or(0.6); // Lower confidence for marginal by default
                 confidence_sum += confidence;
                 confidence_count += 1;
             }
         }
-        
+
         let final_factor = if total_weight > 0.0 {
             weighted_emission_factor / total_weight
         } else {
             self.config.default_emission_factor * 1.1 // Marginal typically higher than average
         };
-        
+
         let confidence = if confidence_count > 0 {
             confidence_sum / confidence_count as f64
         } else {
             0.6 // Lower confidence for marginal by default
         };
-        
+
         (final_factor, confidence)
     }
-    
+
     /// Calculate network-wide renewable energy percentage
     pub fn calculate_network_renewable_percentage(&self) -> f64 {
         let mut total_renewable = 0.0;
         let mut total_hashrate = 0.0;
-        
+
         for (pool_id, info) in &self.pool_energy_info {
             // Calculate weighted average based on regions and their hashrates
             let mut pool_hashrate = 0.0;
-            
+
             for region in &info.regions {
                 if let Some(hashrate) = self.region_hashrates.get(region) {
                     pool_hashrate += hashrate.0;
                 }
             }
-            
+
             // Default to equal distribution if no hashrate data
             if pool_hashrate == 0.0 {
                 continue;
             }
-            
+
             total_renewable += pool_hashrate * info.renewable_percentage;
             total_hashrate += pool_hashrate;
         }
-        
+
         if total_hashrate > 0.0 {
             total_renewable / total_hashrate
         } else {
             0.0
         }
     }
-    
+
     /// Update configuration
     pub fn update_config(&mut self, config: EmissionsConfig) {
         self.config = config;
@@ -942,27 +978,29 @@ impl EmissionsTracker {
         // Calculate weighted average carbon intensity across all regions
         let mut total_weighted_intensity = 0.0;
         let mut total_hashrate = 0.0;
-        
+
         for (region, hashrate) in &self.region_hashrates {
             if let Some(emission_factor) = self.region_emission_factors.get(region) {
                 total_weighted_intensity += emission_factor.grid_emissions_factor * hashrate.0;
                 total_hashrate += hashrate.0;
             }
         }
-        
+
         if total_hashrate > 0.0 {
             Ok(total_weighted_intensity / total_hashrate)
         } else {
             Ok(self.config.default_carbon_intensity)
         }
     }
-    
+
     /// Get network-wide hashrate in TH/s
     pub fn get_network_hashrate(&self) -> Result<f64, EmissionsError> {
-        let total_hashrate: f64 = self.region_hashrates.values()
+        let total_hashrate: f64 = self
+            .region_hashrates
+            .values()
             .map(|hashrate| hashrate.0)
             .sum();
-        
+
         if total_hashrate > 0.0 {
             Ok(total_hashrate)
         } else {
@@ -1038,25 +1076,33 @@ impl EmissionFactor {
 /// Emissions calculator trait for estimating carbon emissions
 pub trait EmissionCalculator {
     /// Calculate the carbon emissions for a time period
-    fn calculate_emissions(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Emissions, EmissionsError>;
-    
+    fn calculate_emissions(
+        &self,
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+    ) -> Result<Emissions, EmissionsError>;
+
     /// Add a region to track
     fn add_region(&mut self, region: Region, hashrate: HashRate);
-    
+
     /// Get the total hashrate across all tracked regions
     fn total_hashrate(&self) -> HashRate;
 }
 
 // Implement EmissionCalculator for EmissionsTracker
 impl EmissionCalculator for EmissionsTracker {
-    fn calculate_emissions(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Emissions, EmissionsError> {
+    fn calculate_emissions(
+        &self,
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+    ) -> Result<Emissions, EmissionsError> {
         self.calculate_network_emissions(start_time, end_time)
     }
-    
+
     fn add_region(&mut self, region: Region, hashrate: HashRate) {
         self.update_region_hashrate(region, hashrate);
     }
-    
+
     fn total_hashrate(&self) -> HashRate {
         HashRate(self.region_hashrates.values().map(|hr| hr.0).sum())
     }
@@ -1091,62 +1137,62 @@ impl EmissionsCalculator {
     /// Create a new emissions calculator
     pub fn new() -> Self {
         Self {
-            total_hashrate: 100_000.0, // Default 100 EH/s (100,000 TH/s)
-            carbon_intensity: 0.5,     // Default 500 gCO2e/kWh
-            energy_efficiency: 50.0,   // Default 50 J/TH
+            total_hashrate: 100_000.0,  // Default 100 EH/s (100,000 TH/s)
+            carbon_intensity: 0.5,      // Default 500 gCO2e/kWh
+            energy_efficiency: 50.0,    // Default 50 J/TH
             renewable_percentage: 30.0, // Default 30% renewable
         }
     }
-    
+
     /// Set the network hashrate
     pub fn set_hashrate(&mut self, hashrate_th_s: f64) {
         self.total_hashrate = hashrate_th_s;
     }
-    
+
     /// Set the carbon intensity
     pub fn set_carbon_intensity(&mut self, intensity_kg_kwh: f64) {
         self.carbon_intensity = intensity_kg_kwh;
     }
-    
+
     /// Set the energy efficiency
     pub fn set_energy_efficiency(&mut self, efficiency_j_th: f64) {
         self.energy_efficiency = efficiency_j_th;
     }
-    
+
     /// Set the renewable percentage
     pub fn set_renewable_percentage(&mut self, percentage: f64) {
         self.renewable_percentage = percentage.max(0.0).min(100.0);
     }
-    
+
     /// Calculate network emissions for a time period
     pub fn calculate_network_emissions(&self) -> Result<NetworkEmissions, String> {
         // Calculate energy consumption
         // Power (W) = Hashrate (TH/s) * Energy Efficiency (J/TH)
         let power_watts = self.total_hashrate * self.energy_efficiency;
-        
+
         // Energy over 24 hours (kWh) = Power (W) * 24 / 1000
         let daily_energy_kwh = power_watts * 24.0 / 1000.0;
-        
+
         // Convert to MWh for the API
         let daily_energy_mwh = daily_energy_kwh / 1000.0;
-        
+
         // Calculate emissions accounting for renewables
         // Non-renewable percentage = 100% - Renewable percentage
         let non_renewable_percentage = (100.0 - self.renewable_percentage) / 100.0;
-        
+
         // Non-renewable energy (kWh) = Total energy (kWh) * Non-renewable percentage
         let non_renewable_energy_kwh = daily_energy_kwh * non_renewable_percentage;
-        
+
         // Emissions (kg CO2e) = Non-renewable energy (kWh) * Carbon intensity (kg CO2e/kWh)
         let daily_emissions_kg = non_renewable_energy_kwh * self.carbon_intensity;
-        
+
         // Convert to tonnes for the API
         let daily_emissions_tonnes = daily_emissions_kg / 1000.0;
-        
+
         // Assume 1 million transactions per day for emissions per transaction
         let tx_per_day = 1_000_000.0;
         let emissions_per_tx = daily_emissions_kg / tx_per_day;
-        
+
         Ok(NetworkEmissions {
             total_energy_mwh: daily_energy_mwh,
             total_emissions_tons_co2e: daily_emissions_tonnes,
@@ -1303,7 +1349,7 @@ impl EmissionsRegistry {
             moving_average_24h: 100.0e18,
             confidence: 0.9,
         };
-        
+
         Self {
             config,
             network_hashrate: Arc::new(RwLock::new(default_hashrate)),
@@ -1314,16 +1360,16 @@ impl EmissionsRegistry {
             global_renewable_percentage: Arc::new(RwLock::new(0.3)), // Assume 30% renewable by default
         }
     }
-    
+
     /// Update the network hashrate estimate
     pub async fn update_network_hashrate(&self, hashrate: f64, confidence: f64) {
         let mut network_hashrate = self.network_hashrate.write().await;
         let current_time = Utc::now();
-        
+
         // Calculate a simple exponential moving average for 24h
         let alpha = 0.1; // Smoothing factor
         let moving_average = network_hashrate.moving_average_24h * (1.0 - alpha) + hashrate * alpha;
-        
+
         *network_hashrate = NetworkHashrate {
             timestamp: current_time,
             hashrate,
@@ -1331,37 +1377,42 @@ impl EmissionsRegistry {
             confidence,
         };
     }
-    
+
     /// Update regional energy data
     pub async fn update_regional_data(&self, region_id: String, data: RegionalEnergyData) {
         let mut regional_data = self.regional_data.write().await;
         regional_data.insert(region_id, data);
-        
+
         // Recalculate global values
         drop(regional_data); // Release lock before recalculating
         self.recalculate_global_values().await;
     }
-    
+
     /// Process a new block announcement to calculate its environmental impact
-    pub async fn process_block(&self, block: &Block, height: u64, difficulty: f64) -> BlockEnvironmentalData {
+    pub async fn process_block(
+        &self,
+        block: &Block,
+        height: u64,
+        difficulty: f64,
+    ) -> BlockEnvironmentalData {
         let timestamp = match chrono::DateTime::from_timestamp(block.header.timestamp as i64, 0) {
             Some(dt) => dt,
             None => Utc::now(),
         };
-        
+
         // Calculate energy consumption based on difficulty
         let energy_consumption = self.calculate_block_energy(difficulty).await;
-        
+
         // Get global carbon intensity and renewable percentage
         let carbon_intensity = *self.global_carbon_intensity.read().await;
         let renewable_percentage = *self.global_renewable_percentage.read().await;
-        
+
         // Calculate carbon emissions
         let carbon_emissions = energy_consumption * carbon_intensity;
-        
+
         // Calculate regional breakdown if regional data is available
         let regional_breakdown = self.calculate_regional_breakdown(energy_consumption).await;
-        
+
         let block_env_data = BlockEnvironmentalData {
             block_hash: block.hash(),
             height,
@@ -1371,25 +1422,29 @@ impl EmissionsRegistry {
             renewable_percentage,
             regional_breakdown,
         };
-        
+
         // Store the data
         let mut block_data = self.block_data.write().await;
         block_data.insert(block.hash(), block_env_data.clone());
-        
+
         block_env_data
     }
-    
+
     /// Process a transaction to calculate its environmental impact
-    pub async fn process_transaction(&self, tx: &Transaction, block_env_data: Option<&BlockEnvironmentalData>) -> TransactionEnvironmentalData {
+    pub async fn process_transaction(
+        &self,
+        tx: &Transaction,
+        block_env_data: Option<&BlockEnvironmentalData>,
+    ) -> TransactionEnvironmentalData {
         let current_time = Utc::now();
-        
+
         // If we have block environmental data, use that as a base for calculations
         if let Some(block_data) = block_env_data {
             // Calculate transaction's share of the block's environmental impact
             // This is a simplified approach; a more sophisticated model would account for tx size, fees, etc.
             let tx_count = 1.max(tx.calculate_size() as u64); // Avoid division by zero
             let energy_per_tx = block_data.energy_consumption / tx_count as f64;
-            
+
             let tx_env_data = TransactionEnvironmentalData {
                 tx_hash: tx.hash(),
                 energy_consumption: energy_per_tx,
@@ -1397,22 +1452,22 @@ impl EmissionsRegistry {
                 renewable_percentage: block_data.renewable_percentage,
                 timestamp: block_data.timestamp,
             };
-            
+
             // Store the data
             let mut tx_data = self.transaction_data.write().await;
             tx_data.insert(tx.hash(), tx_env_data.clone());
-            
+
             tx_env_data
         } else {
             // If no block data, estimate based on global averages
             let tx_size = tx.calculate_size() as f64;
             let avg_tx_size = 250.0; // Assume average tx size of 250 bytes
             let base_energy = 0.0001; // Base energy in kWh for an average tx
-            
+
             let energy_consumption = base_energy * (tx_size / avg_tx_size);
             let carbon_intensity = *self.global_carbon_intensity.read().await;
             let renewable_percentage = *self.global_renewable_percentage.read().await;
-            
+
             let tx_env_data = TransactionEnvironmentalData {
                 tx_hash: tx.hash(),
                 energy_consumption,
@@ -1420,64 +1475,73 @@ impl EmissionsRegistry {
                 renewable_percentage,
                 timestamp: current_time,
             };
-            
+
             // Store the data
             let mut tx_data = self.transaction_data.write().await;
             tx_data.insert(tx.hash(), tx_env_data.clone());
-            
+
             tx_env_data
         }
     }
-    
+
     /// Get environmental data for a block
-    pub async fn get_block_environmental_data(&self, block_hash: &[u8; 32]) -> Option<BlockEnvironmentalData> {
+    pub async fn get_block_environmental_data(
+        &self,
+        block_hash: &[u8; 32],
+    ) -> Option<BlockEnvironmentalData> {
         let block_data = self.block_data.read().await;
         block_data.get(block_hash).cloned()
     }
-    
+
     /// Get environmental data for a transaction
-    pub async fn get_transaction_environmental_data(&self, tx_hash: &[u8; 32]) -> Option<TransactionEnvironmentalData> {
+    pub async fn get_transaction_environmental_data(
+        &self,
+        tx_hash: &[u8; 32],
+    ) -> Option<TransactionEnvironmentalData> {
         let tx_data = self.transaction_data.read().await;
         tx_data.get(tx_hash).cloned()
     }
-    
+
     /// Calculate energy consumption for a block based on its difficulty
     async fn calculate_block_energy(&self, difficulty: f64) -> f64 {
         // Get current network hashrate
         let _network_hashrate = self.network_hashrate.read().await;
-        
+
         // Calculate expected hashes to find a block with this difficulty
         let expected_hashes = difficulty * 2.0f64.powi(32);
-        
+
         // Calculate energy in joules: hashes * energy per hash
         let energy_joules = expected_hashes * ENERGY_PER_HASH;
-        
+
         // Convert to kWh (1 kWh = 3.6 million joules)
         let energy_kwh = energy_joules / 3.6e6;
-        
+
         // Apply PUE (Power Usage Effectiveness) factor to account for cooling/infrastructure
         let pue_factor = self.config.mining_pue_factor;
-        
+
         energy_kwh * pue_factor
     }
-    
+
     /// Calculate regional energy breakdown for a block
-    async fn calculate_regional_breakdown(&self, total_energy: f64) -> Option<Vec<RegionalContribution>> {
+    async fn calculate_regional_breakdown(
+        &self,
+        total_energy: f64,
+    ) -> Option<Vec<RegionalContribution>> {
         let regional_data = self.regional_data.read().await;
-        
+
         if regional_data.is_empty() {
             return None;
         }
-        
+
         let mut contributions = Vec::new();
-        
+
         for (region_id, data) in regional_data.iter() {
             // Calculate energy consumption for this region
             let energy = total_energy * data.hashrate_percentage;
-            
+
             // Calculate carbon emissions
             let emissions = energy * data.carbon_intensity;
-            
+
             contributions.push(RegionalContribution {
                 region_id: region_id.clone(),
                 probability: data.hashrate_percentage,
@@ -1486,27 +1550,27 @@ impl EmissionsRegistry {
                 renewable_percentage: data.renewable_percentage,
             });
         }
-        
+
         Some(contributions)
     }
-    
+
     /// Import regional energy data from a network announcement
     pub async fn import_regional_data(&self, announcement: &EnvironmentalDataAnnouncement) {
         let mut regional_data = self.regional_data.write().await;
-        
+
         for region in &announcement.regional_energy_sources {
             // Convert energy source info to our internal format
             let mut energy_sources = HashMap::new();
             for source in &region.energy_sources {
                 energy_sources.insert(source.source_type, source.percentage);
             }
-            
+
             // Calculate carbon intensity for this region
             let carbon_intensity = self.calculate_carbon_intensity(&energy_sources);
-            
+
             // Calculate renewable percentage
             let renewable_percentage = self.calculate_renewable_percentage(&energy_sources);
-            
+
             let data = RegionalEnergyData {
                 region_id: region.region_id.clone(),
                 name: region.region_id.clone(), // Use code as name for now
@@ -1516,20 +1580,20 @@ impl EmissionsRegistry {
                 renewable_percentage,
                 last_updated: Utc::now(),
             };
-            
+
             regional_data.insert(region.region_id.clone(), data);
         }
-        
+
         // Recalculate global values after updating regional data
         drop(regional_data); // Release lock before recalculating
         self.recalculate_global_values().await;
     }
-    
+
     /// Calculate carbon intensity for a given energy source mix
     fn calculate_carbon_intensity(&self, energy_sources: &HashMap<EnergySourceType, f64>) -> f64 {
         let mut total_intensity = 0.0;
         let mut total_percentage = 0.0;
-        
+
         for (source_type, percentage) in energy_sources {
             let intensity = match source_type {
                 EnergySourceType::Solar => CARBON_INTENSITY_SOLAR,
@@ -1543,81 +1607,85 @@ impl EmissionsRegistry {
                 EnergySourceType::Biomass => CARBON_INTENSITY_BIOMASS,
                 EnergySourceType::Other => CARBON_INTENSITY_OTHER,
             };
-            
+
             total_intensity += intensity * percentage;
             total_percentage += percentage;
         }
-        
+
         if total_percentage > 0.0 {
             total_intensity / total_percentage
         } else {
             DEFAULT_CARBON_INTENSITY
         }
     }
-    
+
     /// Calculate renewable percentage for a given energy source mix
-    fn calculate_renewable_percentage(&self, energy_sources: &HashMap<EnergySourceType, f64>) -> f64 {
+    fn calculate_renewable_percentage(
+        &self,
+        energy_sources: &HashMap<EnergySourceType, f64>,
+    ) -> f64 {
         let mut renewable_percentage = 0.0;
         let mut total_percentage = 0.0;
-        
+
         for (source_type, percentage) in energy_sources {
             match source_type {
-                EnergySourceType::Solar |
-                EnergySourceType::Wind |
-                EnergySourceType::Hydro |
-                EnergySourceType::Geothermal => {
+                EnergySourceType::Solar
+                | EnergySourceType::Wind
+                | EnergySourceType::Hydro
+                | EnergySourceType::Geothermal => {
                     renewable_percentage += percentage;
                 }
                 _ => {} // Non-renewable sources
             };
-            
+
             total_percentage += percentage;
         }
-        
+
         if total_percentage > 0.0 {
             renewable_percentage / total_percentage
         } else {
             0.0
         }
     }
-    
+
     /// Recalculate global carbon intensity and renewable percentage
     async fn recalculate_global_values(&self) {
         let regional_data = self.regional_data.read().await;
-        
+
         if regional_data.is_empty() {
             return;
         }
-        
+
         let mut total_hashrate_percentage = 0.0;
         let mut weighted_carbon_intensity = 0.0;
         let mut weighted_renewable_percentage = 0.0;
-        
+
         for data in regional_data.values() {
             weighted_carbon_intensity += data.carbon_intensity * data.hashrate_percentage;
             weighted_renewable_percentage += data.renewable_percentage * data.hashrate_percentage;
             total_hashrate_percentage += data.hashrate_percentage;
         }
-        
+
         if total_hashrate_percentage > 0.0 {
             let global_carbon_intensity = weighted_carbon_intensity / total_hashrate_percentage;
             let global_renewable = weighted_renewable_percentage / total_hashrate_percentage;
-            
+
             *self.global_carbon_intensity.write().await = global_carbon_intensity;
             *self.global_renewable_percentage.write().await = global_renewable;
         }
     }
-    
+
     /// Create an environmental data announcement for network broadcast
     pub async fn create_environmental_announcement(&self) -> EnvironmentalDataAnnouncement {
         let regional_data = self.regional_data.read().await;
         let network_hashrate = self.network_hashrate.read().await;
-        
+
         // Calculate total energy consumption over the last day
         // This is a simplified estimate: hashrate * energy_per_hash * seconds_in_day
         let seconds_in_day = 24.0 * 60.0 * 60.0;
-        let total_energy = network_hashrate.moving_average_24h * ENERGY_PER_HASH * seconds_in_day / 3.6e6; // Convert to kWh
-        
+        let total_energy =
+            network_hashrate.moving_average_24h * ENERGY_PER_HASH * seconds_in_day / 3.6e6; // Convert to kWh
+
         // Convert regional data to announcement format
         let mut regions = Vec::new();
         for (region_id, data) in regional_data.iter() {
@@ -1627,13 +1695,15 @@ impl EmissionsRegistry {
                     source_type: *source_type,
                     percentage: *percentage,
                     is_renewable: match source_type {
-                        EnergySourceType::Solar | EnergySourceType::Wind | 
-                        EnergySourceType::Hydro | EnergySourceType::Geothermal => true,
+                        EnergySourceType::Solar
+                        | EnergySourceType::Wind
+                        | EnergySourceType::Hydro
+                        | EnergySourceType::Geothermal => true,
                         _ => false,
                     },
                 });
             }
-            
+
             regions.push(RegionalEnergySource {
                 region_id: region_id.clone(),
                 energy_info: EnergySourceInfo {
@@ -1647,9 +1717,9 @@ impl EmissionsRegistry {
                 hashrate_percentage: data.hashrate_percentage,
             });
         }
-        
+
         let carbon_emissions = total_energy * (*self.global_carbon_intensity.read().await);
-        
+
         EnvironmentalDataAnnouncement {
             node_id: "local".to_string(),
             energy_sources: regions.clone(),
@@ -1661,19 +1731,19 @@ impl EmissionsRegistry {
             regional_energy_sources: regions,
             network_data: NetworkData {
                 total_power_mw: network_hashrate.hashrate / 1_000_000.0, // Convert to MW
-                efficiency_j_th: 50.0, // Default efficiency
+                efficiency_j_th: 50.0,                                   // Default efficiency
                 last_updated: Utc::now(),
             },
             energy_consumption: total_energy,
         }
     }
-    
+
     /// Get global statistics
     pub async fn get_global_stats(&self) -> (f64, f64, NetworkHashrate) {
         (
             *self.global_carbon_intensity.read().await,
             *self.global_renewable_percentage.read().await,
-            *self.network_hashrate.read().await
+            *self.network_hashrate.read().await,
         )
     }
 
@@ -1682,46 +1752,56 @@ impl EmissionsRegistry {
         // Get latest data
         let regional_data = self.regional_data.read().await;
         let network_hashrate = self.network_hashrate.read().await;
-        
+
         // Calculate global values
         let global_carbon_intensity = *self.global_carbon_intensity.read().await;
         let global_renewable_percentage = *self.global_renewable_percentage.read().await;
-        
+
         let summary = NetworkSummary {
             timestamp: Utc::now(),
             total_hashrate: network_hashrate.hashrate,
-            total_energy_consumption_mwh: network_hashrate.moving_average_24h * ENERGY_PER_HASH * 24.0,
+            total_energy_consumption_mwh: network_hashrate.moving_average_24h
+                * ENERGY_PER_HASH
+                * 24.0,
             total_carbon_emissions_tonnes: network_hashrate.hashrate * global_carbon_intensity,
             renewable_percentage: global_renewable_percentage as f32,
             carbon_intensity: global_carbon_intensity,
-            regional_breakdown: regional_data.iter().map(|(region_id, data)| {
-                RegionalSummary {
+            regional_breakdown: regional_data
+                .iter()
+                .map(|(region_id, data)| RegionalSummary {
                     region_id: region_id.clone(),
                     hashrate_percentage: data.hashrate_percentage as f32,
                     renewable_percentage: data.renewable_percentage as f32,
                     carbon_intensity: data.carbon_intensity,
-                    energy_consumption_mwh: data.hashrate_percentage * network_hashrate.moving_average_24h * ENERGY_PER_HASH * 24.0,
-                }
-            }).collect(),
-            network_hashrate: *network_hashrate
+                    energy_consumption_mwh: data.hashrate_percentage
+                        * network_hashrate.moving_average_24h
+                        * ENERGY_PER_HASH
+                        * 24.0,
+                })
+                .collect(),
+            network_hashrate: *network_hashrate,
         };
-        
+
         summary
     }
 
     /// Process a network announcement
-    pub async fn process_network_announcement(&self, announcement: &EnvironmentalDataAnnouncement) -> Result<(), EmissionsError> {
+    pub async fn process_network_announcement(
+        &self,
+        announcement: &EnvironmentalDataAnnouncement,
+    ) -> Result<(), EmissionsError> {
         // Process regional data
         for region in &announcement.regional_energy_sources {
             let mut regional_energy_sources = HashMap::new();
-            
+
             for source in &region.energy_sources {
                 regional_energy_sources.insert(source.source_type, source.percentage);
             }
-            
+
             let carbon_intensity = self.calculate_carbon_intensity(&regional_energy_sources);
-            let renewable_percentage = self.calculate_renewable_percentage(&regional_energy_sources);
-            
+            let renewable_percentage =
+                self.calculate_renewable_percentage(&regional_energy_sources);
+
             self.update_regional_data(
                 region.region_id.clone(),
                 RegionalEnergyData {
@@ -1732,15 +1812,16 @@ impl EmissionsRegistry {
                     carbon_intensity,
                     renewable_percentage,
                     last_updated: Utc::now(),
-                }
-            ).await;
+                },
+            )
+            .await;
         }
-        
+
         // Update network hashrate if provided
         let _network_hashrate = self.network_hashrate.read().await;
         // Update with the announcement data if needed
         // in a real implementation, this might merge the data with existing values
-        
+
         Ok(())
     }
 }
@@ -1796,31 +1877,34 @@ pub struct NetworkSummary {
 mod tests {
     use super::*;
     use chrono::Duration;
-    
+
     #[test]
     fn test_basic_emissions_calculation() {
         let mut tracker = EmissionsTracker::default();
         tracker.load_default_emission_factors();
-        
+
         // Add some hashrate data
         tracker.update_region_hashrate(
             Region::new("US"),
             HashRate(10.0), // 10 TH/s
         );
-        
+
         tracker.update_region_hashrate(
             Region::new("CN"),
             HashRate(15.0), // 15 TH/s
         );
-        
+
         // Calculate for a 24-hour period
         let now = Utc::now();
         let yesterday = now - Duration::days(1);
-        
+
         let result = tracker.calculate_network_emissions(yesterday, now).unwrap();
-        
+
         // Basic verification
-        assert!(result.energy_kwh > 0.0, "Energy consumption should be positive");
+        assert!(
+            result.energy_kwh > 0.0,
+            "Energy consumption should be positive"
+        );
         assert!(result.tonnes_co2e > 0.0, "Emissions should be positive");
     }
-} 
+}

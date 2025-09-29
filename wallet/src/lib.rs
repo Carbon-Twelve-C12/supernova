@@ -1,17 +1,33 @@
+// Supernova Wallet Library
+
+// Enforce panic-free code in production
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
+#![cfg_attr(not(test), warn(clippy::expect_used))]
+#![cfg_attr(not(test), warn(clippy::panic))]
+// Allow certain warnings for pragmatic reasons
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::type_complexity)]
+// Test-specific allows
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+#![cfg_attr(test, allow(clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::panic))]
+
+pub mod cli;
 mod core;
 mod hdwallet;
 mod history;
 mod ui;
-pub mod cli;
 
-use std::path::PathBuf;
-use thiserror::Error;
 use bitcoin::network::Network;
 use btclib::storage::utxo_set::UtxoSet;
+use std::path::PathBuf;
+use thiserror::Error;
 
 pub use core::Wallet;
-pub use hdwallet::{HDWallet, HDAddress, AccountType};
-pub use history::{TransactionHistory, TransactionRecord, TransactionDirection, TransactionStatus};
+pub use hdwallet::{AccountType, HDAddress, HDWallet};
+pub use history::{TransactionDirection, TransactionHistory, TransactionRecord, TransactionStatus};
 pub use ui::tui::WalletTui;
 
 #[derive(Error, Debug)]
@@ -63,7 +79,11 @@ impl WalletManager {
         })
     }
 
-    pub fn from_mnemonic(mnemonic: &str, wallet_dir: PathBuf, network: Network) -> Result<Self, WalletError> {
+    pub fn from_mnemonic(
+        mnemonic: &str,
+        wallet_dir: PathBuf,
+        network: Network,
+    ) -> Result<Self, WalletError> {
         let wallet_path = wallet_dir.join("wallet.json");
         let history_path = wallet_dir.join("history.json");
 
@@ -86,20 +106,32 @@ impl WalletManager {
         Ok(())
     }
 
-    pub fn create_account(&mut self, name: String, account_type: AccountType) -> Result<(), WalletError> {
-        self.hd_wallet.create_account(name, account_type).map_err(WalletError::HDWallet)
+    pub fn create_account(
+        &mut self,
+        name: String,
+        account_type: AccountType,
+    ) -> Result<(), WalletError> {
+        self.hd_wallet
+            .create_account(name, account_type)
+            .map_err(WalletError::HDWallet)
     }
 
     pub fn get_new_address(&mut self, account_name: &str) -> Result<HDAddress, WalletError> {
-        self.hd_wallet.get_new_address(account_name).map_err(WalletError::HDWallet)
+        self.hd_wallet
+            .get_new_address(account_name)
+            .map_err(WalletError::HDWallet)
     }
 
     pub fn get_balance(&self, account_name: &str) -> Result<u64, WalletError> {
-        self.hd_wallet.get_balance(account_name, &self.utxo_set).map_err(WalletError::HDWallet)
+        self.hd_wallet
+            .get_balance(account_name, &self.utxo_set)
+            .map_err(WalletError::HDWallet)
     }
 
     pub fn get_total_balance(&self) -> Result<u64, WalletError> {
-        self.hd_wallet.get_total_balance(&self.utxo_set).map_err(WalletError::HDWallet)
+        self.hd_wallet
+            .get_total_balance(&self.utxo_set)
+            .map_err(WalletError::HDWallet)
     }
 
     pub fn list_accounts(&self) -> Vec<(u32, &hdwallet::HDAccount)> {
@@ -111,23 +143,41 @@ impl WalletManager {
     }
 
     pub fn add_transaction(&mut self, record: TransactionRecord) -> Result<(), WalletError> {
-        self.transaction_history.add_transaction(record).map_err(WalletError::History)
+        self.transaction_history
+            .add_transaction(record)
+            .map_err(WalletError::History)
     }
 
-    pub fn update_transaction_status(&mut self, hash: &str, status: TransactionStatus) -> Result<(), WalletError> {
-        self.transaction_history.update_transaction_status(hash, status).map_err(WalletError::History)
+    pub fn update_transaction_status(
+        &mut self,
+        hash: &str,
+        status: TransactionStatus,
+    ) -> Result<(), WalletError> {
+        self.transaction_history
+            .update_transaction_status(hash, status)
+            .map_err(WalletError::History)
     }
 
     pub fn add_transaction_label(&mut self, hash: &str, label: String) -> Result<(), WalletError> {
-        self.transaction_history.add_transaction_label(hash, label).map_err(WalletError::History)
+        self.transaction_history
+            .add_transaction_label(hash, label)
+            .map_err(WalletError::History)
     }
 
-    pub fn add_transaction_category(&mut self, hash: &str, category: String) -> Result<(), WalletError> {
-        self.transaction_history.add_transaction_category(hash, category).map_err(WalletError::History)
+    pub fn add_transaction_category(
+        &mut self,
+        hash: &str,
+        category: String,
+    ) -> Result<(), WalletError> {
+        self.transaction_history
+            .add_transaction_category(hash, category)
+            .map_err(WalletError::History)
     }
 
     pub fn add_transaction_tag(&mut self, hash: &str, tag: String) -> Result<(), WalletError> {
-        self.transaction_history.add_transaction_tag(hash, tag).map_err(WalletError::History)
+        self.transaction_history
+            .add_transaction_tag(hash, tag)
+            .map_err(WalletError::History)
     }
 
     pub fn get_transaction(&self, hash: &str) -> Option<&TransactionRecord> {
@@ -143,7 +193,8 @@ impl WalletManager {
     }
 
     pub fn get_transactions_by_category(&self, category: &str) -> Vec<&TransactionRecord> {
-        self.transaction_history.get_transactions_by_category(category)
+        self.transaction_history
+            .get_transactions_by_category(category)
     }
 
     pub fn get_transactions_by_tag(&self, tag: &str) -> Vec<&TransactionRecord> {
@@ -178,7 +229,9 @@ mod tests {
         let mut manager = WalletManager::new(dir.path().to_path_buf(), Network::Testnet).unwrap();
 
         // Create an account
-        manager.create_account("Test Account".to_string(), AccountType::NativeSegWit).unwrap();
+        manager
+            .create_account("Test Account".to_string(), AccountType::NativeSegWit)
+            .unwrap();
 
         // Get a new address
         let address = manager.get_new_address("Test Account").unwrap();
@@ -205,4 +258,4 @@ mod tests {
         assert_eq!(manager.get_total_sent(), 0);
         assert_eq!(manager.get_net_flow(), 1000);
     }
-} 
+}

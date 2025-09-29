@@ -24,4 +24,4 @@ pub struct RpcError {
     pub code: i32,
     pub message: String,
     pub data: Option<serde_json::Value>,
-} 
+}

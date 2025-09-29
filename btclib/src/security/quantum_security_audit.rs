@@ -2,14 +2,13 @@
 // Comprehensive validation suite for external security audit
 // Demonstrates quantum resistance across all cryptographic operations
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
 
 use crate::crypto::quantum::{
-    QuantumKeyPair, QuantumParameters, QuantumScheme,
-    verify_quantum_signature,
+    verify_quantum_signature, QuantumKeyPair, QuantumParameters, QuantumScheme,
 };
 
 /// Comprehensive quantum security audit report
@@ -19,22 +18,22 @@ pub struct QuantumSecurityAuditReport {
     pub audit_id: String,
     pub audit_date: DateTime<Utc>,
     pub blockchain_version: String,
-    
+
     /// Dilithium security validation
     pub dilithium_audit: DilithiumSecurityAudit,
-    
+
     /// SPHINCS+ validation
     pub sphincs_audit: SphincsSecurityAudit,
-    
+
     /// Falcon integration review
     pub falcon_audit: FalconIntegrationAudit,
-    
+
     /// Quantum attack resistance tests
     pub attack_resistance: QuantumAttackResistanceTests,
-    
+
     /// Post-quantum security proofs
     pub security_proofs: PostQuantumSecurityProofs,
-    
+
     /// Overall security assessment
     pub overall_assessment: SecurityAssessment,
 }
@@ -46,16 +45,16 @@ pub struct DilithiumSecurityAudit {
     pub level2_validation: SecurityLevelValidation,
     pub level3_validation: SecurityLevelValidation,
     pub level5_validation: SecurityLevelValidation,
-    
+
     /// Performance benchmarks
     pub performance_metrics: DilithiumPerformanceMetrics,
-    
+
     /// Key size validation
     pub key_size_validation: KeySizeValidation,
-    
+
     /// Signature verification tests
     pub signature_tests: SignatureValidationTests,
-    
+
     /// Side-channel resistance
     pub side_channel_analysis: SideChannelAnalysis,
 }
@@ -65,13 +64,13 @@ pub struct DilithiumSecurityAudit {
 pub struct SphincsSecurityAudit {
     /// Hash-based security validation
     pub hash_security: HashBasedSecurityTests,
-    
+
     /// Stateless signature validation
     pub stateless_validation: StatelessSignatureTests,
-    
+
     /// Tree-based construction review
     pub tree_construction: TreeConstructionAnalysis,
-    
+
     /// Performance analysis
     pub performance_metrics: SphincsPerformanceMetrics,
 }
@@ -81,13 +80,13 @@ pub struct SphincsSecurityAudit {
 pub struct FalconIntegrationAudit {
     /// Integration status
     pub integration_complete: bool,
-    
+
     /// Lattice-based security
     pub lattice_security: LatticeSecurityAnalysis,
-    
+
     /// Signature size optimization
     pub signature_optimization: SignatureSizeAnalysis,
-    
+
     /// Compatibility tests
     pub compatibility: CompatibilityTests,
 }
@@ -97,13 +96,13 @@ pub struct FalconIntegrationAudit {
 pub struct QuantumAttackResistanceTests {
     /// Grover's algorithm resistance
     pub grover_resistance: GroverResistanceTest,
-    
+
     /// Shor's algorithm immunity
     pub shor_immunity: ShorImmunityTest,
-    
+
     /// Quantum collision resistance
     pub collision_resistance: CollisionResistanceTest,
-    
+
     /// Future quantum threats
     pub future_threat_analysis: FutureQuantumThreatAnalysis,
 }
@@ -115,10 +114,10 @@ pub struct PostQuantumSecurityProofs {
     pub lattice_problem_hardness: String,
     pub hash_function_security: String,
     pub hybrid_scheme_security: String,
-    
+
     /// Formal verification results
     pub formal_verification: FormalVerificationResults,
-    
+
     /// Academic references
     pub references: Vec<AcademicReference>,
 }
@@ -148,7 +147,7 @@ pub struct DilithiumPerformanceMetrics {
 pub struct QuantumSecurityAuditor {
     /// Test parameters
     test_iterations: u32,
-    
+
     /// Results storage
     results: HashMap<String, Vec<TestResult>>,
 }
@@ -175,30 +174,30 @@ impl QuantumSecurityAuditor {
             results: HashMap::new(),
         }
     }
-    
+
     /// Prepare comprehensive Dilithium security audit
     pub fn prepare_dilithium_security_audit(&mut self) -> DilithiumSecurityAudit {
         println!("🔐 Preparing CRYSTALS-Dilithium security audit...");
-        
+
         // Test all security levels
         let level2_validation = self.validate_dilithium_level(2);
         let level3_validation = self.validate_dilithium_level(3);
         let level5_validation = self.validate_dilithium_level(5);
-        
+
         // Performance benchmarks
         let performance_metrics = self.benchmark_dilithium_performance();
-        
+
         // Key size validation
         let key_size_validation = self.validate_key_sizes();
-        
+
         // Signature tests
         let signature_tests = self.validate_signatures();
-        
+
         // Side-channel analysis
         let side_channel_analysis = self.analyze_side_channels();
-        
+
         println!("✅ Dilithium security audit complete");
-        
+
         DilithiumSecurityAudit {
             level2_validation,
             level3_validation,
@@ -209,18 +208,18 @@ impl QuantumSecurityAuditor {
             side_channel_analysis,
         }
     }
-    
+
     /// Prepare SPHINCS+ validation
     pub fn prepare_sphincs_plus_validation(&mut self) -> SphincsSecurityAudit {
         println!("🔐 Preparing SPHINCS+ security validation...");
-        
+
         let hash_security = self.test_hash_based_security();
         let stateless_validation = self.test_stateless_signatures();
         let tree_construction = self.analyze_tree_construction();
         let performance_metrics = self.benchmark_sphincs_performance();
-        
+
         println!("✅ SPHINCS+ validation complete");
-        
+
         SphincsSecurityAudit {
             hash_security,
             stateless_validation,
@@ -228,19 +227,19 @@ impl QuantumSecurityAuditor {
             performance_metrics,
         }
     }
-    
+
     /// Prepare Falcon integration review
     pub fn prepare_falcon_integration_review(&mut self) -> FalconIntegrationAudit {
         println!("🔐 Preparing Falcon integration review...");
-        
+
         // Note: Falcon is prepared but not fully integrated yet
         let integration_complete = false;
         let lattice_security = self.analyze_lattice_security();
         let signature_optimization = self.analyze_signature_sizes();
         let compatibility = self.test_falcon_compatibility();
-        
+
         println!("✅ Falcon integration review complete");
-        
+
         FalconIntegrationAudit {
             integration_complete,
             lattice_security,
@@ -248,18 +247,18 @@ impl QuantumSecurityAuditor {
             compatibility,
         }
     }
-    
+
     /// Create quantum attack resistance tests
     pub fn create_quantum_attack_resistance_tests(&mut self) -> QuantumAttackResistanceTests {
         println!("🛡️ Creating quantum attack resistance tests...");
-        
+
         let grover_resistance = self.test_grover_resistance();
         let shor_immunity = self.test_shor_immunity();
         let collision_resistance = self.test_collision_resistance();
         let future_threat_analysis = self.analyze_future_threats();
-        
+
         println!("✅ Quantum attack resistance tests complete");
-        
+
         QuantumAttackResistanceTests {
             grover_resistance,
             shor_immunity,
@@ -267,30 +266,32 @@ impl QuantumSecurityAuditor {
             future_threat_analysis,
         }
     }
-    
+
     /// Document post-quantum security proofs
     pub fn document_post_quantum_security_proofs(&self) -> PostQuantumSecurityProofs {
         println!("📄 Documenting post-quantum security proofs...");
-        
+
         let lattice_problem_hardness = 
             "Dilithium security reduces to the hardness of Module-LWE and Module-SIS problems, \
              which are believed to be hard for quantum computers. Security proof: Ducas et al. 2018".to_string();
-        
-        let hash_function_security = 
+
+        let hash_function_security =
             "SPHINCS+ security relies on the security of the underlying hash function (SHA-256) \
-             against quantum attacks. Grover's algorithm provides at most quadratic speedup.".to_string();
-        
-        let hybrid_scheme_security = 
+             against quantum attacks. Grover's algorithm provides at most quadratic speedup."
+                .to_string();
+
+        let hybrid_scheme_security =
             "Hybrid schemes combine classical and post-quantum signatures, providing security \
-             even if one scheme is broken. Security follows from the OR-proof construction.".to_string();
-        
+             even if one scheme is broken. Security follows from the OR-proof construction."
+                .to_string();
+
         let formal_verification = FormalVerificationResults {
             dilithium_verified: true,
             sphincs_verified: true,
             implementation_verified: true,
             verification_tool: "Jasmin/EasyCrypt".to_string(),
         };
-        
+
         let references = vec![
             AcademicReference {
                 title: "CRYSTALS-Dilithium: Digital Signatures from Module Lattices".to_string(),
@@ -305,9 +306,9 @@ impl QuantumSecurityAuditor {
                 url: "https://sphincs.org/".to_string(),
             },
         ];
-        
+
         println!("✅ Security proofs documented");
-        
+
         PostQuantumSecurityProofs {
             lattice_problem_hardness,
             hash_function_security,
@@ -316,29 +317,29 @@ impl QuantumSecurityAuditor {
             references,
         }
     }
-    
+
     // Helper methods for specific tests
-    
+
     fn validate_dilithium_level(&mut self, level: u8) -> SecurityLevelValidation {
         let mut passed_tests = 0;
         let total_tests = self.test_iterations;
-        
+
         println!("  Testing Dilithium {:?}...", level);
-        
+
         // Key generation tests
         for _ in 0..total_tests {
             let params = QuantumParameters {
                 scheme: QuantumScheme::Dilithium,
                 security_level: level,
             };
-            
+
             if QuantumKeyPair::generate(params).is_ok() {
                 passed_tests += 1;
             }
         }
-        
+
         let quantum_security_bits = (level as u32) * 64;
-        
+
         SecurityLevelValidation {
             security_level: level,
             key_generation_tests: total_tests,
@@ -348,29 +349,29 @@ impl QuantumSecurityAuditor {
             quantum_security_bits,
         }
     }
-    
+
     fn benchmark_dilithium_performance(&self) -> DilithiumPerformanceMetrics {
         let params = QuantumParameters {
             scheme: QuantumScheme::Dilithium,
             security_level: 3,
         };
-        
+
         // Benchmark key generation
         let start = Instant::now();
         let keypair = QuantumKeyPair::generate(params).unwrap();
         let keygen_time = start.elapsed();
-        
+
         // Benchmark signing
         let message = b"Performance benchmark message";
         let start = Instant::now();
         let signature = keypair.sign(message).unwrap();
         let sign_time = start.elapsed();
-        
+
         // Benchmark verification
         let start = Instant::now();
         let _ = verify_quantum_signature(&keypair.public_key, message, &signature, params).unwrap();
         let verify_time = start.elapsed();
-        
+
         DilithiumPerformanceMetrics {
             avg_keygen_time: keygen_time,
             avg_sign_time: sign_time,
@@ -379,7 +380,7 @@ impl QuantumSecurityAuditor {
             memory_usage_bytes: keypair.public_key.len() + keypair.secret_key.len(),
         }
     }
-    
+
     fn validate_key_sizes(&self) -> KeySizeValidation {
         KeySizeValidation {
             dilithium2_public_key: 1312,
@@ -394,26 +395,26 @@ impl QuantumSecurityAuditor {
             all_sizes_valid: true,
         }
     }
-    
+
     fn validate_signatures(&mut self) -> SignatureValidationTests {
         let mut tests_passed = 0;
         let total_tests = 1000;
-        
+
         for _ in 0..total_tests {
             let params = QuantumParameters {
                 scheme: QuantumScheme::Dilithium,
                 security_level: 3,
             };
-            
+
             let keypair = QuantumKeyPair::generate(params).unwrap();
             let message = b"Test message for signature validation";
             let signature = keypair.sign(message).unwrap();
-            
+
             if verify_quantum_signature(&keypair.public_key, message, &signature, params).unwrap() {
                 tests_passed += 1;
             }
         }
-        
+
         SignatureValidationTests {
             total_tests,
             tests_passed,
@@ -423,7 +424,7 @@ impl QuantumSecurityAuditor {
             tampered_message_detection: true,
         }
     }
-    
+
     fn analyze_side_channels(&self) -> SideChannelAnalysis {
         SideChannelAnalysis {
             timing_attack_resistant: true,
@@ -433,7 +434,7 @@ impl QuantumSecurityAuditor {
             randomness_quality: "CSPRNG with 256-bit entropy".to_string(),
         }
     }
-    
+
     fn test_hash_based_security(&self) -> HashBasedSecurityTests {
         HashBasedSecurityTests {
             sha256_quantum_resistance: 128, // bits of security against Grover
@@ -442,7 +443,7 @@ impl QuantumSecurityAuditor {
             stateless_property_verified: true,
         }
     }
-    
+
     fn test_stateless_signatures(&self) -> StatelessSignatureTests {
         StatelessSignatureTests {
             no_state_required: true,
@@ -451,7 +452,7 @@ impl QuantumSecurityAuditor {
             no_synchronization_needed: true,
         }
     }
-    
+
     fn analyze_tree_construction(&self) -> TreeConstructionAnalysis {
         TreeConstructionAnalysis {
             tree_height: 64,
@@ -460,7 +461,7 @@ impl QuantumSecurityAuditor {
             hypertree_construction_valid: true,
         }
     }
-    
+
     fn benchmark_sphincs_performance(&self) -> SphincsPerformanceMetrics {
         SphincsPerformanceMetrics {
             avg_keygen_time: Duration::from_millis(5),
@@ -469,7 +470,7 @@ impl QuantumSecurityAuditor {
             signature_size_bytes: 17088, // SPHINCS-SHA256-128f
         }
     }
-    
+
     fn analyze_lattice_security(&self) -> LatticeSecurityAnalysis {
         LatticeSecurityAnalysis {
             ntru_lattice_basis: true,
@@ -478,7 +479,7 @@ impl QuantumSecurityAuditor {
             parameter_selection_justified: true,
         }
     }
-    
+
     fn analyze_signature_sizes(&self) -> SignatureSizeAnalysis {
         SignatureSizeAnalysis {
             falcon512_signature_avg: 666,
@@ -487,7 +488,7 @@ impl QuantumSecurityAuditor {
             bandwidth_optimization: true,
         }
     }
-    
+
     fn test_falcon_compatibility(&self) -> CompatibilityTests {
         CompatibilityTests {
             bitcoin_compatible: true,
@@ -496,7 +497,7 @@ impl QuantumSecurityAuditor {
             api_compatibility: true,
         }
     }
-    
+
     fn test_grover_resistance(&self) -> GroverResistanceTest {
         GroverResistanceTest {
             algorithm_tested: "Grover's Algorithm".to_string(),
@@ -506,7 +507,7 @@ impl QuantumSecurityAuditor {
             details: "All schemes provide at least 128-bit quantum security".to_string(),
         }
     }
-    
+
     fn test_shor_immunity(&self) -> ShorImmunityTest {
         ShorImmunityTest {
             algorithm_tested: "Shor's Algorithm".to_string(),
@@ -514,10 +515,11 @@ impl QuantumSecurityAuditor {
             ecdsa_vulnerable: true,
             dilithium_immune: true,
             sphincs_immune: true,
-            details: "Lattice and hash-based schemes not vulnerable to Shor's algorithm".to_string(),
+            details: "Lattice and hash-based schemes not vulnerable to Shor's algorithm"
+                .to_string(),
         }
     }
-    
+
     fn test_collision_resistance(&self) -> CollisionResistanceTest {
         CollisionResistanceTest {
             birthday_attack_resistance: 128,
@@ -526,7 +528,7 @@ impl QuantumSecurityAuditor {
             details: "Collision resistance maintained against quantum adversaries".to_string(),
         }
     }
-    
+
     fn analyze_future_threats(&self) -> FutureQuantumThreatAnalysis {
         FutureQuantumThreatAnalysis {
             new_quantum_algorithms_considered: true,
@@ -540,17 +542,17 @@ impl QuantumSecurityAuditor {
             ],
         }
     }
-    
+
     /// Generate comprehensive audit report
     pub fn generate_audit_report(&mut self) -> QuantumSecurityAuditReport {
         println!("📊 Generating comprehensive quantum security audit report...");
-        
+
         let dilithium_audit = self.prepare_dilithium_security_audit();
         let sphincs_audit = self.prepare_sphincs_plus_validation();
         let falcon_audit = self.prepare_falcon_integration_review();
         let attack_resistance = self.create_quantum_attack_resistance_tests();
         let security_proofs = self.document_post_quantum_security_proofs();
-        
+
         let overall_assessment = SecurityAssessment {
             quantum_ready: true,
             security_level: "NIST Level 3 (192-bit quantum security)".to_string(),
@@ -562,9 +564,9 @@ impl QuantumSecurityAuditor {
             ],
             certification_ready: true,
         };
-        
+
         println!("✅ Quantum security audit report complete!");
-        
+
         QuantumSecurityAuditReport {
             audit_id: format!("QSA-{}", Utc::now().timestamp()),
             audit_date: Utc::now(),
@@ -741,20 +743,20 @@ pub fn prepare_quantum_security_audit() -> QuantumSecurityAuditReport {
 pub fn validate_quantum_lightning_security() -> bool {
     // Validate quantum Lightning Network security
     println!("⚡ Validating quantum Lightning Network security...");
-    
+
     // In production, would validate actual Lightning implementation
     // For audit preparation, we demonstrate the validation framework
-    
+
     true
 }
 
 pub fn test_environmental_oracle_security() -> bool {
     // Test environmental oracle consensus security
     println!("🌍 Testing environmental oracle security...");
-    
+
     // Validate multi-oracle consensus
     // Test Byzantine fault tolerance
     // Verify cryptographic proofs
-    
+
     true
-} 
+}

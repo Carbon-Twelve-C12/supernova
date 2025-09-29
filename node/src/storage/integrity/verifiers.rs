@@ -7,11 +7,11 @@ use bincode;
 use sha2::{Digest, Sha256};
 use tracing::debug;
 
-use crate::storage::BlockchainDB;
-use crate::storage::StorageError;
 use crate::storage::integrity::models::{
     IntegrityConfig, IntegrityIssue, IssueLocation, IssueSeverity, IssueType,
 };
+use crate::storage::BlockchainDB;
+use crate::storage::StorageError;
 use btclib::types::block::Block;
 use btclib::types::transaction::Transaction;
 
@@ -249,10 +249,7 @@ impl<'a> BlockchainVerifier<'a> {
                     issues.push(IntegrityIssue::new(
                         IssueType::ChainInconsistency,
                         IssueSeverity::Warning,
-                        format!(
-                            "Excessive time gap between blocks: {} seconds",
-                            time_diff
-                        ),
+                        format!("Excessive time gap between blocks: {} seconds", time_diff),
                         IssueLocation::Block {
                             hash: current_hash,
                             height: Some(current_height),
@@ -312,7 +309,10 @@ impl<'a> BlockchainVerifier<'a> {
                         issues.push(IntegrityIssue::new(
                             IssueType::IndexInconsistency,
                             IssueSeverity::Error,
-                            format!("Block height index inconsistency at height {}", current_height),
+                            format!(
+                                "Block height index inconsistency at height {}",
+                                current_height
+                            ),
                             IssueLocation::Chain {
                                 start_height: Some(current_height),
                                 end_height: Some(current_height),
@@ -438,10 +438,7 @@ impl<'a> UtxoVerifier<'a> {
         // Verify a sample of UTXOs against the database
         // This is a partial verification to avoid excessive database access
         let sample_size = (utxos.len() * self.config.utxo_sample_percentage) / 100;
-        let sample = utxos
-            .iter()
-            .take(sample_size)
-            .collect::<Vec<_>>();
+        let sample = utxos.iter().take(sample_size).collect::<Vec<_>>();
 
         for ((tx_hash, output_idx), expected_output) in sample {
             // Check UTXO exists in database
@@ -525,15 +522,15 @@ impl<'a> UtxoVerifier<'a> {
         // This is an expensive operation, so we limit it to a reasonable number
         let double_spend_check_count = std::cmp::min(100, blocks_to_check);
         let mut txs_checked = 0;
-        
+
         // Reset to chain tip
         current_hash = best_hash;
         current_height = height;
-        
+
         // Create a set to track spent outputs
         let mut all_spent = HashSet::new();
         let mut double_spends = HashSet::new();
-        
+
         for _ in 0..double_spend_check_count {
             if current_height == 0 {
                 break;
@@ -546,11 +543,11 @@ impl<'a> UtxoVerifier<'a> {
 
             for tx in block.transactions() {
                 txs_checked += 1;
-                
+
                 // Check each input for double spends
                 for input in tx.inputs() {
                     let outpoint = (input.prev_tx_hash(), input.prev_output_index());
-                    
+
                     if !all_spent.insert(outpoint) {
                         double_spends.insert(outpoint);
                     }
@@ -560,7 +557,7 @@ impl<'a> UtxoVerifier<'a> {
             current_hash = *block.prev_block_hash();
             current_height -= 1;
         }
-        
+
         // Report any double spends found
         for (tx_hash, output_idx) in double_spends {
             issues.push(IntegrityIssue::new(
@@ -612,11 +609,11 @@ impl<'a> CryptoVerifier<'a> {
         // This is computationally expensive, so we don't want to do every block
         let mut current_hash = best_hash;
         let mut current_height = height;
-        
+
         // Determine how many blocks to check and the sampling interval
         let blocks_to_check = std::cmp::min(self.config.max_batch_size, height as usize);
-        let interval = std::cmp::max(1, blocks_to_check / 10);  // Check about 10 blocks
-        
+        let interval = std::cmp::max(1, blocks_to_check / 10); // Check about 10 blocks
+
         for i in 0..blocks_to_check {
             // Only check blocks at regular intervals to save computation
             if i % interval != 0 && i != 0 && i != blocks_to_check - 1 {
@@ -629,12 +626,12 @@ impl<'a> CryptoVerifier<'a> {
                     break;
                 }
             }
-            
+
             let block = match self.db.get_block(&current_hash)? {
                 Some(b) => b,
                 None => break, // Already reported
             };
-            
+
             // Verify block hash against stored hash
             let computed_hash = block.hash();
             if computed_hash != current_hash {
@@ -654,7 +651,7 @@ impl<'a> CryptoVerifier<'a> {
                     false, // Not fixable, would need to replace the block
                 ));
             }
-            
+
             // Verify the block's proof of work
             if !self.verify_block_pow(&block) {
                 issues.push(IntegrityIssue::new(
@@ -671,12 +668,12 @@ impl<'a> CryptoVerifier<'a> {
                     false, // Not fixable
                 ));
             }
-            
+
             // Verify merkle root if transactions are present
             if !block.transactions().is_empty() {
                 let computed_merkle_root = Self::calculate_merkle_root(block.transactions());
                 let merkle_root = block.merkle_root();
-                
+
                 if computed_merkle_root != *merkle_root {
                     issues.push(IntegrityIssue::new(
                         IssueType::CryptoVerification,
@@ -695,12 +692,12 @@ impl<'a> CryptoVerifier<'a> {
                     ));
                 }
             }
-            
+
             // Verify transaction hashes
             for tx in block.transactions() {
                 let stored_hash = tx.hash();
                 let computed_hash = Self::calculate_tx_hash(tx);
-                
+
                 if stored_hash != computed_hash {
                     issues.push(IntegrityIssue::new(
                         IssueType::CryptoVerification,
@@ -718,18 +715,18 @@ impl<'a> CryptoVerifier<'a> {
                         false, // Not fixable
                     ));
                 }
-                
+
                 // Optionally verify transaction signatures if configured
                 if self.config.verify_signatures {
                     // This would be very implementation-specific
                     // Signature verification logic would go here
                 }
             }
-            
+
             // Move to previous block
             current_hash = *block.prev_block_hash();
             current_height -= 1;
-            
+
             if current_height == 0 {
                 break; // Reached genesis
             }
@@ -737,68 +734,66 @@ impl<'a> CryptoVerifier<'a> {
 
         Ok(())
     }
-    
+
     /// Verify proof of work for a block
     fn verify_block_pow(&self, block: &Block) -> bool {
         // The block's verify_proof_of_work method already handles this
         block.verify_proof_of_work()
     }
-    
+
     /// Calculate merkle root from transactions
     fn calculate_merkle_root(transactions: &[Transaction]) -> [u8; 32] {
         if transactions.is_empty() {
             return [0u8; 32];
         }
-        
-        let mut hashes: Vec<[u8; 32]> = transactions.iter()
-            .map(|tx| tx.hash())
-            .collect();
-            
+
+        let mut hashes: Vec<[u8; 32]> = transactions.iter().map(|tx| tx.hash()).collect();
+
         while hashes.len() > 1 {
             let mut new_hashes = Vec::new();
-            
+
             for chunk in hashes.chunks(2) {
                 let mut hasher = Sha256::new();
                 hasher.update(chunk[0]);
-                
+
                 // If odd number of hashes, duplicate the last one
                 if chunk.len() == 2 {
                     hasher.update(chunk[1]);
                 } else {
                     hasher.update(chunk[0]);
                 }
-                
+
                 let hash_result = hasher.finalize();
-                
+
                 // Double SHA-256
                 let mut hasher = Sha256::new();
                 hasher.update(hash_result);
                 let result = hasher.finalize();
-                
+
                 let mut hash = [0u8; 32];
                 hash.copy_from_slice(&result);
                 new_hashes.push(hash);
             }
-            
+
             hashes = new_hashes;
         }
-        
+
         hashes[0]
     }
-    
+
     /// Calculate transaction hash
     fn calculate_tx_hash(tx: &Transaction) -> [u8; 32] {
         let serialized = bincode::serialize(tx).unwrap_or_default();
-        
+
         let mut hasher = Sha256::new();
         hasher.update(&serialized);
         let result = hasher.finalize();
-        
+
         // Double SHA-256 for Bitcoin-like chains
         let mut hasher = Sha256::new();
         hasher.update(result);
         let result = hasher.finalize();
-        
+
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
         hash

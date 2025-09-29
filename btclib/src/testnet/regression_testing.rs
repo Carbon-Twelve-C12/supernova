@@ -1,29 +1,29 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use tracing::{info, warn, error, debug};
 use thiserror::Error;
+use tracing::{debug, error, info, warn};
 
 /// Errors related to regression testing
 #[derive(Debug, Error)]
 pub enum RegressionError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
-    
+
     #[error("Test case not found: {0}")]
     TestCaseNotFound(String),
-    
+
     #[error("Invalid test case: {0}")]
     InvalidTestCase(String),
-    
+
     #[error("Execution error: {0}")]
     ExecutionError(String),
-    
+
     #[error("Verification error: {0}")]
     VerificationError(String),
 }
@@ -156,10 +156,10 @@ impl RegressionTestingManager {
         // Create directories if they don't exist
         fs::create_dir_all(&test_cases_dir)?;
         fs::create_dir_all(&results_dir)?;
-        
+
         let test_cases_dir = test_cases_dir.as_ref().to_path_buf();
         let results_dir = results_dir.as_ref().to_path_buf();
-        
+
         let mut manager = Self {
             test_cases_dir,
             results_dir,
@@ -167,16 +167,16 @@ impl RegressionTestingManager {
             test_cases: HashMap::new(),
             test_results: HashMap::new(),
         };
-        
+
         // Load existing test suites
         manager.load_test_suites()?;
-        
+
         // Load existing test cases
         manager.load_test_cases()?;
-        
+
         Ok(manager)
     }
-    
+
     /// Load all test suites from disk
     fn load_test_suites(&mut self) -> Result<(), RegressionError> {
         let suites_dir = self.test_cases_dir.join("suites");
@@ -184,11 +184,11 @@ impl RegressionTestingManager {
             fs::create_dir_all(&suites_dir)?;
             return Ok(());
         }
-        
+
         for entry in fs::read_dir(suites_dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
                 let file = File::open(&path)?;
                 let reader = BufReader::new(file);
@@ -196,12 +196,12 @@ impl RegressionTestingManager {
                 self.test_suites.insert(suite.id.clone(), suite);
             }
         }
-        
+
         info!("Loaded {} test suites", self.test_suites.len());
-        
+
         Ok(())
     }
-    
+
     /// Load all test cases from disk
     fn load_test_cases(&mut self) -> Result<(), RegressionError> {
         let cases_dir = self.test_cases_dir.join("cases");
@@ -209,11 +209,11 @@ impl RegressionTestingManager {
             fs::create_dir_all(&cases_dir)?;
             return Ok(());
         }
-        
+
         for entry in fs::read_dir(cases_dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
                 let file = File::open(&path)?;
                 let reader = BufReader::new(file);
@@ -221,12 +221,12 @@ impl RegressionTestingManager {
                 self.test_cases.insert(test_case.id.clone(), test_case);
             }
         }
-        
+
         info!("Loaded {} test cases", self.test_cases.len());
-        
+
         Ok(())
     }
-    
+
     /// Create a new test case based on blockchain state
     pub fn create_test_case(
         &mut self,
@@ -241,7 +241,7 @@ impl RegressionTestingManager {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         // Create test case
         let test_case = RegressionTestCase {
             id: id.clone(),
@@ -253,33 +253,33 @@ impl RegressionTestingManager {
             created_at: now,
             updated_at: now,
         };
-        
+
         // Save test case
         self.save_test_case(&test_case)?;
-        
+
         // Add to in-memory cache
         self.test_cases.insert(id.clone(), test_case);
-        
+
         Ok(id)
     }
-    
+
     /// Save a test case to disk
     fn save_test_case(&self, test_case: &RegressionTestCase) -> Result<(), RegressionError> {
         let cases_dir = self.test_cases_dir.join("cases");
         fs::create_dir_all(&cases_dir)?;
-        
+
         let file_path = cases_dir.join(format!("{}.json", test_case.id));
         let file = File::create(file_path)?;
         let writer = BufWriter::new(file);
-        
+
         serde_json::to_writer_pretty(writer, test_case)?;
-        
+
         Ok(())
     }
-    
+
     /// Create a new test suite
     pub fn create_test_suite(
-        &mut self, 
+        &mut self,
         id: String,
         name: String,
         description: String,
@@ -290,7 +290,7 @@ impl RegressionTestingManager {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         // Create test suite
         let test_suite = RegressionTestSuite {
             id: id.clone(),
@@ -301,56 +301,65 @@ impl RegressionTestingManager {
             created_at: now,
             updated_at: now,
         };
-        
+
         // Save test suite
         self.save_test_suite(&test_suite)?;
-        
+
         // Add to in-memory cache
         self.test_suites.insert(id.clone(), test_suite);
-        
+
         Ok(id)
     }
-    
+
     /// Save a test suite to disk
     fn save_test_suite(&self, test_suite: &RegressionTestSuite) -> Result<(), RegressionError> {
         let suites_dir = self.test_cases_dir.join("suites");
         fs::create_dir_all(&suites_dir)?;
-        
+
         let file_path = suites_dir.join(format!("{}.json", test_suite.id));
         let file = File::create(file_path)?;
         let writer = BufWriter::new(file);
-        
+
         serde_json::to_writer_pretty(writer, test_suite)?;
-        
+
         Ok(())
     }
-    
+
     /// Run a specific test case
-    pub async fn run_test_case(&mut self, test_id: &str) -> Result<RegressionTestResult, RegressionError> {
-        let test_case = self.test_cases.get(test_id).ok_or_else(|| {
-            RegressionError::TestCaseNotFound(test_id.to_string())
-        })?.clone();
-        
+    pub async fn run_test_case(
+        &mut self,
+        test_id: &str,
+    ) -> Result<RegressionTestResult, RegressionError> {
+        let test_case = self
+            .test_cases
+            .get(test_id)
+            .ok_or_else(|| RegressionError::TestCaseNotFound(test_id.to_string()))?
+            .clone();
+
         info!("Running regression test case: {}", test_id);
         debug!("Description: {}", test_case.description);
-        
+
         let start_time = std::time::Instant::now();
-        
+
         // Setup test environment with initial state
         // This would initialize a blockchain with the given initial state
         // For now, we'll just simulate the execution
-        
+
         let mut actual_state = test_case.initial_state.clone();
-        
+
         // Process input blocks
         for (i, block) in test_case.input_blocks.iter().enumerate() {
-            debug!("Processing block {} of {}", i + 1, test_case.input_blocks.len());
-            
+            debug!(
+                "Processing block {} of {}",
+                i + 1,
+                test_case.input_blocks.len()
+            );
+
             // In a real implementation, we would apply each block to the blockchain
             // Here we're just simulating the update
             actual_state.height = block.height;
             actual_state.best_block_hash = block.hash.clone();
-            
+
             // Process transactions - simplified for testing
             // In real implementation, would properly handle inputs/outputs
             for tx in &block.transactions {
@@ -360,26 +369,33 @@ impl RegressionTestingManager {
                     // Remove spent UTXO
                     actual_state.utxo_set.remove("txid1:0");
                     // Add new UTXO (100000 - 1000 fee = 99000)
-                    actual_state.utxo_set.insert(format!("{}:0", tx.txid), 99000);
+                    actual_state
+                        .utxo_set
+                        .insert(format!("{}:0", tx.txid), 99000);
                 }
             }
-            
+
             // Remove processed transactions from mempool
-            let txids: Vec<String> = block.transactions.iter().map(|tx| tx.txid.clone()).collect();
+            let txids: Vec<String> = block
+                .transactions
+                .iter()
+                .map(|tx| tx.txid.clone())
+                .collect();
             actual_state.mempool.retain(|tx| !txids.contains(&tx.txid));
         }
-        
+
         // Update timestamp
         actual_state.timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         // Verify final state matches expected
-        let (passed, differences) = self.verify_state(&test_case.expected_final_state, &actual_state);
-        
+        let (passed, differences) =
+            self.verify_state(&test_case.expected_final_state, &actual_state);
+
         let execution_time = start_time.elapsed();
-        
+
         // Create test result
         let result = RegressionTestResult {
             test_id: test_id.to_string(),
@@ -393,32 +409,42 @@ impl RegressionTestingManager {
                 .unwrap()
                 .as_secs(),
         };
-        
+
         // Save test result
         self.save_test_result(&result)?;
-        
+
         // Add to in-memory cache
         self.test_results
             .entry(test_id.to_string())
             .or_default()
             .push(result.clone());
-        
+
         if result.passed {
-            info!("Test case {} passed in {}ms", test_id, result.execution_time_ms);
+            info!(
+                "Test case {} passed in {}ms",
+                test_id, result.execution_time_ms
+            );
         } else {
-            warn!("Test case {} failed in {}ms", test_id, result.execution_time_ms);
+            warn!(
+                "Test case {} failed in {}ms",
+                test_id, result.execution_time_ms
+            );
             for diff in &result.differences {
                 warn!("  - {}", diff);
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Verify that actual state matches expected state
-    fn verify_state(&self, expected: &BlockchainState, actual: &BlockchainState) -> (bool, Vec<String>) {
+    fn verify_state(
+        &self,
+        expected: &BlockchainState,
+        actual: &BlockchainState,
+    ) -> (bool, Vec<String>) {
         let mut differences = Vec::new();
-        
+
         // Compare basic blockchain properties
         if expected.height != actual.height {
             differences.push(format!(
@@ -426,14 +452,14 @@ impl RegressionTestingManager {
                 expected.height, actual.height
             ));
         }
-        
+
         if expected.best_block_hash != actual.best_block_hash {
             differences.push(format!(
                 "Best block hash mismatch: expected {}, got {}",
                 expected.best_block_hash, actual.best_block_hash
             ));
         }
-        
+
         // Compare UTXO set
         for (outpoint, value) in &expected.utxo_set {
             match actual.utxo_set.get(outpoint) {
@@ -447,62 +473,64 @@ impl RegressionTestingManager {
                     ));
                 }
                 None => {
-                    differences.push(format!(
-                        "Missing UTXO: {} (value {})",
-                        outpoint, value
-                    ));
+                    differences.push(format!("Missing UTXO: {} (value {})", outpoint, value));
                 }
             }
         }
-        
+
         // Check for extra UTXOs in actual state
         for outpoint in actual.utxo_set.keys() {
             if !expected.utxo_set.contains_key(outpoint) {
-                differences.push(format!(
-                    "Unexpected UTXO: {}",
-                    outpoint
-                ));
+                differences.push(format!("Unexpected UTXO: {}", outpoint));
             }
         }
-        
+
         // Compare mempool (just count for simplicity)
         if expected.mempool.len() != actual.mempool.len() {
             differences.push(format!(
                 "Mempool size mismatch: expected {}, got {}",
-                expected.mempool.len(), actual.mempool.len()
+                expected.mempool.len(),
+                actual.mempool.len()
             ));
         }
-        
+
         (differences.is_empty(), differences)
     }
-    
+
     /// Save a test result to disk
     fn save_test_result(&self, result: &RegressionTestResult) -> Result<(), RegressionError> {
         let results_dir = self.results_dir.join(result.test_id.clone());
         fs::create_dir_all(&results_dir)?;
-        
+
         let file_name = format!("{}.json", result.executed_at);
         let file_path = results_dir.join(file_name);
         let file = File::create(file_path)?;
         let writer = BufWriter::new(file);
-        
+
         serde_json::to_writer_pretty(writer, result)?;
-        
+
         Ok(())
     }
-    
+
     /// Run all test cases in a test suite
-    pub async fn run_test_suite(&mut self, suite_id: &str) -> Result<Vec<RegressionTestResult>, RegressionError> {
-        let suite = self.test_suites.get(suite_id).ok_or_else(|| {
-            RegressionError::TestCaseNotFound(format!("Test suite {} not found", suite_id))
-        })?.clone();
-        
+    pub async fn run_test_suite(
+        &mut self,
+        suite_id: &str,
+    ) -> Result<Vec<RegressionTestResult>, RegressionError> {
+        let suite = self
+            .test_suites
+            .get(suite_id)
+            .ok_or_else(|| {
+                RegressionError::TestCaseNotFound(format!("Test suite {} not found", suite_id))
+            })?
+            .clone();
+
         info!("Running test suite: {}", suite.name);
         info!("Description: {}", suite.description);
         info!("Contains {} test cases", suite.test_cases.len());
-        
+
         let mut results = Vec::new();
-        
+
         for test_id in &suite.test_cases {
             match self.run_test_case(test_id).await {
                 Ok(result) => {
@@ -510,13 +538,13 @@ impl RegressionTestingManager {
                 }
                 Err(err) => {
                     error!("Failed to run test case {}: {}", test_id, err);
-                    
+
                     // Create an error result
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_secs();
-                    
+
                     let error_result = RegressionTestResult {
                         test_id: test_id.clone(),
                         passed: false,
@@ -533,24 +561,24 @@ impl RegressionTestingManager {
                         differences: vec![format!("Test execution failed: {}", err)],
                         executed_at: now,
                     };
-                    
+
                     results.push(error_result);
                 }
             }
         }
-        
+
         // Calculate overall results
         let total_tests = results.len();
         let passed_tests = results.iter().filter(|r| r.passed).count();
-        
+
         info!(
             "Test suite {} completed: {}/{} tests passed",
             suite_id, passed_tests, total_tests
         );
-        
+
         Ok(results)
     }
-    
+
     /// Capture current blockchain state for regression testing
     pub fn capture_blockchain_state(
         height: u64,
@@ -563,7 +591,7 @@ impl RegressionTestingManager {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         BlockchainState {
             height,
             best_block_hash,
@@ -573,7 +601,7 @@ impl RegressionTestingManager {
             timestamp,
         }
     }
-    
+
     /// Create a regression test case from a blockchain issue
     pub fn create_regression_test_from_issue(
         &mut self,
@@ -584,7 +612,7 @@ impl RegressionTestingManager {
         correct_final_state: BlockchainState,
     ) -> Result<String, RegressionError> {
         let test_id = format!("regression_issue_{}", issue_id);
-        
+
         self.create_test_case(
             test_id.clone(),
             format!("Regression test for issue #{}: {}", issue_id, description),
@@ -592,32 +620,35 @@ impl RegressionTestingManager {
             blocks_to_apply,
             correct_final_state,
         )?;
-        
-        info!("Created regression test for issue #{}: {}", issue_id, test_id);
-        
+
+        info!(
+            "Created regression test for issue #{}: {}",
+            issue_id, test_id
+        );
+
         Ok(test_id)
     }
-    
+
     /// Get a specific test case
     pub fn get_test_case(&self, test_id: &str) -> Option<&RegressionTestCase> {
         self.test_cases.get(test_id)
     }
-    
+
     /// Get all test cases
     pub fn get_all_test_cases(&self) -> &HashMap<String, RegressionTestCase> {
         &self.test_cases
     }
-    
+
     /// Get a specific test suite
     pub fn get_test_suite(&self, suite_id: &str) -> Option<&RegressionTestSuite> {
         self.test_suites.get(suite_id)
     }
-    
+
     /// Get all test suites
     pub fn get_all_test_suites(&self) -> &HashMap<String, RegressionTestSuite> {
         &self.test_suites
     }
-    
+
     /// Get test results for a specific test case
     pub fn get_test_results(&self, test_id: &str) -> Option<&Vec<RegressionTestResult>> {
         self.test_results.get(test_id)
@@ -627,18 +658,18 @@ impl RegressionTestingManager {
 /// Module for creating sample regression tests
 pub mod samples {
     use super::*;
-    
+
     /// Create a sample regression test case for a double-spend issue
     pub fn create_double_spend_regression_test() -> RegressionTestCase {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         // Create initial state
         let mut initial_utxo_set = HashMap::new();
         initial_utxo_set.insert("txid1:0".to_string(), 100000);
-        
+
         let initial_state = BlockchainState {
             height: 100,
             best_block_hash: "blockhash100".to_string(),
@@ -647,7 +678,7 @@ pub mod samples {
             network_connections: 5,
             timestamp: now,
         };
-        
+
         // Create transactions
         let tx1 = SerializedTransaction {
             txid: "double_spend_tx1".to_string(),
@@ -655,14 +686,14 @@ pub mod samples {
             fee: 1000,
             size: 250,
         };
-        
+
         let tx2 = SerializedTransaction {
             txid: "double_spend_tx2".to_string(),
             raw_tx: "0100000001abcd...".to_string(), // Simplified representation
-            fee: 2000, // Higher fee
+            fee: 2000,                               // Higher fee
             size: 250,
         };
-        
+
         // Create input blocks
         let block1 = RegressionBlock {
             height: 101,
@@ -673,11 +704,11 @@ pub mod samples {
             size: 1000,
             parent_hash: "blockhash100".to_string(),
         };
-        
+
         // Create expected final state
         let mut expected_utxo_set = HashMap::new();
         expected_utxo_set.insert("double_spend_tx1:0".to_string(), 99000);
-        
+
         let expected_final_state = BlockchainState {
             height: 101,
             best_block_hash: "blockhash101".to_string(),
@@ -686,7 +717,7 @@ pub mod samples {
             network_connections: 5,
             timestamp: now + 600,
         };
-        
+
         RegressionTestCase {
             id: "double_spend_regression".to_string(),
             description: "Regression test for double-spend prevention".to_string(),
@@ -710,33 +741,33 @@ pub mod samples {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    
+
     #[tokio::test]
     async fn test_regression_framework_basics() {
         // Create temporary directories for test
         let test_dir = tempdir().unwrap();
         let results_dir = tempdir().unwrap();
-        
+
         // Create regression testing manager
-        let mut manager = RegressionTestingManager::new(
-            test_dir.path(),
-            results_dir.path(),
-        ).unwrap();
-        
+        let mut manager =
+            RegressionTestingManager::new(test_dir.path(), results_dir.path()).unwrap();
+
         // Create a sample test case
         let test_case = samples::create_double_spend_regression_test();
-        
+
         // Save the test case
         manager.save_test_case(&test_case).unwrap();
-        
+
         // Add to in-memory cache
-        manager.test_cases.insert(test_case.id.clone(), test_case.clone());
-        
+        manager
+            .test_cases
+            .insert(test_case.id.clone(), test_case.clone());
+
         // Run the test case
         let result = manager.run_test_case(&test_case.id).await.unwrap();
-        
+
         // Verify the result
         assert!(result.passed);
         assert_eq!(result.test_id, test_case.id);
     }
-} 
+}

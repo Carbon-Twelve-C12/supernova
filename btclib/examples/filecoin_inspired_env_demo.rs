@@ -1,20 +1,20 @@
-use btclib::environmental::{
-    create_environmental_api, EmissionsTimePeriod, EmissionsTracker, EmissionsConfig,
-    Region, PoolId, PoolEnergyInfo, HashRate, HardwareType, Emissions,
-    MinerEnvironmentalInfo, RECCertificate, CarbonOffset, LocationVerificationMethod,
-    VerificationStatus, EnvironmentalDashboard, EmissionsReportType, DashboardOptions
-};
 use btclib::config::Config;
-use chrono::{DateTime, Utc, Duration};
+use btclib::environmental::{
+    create_environmental_api, CarbonOffset, DashboardOptions, Emissions, EmissionsConfig,
+    EmissionsReportType, EmissionsTimePeriod, EmissionsTracker, EnvironmentalDashboard,
+    HardwareType, HashRate, LocationVerificationMethod, MinerEnvironmentalInfo, PoolEnergyInfo,
+    PoolId, RECCertificate, Region, VerificationStatus,
+};
+use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
 
 // Simple implementation to mock required structs until they are fully implemented
 mod mock {
     use crate::*;
     use btclib::environmental::*;
-    use std::collections::HashMap;
     use chrono::{DateTime, Utc};
-    use serde::{Serialize, Deserialize};
+    use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct PoolEnergyInfo {
@@ -61,16 +61,20 @@ mod mock {
 
     impl EmissionsTracker {
         pub fn load_default_emission_factors(&self) {}
-        
+
         pub fn register_pool_energy_info(&self, _pool_id: PoolId, _info: PoolEnergyInfo) {}
-        
+
         pub fn update_region_hashrate(&self, _region: Region, _hashrate: HashRate) {}
-        
+
         pub fn clone(&self) -> Self {
             EmissionsTracker {}
         }
-        
-        pub fn calculate_network_emissions(&self, _start: DateTime<Utc>, _end: DateTime<Utc>) -> Result<Emissions, String> {
+
+        pub fn calculate_network_emissions(
+            &self,
+            _start: DateTime<Utc>,
+            _end: DateTime<Utc>,
+        ) -> Result<Emissions, String> {
             Ok(Emissions {
                 tonnes_co2e: 1250.0,
                 energy_kwh: 5000000.0,
@@ -98,18 +102,18 @@ mod mock {
         pub fn register_miner(&self, _info: MinerEnvironmentalInfo) -> Result<(), String> {
             Ok(())
         }
-        
+
         pub fn calculate_fee_discount_with_rec_priority(&self, _miner_id: &str) -> f64 {
             15.0 // Example value
         }
-        
+
         pub fn clone(&self) -> Self {
             MinerReportingManager {}
         }
-        
+
         pub fn generate_report_with_rec_priority(&self) -> MinerEnvironmentalReport {
             MinerEnvironmentalReport {
-                rec_coverage_percentage: Some(65.0)
+                rec_coverage_percentage: Some(65.0),
             }
         }
     }
@@ -158,15 +162,20 @@ mod mock {
         ) -> Self {
             EnvironmentalDashboard {}
         }
-        
+
         pub fn update_options(&mut self, _options: DashboardOptions) {}
-        
-        pub fn generate_metrics(&mut self, _period: EmissionsTimePeriod, _tx_count: u64) -> Result<EnvironmentalMetrics, String> {
+
+        pub fn generate_metrics(
+            &mut self,
+            _period: EmissionsTimePeriod,
+            _tx_count: u64,
+        ) -> Result<EnvironmentalMetrics, String> {
             Ok(EnvironmentalMetrics {})
         }
-        
+
         pub fn generate_text_report(&self, _period: EmissionsTimePeriod) -> Result<String, String> {
-            Ok("supernova Environmental Impact Report: Daily (Last 24 hours)\n\
+            Ok(
+                "supernova Environmental Impact Report: Daily (Last 24 hours)\n\
                 --------------------------------------------\n\
                 Location-based Emissions: 1250.00 tonnes CO2e\n\
                 Market-based Emissions: 950.00 tonnes CO2e\n\
@@ -184,9 +193,11 @@ mod mock {
                 \n\
                 Net Emissions: 750.00 tonnes CO2e\n\
                 \n\
-                Calculation Confidence: 85.0%\n".to_string())
+                Calculation Confidence: 85.0%\n"
+                    .to_string(),
+            )
         }
-        
+
         pub fn export_metrics_json(&self, _period: EmissionsTimePeriod) -> Result<String, String> {
             Ok("{\n  \"metrics\": \"sample data in JSON format\"\n}".to_string())
         }
@@ -227,10 +238,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("2. Loading geographically specific emission factors...");
     let emissions_tracker = env_api.get_emissions_tracker();
     emissions_tracker.load_default_emission_factors();
-    
+
     // Step 3: Register mining pools with detailed energy information
     println!("3. Registering mining pools with energy mix data...");
-    
+
     // Create a US mining pool with 70% renewable energy
     let us_pool_info = PoolEnergyInfo {
         renewable_percentage: 70.0,
@@ -241,9 +252,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
         last_updated: Utc::now(),
     };
-    
+
     emissions_tracker.register_pool_energy_info(PoolId("pool1".to_string()), us_pool_info);
-    
+
     // Create a European mining pool with 90% renewable energy
     let eu_pool_info = PoolEnergyInfo {
         renewable_percentage: 90.0,
@@ -254,68 +265,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
         last_updated: Utc::now(),
     };
-    
+
     emissions_tracker.register_pool_energy_info(PoolId("pool2".to_string()), eu_pool_info);
-    
+
     // Create an Asian mining pool with 30% renewable energy
     let asia_pool_info = PoolEnergyInfo {
         renewable_percentage: 30.0,
         verified: true,
-        regions: vec![
-            Region::new("JP"),
-            Region::new("SG"),
-        ],
+        regions: vec![Region::new("JP"), Region::new("SG")],
         last_updated: Utc::now(),
     };
-    
+
     emissions_tracker.register_pool_energy_info(PoolId("pool3".to_string()), asia_pool_info);
-    
+
     // Step 4: Update regional hashrate distribution
     println!("4. Updating regional hashrate distribution...");
-    
+
     // United States regions
-    emissions_tracker.update_region_hashrate(
-        Region::with_sub_region("US", "WA"),
-        HashRate(120.0)
-    );
-    
-    emissions_tracker.update_region_hashrate(
-        Region::with_sub_region("US", "CA"),
-        HashRate(80.0)
-    );
-    
-    emissions_tracker.update_region_hashrate(
-        Region::with_sub_region("US", "TX"),
-        HashRate(150.0)
-    );
-    
+    emissions_tracker.update_region_hashrate(Region::with_sub_region("US", "WA"), HashRate(120.0));
+
+    emissions_tracker.update_region_hashrate(Region::with_sub_region("US", "CA"), HashRate(80.0));
+
+    emissions_tracker.update_region_hashrate(Region::with_sub_region("US", "TX"), HashRate(150.0));
+
     // European regions
-    emissions_tracker.update_region_hashrate(
-        Region::with_sub_region("SE", "Stockholm"),
-        HashRate(70.0)
-    );
-    
-    emissions_tracker.update_region_hashrate(
-        Region::with_sub_region("IS", "Reykjavik"),
-        HashRate(90.0)
-    );
-    
+    emissions_tracker
+        .update_region_hashrate(Region::with_sub_region("SE", "Stockholm"), HashRate(70.0));
+
+    emissions_tracker
+        .update_region_hashrate(Region::with_sub_region("IS", "Reykjavik"), HashRate(90.0));
+
     // Asian regions
-    emissions_tracker.update_region_hashrate(
-        Region::new("JP"),
-        HashRate(100.0)
-    );
-    
-    emissions_tracker.update_region_hashrate(
-        Region::new("SG"),
-        HashRate(60.0)
-    );
-    
+    emissions_tracker.update_region_hashrate(Region::new("JP"), HashRate(100.0));
+
+    emissions_tracker.update_region_hashrate(Region::new("SG"), HashRate(60.0));
+
     // Step 5: Create detailed miner reporting with hardware specifications
     println!("5. Registering miners with verified hardware specifications...");
-    
+
     let miner_reporting = env_api.get_miner_reporting();
-    
+
     // US-based green miner
     let mut us_miner = MinerEnvironmentalInfo {
         miner_id: "miner1".to_string(),
@@ -323,7 +312,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         region: Region::with_sub_region("US", "WA"),
         hardware_types: vec![
             HardwareType::AntminerS19XP,
-            HardwareType::WhatsminerM30SPlus
+            HardwareType::WhatsminerM30SPlus,
         ],
         energy_sources: {
             let mut map = HashMap::new();
@@ -336,17 +325,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         total_hashrate: 500.0,
         energy_consumption_kwh_day: 12000.0,
     };
-    
+
     miner_reporting.register_miner(us_miner)?;
-    
+
     // European miner with RECs and high efficiency
     let mut eu_miner = MinerEnvironmentalInfo {
         miner_id: "miner2".to_string(),
         name: "Nordic Green Mining".to_string(),
         region: Region::with_sub_region("IS", "Reykjavik"),
-        hardware_types: vec![
-            HardwareType::AntminerS19XP,
-        ],
+        hardware_types: vec![HardwareType::AntminerS19XP],
         energy_sources: {
             let mut map = HashMap::new();
             map.insert(EnergySource::Hydro, 60.0);
@@ -357,9 +344,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         total_hashrate: 400.0,
         energy_consumption_kwh_day: 8800.0,
     };
-    
+
     miner_reporting.register_miner(eu_miner)?;
-    
+
     // Asian miner with carbon offsets
     let mut asia_miner = MinerEnvironmentalInfo {
         miner_id: "miner3".to_string(),
@@ -368,7 +355,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         hardware_types: vec![
             HardwareType::AntminerS19,
             HardwareType::WhatsminerM30S,
-            HardwareType::AvalonMiner1246
+            HardwareType::AvalonMiner1246,
         ],
         energy_sources: {
             let mut map = HashMap::new();
@@ -381,51 +368,67 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         total_hashrate: 600.0,
         energy_consumption_kwh_day: 19200.0,
     };
-    
+
     miner_reporting.register_miner(asia_miner)?;
-    
+
     // Step 6: Calculate fee discounts with REC prioritization
     println!("6. Calculating fee discounts with REC prioritization...");
-    
+
     let us_discount = miner_reporting.calculate_fee_discount_with_rec_priority("miner1");
     let eu_discount = miner_reporting.calculate_fee_discount_with_rec_priority("miner2");
     let asia_discount = miner_reporting.calculate_fee_discount_with_rec_priority("miner3");
-    
+
     println!("   US Miner (REC-backed): {:.1}% fee discount", us_discount);
     println!("   EU Miner (REC-backed): {:.1}% fee discount", eu_discount);
-    println!("   Asia Miner (offset-backed): {:.1}% fee discount", asia_discount);
-    
+    println!(
+        "   Asia Miner (offset-backed): {:.1}% fee discount",
+        asia_discount
+    );
+
     // Step 7: Calculate network and transaction emissions with granular data
     println!("7. Calculating network emissions with location-based and market-based methods...");
-    
+
     let now = Utc::now();
     let day_ago = now - Duration::days(1);
     let week_ago = now - Duration::days(7);
-    
+
     // Calculate daily emissions
     let daily_emissions = emissions_tracker.calculate_network_emissions(day_ago, now)?;
-    
+
     println!("   Daily Network Emissions:");
-    println!("   - Location-based: {:.2} tonnes CO2e", daily_emissions.location_based_emissions.unwrap_or(daily_emissions.tonnes_co2e));
-    println!("   - Market-based (with RECs): {:.2} tonnes CO2e", daily_emissions.market_based_emissions.unwrap_or(daily_emissions.tonnes_co2e));
+    println!(
+        "   - Location-based: {:.2} tonnes CO2e",
+        daily_emissions
+            .location_based_emissions
+            .unwrap_or(daily_emissions.tonnes_co2e)
+    );
+    println!(
+        "   - Market-based (with RECs): {:.2} tonnes CO2e",
+        daily_emissions
+            .market_based_emissions
+            .unwrap_or(daily_emissions.tonnes_co2e)
+    );
     if let Some(marginal) = daily_emissions.marginal_emissions_impact {
         println!("   - Marginal Impact: {:.2} tonnes CO2e", marginal);
     }
-    println!("   - Energy consumption: {:.2} MWh", daily_emissions.energy_kwh / 1000.0);
+    println!(
+        "   - Energy consumption: {:.2} MWh",
+        daily_emissions.energy_kwh / 1000.0
+    );
     if let Some(renewable) = daily_emissions.renewable_percentage {
         println!("   - Renewable percentage: {:.1}%", renewable);
     }
-    
+
     // Step 8: Generate environmental dashboard report
     println!("\n8. Generating environmental dashboard report...");
-    
+
     // Create dashboard with all components
     let mut dashboard = EnvironmentalDashboard::with_miner_reporting(
         emissions_tracker.clone(),
         env_api.get_treasury(),
-        miner_reporting.clone()
+        miner_reporting.clone(),
     );
-    
+
     // Configure dashboard options
     dashboard.update_options(DashboardOptions {
         show_regional_data: true,
@@ -438,19 +441,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         show_marginal_data: true,
         show_confidence_levels: true,
     });
-    
+
     // Generate metrics
     let daily_metrics = dashboard.generate_metrics(EmissionsTimePeriod::Day, 150000)?;
-    
+
     // Generate text report
     let report = dashboard.generate_text_report(EmissionsTimePeriod::Day)?;
     println!("\n{}", report);
-    
+
     // Export metrics as JSON
     let json = dashboard.export_metrics_json(EmissionsTimePeriod::Day)?;
     println!("\n9. Exporting metrics as JSON for integration with external systems...");
     println!("   (Json data length: {} bytes)", json.len());
-    
+
     println!("\nDemo completed successfully!");
     Ok(())
-} 
+}

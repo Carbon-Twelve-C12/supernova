@@ -1,9 +1,9 @@
-use crate::testnet::{TestNetManager, config::TestNetConfig};
-use crate::testnet::network_simulator::{SimulationConfig, NetworkCondition};
 use crate::testnet::config::NetworkSimulationConfig;
+use crate::testnet::network_simulator::{NetworkCondition, SimulationConfig};
+use crate::testnet::{config::TestNetConfig, TestNetManager};
 use std::collections::HashMap;
-use tokio::time::{Duration, sleep};
-use tracing::{info, warn, error};
+use tokio::time::{sleep, Duration};
+use tracing::{error, info, warn};
 
 /// Represents a test node in the harness
 #[derive(Clone)]
@@ -221,7 +221,7 @@ impl TestHarness {
     /// Create a new test harness
     pub fn new(config: TestNetConfig) -> Self {
         let testnet = TestNetManager::new(config);
-        
+
         Self {
             testnet,
             nodes: HashMap::new(),
@@ -230,41 +230,42 @@ impl TestHarness {
             test_results: Vec::new(),
         }
     }
-    
+
     /// Initialize nodes for a test
     pub fn initialize_nodes(&mut self, node_setups: Vec<TestNodeSetup>) -> Result<(), String> {
         // Clear existing nodes
         self.nodes.clear();
-        
+
         // Create new nodes
         for setup in node_setups {
             let node = TestNode {
                 id: setup.id,
                 node_type: setup.node_type,
                 height: 0,
-                best_block_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                best_block_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
                 mempool_count: 0,
                 connections: setup.initial_connections,
                 status: TestNodeStatus::Running,
             };
-            
+
             self.nodes.insert(setup.id, node);
         }
-        
+
         info!("Initialized {} test nodes", self.nodes.len());
         Ok(())
     }
-    
+
     /// Run a complete test scenario
     pub async fn run_scenario(&mut self, scenario: TestScenario) -> TestResult {
         let start_time = std::time::Instant::now();
-        
+
         info!("Starting test scenario: {}", scenario.name);
         info!("Description: {}", scenario.description);
-        
+
         // Initialize the test network with the scenario configuration
         self.testnet = TestNetManager::new(scenario.network_config.clone());
-        
+
         // Initialize nodes
         if let Err(e) = self.initialize_nodes(scenario.initial_nodes.clone()) {
             error!("Failed to initialize nodes: {}", e);
@@ -276,14 +277,18 @@ impl TestHarness {
                 notes: vec![format!("Error: {}", e)],
             };
         }
-        
+
         // Set current scenario
         self.current_scenario = Some(scenario.clone());
-        
+
         // Execute test steps
         for (step_idx, step) in scenario.steps.iter().enumerate() {
-            info!("Executing step {} of {}", step_idx + 1, scenario.steps.len());
-            
+            info!(
+                "Executing step {} of {}",
+                step_idx + 1,
+                scenario.steps.len()
+            );
+
             if let Err(e) = self.execute_step(step).await {
                 error!("Step execution failed: {}", e);
                 return TestResult {
@@ -295,19 +300,23 @@ impl TestHarness {
                 };
             }
         }
-        
+
         // Verify outcomes
         let mut failed_outcomes = Vec::new();
         for (outcome_idx, outcome) in scenario.expected_outcomes.iter().enumerate() {
-            info!("Verifying outcome {} of {}", outcome_idx + 1, scenario.expected_outcomes.len());
-            
+            info!(
+                "Verifying outcome {} of {}",
+                outcome_idx + 1,
+                scenario.expected_outcomes.len()
+            );
+
             if !self.verify_outcome(outcome) {
                 let outcome_desc = format!("Outcome {} failed", outcome_idx + 1);
                 error!("{}", outcome_desc);
                 failed_outcomes.push(outcome_desc);
             }
         }
-        
+
         let passed = failed_outcomes.is_empty();
         let result = TestResult {
             scenario_name: scenario.name.clone(),
@@ -316,19 +325,25 @@ impl TestHarness {
             execution_time: start_time.elapsed(),
             notes: vec![],
         };
-        
+
         // Record result
         self.test_results.push(result.clone());
-        
+
         if passed {
-            info!("Scenario '{}' passed in {:?}", scenario.name, result.execution_time);
+            info!(
+                "Scenario '{}' passed in {:?}",
+                scenario.name, result.execution_time
+            );
         } else {
-            warn!("Scenario '{}' failed in {:?}", scenario.name, result.execution_time);
+            warn!(
+                "Scenario '{}' failed in {:?}",
+                scenario.name, result.execution_time
+            );
         }
-        
+
         result
     }
-    
+
     /// Execute a single test step
     async fn execute_step(&mut self, step: &TestStep) -> Result<(), String> {
         match step {
@@ -337,23 +352,40 @@ impl TestHarness {
                 sleep(*duration).await;
                 Ok(())
             }
-            
-            TestStep::MineBlocks { node_ids, block_count } => {
+
+            TestStep::MineBlocks {
+                node_ids,
+                block_count,
+            } => {
                 info!("Mining {} blocks on nodes {:?}", block_count, node_ids);
                 self.mine_blocks(node_ids, *block_count).await
             }
-            
-            TestStep::SendTransactions { from_node, to_node, tx_count } => {
-                info!("Sending {} transactions from node {} to {}", tx_count, from_node, to_node);
-                self.send_transactions(*from_node, *to_node, *tx_count).await
+
+            TestStep::SendTransactions {
+                from_node,
+                to_node,
+                tx_count,
+            } => {
+                info!(
+                    "Sending {} transactions from node {} to {}",
+                    tx_count, from_node, to_node
+                );
+                self.send_transactions(*from_node, *to_node, *tx_count)
+                    .await
             }
-            
-            TestStep::SetNetworkCondition { from_node, to_node, latency_ms, packet_loss_percent, bandwidth_kbps } => {
+
+            TestStep::SetNetworkCondition {
+                from_node,
+                to_node,
+                latency_ms,
+                packet_loss_percent,
+                bandwidth_kbps,
+            } => {
                 info!(
                     "Setting network condition from node {} to {}: latency={:?}ms, loss={:?}%, bandwidth={:?}kbps",
                     from_node, to_node, latency_ms, packet_loss_percent, bandwidth_kbps
                 );
-                
+
                 self.testnet.apply_network_conditions(
                     *from_node,
                     *to_node,
@@ -362,66 +394,77 @@ impl TestHarness {
                     *bandwidth_kbps,
                 )
             }
-            
+
             TestStep::CreatePartition { group_a, group_b } => {
-                info!("Creating network partition between groups {:?} and {:?}", group_a, group_b);
+                info!(
+                    "Creating network partition between groups {:?} and {:?}",
+                    group_a, group_b
+                );
                 self.testnet.simulate_network_partition(group_a, group_b)
             }
-            
+
             TestStep::HealPartition { group_a, group_b } => {
-                info!("Healing network partition between groups {:?} and {:?}", group_a, group_b);
+                info!(
+                    "Healing network partition between groups {:?} and {:?}",
+                    group_a, group_b
+                );
                 self.testnet.heal_network_partition(group_a, group_b)
             }
-            
+
             TestStep::SetNodeStatus { node_id, status } => {
                 info!("Setting node {} status to {:?}", node_id, status);
                 self.set_node_status(*node_id, status.clone())
             }
-            
+
             TestStep::SetClockDrift { node_id, drift_ms } => {
                 info!("Setting clock drift for node {} to {}ms", node_id, drift_ms);
                 // Implementation would depend on how clock drift is simulated
                 Ok(())
             }
-            
+
             TestStep::CustomEvent { name, params } => {
-                info!("Executing custom event '{}' with parameters: {:?}", name, params);
+                info!(
+                    "Executing custom event '{}' with parameters: {:?}",
+                    name, params
+                );
                 self.handle_custom_event(name, params).await
             }
         }
     }
-    
+
     /// Set status for a node
     fn set_node_status(&mut self, node_id: usize, status: TestNodeStatus) -> Result<(), String> {
-        let node = self.nodes.get_mut(&node_id).ok_or_else(|| {
-            format!("Node {} not found", node_id)
-        })?;
-        
+        let node = self
+            .nodes
+            .get_mut(&node_id)
+            .ok_or_else(|| format!("Node {} not found", node_id))?;
+
         node.status = status;
         Ok(())
     }
-    
+
     /// Mine blocks on specified nodes
     async fn mine_blocks(&mut self, node_ids: &[usize], block_count: u64) -> Result<(), String> {
         // This is a simplified implementation - in a real system this would interact
         // with actual node implementations
         for &node_id in node_ids {
-            let node = self.nodes.get_mut(&node_id).ok_or_else(|| {
-                format!("Node {} not found", node_id)
-            })?;
-            
+            let node = self
+                .nodes
+                .get_mut(&node_id)
+                .ok_or_else(|| format!("Node {} not found", node_id))?;
+
             if node.status != TestNodeStatus::Running {
                 return Err(format!("Node {} is not running", node_id));
             }
-            
+
             // Simulate mining blocks
             for _ in 0..block_count {
                 node.height += 1;
-                
+
                 // Generate a fake block hash for testing
                 let hash = format!("block{}node{}", node.height, node_id);
                 node.best_block_hash = hash;
-                
+
                 // Process block in testnet manager
                 self.testnet.process_block(
                     node.height,
@@ -432,35 +475,44 @@ impl TestHarness {
                         .as_secs(),
                     Some(format!("node{}", node_id)),
                 );
-                
+
                 // Short delay to simulate block time
                 sleep(Duration::from_millis(10)).await;
             }
-            
-            info!("Mined {} blocks on node {}, new height: {}", block_count, node_id, node.height);
+
+            info!(
+                "Mined {} blocks on node {}, new height: {}",
+                block_count, node_id, node.height
+            );
         }
-        
+
         // Propagate blocks to connected nodes
         self.propagate_blocks().await?;
-        
+
         Ok(())
     }
-    
+
     /// Send transactions between nodes
-    async fn send_transactions(&mut self, from_node: usize, to_node: usize, tx_count: usize) -> Result<(), String> {
-        let from = self.nodes.get(&from_node).ok_or_else(|| {
-            format!("Source node {} not found", from_node)
-        })?;
-        
+    async fn send_transactions(
+        &mut self,
+        from_node: usize,
+        to_node: usize,
+        tx_count: usize,
+    ) -> Result<(), String> {
+        let from = self
+            .nodes
+            .get(&from_node)
+            .ok_or_else(|| format!("Source node {} not found", from_node))?;
+
         if from.status != TestNodeStatus::Running {
             return Err(format!("Source node {} is not running", from_node));
         }
-        
+
         // Check if the node exists before getting a mutable reference
         if !self.nodes.contains_key(&to_node) {
             return Err(format!("Destination node {} not found", to_node));
         }
-        
+
         let to_node_status = self.nodes.get(&to_node).unwrap().status.clone(); // Get status before mutable borrow
         if to_node_status != TestNodeStatus::Running {
             return Err(format!("Destination node {} is not running", to_node));
@@ -469,48 +521,54 @@ impl TestHarness {
         // Check network conditions
         let should_drop = self.check_network_condition(from_node, to_node);
         if should_drop {
-            info!("Network conditions prevented transaction propagation from {} to {}", from_node, to_node);
+            info!(
+                "Network conditions prevented transaction propagation from {} to {}",
+                from_node, to_node
+            );
             return Ok(());
         }
-        
+
         // Now we can safely get a mutable reference
         let to = self.nodes.get_mut(&to_node).unwrap();
-        
+
         // Add transactions to destination node's mempool
         to.mempool_count += tx_count;
-        
-        info!("Sent {} transactions from node {} to {}", tx_count, from_node, to_node);
-        
+
+        info!(
+            "Sent {} transactions from node {} to {}",
+            tx_count, from_node, to_node
+        );
+
         Ok(())
     }
-    
+
     /// Propagate blocks to connected nodes
     async fn propagate_blocks(&mut self) -> Result<(), String> {
         // This is a simplified implementation - in a real system this would be more complex
         let mut propagations = Vec::new();
-        
+
         // Create a copy of nodes to avoid borrow checker issues
         let nodes_copy = self.nodes.clone();
-        
+
         // For each node, propagate its blocks to connected nodes
         for (node_id, node) in &nodes_copy {
             if node.status != TestNodeStatus::Running {
                 continue;
             }
-            
+
             for &conn_id in &node.connections {
                 // First check if connection exists and is running without mutable borrow
                 if let Some(conn_node) = self.nodes.get(&conn_id) {
                     if conn_node.status != TestNodeStatus::Running {
                         continue;
                     }
-                    
+
                     // Check network conditions
                     let should_drop = self.check_network_condition(*node_id, conn_id);
                     if should_drop {
                         continue;
                     }
-                    
+
                     // Only propagate if source has higher block height
                     if node.height > conn_node.height {
                         propagations.push((conn_id, node.height, node.best_block_hash.clone()));
@@ -518,7 +576,7 @@ impl TestHarness {
                 }
             }
         }
-        
+
         // Apply propagations
         for (node_id, height, hash) in propagations {
             if let Some(node) = self.nodes.get_mut(&node_id) {
@@ -527,27 +585,31 @@ impl TestHarness {
                 info!("Node {} updated to height {}", node_id, height);
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Check if network conditions would prevent communication - modified to not require &mut self
     fn check_network_condition(&self, _from_node: usize, _to_node: usize) -> bool {
         if let Some(_network_simulator) = &self.testnet.get_network_simulator() {
             // This is a placeholder - actual implementation would use the simulator directly
             return false;
         }
-        
+
         false
     }
-    
+
     /// Handle custom test events
-    async fn handle_custom_event(&mut self, name: &str, _params: &HashMap<String, String>) -> Result<(), String> {
+    async fn handle_custom_event(
+        &mut self,
+        name: &str,
+        _params: &HashMap<String, String>,
+    ) -> Result<(), String> {
         // Custom event handling can be implemented here
         info!("Handled custom event: {}", name);
         Ok(())
     }
-    
+
     /// Verify a test outcome
     fn verify_outcome(&self, outcome: &TestOutcome) -> bool {
         match outcome {
@@ -555,7 +617,7 @@ impl TestHarness {
                 if self.nodes.is_empty() {
                     return false;
                 }
-                
+
                 // Get the first running node's hash
                 let mut reference_hash = None;
                 for node in self.nodes.values() {
@@ -564,35 +626,37 @@ impl TestHarness {
                         break;
                     }
                 }
-                
+
                 let Some(reference_hash) = reference_hash else {
                     return false; // No running nodes
                 };
-                
+
                 // Check all running nodes have the same hash
                 for node in self.nodes.values() {
-                    if node.status == TestNodeStatus::Running && node.best_block_hash != reference_hash {
+                    if node.status == TestNodeStatus::Running
+                        && node.best_block_hash != reference_hash
+                    {
                         return false;
                     }
                 }
-                
+
                 true
             }
-            
+
             TestOutcome::NodesHaveSameChainTip(node_ids) => {
                 if node_ids.is_empty() {
                     return true;
                 }
-                
+
                 // Get the first node's hash
                 let first_id = node_ids[0];
                 let first_node = match self.nodes.get(&first_id) {
                     Some(node) => node,
                     None => return false,
                 };
-                
+
                 let reference_hash = first_node.best_block_hash.clone();
-                
+
                 // Check all specified nodes have the same hash
                 for &id in node_ids.iter().skip(1) {
                     if let Some(node) = self.nodes.get(&id) {
@@ -603,34 +667,34 @@ impl TestHarness {
                         return false; // Node not found
                     }
                 }
-                
+
                 true
             }
-            
+
             TestOutcome::NodesHaveDifferentChainTips { group_a, group_b } => {
                 if group_a.is_empty() || group_b.is_empty() {
                     return false;
                 }
-                
+
                 // Get hash from first node in group A
                 let node_a = match self.nodes.get(&group_a[0]) {
                     Some(node) => node,
                     None => return false,
                 };
                 let hash_a = node_a.best_block_hash.clone();
-                
+
                 // Get hash from first node in group B
                 let node_b = match self.nodes.get(&group_b[0]) {
                     Some(node) => node,
                     None => return false,
                 };
                 let hash_b = node_b.best_block_hash.clone();
-                
+
                 // Check hashes are different
                 if hash_a == hash_b {
                     return false;
                 }
-                
+
                 // Check all nodes in group A have hash_a
                 for &id in group_a.iter().skip(1) {
                     if let Some(node) = self.nodes.get(&id) {
@@ -641,7 +705,7 @@ impl TestHarness {
                         return false; // Node not found
                     }
                 }
-                
+
                 // Check all nodes in group B have hash_b
                 for &id in group_b.iter().skip(1) {
                     if let Some(node) = self.nodes.get(&id) {
@@ -652,40 +716,40 @@ impl TestHarness {
                         return false; // Node not found
                     }
                 }
-                
+
                 true
             }
-            
-            TestOutcome::NodeAtHeight { node_id, height } => {
-                match self.nodes.get(node_id) {
-                    Some(node) => node.height == *height,
-                    None => false,
-                }
-            }
-            
-            TestOutcome::NodeHasTransactions { node_id, min_tx_count } => {
-                match self.nodes.get(node_id) {
-                    Some(node) => node.mempool_count >= *min_tx_count,
-                    None => false,
-                }
-            }
-            
-            TestOutcome::Custom { description: _, verify } => {
-                verify(self)
-            }
+
+            TestOutcome::NodeAtHeight { node_id, height } => match self.nodes.get(node_id) {
+                Some(node) => node.height == *height,
+                None => false,
+            },
+
+            TestOutcome::NodeHasTransactions {
+                node_id,
+                min_tx_count,
+            } => match self.nodes.get(node_id) {
+                Some(node) => node.mempool_count >= *min_tx_count,
+                None => false,
+            },
+
+            TestOutcome::Custom {
+                description: _,
+                verify,
+            } => verify(self),
         }
     }
-    
+
     /// Get a reference to the current test node
     pub fn get_node(&self, node_id: usize) -> Option<&TestNode> {
         self.nodes.get(&node_id)
     }
-    
+
     /// Get all test nodes
     pub fn get_all_nodes(&self) -> &HashMap<usize, TestNode> {
         &self.nodes
     }
-    
+
     /// Get test results history
     pub fn get_test_results(&self) -> &[TestResult] {
         &self.test_results
@@ -695,8 +759,7 @@ impl TestHarness {
 /// Example test scenarios
 pub mod example_scenarios {
     use super::*;
-    
-    
+
     /// Create a basic network partition test scenario
     pub fn network_partition_scenario() -> TestScenario {
         // Create test network configuration
@@ -704,7 +767,7 @@ pub mod example_scenarios {
         network_config.network_name = "partition-test".to_string();
         network_config.enable_faucet = true;
         network_config.target_block_time_secs = 1; // Fast blocks for testing
-        
+
         // Configure network simulation
         let sim_config = SimulationConfig {
             enabled: true,
@@ -730,7 +793,7 @@ pub mod example_scenarios {
             disruption_schedule: None,
         };
         network_config.network_simulation = Some(network_sim_config);
-        
+
         // Define initial node setup
         let initial_nodes = vec![
             TestNodeSetup {
@@ -770,7 +833,7 @@ pub mod example_scenarios {
                 config_overrides: None,
             },
         ];
-        
+
         // Define test steps
         let steps = vec![
             // Initial mining to establish a common chain
@@ -811,7 +874,7 @@ pub mod example_scenarios {
             // Allow final propagation
             TestStep::Wait(Duration::from_secs(1)),
         ];
-        
+
         // Define expected outcomes
         let expected_outcomes = vec![
             // All nodes should converge on the same chain
@@ -822,7 +885,7 @@ pub mod example_scenarios {
                 height: 9,
             },
         ];
-        
+
         TestScenario {
             name: "Network Partition Test".to_string(),
             description: "Tests chain convergence after a temporary network partition".to_string(),
@@ -838,12 +901,12 @@ pub mod example_scenarios {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_harness_basic_functionality() {
         let config = TestNetConfig::default();
         let mut harness = TestHarness::new(config);
-        
+
         // Set up some test nodes
         let node_setups = vec![
             TestNodeSetup {
@@ -859,26 +922,26 @@ mod tests {
                 config_overrides: None,
             },
         ];
-        
+
         assert!(harness.initialize_nodes(node_setups).is_ok());
         assert_eq!(harness.nodes.len(), 2);
-        
+
         // Test mining blocks
         assert!(harness.mine_blocks(&[0], 5).await.is_ok());
-        
+
         let node0 = harness.nodes.get(&0).unwrap();
         assert_eq!(node0.height, 5);
-        
+
         // Test block propagation
         assert!(harness.propagate_blocks().await.is_ok());
-        
+
         let node1 = harness.nodes.get(&1).unwrap();
         assert_eq!(node1.height, 5);
-        
+
         // Test transaction sending
         assert!(harness.send_transactions(0, 1, 10).await.is_ok());
-        
+
         let node1_after = harness.nodes.get(&1).unwrap();
         assert_eq!(node1_after.mempool_count, 10);
     }
-} 
+}

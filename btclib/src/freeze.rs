@@ -77,12 +77,12 @@ impl FreezableFeature {
             description: description.to_string(),
         }
     }
-    
+
     /// Check if the feature is active
     pub fn is_active(&self) -> bool {
         self.status == FreezeStatus::Active
     }
-    
+
     /// Check if the feature is frozen
     pub fn is_frozen(&self) -> bool {
         self.status == FreezeStatus::Frozen
@@ -103,32 +103,32 @@ impl FreezeRegistry {
             features: Vec::new(),
         }
     }
-    
+
     /// Register a new feature
     pub fn register(&mut self, feature: FreezableFeature) {
         self.features.push(feature);
     }
-    
+
     /// Get a feature by name
     pub fn get(&self, name: &str) -> Option<&FreezableFeature> {
         self.features.iter().find(|f| f.name == name)
     }
-    
+
     /// Check if a feature is active
     pub fn is_active(&self, name: &str) -> bool {
         self.get(name).map_or(false, |f| f.is_active())
     }
-    
+
     /// Get all features
     pub fn all_features(&self) -> &[FreezableFeature] {
         &self.features
     }
-    
+
     /// Get all active features
     pub fn active_features(&self) -> Vec<&FreezableFeature> {
         self.features.iter().filter(|f| f.is_active()).collect()
     }
-    
+
     /// Get all frozen features
     pub fn frozen_features(&self) -> Vec<&FreezableFeature> {
         self.features.iter().filter(|f| f.is_frozen()).collect()
@@ -138,7 +138,7 @@ impl FreezeRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_freeze_status() {
         assert_eq!(FreezeStatus::Active.to_string(), "Active");
@@ -146,44 +146,44 @@ mod tests {
         assert_eq!(FreezeStatus::InDevelopment.to_string(), "In Development");
         assert_eq!(FreezeStatus::Deprecated.to_string(), "Deprecated");
     }
-    
+
     #[test]
     fn test_freezable_feature() {
         let feature = FreezableFeature::new(
             "test_feature",
             FreezeStatus::Active,
-            "Test feature description"
+            "Test feature description",
         );
-        
+
         assert_eq!(feature.name, "test_feature");
         assert_eq!(feature.status, FreezeStatus::Active);
         assert_eq!(feature.description, "Test feature description");
         assert!(feature.is_active());
         assert!(!feature.is_frozen());
     }
-    
+
     #[test]
     fn test_freeze_registry() {
         let mut registry = FreezeRegistry::new();
-        
+
         registry.register(FreezableFeature::new(
             "feature1",
             FreezeStatus::Active,
-            "Feature 1"
+            "Feature 1",
         ));
-        
+
         registry.register(FreezableFeature::new(
             "feature2",
             FreezeStatus::Frozen,
-            "Feature 2"
+            "Feature 2",
         ));
-        
+
         assert!(registry.is_active("feature1"));
         assert!(!registry.is_active("feature2"));
         assert!(!registry.is_active("nonexistent"));
-        
+
         assert_eq!(registry.all_features().len(), 2);
         assert_eq!(registry.active_features().len(), 1);
         assert_eq!(registry.frozen_features().len(), 1);
     }
-} 
+}

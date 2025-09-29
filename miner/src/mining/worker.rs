@@ -1,15 +1,15 @@
-use btclib::types::block::Block;
+use crate::mining::reward::EnvironmentalProfile;
 use crate::mining::template::BlockTemplate;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering};
+use crate::mining::MempoolInterface;
+use btclib::types::block::Block;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use sha2::{Digest, Sha256};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing;
-use crate::mining::MempoolInterface;
-use crate::mining::reward::EnvironmentalProfile;
-use std::time::{Instant, Duration};
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
-use sha2::{Sha256, Digest};
 
 // Memory-hard constants for ASIC resistance
 const MEMORY_SIZE: usize = 4 * 1024 * 1024; // 4MB memory requirement
@@ -129,7 +129,7 @@ impl MiningWorker {
     ) -> Result<(), String> {
         let block_height = self.current_height.load(Ordering::Relaxed) + 1;
         let env_profile = self.environmental_profile.as_ref();
-        
+
         let mut template = BlockTemplate::new(
             version,
             prev_block_hash,
@@ -138,7 +138,8 @@ impl MiningWorker {
             self.mempool.as_ref(),
             block_height,
             env_profile,
-        ).await;
+        )
+        .await;
 
         let mut block = template.create_block();
         let mut attempts = 0;
@@ -152,9 +153,10 @@ impl MiningWorker {
             }
 
             if attempts % metrics_interval == 0 {
-                self.metrics.update_hash_rate(attempts as u64, start_time.elapsed());
+                self.metrics
+                    .update_hash_rate(attempts as u64, start_time.elapsed());
                 tracing::info!(
-                    "Worker {} - Mining stats: {:?}", 
+                    "Worker {} - Mining stats: {:?}",
                     self.worker_id,
                     self.metrics.get_stats()
                 );
@@ -164,11 +166,14 @@ impl MiningWorker {
                 if self.check_proof_of_work(&block) {
                     self.metrics.record_block_found();
                     tracing::info!(
-                        "Worker {} - Found valid block after {} attempts!", 
-                        self.worker_id, 
+                        "Worker {} - Found valid block after {} attempts!",
+                        self.worker_id,
                         attempts
                     );
-                    self.block_sender.send(block).await.map_err(|e| e.to_string())?;
+                    self.block_sender
+                        .send(block)
+                        .await
+                        .map_err(|e| e.to_string())?;
                     return Ok(());
                 }
                 block.increment_nonce();
@@ -178,7 +183,7 @@ impl MiningWorker {
             if !self.pause_signal.load(Ordering::Relaxed) {
                 // Update block height in case it changed
                 let block_height = self.current_height.load(Ordering::Relaxed) + 1;
-                
+
                 template = BlockTemplate::new(
                     version,
                     prev_block_hash,
@@ -187,7 +192,8 @@ impl MiningWorker {
                     self.mempool.as_ref(),
                     block_height,
                     env_profile,
-                ).await;
+                )
+                .await;
                 block = template.create_block();
             }
         }
@@ -198,28 +204,28 @@ impl MiningWorker {
     pub fn check_proof_of_work(&self, block: &Block) -> bool {
         let block_header = self.get_block_header(block);
         let hash = self.memory_hard_hash(&block_header);
-        
+
         let mut hash_value = [0u8; 8];
         hash_value[..4].copy_from_slice(&hash[..4]);
         let hash_value = u64::from_be_bytes(hash_value);
         hash_value as u32 <= self.target.load(Ordering::Relaxed)
     }
-    
+
     // Extract block header for hashing
     fn get_block_header(&self, block: &Block) -> Vec<u8> {
         let mut header = Vec::new();
-        
+
         // We need to extract header fields by directly accessing the header fields
         // or using the available methods
         header.extend_from_slice(block.prev_block_hash());
-        
+
         // Use hash directly as we don't have access to other header fields
         let hash = block.hash();
         header.extend_from_slice(&hash);
-        
+
         header
     }
-    
+
     // Memory-hard hashing function to resist ASICs
     fn memory_hard_hash(&self, data: &[u8]) -> [u8; 32] {
         // Initialize memory with pseudorandom data derived from input
@@ -227,7 +233,7 @@ impl MiningWorker {
         let mut hasher = Sha256::new();
         hasher.update(data);
         let seed = hasher.finalize();
-        
+
         // Initialize memory with deterministic values based on the seed
         let mut rng = StdRng::from_seed(seed.into());
         for chunk in memory.chunks_mut(8) {
@@ -236,25 +242,25 @@ impl MiningWorker {
                 chunk.copy_from_slice(&value);
             }
         }
-        
+
         // Initial hash becomes our working value
         let mut current_hash: [u8; 32] = seed.into();
-        
+
         // Perform memory-hard mixing operations
         for _iteration in 0..MEMORY_ITERATIONS {
             // Use current hash to determine memory access pattern - ensure we don't overflow
             let bytes: [u8; 8] = current_hash[0..8].try_into().unwrap_or([0; 8]);
             let index = u64::from_be_bytes(bytes) as usize % (MEMORY_SIZE - 64);
-            
+
             // Mix current hash with memory
             for round in 0..MIXING_ROUNDS {
                 // Ensure we don't go out of bounds
                 if (index + (round + 1) * 4) > memory.len() {
                     break;
                 }
-                
+
                 let memory_slice = &memory[index + round * 4..index + (round + 1) * 4];
-                
+
                 // XOR memory content with current hash
                 for j in 0..std::cmp::min(4, memory_slice.len()) {
                     // Ensure we don't go out of bounds on the hash array
@@ -262,14 +268,14 @@ impl MiningWorker {
                         current_hash[round * 2 + j] ^= memory_slice[j];
                     }
                 }
-                
+
                 // Update memory with new mixed values
                 let mut hasher = Sha256::new();
                 hasher.update(current_hash);
                 current_hash = hasher.finalize().into();
             }
         }
-        
+
         // Final hash
         let mut hasher = Sha256::new();
         hasher.update(current_hash);
@@ -281,11 +287,11 @@ impl MiningWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::mpsc;
     use std::sync::Arc;
+    use tokio::sync::mpsc;
 
     struct MockMempool;
-    
+
     #[async_trait::async_trait]
     impl MempoolInterface for MockMempool {
         async fn get_transactions(&self, _max_size: usize) -> Vec<Transaction> {
@@ -298,7 +304,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(1);
         let stop_signal = Arc::new(AtomicBool::new(false));
         let mempool = Arc::new(MockMempool);
-        
+
         let worker = MiningWorker::new(
             Arc::clone(&stop_signal),
             tx,
@@ -310,7 +316,10 @@ mod tests {
         );
 
         let mining_handle = tokio::spawn(async move {
-            worker.mine_block(1, [0u8; 32], vec![1,2,3,4]).await.unwrap();
+            worker
+                .mine_block(1, [0u8; 32], vec![1, 2, 3, 4])
+                .await
+                .unwrap();
         });
 
         tokio::select! {
@@ -331,7 +340,7 @@ mod tests {
         let (tx, _) = mpsc::channel(1);
         let stop_signal = Arc::new(AtomicBool::new(false));
         let mempool = Arc::new(MockMempool);
-        
+
         let worker = MiningWorker::new(
             Arc::clone(&stop_signal),
             tx,
@@ -344,7 +353,7 @@ mod tests {
 
         let metrics = worker.get_metrics();
         assert_eq!(metrics.get_stats().blocks_mined, 0);
-        
+
         metrics.record_block_found();
         assert_eq!(metrics.get_stats().blocks_mined, 1);
     }

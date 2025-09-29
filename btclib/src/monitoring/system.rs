@@ -1,13 +1,11 @@
-use prometheus::{
-    Registry, IntGauge, IntGaugeVec, GaugeVec, Opts
-};
+use crate::monitoring::MetricsError;
+use prometheus::{GaugeVec, IntGauge, IntGaugeVec, Opts, Registry};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::interval;
+use sysinfo::{ComponentExt, CpuExt, DiskExt, NetworkExt, System, SystemExt};
 use tokio::task::JoinHandle;
-use crate::monitoring::MetricsError;
+use tokio::time::interval;
 use tracing::debug;
-use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ComponentExt};
 
 /// System metrics collector
 pub struct SystemMetrics {
@@ -46,7 +44,7 @@ impl SystemMetrics {
             &["core"],
         )?;
         registry.register(Box::new(cpu_usage.clone()))?;
-        
+
         // Create load average metrics
         let load_average = GaugeVec::new(
             Opts::new("load_average", "System load average")
@@ -55,7 +53,7 @@ impl SystemMetrics {
             &["period"],
         )?;
         registry.register(Box::new(load_average.clone()))?;
-        
+
         // Create memory usage metrics
         let memory_usage = IntGaugeVec::new(
             Opts::new("memory_bytes", "Memory usage in bytes")
@@ -64,7 +62,7 @@ impl SystemMetrics {
             &["type"],
         )?;
         registry.register(Box::new(memory_usage.clone()))?;
-        
+
         // Create swap usage metrics
         let swap_usage = IntGaugeVec::new(
             Opts::new("swap_bytes", "Swap usage in bytes")
@@ -73,7 +71,7 @@ impl SystemMetrics {
             &["type"],
         )?;
         registry.register(Box::new(swap_usage.clone()))?;
-        
+
         // Create disk usage metrics
         let disk_usage = GaugeVec::new(
             Opts::new("disk_usage", "Disk usage information")
@@ -82,7 +80,7 @@ impl SystemMetrics {
             &["device", "type"],
         )?;
         registry.register(Box::new(disk_usage.clone()))?;
-        
+
         // Create disk IO metrics
         let disk_io = IntGaugeVec::new(
             Opts::new("disk_io_bytes", "Disk IO operations in bytes")
@@ -91,7 +89,7 @@ impl SystemMetrics {
             &["device", "operation"],
         )?;
         registry.register(Box::new(disk_io.clone()))?;
-        
+
         // Create network traffic metrics
         let network_traffic = IntGaugeVec::new(
             Opts::new("network_bytes", "Network traffic in bytes")
@@ -100,7 +98,7 @@ impl SystemMetrics {
             &["interface", "direction"],
         )?;
         registry.register(Box::new(network_traffic.clone()))?;
-        
+
         // Create temperature metrics
         let temperature = GaugeVec::new(
             Opts::new("temperature_celsius", "System temperature in Celsius")
@@ -109,19 +107,19 @@ impl SystemMetrics {
             &["sensor"],
         )?;
         registry.register(Box::new(temperature.clone()))?;
-        
+
         // Create uptime metric
         let uptime = IntGauge::with_opts(
             Opts::new("uptime_seconds", "System uptime in seconds")
                 .namespace(namespace.to_string())
-                .subsystem("system")
+                .subsystem("system"),
         )?;
         registry.register(Box::new(uptime.clone()))?;
-        
+
         // Initialize system info collector
         let mut system = System::new();
         system.refresh_all();
-        
+
         Ok(Self {
             cpu_usage,
             load_average,
@@ -136,7 +134,7 @@ impl SystemMetrics {
             system: Arc::new(tokio::sync::Mutex::new(system)),
         })
     }
-    
+
     /// Start system metrics collection in the background
     pub fn start_collection(&mut self, interval_duration: Duration) -> Result<(), MetricsError> {
         let cpu_usage = self.cpu_usage.clone();
@@ -149,46 +147,60 @@ impl SystemMetrics {
         let temperature = self.temperature.clone();
         let uptime = self.uptime.clone();
         let system = self.system.clone();
-        
+
         // Create a task to collect system metrics in the background
         let handle = tokio::spawn(async move {
             let mut interval_timer = interval(interval_duration);
-            
+
             loop {
                 interval_timer.tick().await;
-                
+
                 // Refresh system information
                 {
                     let mut sys = system.lock().await;
                     sys.refresh_all();
-                    
+
                     // Collect CPU metrics
                     for (i, processor) in sys.cpus().iter().enumerate() {
-                        cpu_usage.with_label_values(&[&i.to_string()]).set(processor.cpu_usage().into());
+                        cpu_usage
+                            .with_label_values(&[&i.to_string()])
+                            .set(processor.cpu_usage().into());
                     }
-                    
+
                     // Collect load average - direct field access
                     let load = sys.load_average();
                     load_average.with_label_values(&["1m"]).set(load.one);
                     load_average.with_label_values(&["5m"]).set(load.five);
                     load_average.with_label_values(&["15m"]).set(load.fifteen);
-                    
+
                     // Collect memory metrics
-                    memory_usage.with_label_values(&["total"]).set(sys.total_memory() as i64);
-                    memory_usage.with_label_values(&["used"]).set(sys.used_memory() as i64);
-                    memory_usage.with_label_values(&["free"]).set(sys.free_memory() as i64);
-                    
+                    memory_usage
+                        .with_label_values(&["total"])
+                        .set(sys.total_memory() as i64);
+                    memory_usage
+                        .with_label_values(&["used"])
+                        .set(sys.used_memory() as i64);
+                    memory_usage
+                        .with_label_values(&["free"])
+                        .set(sys.free_memory() as i64);
+
                     // Collect swap metrics
-                    swap_usage.with_label_values(&["total"]).set(sys.total_swap() as i64);
-                    swap_usage.with_label_values(&["used"]).set(sys.used_swap() as i64);
-                    swap_usage.with_label_values(&["free"]).set(sys.free_swap() as i64);
-                    
+                    swap_usage
+                        .with_label_values(&["total"])
+                        .set(sys.total_swap() as i64);
+                    swap_usage
+                        .with_label_values(&["used"])
+                        .set(sys.used_swap() as i64);
+                    swap_usage
+                        .with_label_values(&["free"])
+                        .set(sys.free_swap() as i64);
+
                     // Collect disk metrics
                     for disk in sys.disks() {
                         let name = disk.name().to_string_lossy();
                         let mount_point = disk.mount_point().to_string_lossy();
                         let device = format!("{} ({})", name, mount_point);
-                        
+
                         let total = disk.total_space();
                         let used = total - disk.available_space();
                         let usage_percent = if total > 0 {
@@ -196,67 +208,83 @@ impl SystemMetrics {
                         } else {
                             0.0
                         };
-                        
-                        disk_usage.with_label_values(&[&device, "total"]).set(total as f64);
-                        disk_usage.with_label_values(&[&device, "used"]).set(used as f64);
-                        disk_usage.with_label_values(&[&device, "percent"]).set(usage_percent);
+
+                        disk_usage
+                            .with_label_values(&[&device, "total"])
+                            .set(total as f64);
+                        disk_usage
+                            .with_label_values(&[&device, "used"])
+                            .set(used as f64);
+                        disk_usage
+                            .with_label_values(&[&device, "percent"])
+                            .set(usage_percent);
                     }
-                    
+
                     // Collect network metrics
                     for (interface_name, data) in sys.networks() {
-                        network_traffic.with_label_values(&[interface_name, "received"]).set(data.received() as i64);
-                        network_traffic.with_label_values(&[interface_name, "transmitted"]).set(data.transmitted() as i64);
+                        network_traffic
+                            .with_label_values(&[interface_name, "received"])
+                            .set(data.received() as i64);
+                        network_traffic
+                            .with_label_values(&[interface_name, "transmitted"])
+                            .set(data.transmitted() as i64);
                     }
-                    
+
                     // Collect temperature information
                     for component in sys.components() {
                         let label = component.label();
-                        temperature.with_label_values(&[label]).set(component.temperature().into());
+                        temperature
+                            .with_label_values(&[label])
+                            .set(component.temperature().into());
                     }
-                    
+
                     // Collect uptime
                     uptime.set(sys.uptime() as i64);
                 }
-                
+
                 debug!("Collected system metrics");
             }
         });
-        
+
         self.collection_task = Some(handle);
         Ok(())
     }
-    
+
     /// Get the latest CPU usage percentage for a specific core
     pub async fn get_cpu_usage(&self, core: usize) -> f64 {
         self.cpu_usage.with_label_values(&[&core.to_string()]).get()
     }
-    
+
     /// Get the latest memory usage
     pub async fn get_memory_usage(&self) -> (u64, u64, u64) {
         let system = self.system.lock().await;
-        (system.total_memory(), system.used_memory(), system.free_memory())
+        (
+            system.total_memory(),
+            system.used_memory(),
+            system.free_memory(),
+        )
     }
-    
+
     /// Get current system load average
     pub async fn get_load_average(&self) -> (f64, f64, f64) {
         let system = self.system.lock().await;
         let load = system.load_average();
         (load.one, load.five, load.fifteen)
     }
-    
+
     /// Get all system metrics as a formatted string
     pub async fn get_summary(&self) -> String {
         let system = self.system.lock().await;
-        
+
         let mut summary = String::new();
         summary.push_str("=== System Metrics Summary ===\n");
-        
+
         // CPU information
         summary.push_str("CPU Usage:\n");
         for (i, processor) in system.cpus().iter().enumerate() {
             summary.push_str(&format!("  Core {}: {:.1}%\n", i, processor.cpu_usage()));
         }
-        
+
         // Memory information
         let total_memory = system.total_memory();
         let used_memory = system.used_memory();
@@ -268,7 +296,7 @@ impl SystemMetrics {
             (used_memory as f64 / total_memory as f64) * 100.0,
             free_memory as f64 / 1_000_000_000.0,
         ));
-        
+
         // Disk information
         summary.push_str("Disk Usage:\n");
         for disk in system.disks() {
@@ -277,8 +305,12 @@ impl SystemMetrics {
             let total = disk.total_space();
             let available = disk.available_space();
             let used = total - available;
-            let percent = if total > 0 { (used as f64 / total as f64) * 100.0 } else { 0.0 };
-            
+            let percent = if total > 0 {
+                (used as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            };
+
             summary.push_str(&format!(
                 "  {} ({}): {:.1} GB total, {:.1} GB used ({:.1}%)\n",
                 name,
@@ -288,7 +320,7 @@ impl SystemMetrics {
                 percent,
             ));
         }
-        
+
         // Network information
         summary.push_str("Network Traffic:\n");
         for (interface, data) in system.networks() {
@@ -299,7 +331,7 @@ impl SystemMetrics {
                 data.transmitted() as f64 / 1_000_000.0,
             ));
         }
-        
+
         // Uptime
         let uptime = system.uptime();
         let days = uptime / 86400;
@@ -310,7 +342,7 @@ impl SystemMetrics {
             "System Uptime: {}d {}h {}m {}s\n",
             days, hours, minutes, seconds
         ));
-        
+
         summary
     }
 }
@@ -322,4 +354,4 @@ impl Drop for SystemMetrics {
             handle.abort();
         }
     }
-} 
+}

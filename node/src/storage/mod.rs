@@ -1,19 +1,19 @@
 // Storage module for supernova node
-// 
+//
 // This module handles persistence of blockchain data and related functionality
 
-pub mod database;
-pub mod persistence;
+pub mod atomic_utxo_set;
 pub mod backup;
 pub mod checkpoint;
 pub mod corruption;
-pub mod integrity;
-pub mod utxo_set;
-pub mod atomic_utxo_set;
+pub mod database;
 pub mod database_shutdown;
+pub mod integrity;
 pub mod journal;
-pub mod traits;
 pub mod memory;
+pub mod persistence;
+pub mod traits;
+pub mod utxo_set;
 
 #[cfg(test)]
 pub mod database_shutdown_tests;
@@ -21,14 +21,21 @@ pub mod database_shutdown_tests;
 #[cfg(test)]
 mod utxo_attack_tests;
 
-pub use persistence::ChainState;
-pub use database::{BlockchainDB, BlockchainDBConfig, StorageError, IntegrityCheckLevel, IntegrityCheckResult};
-pub use backup::{BackupManager, BackupMode, BackupState, BackupError, BackupOperation, RecoveryManager};
-pub use checkpoint::{CheckpointManager, CheckpointType, CheckpointConfig, CheckpointError};
-pub use corruption::{CorruptionHandler, CorruptionError, IntegrityChecker, CorruptionInfo, CorruptionType, RepairPlan};
+pub use atomic_utxo_set::{AtomicUtxoSet, OutPoint, UnspentOutput};
+pub use backup::{
+    BackupError, BackupManager, BackupMode, BackupOperation, BackupState, RecoveryManager,
+};
+pub use checkpoint::{CheckpointConfig, CheckpointError, CheckpointManager, CheckpointType};
+pub use corruption::{
+    CorruptionError, CorruptionHandler, CorruptionInfo, CorruptionType, IntegrityChecker,
+    RepairPlan,
+};
+pub use database::{
+    BlockchainDB, BlockchainDBConfig, IntegrityCheckLevel, IntegrityCheckResult, StorageError,
+};
 pub use database_shutdown::{DatabaseShutdownHandler, DatabaseStartupHandler, ShutdownConfig};
-pub use journal::{WriteAheadLog, JournalEntry, WalError};
-pub use utxo_set::UtxoSet;
-pub use atomic_utxo_set::{AtomicUtxoSet, UnspentOutput, OutPoint};
-pub use traits::Storage;
+pub use journal::{JournalEntry, WalError, WriteAheadLog};
 pub use memory::MemoryStorage;
+pub use persistence::ChainState;
+pub use traits::Storage;
+pub use utxo_set::UtxoSet;

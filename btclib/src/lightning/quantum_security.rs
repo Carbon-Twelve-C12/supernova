@@ -3,16 +3,16 @@
 //! This module implements quantum-resistant security features for Lightning Network
 //! channels, including quantum-safe signatures and key exchange.
 
-use crate::crypto::quantum::{QuantumScheme, QuantumKeyPair, QuantumSignature};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use thiserror::Error;
-use tracing::{debug, info, error};
-use rand::RngCore;
-use rand::{SeedableRng};
+use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme, QuantumSignature};
 use rand::rngs::StdRng;
-use sha2::{Sha256, Digest};
+use rand::RngCore;
+use rand::SeedableRng;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use thiserror::Error;
+use tracing::{debug, error, info};
 
 /// Quantum security level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,7 +134,7 @@ impl QuantumChannelSecurity {
             kdf: QuantumKdf::new(),
         }
     }
-    
+
     /// Initialize quantum security for a new channel
     pub fn initialize_channel(
         &mut self,
@@ -143,7 +143,7 @@ impl QuantumChannelSecurity {
     ) -> Result<QuantumChannelState, QuantumSecurityError> {
         // Generate initial quantum key pair
         let current_keypair = self.generate_quantum_keypair()?;
-        
+
         // Generate classical key pair if hybrid mode is enabled
         let classical_keypair = if self.config.hybrid_mode {
             let mut key = [0u8; 32];
@@ -152,14 +152,14 @@ impl QuantumChannelSecurity {
         } else {
             None
         };
-        
+
         // Initialize quantum beacon
         let quantum_beacon = if self.config.enable_qkd {
             Some(self.generate_quantum_beacon()?)
         } else {
             None
         };
-        
+
         let channel_state = QuantumChannelState {
             channel_id,
             current_keypair,
@@ -170,15 +170,19 @@ impl QuantumChannelSecurity {
             quantum_beacon,
             classical_keypair,
         };
-        
+
         self.channels.insert(channel_id, channel_state.clone());
-        
-        info!("Initialized quantum security for channel {}: scheme={:?}, level={:?}", 
-              hex::encode(channel_id), self.config.primary_scheme, self.config.security_level);
-        
+
+        info!(
+            "Initialized quantum security for channel {}: scheme={:?}, level={:?}",
+            hex::encode(channel_id),
+            self.config.primary_scheme,
+            self.config.security_level
+        );
+
         Ok(channel_state)
     }
-    
+
     /// Create a quantum-secured commitment
     pub fn create_quantum_commitment(
         &self,
@@ -186,19 +190,24 @@ impl QuantumChannelSecurity {
         commitment_data: Vec<u8>,
         commitment_number: u64,
     ) -> Result<QuantumCommitment, QuantumSecurityError> {
-        let channel_state = self.channels.get(channel_id)
-            .ok_or(QuantumSecurityError::ChannelNotFound(hex::encode(channel_id)))?;
-        
+        let channel_state =
+            self.channels
+                .get(channel_id)
+                .ok_or(QuantumSecurityError::ChannelNotFound(hex::encode(
+                    channel_id,
+                )))?;
+
         // Create quantum signature
-        let quantum_signature = self.sign_quantum(&commitment_data, &channel_state.current_keypair)?;
-        
+        let quantum_signature =
+            self.sign_quantum(&commitment_data, &channel_state.current_keypair)?;
+
         // Create classical signature if hybrid mode
         let classical_signature = if let Some(classical_key) = &channel_state.classical_keypair {
             Some(self.sign_classical(&commitment_data, classical_key)?)
         } else {
             None
         };
-        
+
         // Create security metadata
         let security_metadata = QuantumSecurityMetadata {
             scheme: channel_state.quantum_scheme,
@@ -210,7 +219,7 @@ impl QuantumChannelSecurity {
             entropy_source: "quantum_rng".to_string(),
             pq_proof: None, // Could add zero-knowledge proofs here
         };
-        
+
         let commitment = QuantumCommitment {
             commitment_data,
             quantum_signature,
@@ -218,13 +227,16 @@ impl QuantumChannelSecurity {
             commitment_number,
             security_metadata,
         };
-        
-        debug!("Created quantum commitment {} for channel {}", 
-               commitment_number, hex::encode(channel_id));
-        
+
+        debug!(
+            "Created quantum commitment {} for channel {}",
+            commitment_number,
+            hex::encode(channel_id)
+        );
+
         Ok(commitment)
     }
-    
+
     /// Generate a quantum key pair
     fn generate_quantum_keypair(&self) -> Result<QuantumKeyPair, QuantumSecurityError> {
         // Use the quantum scheme to generate a key pair
@@ -232,29 +244,30 @@ impl QuantumChannelSecurity {
             scheme: self.config.primary_scheme,
             security_level: self.config.security_level as u8,
         };
-        
+
         QuantumKeyPair::generate(params)
             .map_err(|e| QuantumSecurityError::KeyGenerationFailed(e.to_string()))
     }
-    
+
     /// Sign data with quantum signature
     fn sign_quantum(
         &self,
         data: &[u8],
         keypair: &QuantumKeyPair,
     ) -> Result<QuantumSignature, QuantumSecurityError> {
-        let signature_bytes = keypair.sign(data)
+        let signature_bytes = keypair
+            .sign(data)
             .map_err(|e| QuantumSecurityError::SignatureFailed(e.to_string()))?;
-        
+
         // Convert Vec<u8> to QuantumSignature
         let quantum_signature = QuantumSignature {
             signature: signature_bytes,
             parameters: keypair.parameters,
         };
-        
+
         Ok(quantum_signature)
     }
-    
+
     /// Sign data with classical signature
     fn sign_classical(
         &self,
@@ -266,17 +279,17 @@ impl QuantumChannelSecurity {
         hasher.update(private_key);
         hasher.update(data);
         let signature = hasher.finalize();
-        
+
         Ok(signature.to_vec())
     }
-    
+
     /// Generate quantum beacon for entropy
     fn generate_quantum_beacon(&self) -> Result<Vec<u8>, QuantumSecurityError> {
         let mut beacon = vec![0u8; 64]; // 512 bits of quantum entropy
         self.quantum_rng.fill_bytes(&mut beacon)?;
         Ok(beacon)
     }
-    
+
     /// Get channel quantum state
     pub fn get_channel_state(&self, channel_id: &[u8; 32]) -> Option<&QuantumChannelState> {
         self.channels.get(channel_id)
@@ -303,7 +316,7 @@ impl QuantumRng {
             entropy_pool: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    
+
     pub fn fill_bytes(&self, dest: &mut [u8]) -> Result<(), QuantumSecurityError> {
         // In a real implementation, this would use quantum entropy sources
         // For now, use cryptographically secure PRNG
@@ -335,28 +348,28 @@ impl QuantumKdf {
 pub enum QuantumSecurityError {
     #[error("Channel not found: {0}")]
     ChannelNotFound(String),
-    
+
     #[error("Key generation failed: {0}")]
     KeyGenerationFailed(String),
-    
+
     #[error("Signature failed: {0}")]
     SignatureFailed(String),
-    
+
     #[error("Verification failed: {0}")]
     VerificationFailed(String),
-    
+
     #[error("Quantum RNG error: {0}")]
     QuantumRngError(String),
-    
+
     #[error("Key derivation failed: {0}")]
     KeyDerivationFailed(String),
-    
+
     #[error("Invalid security level: {0}")]
     InvalidSecurityLevel(u8),
-    
+
     #[error("Quantum hardware unavailable")]
     QuantumHardwareUnavailable,
-    
+
     #[error("Unsupported scheme: {0}")]
     UnsupportedScheme(String),
 }
@@ -364,18 +377,18 @@ pub enum QuantumSecurityError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_quantum_channel_initialization() {
         let config = QuantumChannelConfig::default();
         let mut security = QuantumChannelSecurity::new(config);
-        
+
         let channel_id = [1u8; 32];
         let result = security.initialize_channel(channel_id, 0);
-        
+
         assert!(result.is_ok());
         let state = result.unwrap();
         assert_eq!(state.channel_id, channel_id);
         assert_eq!(state.quantum_scheme, QuantumScheme::Dilithium);
     }
-} 
+}

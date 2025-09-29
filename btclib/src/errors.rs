@@ -1,5 +1,5 @@
-use thiserror::Error;
 use std::fmt;
+use thiserror::Error;
 
 /// Main error type for the supernova blockchain
 #[derive(Error, Debug)]
@@ -65,13 +65,13 @@ pub enum supernovaError {
 
     #[error("Configuration error: {0}")]
     Configuration(String),
-    
+
     #[error("Lock poisoned: {0}")]
     LockPoisoned(String),
-    
+
     #[error("Time error: {0}")]
     TimeError(String),
-    
+
     #[error("Arithmetic overflow: {0}")]
     ArithmeticOverflow(String),
 
@@ -130,13 +130,19 @@ where
 #[macro_export]
 macro_rules! safe_lock {
     ($mutex:expr) => {
-        $mutex.lock().map_err(|e| $crate::errors::supernovaError::LockPoisoned(format!("Lock poisoned: {}", e)))?
+        $mutex.lock().map_err(|e| {
+            $crate::errors::supernovaError::LockPoisoned(format!("Lock poisoned: {}", e))
+        })?
     };
     ($rwlock:expr, read) => {
-        $rwlock.read().map_err(|e| $crate::errors::supernovaError::LockPoisoned(format!("RwLock read poisoned: {}", e)))?
+        $rwlock.read().map_err(|e| {
+            $crate::errors::supernovaError::LockPoisoned(format!("RwLock read poisoned: {}", e))
+        })?
     };
     ($rwlock:expr, write) => {
-        $rwlock.write().map_err(|e| $crate::errors::supernovaError::LockPoisoned(format!("RwLock write poisoned: {}", e)))?
+        $rwlock.write().map_err(|e| {
+            $crate::errors::supernovaError::LockPoisoned(format!("RwLock write poisoned: {}", e))
+        })?
     };
 }
 
@@ -144,28 +150,36 @@ macro_rules! safe_lock {
 #[macro_export]
 macro_rules! safe_add {
     ($a:expr, $b:expr) => {
-        $a.checked_add($b).ok_or_else(|| $crate::errors::supernovaError::ArithmeticOverflow("Addition overflow".to_string()))?
+        $a.checked_add($b).ok_or_else(|| {
+            $crate::errors::supernovaError::ArithmeticOverflow("Addition overflow".to_string())
+        })?
     };
 }
 
 #[macro_export]
 macro_rules! safe_sub {
     ($a:expr, $b:expr) => {
-        $a.checked_sub($b).ok_or_else(|| $crate::errors::supernovaError::ArithmeticOverflow("Subtraction underflow".to_string()))?
+        $a.checked_sub($b).ok_or_else(|| {
+            $crate::errors::supernovaError::ArithmeticOverflow("Subtraction underflow".to_string())
+        })?
     };
 }
 
 #[macro_export]
 macro_rules! safe_mul {
     ($a:expr, $b:expr) => {
-        $a.checked_mul($b).ok_or_else(|| $crate::errors::supernovaError::ArithmeticOverflow("Multiplication overflow".to_string()))?
+        $a.checked_mul($b).ok_or_else(|| {
+            $crate::errors::supernovaError::ArithmeticOverflow(
+                "Multiplication overflow".to_string(),
+            )
+        })?
     };
 }
 
 /// Helper function to safely get system time
 pub fn get_system_time() -> supernovaResult<u64> {
     use std::time::{SystemTime, UNIX_EPOCH};
-    
+
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| supernovaError::TimeError(e.to_string()))
@@ -174,14 +188,12 @@ pub fn get_system_time() -> supernovaResult<u64> {
 
 /// Safe serialization helper
 pub fn safe_serialize<T: serde::Serialize>(value: &T) -> supernovaResult<Vec<u8>> {
-    bincode::serialize(value)
-        .map_err(supernovaError::Serialization)
+    bincode::serialize(value).map_err(supernovaError::Serialization)
 }
 
 /// Safe deserialization helper  
 pub fn safe_deserialize<'a, T: serde::Deserialize<'a>>(data: &'a [u8]) -> supernovaResult<T> {
-    bincode::deserialize(data)
-        .map_err(supernovaError::Serialization)
+    bincode::deserialize(data).map_err(supernovaError::Serialization)
 }
 
 #[cfg(test)]
@@ -192,34 +204,35 @@ mod tests {
     fn test_error_conversion() {
         let err = supernovaError::from("test error");
         assert!(matches!(err, supernovaError::Other(_)));
-        
+
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err = supernovaError::from(io_err);
         assert!(matches!(err, supernovaError::Io(_)));
     }
-    
+
     #[test]
     fn test_safe_unwrap() {
         let opt: Option<i32> = None;
         let result = opt.safe_unwrap("expected value");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("expected value"));
-        
+
         let some_opt = Some(42);
         let result = some_opt.safe_unwrap("should work");
         assert_eq!(result.unwrap(), 42);
     }
-    
+
     #[test]
     fn test_safe_arithmetic() {
         let a: u64 = u64::MAX - 10;
         let b: u64 = 20;
-        
-        let result = (|| -> supernovaResult<u64> {
-            Ok(safe_add!(a, b))
-        })();
-        
+
+        let result = (|| -> supernovaResult<u64> { Ok(safe_add!(a, b)) })();
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), supernovaError::ArithmeticOverflow(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            supernovaError::ArithmeticOverflow(_)
+        ));
     }
-} 
+}

@@ -4,53 +4,48 @@
 #![cfg(test)]
 
 // Re-export commonly used test types
+pub use chrono::{DateTime, Utc};
 pub use std::collections::HashMap;
 pub use std::sync::Arc;
-pub use chrono::{DateTime, Utc};
 
 // Environmental types
 pub use crate::environmental::types::{
-    Region, HardwareType, EnergySource, EmissionsFactorType,
-    EmissionsDataSource,
+    EmissionsDataSource, EmissionsFactorType, EnergySource, HardwareType, Region,
 };
 
 // Miner reporting types
 pub use crate::environmental::miner_reporting::{
-    MinerEnvironmentalInfo, MinerVerificationStatus,
-    VerificationInfo, RECCertificate, CarbonOffset,
+    CarbonOffset, MinerEnvironmentalInfo, MinerVerificationStatus, RECCertificate, VerificationInfo,
 };
 
 // API types (includes MinerEmissionsData and EnvironmentalAsset)
 pub use crate::environmental::api::{
-    MinerEmissionsData, EnvironmentalAsset, EnvironmentalApiError,
+    EnvironmentalApiError, EnvironmentalAsset, MinerEmissionsData,
 };
 
 // Treasury types
 pub use crate::environmental::treasury::{
-    TreasuryConfig, TreasuryAllocation, EnvironmentalAssetPurchase,
-    TreasuryAccountType, EnvironmentalAssetType,
+    EnvironmentalAssetPurchase, EnvironmentalAssetType, TreasuryAccountType, TreasuryAllocation,
+    TreasuryConfig,
 };
 
-// Emissions types  
+// Emissions types
 pub use crate::environmental::emissions::{
-    NetworkEmissions, EmissionsCalculator, EmissionsTracker,
+    EmissionsCalculator, EmissionsTracker, NetworkEmissions,
 };
 
 // Signature and crypto types
 pub use crate::crypto::signature::{
-    SignatureType, SignatureScheme, SignatureError, SignatureVerifier,
+    SignatureError, SignatureScheme, SignatureType, SignatureVerifier,
 };
 
 // Transaction types
 pub use crate::types::transaction::{
-    Transaction, TransactionInput, TransactionOutput,
-    TransactionSignatureData, SignatureSchemeType,
+    SignatureSchemeType, Transaction, TransactionInput, TransactionOutput, TransactionSignatureData,
 };
 
 // Block types
-pub use crate::types::block::{
-    Block, BlockHeader,
-};
+pub use crate::types::block::{Block, BlockHeader};
 
 // Additional utility types often used in tests
 pub use crate::error::SupernovaError;
@@ -59,7 +54,7 @@ pub use crate::types::units::{Amount, FeeRate, NovaUnit};
 // Test-specific utilities
 pub mod prelude {
     pub use super::*;
-    
+
     /// Create a test coinbase transaction
     pub fn create_test_coinbase(height: u64) -> Transaction {
         let input = TransactionInput::new_coinbase(height.to_le_bytes().to_vec());
@@ -70,7 +65,7 @@ pub mod prelude {
             0,
         )
     }
-    
+
     /// Create a test block with specified parameters
     pub fn create_test_block_with_coinbase(
         height: u64,

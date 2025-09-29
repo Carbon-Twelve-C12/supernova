@@ -1,8 +1,8 @@
-use tracing::info;
-use miner::mining::Miner;
-use btclib::types::transaction::Transaction;
-use std::sync::Arc;
 use async_trait::async_trait;
+use btclib::types::transaction::Transaction;
+use miner::mining::Miner;
+use std::sync::Arc;
+use tracing::info;
 
 // Mock implementation of MempoolInterface for the main program
 struct EmptyMempool;
@@ -51,5 +51,7 @@ async fn main() {
     info!("Shutting down miner...");
 
     // Wait for the block handling task to complete
-    _block_handle.await.expect("Failed to join block handling task");
+    _block_handle
+        .await
+        .expect("Failed to join block handling task");
 }

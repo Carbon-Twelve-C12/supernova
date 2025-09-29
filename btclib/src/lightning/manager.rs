@@ -1,70 +1,63 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc;
-use tracing::{info, error};
-use serde::{Serialize, Deserialize};
 use thiserror::Error;
+use tokio::sync::mpsc;
+use tracing::{error, info};
 
-use crate::lightning::{
-    Channel, ChannelId, ChannelState, ChannelConfig,
-    Invoice,
-    PaymentHash, Payment, PaymentStatus,
-    Router,
-    LightningWallet,
-    Watchtower,
-    OnionRouter,
-    QuantumChannelSecurity,
-    AtomicChannel,
-};
 use super::{LightningConfig, LightningNetworkError};
 use crate::lightning::payment::RouteHop;
+use crate::lightning::{
+    AtomicChannel, Channel, ChannelConfig, ChannelId, ChannelState, Invoice, LightningWallet,
+    OnionRouter, Payment, PaymentHash, PaymentStatus, QuantumChannelSecurity, Router, Watchtower,
+};
 use crate::types::transaction::Transaction;
 
 /// Lightning Network Manager - Central coordinator for Lightning Network operations
 pub struct LightningManager {
     /// Lightning Network configuration
     config: LightningConfig,
-    
+
     /// Active payment channels (using AtomicChannel for thread safety)
     channels: Arc<RwLock<HashMap<ChannelId, Arc<AtomicChannel>>>>,
-    
+
     /// Pending channels (opening/closing)
     pending_channels: Arc<RwLock<HashMap<ChannelId, Arc<AtomicChannel>>>>,
-    
+
     /// Lightning wallet for key management
     wallet: Arc<Mutex<LightningWallet>>,
-    
+
     /// Payment router for finding paths
     router: Arc<Router>,
-    
+
     /// Onion router for payment privacy
     onion_router: Arc<OnionRouter>,
-    
+
     /// Watchtower for security monitoring
     watchtower: Option<Arc<Watchtower>>,
-    
+
     /// Active invoices
     invoices: Arc<RwLock<HashMap<PaymentHash, Invoice>>>,
-    
+
     /// Payment history
     payments: Arc<RwLock<HashMap<PaymentHash, Payment>>>,
-    
+
     /// Network peers
     peers: Arc<RwLock<HashMap<String, PeerInfo>>>,
-    
+
     /// Quantum security manager
     quantum_security: Option<Arc<QuantumChannelSecurity>>,
-    
+
     /// Event sender for notifications
     event_sender: mpsc::UnboundedSender<LightningEvent>,
-    
+
     /// Running state
     is_running: Arc<std::sync::atomic::AtomicBool>,
-    
+
     /// Payment index counter
     payment_index: Arc<std::sync::atomic::AtomicU64>,
-    
+
     /// Invoice index counter  
     invoice_index: Arc<std::sync::atomic::AtomicU64>,
 }
@@ -420,10 +413,10 @@ impl LightningManager {
         wallet: LightningWallet,
     ) -> Result<(Self, mpsc::UnboundedReceiver<LightningEvent>), ManagerError> {
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
-        
+
         // Initialize router
         let router = Arc::new(Router::new());
-        
+
         // Initialize onion router with a default private key
         let private_key = [1u8; 32]; // In production, this would be derived from the wallet
         let quantum_scheme = if config.use_quantum_signatures {
@@ -432,23 +425,25 @@ impl LightningManager {
             None
         };
         let onion_router = Arc::new(OnionRouter::new(private_key, quantum_scheme));
-        
+
         // Initialize watchtower if enabled
-        let watchtower = if config.use_quantum_signatures { // Using quantum flag as watchtower flag
+        let watchtower = if config.use_quantum_signatures {
+            // Using quantum flag as watchtower flag
             let watchtower_config = crate::lightning::watchtower::WatchtowerConfig::default();
             Some(Arc::new(Watchtower::new(watchtower_config, quantum_scheme)))
         } else {
             None
         };
-        
+
         // Initialize quantum security if enabled
         let quantum_security = if config.use_quantum_signatures {
-            let quantum_config = crate::lightning::quantum_security::QuantumChannelConfig::default();
+            let quantum_config =
+                crate::lightning::quantum_security::QuantumChannelConfig::default();
             Some(Arc::new(QuantumChannelSecurity::new(quantum_config)))
         } else {
             None
         };
-        
+
         let manager = Self {
             config,
             channels: Arc::new(RwLock::new(HashMap::new())),
@@ -466,57 +461,68 @@ impl LightningManager {
             payment_index: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             invoice_index: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         };
-        
+
         Ok((manager, event_receiver))
     }
-    
+
     /// Start the Lightning Network manager
     pub async fn start(&self) -> Result<(), ManagerError> {
         info!("Starting Lightning Network manager");
-        
-        self.is_running.store(true, std::sync::atomic::Ordering::Relaxed);
-        
+
+        self.is_running
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
         // Start watchtower if enabled
         if let Some(watchtower) = &self.watchtower {
-            watchtower.start().await
+            watchtower
+                .start()
+                .await
                 .map_err(|e| ManagerError::WatchtowerError(e.to_string()))?;
         }
-        
+
         // Start router
-        self.router.start().await
+        self.router
+            .start()
+            .await
             .map_err(|e| ManagerError::RouterError(e.to_string()))?;
-        
+
         info!("Lightning Network manager started successfully");
         Ok(())
     }
-    
+
     /// Stop the Lightning Network manager
     pub async fn stop(&self) -> Result<(), ManagerError> {
         info!("Stopping Lightning Network manager");
-        
-        self.is_running.store(false, std::sync::atomic::Ordering::Relaxed);
-        
+
+        self.is_running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+
         // Stop watchtower
         if let Some(watchtower) = &self.watchtower {
-            watchtower.stop().await
+            watchtower
+                .stop()
+                .await
                 .map_err(|e| ManagerError::WatchtowerError(e.to_string()))?;
         }
-        
+
         // Stop router
-        self.router.stop().await
+        self.router
+            .stop()
+            .await
             .map_err(|e| ManagerError::RouterError(e.to_string()))?;
-        
+
         info!("Lightning Network manager stopped");
         Ok(())
     }
-    
+
     /// Get Lightning Network information
     pub fn get_info(&self) -> Result<LightningInfo, ManagerError> {
         let channels = self.channels.read().unwrap();
         let pending_channels = self.pending_channels.read().unwrap();
         let peers = self.peers.read().unwrap();
-        
-        let active_channels: Vec<_> = channels.values()
+
+        let active_channels: Vec<_> = channels
+            .values()
             .filter(|c| {
                 // Use get_channel_info() to access the state
                 match c.get_channel_info() {
@@ -525,43 +531,47 @@ impl LightningManager {
                 }
             })
             .collect();
-        
-        let total_balance_msat = active_channels.iter()
+
+        let total_balance_msat = active_channels
+            .iter()
             .filter_map(|c| {
                 c.get_channel_info()
                     .map(|info| info.local_balance_novas * 1000) // Convert to millinovas
                     .ok()
             })
             .sum();
-        
-        let total_outbound_capacity_msat = active_channels.iter()
+
+        let total_outbound_capacity_msat = active_channels
+            .iter()
             .filter_map(|c| {
                 c.get_channel_info()
                     .map(|info| info.local_balance_novas * 1000)
                     .ok()
             })
             .sum();
-        
-        let total_inbound_capacity_msat = active_channels.iter()
+
+        let total_inbound_capacity_msat = active_channels
+            .iter()
             .filter_map(|c| {
                 c.get_channel_info()
                     .map(|info| info.remote_balance_novas * 1000)
                     .ok()
             })
             .sum();
-        
+
         // Check chain sync status by comparing our height with network
         let current_height = self.get_current_height();
         let synced_to_chain = current_height > 0; // Simple check
-        
+
         // Check graph sync status by verifying we have network topology
         let synced_to_graph = self.router.node_count() > 0;
-        
+
         Ok(LightningInfo {
             node_id: self.get_node_id(),
             num_channels: active_channels.len(),
             num_pending_channels: pending_channels.len(),
-            num_inactive_channels: channels.values()
+            num_inactive_channels: channels
+                .values()
                 .filter(|c| {
                     match c.get_channel_info() {
                         Ok(info) => info.state != ChannelState::Active,
@@ -578,11 +588,15 @@ impl LightningManager {
             block_height: current_height,
         })
     }
-    
+
     /// Get all channels
-    pub fn get_channels(&self, include_inactive: bool, include_pending: bool) -> Result<Vec<LightningChannel>, ManagerError> {
+    pub fn get_channels(
+        &self,
+        include_inactive: bool,
+        include_pending: bool,
+    ) -> Result<Vec<LightningChannel>, ManagerError> {
         let mut result = Vec::new();
-        
+
         // Add active/inactive channels
         let channels = self.channels.read().unwrap();
         for channel in channels.values() {
@@ -592,7 +606,7 @@ impl LightningManager {
                 }
             }
         }
-        
+
         // Add pending channels
         if include_pending {
             let pending_channels = self.pending_channels.read().unwrap();
@@ -600,28 +614,28 @@ impl LightningManager {
                 result.push(self.channel_to_lightning_channel(channel));
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Get specific channel
     pub fn get_channel(&self, channel_id: &str) -> Result<Option<LightningChannel>, ManagerError> {
         let channel_id = ChannelId::from_hex(channel_id)
             .map_err(|_| ManagerError::InvalidPaymentRequest("Invalid channel ID".to_string()))?;
-        
+
         let channels = self.channels.read().unwrap();
         if let Some(channel) = channels.get(&channel_id) {
             return Ok(Some(self.channel_to_lightning_channel(channel)));
         }
-        
+
         let pending_channels = self.pending_channels.read().unwrap();
         if let Some(channel) = pending_channels.get(&channel_id) {
             return Ok(Some(self.channel_to_lightning_channel(channel)));
         }
-        
+
         Ok(None)
     }
-    
+
     /// Open a new payment channel
     pub async fn open_channel(
         &self,
@@ -631,17 +645,24 @@ impl LightningManager {
         private: bool,
         min_htlc_msat: Option<u64>,
     ) -> Result<OpenChannelResponse, ManagerError> {
-        info!("Opening channel to {} with funding {}", node_id, local_funding_amount);
-        
+        info!(
+            "Opening channel to {} with funding {}",
+            node_id, local_funding_amount
+        );
+
         // Validate parameters
         if local_funding_amount < 20000 {
-            return Err(ManagerError::ConfigError("Minimum channel size is 20,000 satoshis".to_string()));
+            return Err(ManagerError::ConfigError(
+                "Minimum channel size is 20,000 satoshis".to_string(),
+            ));
         }
-        
+
         if push_amount > local_funding_amount {
-            return Err(ManagerError::ConfigError("Push amount cannot exceed funding amount".to_string()));
+            return Err(ManagerError::ConfigError(
+                "Push amount cannot exceed funding amount".to_string(),
+            ));
         }
-        
+
         // Check wallet balance
         let wallet = self.wallet.lock().unwrap();
         let available_balance = wallet.get_balance();
@@ -652,20 +673,22 @@ impl LightningManager {
             });
         }
         drop(wallet);
-        
+
         // Generate channel ID
         let channel_id = ChannelId::new_random();
-        
+
         // Create funding transaction
-        let funding_tx = self.create_funding_transaction(local_funding_amount, &channel_id).await?;
-        
+        let funding_tx = self
+            .create_funding_transaction(local_funding_amount, &channel_id)
+            .await?;
+
         // Create channel configuration
         let mut config = ChannelConfig::default();
         config.announce_channel = !private;
         if let Some(min_htlc) = min_htlc_msat {
             config.min_htlc_value_msat = min_htlc;
         }
-        
+
         // Create channel
         let channel = Channel::open(
             node_id.to_string(),
@@ -673,96 +696,114 @@ impl LightningManager {
             push_amount,
             config,
             self.config.quantum_scheme,
-        ).map_err(|e| ManagerError::ChannelError(e.to_string()))?;
-        
+        )
+        .map_err(|e| ManagerError::ChannelError(e.to_string()))?;
+
         // Wrap in AtomicChannel for thread safety
         let atomic_channel = Arc::new(AtomicChannel::new(channel));
-        
+
         // Add to pending channels
         {
             let mut pending_channels = self.pending_channels.write().unwrap();
             pending_channels.insert(channel_id.clone(), atomic_channel);
         }
-        
+
         // Send event
-        let _ = self.event_sender.send(LightningEvent::ChannelOpened(channel_id.clone()));
-        
+        let _ = self
+            .event_sender
+            .send(LightningEvent::ChannelOpened(channel_id.clone()));
+
         Ok(OpenChannelResponse {
             channel_id: channel_id.to_hex(),
             funding_txid: hex::encode(funding_tx.hash()),
             output_index: 0,
         })
     }
-    
+
     /// Close a payment channel
     pub async fn close_channel(&self, channel_id: &str, force: bool) -> Result<bool, ManagerError> {
         let channel_id = ChannelId::from_hex(channel_id)
             .map_err(|_| ManagerError::InvalidPaymentRequest("Invalid channel ID".to_string()))?;
-        
+
         info!("Closing channel {} (force: {})", channel_id.to_hex(), force);
-        
+
         // Find channel
         let atomic_channel = {
             let mut channels = self.channels.write().unwrap();
             channels.remove(&channel_id)
         };
-        
+
         if let Some(atomic_channel) = atomic_channel {
             // Get channel info for closing
-            let channel_info = atomic_channel.get_channel_info()
-                .map_err(|e| ManagerError::ChannelError(format!("Failed to get channel info: {}", e)))?;
-            
+            let channel_info = atomic_channel.get_channel_info().map_err(|e| {
+                ManagerError::ChannelError(format!("Failed to get channel info: {}", e))
+            })?;
+
             // Check if channel can be closed
-            if channel_info.state != ChannelState::Active && channel_info.state != ChannelState::ClosingNegotiation {
-                return Err(ManagerError::ChannelError(
-                    format!("Channel in invalid state for closing: {:?}", channel_info.state)
-                ));
+            if channel_info.state != ChannelState::Active
+                && channel_info.state != ChannelState::ClosingNegotiation
+            {
+                return Err(ManagerError::ChannelError(format!(
+                    "Channel in invalid state for closing: {:?}",
+                    channel_info.state
+                )));
             }
-            
+
             // Create closing transaction using the underlying channel
             // This is a simplified approach - in production, we'd handle this through atomic operations
             let closing_tx = {
-                let mut channel = atomic_channel.channel.lock()
-                    .map_err(|e| ManagerError::ChannelError(format!("Failed to lock channel: {}", e)))?;
-                
+                let mut channel = atomic_channel.channel.lock().map_err(|e| {
+                    ManagerError::ChannelError(format!("Failed to lock channel: {}", e))
+                })?;
+
                 if force {
-                    channel.force_close()
+                    channel
+                        .force_close()
                         .map_err(|e| ManagerError::ChannelError(e.to_string()))?
                 } else {
-                    channel.cooperative_close()
+                    channel
+                        .cooperative_close()
                         .map_err(|e| ManagerError::ChannelError(e.to_string()))?
                 }
             };
-            
+
             // Broadcast closing transaction
             self.broadcast_transaction(&closing_tx).await?;
-            
+
             // Send event
-            let _ = self.event_sender.send(LightningEvent::ChannelClosed(channel_id));
-            
+            let _ = self
+                .event_sender
+                .send(LightningEvent::ChannelClosed(channel_id));
+
             Ok(true)
         } else {
             Ok(false)
         }
     }
-    
+
     /// Get payment history
-    pub fn get_payments(&self, index_offset: u64, max_payments: u64, include_pending: bool) -> Result<Vec<LightningPayment>, ManagerError> {
+    pub fn get_payments(
+        &self,
+        index_offset: u64,
+        max_payments: u64,
+        include_pending: bool,
+    ) -> Result<Vec<LightningPayment>, ManagerError> {
         let payments = self.payments.read().unwrap();
-        
-        let mut result: Vec<_> = payments.values()
+
+        let mut result: Vec<_> = payments
+            .values()
             .filter(|p| include_pending || p.status != PaymentStatus::Pending)
             .skip(index_offset as usize)
             .take(max_payments as usize)
             .map(|p| self.payment_to_lightning_payment(p))
             .collect();
-        
+
         // Sort by creation time (newest first)
         result.sort_by(|a, b| b.creation_date.cmp(&a.creation_date));
-        
+
         Ok(result)
     }
-    
+
     /// Send a payment
     pub async fn send_payment(
         &self,
@@ -772,78 +813,100 @@ impl LightningManager {
         fee_limit_msat: Option<u64>,
     ) -> Result<PaymentResponse, ManagerError> {
         info!("Sending payment: {}", payment_request);
-        
+
         // Parse payment request (simplified - in production would parse BOLT11)
         let invoice = self.parse_payment_request(payment_request)?;
-        
+
         // Use provided amount or invoice amount
         let amount = amount_msat.unwrap_or(invoice.amount_msat);
-        
+
         // Find route
-        let route = self.router.find_route(
-            &invoice.destination,
-            amount,
-            &[], // Route hints
-        ).map_err(|e| ManagerError::RouterError(e.to_string()))?;
-        
+        let route = self
+            .router
+            .find_route(
+                &invoice.destination,
+                amount,
+                &[], // Route hints
+            )
+            .map_err(|e| ManagerError::RouterError(e.to_string()))?;
+
         if route.is_empty() {
             return Err(ManagerError::PaymentFailed("No route found".to_string()));
         }
-        
+
         // Check fee limit
         if let Some(max_fee) = fee_limit_msat {
             if route.total_fee_msat > max_fee {
-                return Err(ManagerError::PaymentFailed(
-                    format!("Route fee {} exceeds limit {}", route.total_fee_msat, max_fee)
-                ));
+                return Err(ManagerError::PaymentFailed(format!(
+                    "Route fee {} exceeds limit {}",
+                    route.total_fee_msat, max_fee
+                )));
             }
         }
-        
+
         // Create payment
         let payment_hash = invoice.payment_hash;
-        let payment_index = self.payment_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        
+        let payment_index = self
+            .payment_index
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         let payment = Payment {
             payment_hash,
             payment_preimage: None,
             amount_msat: amount,
             status: PaymentStatus::Pending,
-            created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             completed_at: None,
             fee_msat: route.total_fee_msat,
-            route: Some(route.hops.iter().map(|h| RouteHop {
-                channel_id: h.channel_id.to_hex().parse().unwrap_or(0),
-                node_id: h.node_id.to_string(),
-                amount_msat: h.amount_msat,
-                fee_msat: h.channel_fee(h.amount_msat),
-                cltv_expiry_delta: h.cltv_expiry_delta,
-            }).collect()),
+            route: Some(
+                route
+                    .hops
+                    .iter()
+                    .map(|h| RouteHop {
+                        channel_id: h.channel_id.to_hex().parse().unwrap_or(0),
+                        node_id: h.node_id.to_string(),
+                        amount_msat: h.amount_msat,
+                        fee_msat: h.channel_fee(h.amount_msat),
+                        cltv_expiry_delta: h.cltv_expiry_delta,
+                    })
+                    .collect(),
+            ),
             failure_reason: None,
             carbon_footprint_grams: None,
         };
-        
+
         // Store payment with original request
         {
             let mut payments = self.payments.write().unwrap();
             payments.insert(payment_hash, payment);
         }
-        
+
         // Send payment through route
         let preimage = self.send_payment_through_route(&route, &invoice).await?;
-        
+
         // Update payment status
         {
             let mut payments = self.payments.write().unwrap();
             if let Some(payment) = payments.get_mut(&payment_hash) {
                 payment.status = PaymentStatus::Succeeded;
                 payment.payment_preimage = Some(preimage);
-                payment.completed_at = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+                payment.completed_at = Some(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                );
             }
         }
-        
+
         // Send event
-        let _ = self.event_sender.send(LightningEvent::PaymentSent(payment_hash, amount));
-        
+        let _ = self
+            .event_sender
+            .send(LightningEvent::PaymentSent(payment_hash, amount));
+
         Ok(PaymentResponse {
             payment_hash: payment_hash.to_hex(),
             payment_preimage: Some(preimage.to_hex()),
@@ -853,24 +916,33 @@ impl LightningManager {
             status: "SUCCEEDED".to_string(),
             fee_msat: route.total_fee_msat,
             value_msat: amount,
-            creation_time_ns: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64,
+            creation_time_ns: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
         })
     }
-    
+
     /// Get invoices
-    pub fn get_invoices(&self, pending_only: bool, index_offset: u64, num_max_invoices: u64) -> Result<Vec<LightningInvoice>, ManagerError> {
+    pub fn get_invoices(
+        &self,
+        pending_only: bool,
+        index_offset: u64,
+        num_max_invoices: u64,
+    ) -> Result<Vec<LightningInvoice>, ManagerError> {
         let invoices = self.invoices.read().unwrap();
-        
-        let result: Vec<_> = invoices.values()
+
+        let result: Vec<_> = invoices
+            .values()
             .filter(|i| !pending_only || !i.is_settled())
             .skip(index_offset as usize)
             .take(num_max_invoices as usize)
             .map(|i| self.invoice_to_lightning_invoice(i))
             .collect();
-        
+
         Ok(result)
     }
-    
+
     /// Create an invoice
     pub fn create_invoice(
         &self,
@@ -880,31 +952,29 @@ impl LightningManager {
         private: bool,
     ) -> Result<InvoiceResponse, ManagerError> {
         info!("Creating invoice for {} millinovas", value_msat);
-        
+
         // Generate payment hash and preimage using payment module types
         let preimage = crate::lightning::payment::PaymentPreimage::new_random();
         let payment_hash = preimage.payment_hash();
-        let invoice_index = self.invoice_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        
+        let invoice_index = self
+            .invoice_index
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         // Create invoice using payment module types directly
-        let invoice = Invoice::new_with_preimage(
-            preimage,
-            value_msat,
-            memo.to_string(),
-            expiry,
-        ).map_err(|e| ManagerError::InvalidPaymentRequest(e.to_string()))?;
-        
+        let invoice = Invoice::new_with_preimage(preimage, value_msat, memo.to_string(), expiry)
+            .map_err(|e| ManagerError::InvalidPaymentRequest(e.to_string()))?;
+
         // Store invoice using payment module types
         {
             let mut invoices = self.invoices.write().unwrap();
             invoices.insert(payment_hash, invoice.clone());
         }
-        
+
         // Convert HTLCs from invoice (if any pending)
         let htlcs = {
             let channels = self.channels.read().unwrap();
             let mut invoice_htlcs = vec![];
-            
+
             for atomic_channel in channels.values() {
                 // Get channel info safely
                 if let Ok(channel_info) = atomic_channel.get_channel_info() {
@@ -926,75 +996,95 @@ impl LightningManager {
                     }
                 }
             }
-            
+
             invoice_htlcs
         };
-        
+
         // Get invoice index
         let add_index = self.invoice_index.load(std::sync::atomic::Ordering::SeqCst);
-        
+
         Ok(InvoiceResponse {
             payment_request: self.encode_payment_request(&invoice)?,
             payment_hash: invoice.payment_hash().to_hex(),
             add_index,
         })
     }
-    
+
     // Helper methods
     fn get_node_id(&self) -> String {
         // In a real implementation, this would return the node's public key
         "02abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab".to_string()
     }
-    
-    fn channel_to_lightning_channel(&self, atomic_channel: &Arc<AtomicChannel>) -> LightningChannel {
+
+    fn channel_to_lightning_channel(
+        &self,
+        atomic_channel: &Arc<AtomicChannel>,
+    ) -> LightningChannel {
         // Get channel info atomically
-        let channel_info = atomic_channel.get_channel_info()
+        let channel_info = atomic_channel
+            .get_channel_info()
             .unwrap_or_else(|_| panic!("Failed to get channel info"));
-        
+
         // Get the underlying channel for detailed info
-        let channel = atomic_channel.channel.lock()
+        let channel = atomic_channel
+            .channel
+            .lock()
             .unwrap_or_else(|_| panic!("Failed to lock channel"));
-        
+
         // Calculate actual statistics from channel data
-        let total_novas_sent = channel.pending_htlcs.iter()
+        let total_novas_sent = channel
+            .pending_htlcs
+            .iter()
             .filter(|htlc| htlc.is_outgoing)
             .map(|htlc| htlc.amount_novas)
             .sum::<u64>();
-            
-        let total_novas_received = channel.pending_htlcs.iter()
+
+        let total_novas_received = channel
+            .pending_htlcs
+            .iter()
             .filter(|htlc| !htlc.is_outgoing)
             .map(|htlc| htlc.amount_novas)
             .sum::<u64>();
-            
+
         let num_updates = channel_info.commitment_number;
-        
+
         // Calculate uptime
-        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let uptime = current_time - channel_info.last_operation_time;
-        
+
         LightningChannel {
             channel_id: hex::encode(channel_info.channel_id),
             remote_pubkey: hex::encode(channel.remote_node_id.serialize()),
             capacity: channel_info.capacity_novas,
             local_balance: channel_info.local_balance_novas,
             remote_balance: channel_info.remote_balance_novas,
-            commit_fee: 1000, // Standard commitment fee
+            commit_fee: 1000,   // Standard commitment fee
             commit_weight: 724, // Standard commitment weight
-            fee_per_kw: 2500, // Standard fee per kiloweight
-            unsettled_balance: channel.pending_htlcs.iter()
+            fee_per_kw: 2500,   // Standard fee per kiloweight
+            unsettled_balance: channel
+                .pending_htlcs
+                .iter()
                 .map(|htlc| htlc.amount_novas)
                 .sum(),
             total_satoshis_sent: total_novas_sent,
             total_satoshis_received: total_novas_received,
             num_updates,
-            pending_htlcs: channel.pending_htlcs.iter().map(|htlc| PendingHTLC {
-                incoming: !htlc.is_outgoing,
-                amount: htlc.amount_novas,
-                outpoint: format!("{}:{}", hex::encode(htlc.payment_hash), htlc.id),
-                maturity_height: htlc.expiry_height,
-                blocks_til_maturity: htlc.expiry_height as i32 - self.get_current_height() as i32,
-                stage: 1, // Simplified stage
-            }).collect(),
+            pending_htlcs: channel
+                .pending_htlcs
+                .iter()
+                .map(|htlc| PendingHTLC {
+                    incoming: !htlc.is_outgoing,
+                    amount: htlc.amount_novas,
+                    outpoint: format!("{}:{}", hex::encode(htlc.payment_hash), htlc.id),
+                    maturity_height: htlc.expiry_height,
+                    blocks_til_maturity: htlc.expiry_height as i32
+                        - self.get_current_height() as i32,
+                    stage: 1, // Simplified stage
+                })
+                .collect(),
             csv_delay: channel.to_self_delay as u32,
             private: !channel.is_public,
             initiator: channel.is_initiator,
@@ -1026,7 +1116,7 @@ impl LightningManager {
             },
         }
     }
-    
+
     fn payment_to_lightning_payment(&self, payment: &Payment) -> LightningPayment {
         // Convert HTLCs from payment
         let htlcs = if let Some(route) = &payment.route {
@@ -1042,20 +1132,23 @@ impl LightningManager {
                     total_time_lock: 0, // Would need to track this
                     total_fees: payment.fee_msat / 1000,
                     total_amt: payment.amount_msat / 1000,
-                    hops: route.iter().map(|h| Hop {
-                        chan_id: format!("{:016x}", h.channel_id),
-                        chan_capacity: 1000000, // Would need channel info
-                        amt_to_forward: h.amount_msat / 1000,
-                        fee: h.channel_fee(h.amount_msat) / 1000,
-                        expiry: h.cltv_expiry_delta as u32,
-                        amt_to_forward_msat: h.amount_msat,
-                        fee_msat: h.channel_fee(h.amount_msat),
-                        pub_key: h.node_id.clone(),
-                        tlv_payload: true,
-                        mpp_record: None,
-                        amp_record: None,
-                        custom_records: HashMap::new(),
-                    }).collect(),
+                    hops: route
+                        .iter()
+                        .map(|h| Hop {
+                            chan_id: format!("{:016x}", h.channel_id),
+                            chan_capacity: 1000000, // Would need channel info
+                            amt_to_forward: h.amount_msat / 1000,
+                            fee: h.channel_fee(h.amount_msat) / 1000,
+                            expiry: h.cltv_expiry_delta as u32,
+                            amt_to_forward_msat: h.amount_msat,
+                            fee_msat: h.channel_fee(h.amount_msat),
+                            pub_key: h.node_id.clone(),
+                            tlv_payload: true,
+                            mpp_record: None,
+                            amp_record: None,
+                            custom_records: HashMap::new(),
+                        })
+                        .collect(),
                     total_fees_msat: payment.fee_msat,
                     total_amt_msat: payment.amount_msat,
                 },
@@ -1071,23 +1164,29 @@ impl LightningManager {
                     failure_source_index: 0,
                     height: 0,
                 }),
-                preimage: payment.payment_preimage.as_ref()
+                preimage: payment
+                    .payment_preimage
+                    .as_ref()
                     .map(|p| p.to_hex())
                     .unwrap_or_default(),
             }]
         } else {
             vec![]
         };
-        
+
         // Get payment index
-        let payment_index = self.payment_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        
+        let payment_index = self
+            .payment_index
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         LightningPayment {
             payment_hash: payment.payment_hash.to_hex(),
             value: payment.amount_msat / 1000,
             creation_date: payment.created_at,
             fee: payment.fee_msat / 1000,
-            payment_preimage: payment.payment_preimage.as_ref()
+            payment_preimage: payment
+                .payment_preimage
+                .as_ref()
                 .map(|p| p.to_hex())
                 .unwrap_or_default(),
             value_sat: payment.amount_msat / 1000,
@@ -1107,13 +1206,13 @@ impl LightningManager {
             failure_reason: payment.failure_reason.clone().unwrap_or_default(),
         }
     }
-    
+
     fn invoice_to_lightning_invoice(&self, invoice: &Invoice) -> LightningInvoice {
         // Get HTLCs for this invoice
         let htlcs = {
             let channels = self.channels.read().unwrap();
             let mut invoice_htlcs = vec![];
-            
+
             for (channel_id, atomic_channel) in channels.iter() {
                 if let Ok(channel) = atomic_channel.channel.lock() {
                     for (idx, htlc) in channel.pending_htlcs.iter().enumerate() {
@@ -1126,26 +1225,32 @@ impl LightningManager {
                                 accept_time: invoice.created_at(),
                                 resolve_time: invoice.settled_at().unwrap_or(0),
                                 expiry_height: htlc.expiry_height as i32,
-                                state: if invoice.is_settled() { "SETTLED".to_string() } else { "ACCEPTED".to_string() },
+                                state: if invoice.is_settled() {
+                                    "SETTLED".to_string()
+                                } else {
+                                    "ACCEPTED".to_string()
+                                },
                                 custom_records: HashMap::new(),
                                 mpp_total_amt_msat: 0, // Would need MPP info
-                                amp: None, // Would need AMP info
+                                amp: None,             // Would need AMP info
                             });
                         }
                     }
                 }
             }
-            
+
             invoice_htlcs
         };
-        
+
         // Generate BOLT11 payment request
         let payment_request = self.encode_payment_request(invoice).unwrap_or_default();
-        
+
         // Get invoice index
-        let add_index = self.invoice_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let add_index = self
+            .invoice_index
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let settle_index = if invoice.is_settled() { add_index } else { 0 };
-        
+
         LightningInvoice {
             memo: invoice.description().to_string(),
             r_preimage: invoice.payment_preimage().as_bytes().to_vec(),
@@ -1164,10 +1269,26 @@ impl LightningManager {
             private: invoice.is_private(),
             add_index,
             settle_index,
-            amt_paid: if invoice.is_settled() { invoice.amount_msat() / 1000 } else { 0 },
-            amt_paid_sat: if invoice.is_settled() { invoice.amount_msat() / 1000 } else { 0 },
-            amt_paid_msat: if invoice.is_settled() { invoice.amount_msat() } else { 0 },
-            state: if invoice.is_settled() { "SETTLED".to_string() } else { "OPEN".to_string() },
+            amt_paid: if invoice.is_settled() {
+                invoice.amount_msat() / 1000
+            } else {
+                0
+            },
+            amt_paid_sat: if invoice.is_settled() {
+                invoice.amount_msat() / 1000
+            } else {
+                0
+            },
+            amt_paid_msat: if invoice.is_settled() {
+                invoice.amount_msat()
+            } else {
+                0
+            },
+            state: if invoice.is_settled() {
+                "SETTLED".to_string()
+            } else {
+                "OPEN".to_string()
+            },
             htlcs,
             features: HashMap::new(),
             is_keysend: false,
@@ -1176,34 +1297,39 @@ impl LightningManager {
             amp_invoice_state: HashMap::new(),
         }
     }
-    
-    async fn create_funding_transaction(&self, amount: u64, channel_id: &ChannelId) -> Result<Transaction, ManagerError> {
+
+    async fn create_funding_transaction(
+        &self,
+        amount: u64,
+        channel_id: &ChannelId,
+    ) -> Result<Transaction, ManagerError> {
         let wallet = self.wallet.lock().unwrap();
-        wallet.create_funding_transaction(amount, channel_id)
+        wallet
+            .create_funding_transaction(amount, channel_id)
             .map_err(|e| ManagerError::WalletError(e.to_string()))
     }
-    
+
     async fn broadcast_transaction(&self, tx: &Transaction) -> Result<(), ManagerError> {
         // In a real implementation, this would broadcast to the network
         info!("Broadcasting transaction: {}", hex::encode(tx.hash()));
         Ok(())
     }
-    
+
     fn parse_payment_request(&self, payment_request: &str) -> Result<ParsedInvoice, ManagerError> {
         // Simplified BOLT11 parsing - in production would use proper parser
         Ok(ParsedInvoice {
             payment_hash: crate::lightning::payment::PaymentHash::new([0u8; 32]), // Placeholder
-            amount_msat: 1000000, // Placeholder
+            amount_msat: 1000000,                                                 // Placeholder
             destination: "destination_node".to_string(),
             expiry: 3600,
             description: "Test payment".to_string(),
         })
     }
-    
+
     fn encode_payment_request(&self, invoice: &Invoice) -> Result<String, ManagerError> {
         // BOLT11 payment request encoding
         // Format: ln[prefix][amount][separator][data][checksum]
-        
+
         let network_prefix = "bc"; // mainnet
         let amount_part = if invoice.amount_msat() > 0 {
             // Convert millinovas to the appropriate unit
@@ -1218,96 +1344,119 @@ impl LightningManager {
         } else {
             "".to_string()
         };
-        
+
         // Simplified BOLT11 - in production would use proper bech32 encoding
         let payment_hash_hex = invoice.payment_hash().to_hex();
         let timestamp = invoice.created_at();
         let expiry = invoice.expiry_seconds();
-        
+
         // Create a simplified but recognizable payment request
         let payment_request = format!(
             "lnbc{}1{}{}{}{}",
             amount_part,
-            timestamp % 1000000, // Simplified timestamp
+            timestamp % 1000000,      // Simplified timestamp
             &payment_hash_hex[0..10], // First 10 chars of payment hash
             expiry,
             "00" // Simplified checksum
         );
-        
+
         Ok(payment_request)
     }
-    
-    async fn send_payment_through_route(&self, route: &crate::lightning::router::PaymentPath, invoice: &ParsedInvoice) -> Result<crate::lightning::payment::PaymentPreimage, ManagerError> {
+
+    async fn send_payment_through_route(
+        &self,
+        route: &crate::lightning::router::PaymentPath,
+        invoice: &ParsedInvoice,
+    ) -> Result<crate::lightning::payment::PaymentPreimage, ManagerError> {
         // Simplified payment sending - in production would handle onion routing
-        info!("Sending payment through route with {} hops", route.hops.len());
-        
+        info!(
+            "Sending payment through route with {} hops",
+            route.hops.len()
+        );
+
         // For now, just return a random preimage
         Ok(crate::lightning::payment::PaymentPreimage::new_random())
     }
-    
+
     /// Get network nodes
     pub fn get_network_nodes(&self, limit: u32) -> Result<Vec<NodeInfo>, ManagerError> {
         // In a real implementation, this would query the network graph
         Ok(vec![])
     }
-    
+
     /// Get node information
     pub fn get_node_info(&self, node_id: &str) -> Result<Option<NodeInfo>, ManagerError> {
         // In a real implementation, this would query the network graph
         Ok(None)
     }
-    
+
     /// Find a route
-    pub async fn find_route(&self, pub_key: &str, amt_msat: u64, fee_limit_msat: u64) -> Result<Option<Route>, ManagerError> {
+    pub async fn find_route(
+        &self,
+        pub_key: &str,
+        amt_msat: u64,
+        fee_limit_msat: u64,
+    ) -> Result<Option<Route>, ManagerError> {
         match self.router.find_route(pub_key, amt_msat, &[]) {
             Ok(route) => {
                 if route.total_fee_msat <= fee_limit_msat {
                     // Get channel capacities for each hop
                     let channels = self.channels.read().unwrap();
-                    
+
                     Ok(Some(Route {
-                        total_time_lock: route.hops.iter().map(|h| h.cltv_expiry_delta as u32).sum(),
+                        total_time_lock: route
+                            .hops
+                            .iter()
+                            .map(|h| h.cltv_expiry_delta as u32)
+                            .sum(),
                         total_fees: route.total_fee_msat / 1000,
                         total_amt: amt_msat / 1000,
-                        hops: route.hops.iter().map(|hop| {
-                            // Try to find channel capacity from our channels
-                            let chan_capacity = channels.values()
-                                .find_map(|atomic_channel| {
-                                    atomic_channel.get_channel_info().ok()
-                                        .filter(|info| {
-                                            // Compare channel IDs directly as byte arrays
-                                            &info.channel_id == hop.channel_id.as_bytes()
-                                        })
-                                        .map(|info| info.capacity_novas)
-                                })
-                                .unwrap_or(1000000); // Default 1M novas if not found
-                            
-                            Hop {
-                                chan_id: hop.channel_id.to_hex(),
-                                chan_capacity,
-                                amt_to_forward: hop.amount_msat / 1000,
-                                fee: hop.channel_fee(hop.amount_msat) / 1000,
-                                expiry: hop.cltv_expiry_delta as u32,
-                                amt_to_forward_msat: hop.amount_msat,
-                                fee_msat: hop.channel_fee(hop.amount_msat),
-                                pub_key: hop.node_id.to_string(),
-                                tlv_payload: true,
-                                mpp_record: None,
-                                amp_record: None,
-                                custom_records: HashMap::new(),
-                            }
-                        }).collect(),
+                        hops: route
+                            .hops
+                            .iter()
+                            .map(|hop| {
+                                // Try to find channel capacity from our channels
+                                let chan_capacity = channels
+                                    .values()
+                                    .find_map(|atomic_channel| {
+                                        atomic_channel
+                                            .get_channel_info()
+                                            .ok()
+                                            .filter(|info| {
+                                                // Compare channel IDs directly as byte arrays
+                                                &info.channel_id == hop.channel_id.as_bytes()
+                                            })
+                                            .map(|info| info.capacity_novas)
+                                    })
+                                    .unwrap_or(1000000); // Default 1M novas if not found
+
+                                Hop {
+                                    chan_id: hop.channel_id.to_hex(),
+                                    chan_capacity,
+                                    amt_to_forward: hop.amount_msat / 1000,
+                                    fee: hop.channel_fee(hop.amount_msat) / 1000,
+                                    expiry: hop.cltv_expiry_delta as u32,
+                                    amt_to_forward_msat: hop.amount_msat,
+                                    fee_msat: hop.channel_fee(hop.amount_msat),
+                                    pub_key: hop.node_id.to_string(),
+                                    tlv_payload: true,
+                                    mpp_record: None,
+                                    amp_record: None,
+                                    custom_records: HashMap::new(),
+                                }
+                            })
+                            .collect(),
                         total_fees_msat: route.total_fee_msat,
                         total_amt_msat: amt_msat,
                     }))
                 } else {
                     Ok(None)
                 }
-            },
+            }
             Err(_) => Ok(None),
         }
     }
-    
+
     /// Get the current blockchain height
     fn get_current_height(&self) -> u64 {
         // In a real implementation, this would query the blockchain state
@@ -1319,42 +1468,51 @@ impl LightningManager {
     pub fn lookup_payment(&self, payment_hash: &str) -> Result<PaymentResponse, ManagerError> {
         let hash_bytes = hex::decode(payment_hash)
             .map_err(|_| ManagerError::InvalidPaymentRequest("Invalid payment hash".to_string()))?;
-        
+
         if hash_bytes.len() != 32 {
-            return Err(ManagerError::InvalidPaymentRequest("Payment hash must be 32 bytes".to_string()));
+            return Err(ManagerError::InvalidPaymentRequest(
+                "Payment hash must be 32 bytes".to_string(),
+            ));
         }
-        
+
         let mut hash_array = [0u8; 32];
         hash_array.copy_from_slice(&hash_bytes);
-        
+
         let payment_hash_obj = crate::lightning::payment::PaymentHash::new(hash_array);
-        
+
         let payments = self.payments.read().unwrap();
-        let payment = payments.get(&payment_hash_obj)
+        let payment = payments
+            .get(&payment_hash_obj)
             .ok_or_else(|| ManagerError::PaymentNotFound("Payment not found".to_string()))?;
-        
+
         // Convert HTLCs from payment route
         let htlcs = if let Some(route) = &payment.route {
-            route.iter().enumerate().map(|(i, hop)| crate::lightning::payment::Htlc {
-                id: i as u64,
-                payment_hash: *payment_hash_obj.as_bytes(),
-                amount_sat: hop.amount_msat / 1000, // Convert to sats
-                cltv_expiry: 0, // Would need to track this
-                offered: i == 0, // First hop is offered by us
-                state: crate::lightning::payment::HtlcState::Pending,
-                quantum_signature: None,
-            }).collect()
+            route
+                .iter()
+                .enumerate()
+                .map(|(i, hop)| crate::lightning::payment::Htlc {
+                    id: i as u64,
+                    payment_hash: *payment_hash_obj.as_bytes(),
+                    amount_sat: hop.amount_msat / 1000, // Convert to sats
+                    cltv_expiry: 0,                     // Would need to track this
+                    offered: i == 0,                    // First hop is offered by us
+                    state: crate::lightning::payment::HtlcState::Pending,
+                    quantum_signature: None,
+                })
+                .collect()
         } else {
             vec![]
         };
-        
+
         // Get payment index from our atomic counter
         let payment_index = self.payment_index.load(std::sync::atomic::Ordering::SeqCst);
-        
+
         Ok(PaymentResponse {
             payment_hash: payment_hash.to_string(),
             payment_preimage: payment.payment_preimage.as_ref().map(|p| p.to_hex()),
-            payment_route: payment.route.as_ref()
+            payment_route: payment
+                .route
+                .as_ref()
                 .map(|r| r.iter().map(|h| h.node_id.clone()).collect())
                 .unwrap_or_default(),
             payment_error: payment.failure_reason.clone(),
@@ -1419,4 +1577,4 @@ impl From<crate::lightning::QuantumSecurityError> for ManagerError {
     fn from(err: crate::lightning::QuantumSecurityError) -> Self {
         ManagerError::QuantumSecurityError(err.to_string())
     }
-} 
+}

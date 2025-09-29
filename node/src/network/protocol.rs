@@ -1,20 +1,20 @@
+use bincode;
+use futures::prelude::*;
 use libp2p::{
-    gossipsub::{self, MessageId, MessageAuthenticity, ValidationMode, ConfigBuilder, IdentTopic},
+    gossipsub::{self, ConfigBuilder, IdentTopic, MessageAuthenticity, MessageId, ValidationMode},
     identity::Keypair,
     PeerId,
 };
-use serde::{Serialize, Deserialize};
-use std::error::Error;
-use sha2::{Sha256, Digest};
-use std::time::Duration;
-use bincode;
-use std::fmt;
-use std::error::Error as StdError;
-use tracing::debug;
-use std::collections::HashMap;
 use rand::{thread_rng, RngCore};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::error::Error;
+use std::error::Error as StdError;
+use std::fmt;
+use std::time::Duration;
 use thiserror::Error;
-use futures::prelude::*;
+use tracing::debug;
 
 // Topic constants
 const BLOCKS_TOPIC: &str = "blocks";
@@ -90,10 +90,7 @@ pub enum ProtocolMessage {
     /// Pong response
     Pong(u64),
     /// Get headers request
-    GetHeaders {
-        start_height: u64,
-        end_height: u64,
-    },
+    GetHeaders { start_height: u64, end_height: u64 },
     /// Headers response
     Headers(Vec<BlockHeader>),
     /// Get blocks request
@@ -141,7 +138,7 @@ pub enum Message {
     Lightning(LightningMessage),
     /// Custom extension message
     Extension(String, Vec<u8>),
-    
+
     // Additional message types needed by the codebase
     /// New block announcement
     NewBlock {
@@ -150,14 +147,9 @@ pub enum Message {
         total_difficulty: u64,
     },
     /// Get blocks by height range
-    GetBlocksByHeight {
-        start_height: u64,
-        end_height: u64,
-    },
+    GetBlocksByHeight { start_height: u64, end_height: u64 },
     /// Get blocks by hash
-    GetBlocksByHash {
-        block_hashes: Vec<[u8; 32]>,
-    },
+    GetBlocksByHash { block_hashes: Vec<[u8; 32]> },
     /// Status message
     Status {
         version: u32,
@@ -169,42 +161,26 @@ pub enum Message {
     /// Get status request
     GetStatus,
     /// Transaction with raw bytes
-    Transaction {
-        transaction: Vec<u8>,
-    },
+    Transaction { transaction: Vec<u8> },
     /// Broadcast transaction
     BroadcastTransaction(Vec<u8>),
     /// Transaction announcement
-    TransactionAnnouncement {
-        tx_hash: [u8; 32],
-        fee_rate: u64,
-    },
+    TransactionAnnouncement { tx_hash: [u8; 32], fee_rate: u64 },
     /// Headers response with difficulty
     Headers {
         headers: Vec<Vec<u8>>,
         total_difficulty: u64,
     },
     /// Blocks response
-    Blocks {
-        blocks: Vec<Vec<u8>>,
-    },
+    Blocks { blocks: Vec<Vec<u8>> },
     /// Block response
-    BlockResponse {
-        block: Option<Vec<u8>>,
-    },
+    BlockResponse { block: Option<Vec<u8>> },
     /// Get headers range
-    GetHeaders {
-        start_height: u64,
-        end_height: u64,
-    },
+    GetHeaders { start_height: u64, end_height: u64 },
     /// Get mempool with filter
-    GetMempool {
-        filter: Option<String>,
-    },
+    GetMempool { filter: Option<String> },
     /// Mempool response with tx hashes
-    Mempool {
-        tx_hashes: Vec<[u8; 32]>,
-    },
+    Mempool { tx_hashes: Vec<[u8; 32]> },
     /// Get data request
     GetData(Vec<[u8; 32]>),
 }
@@ -234,10 +210,10 @@ pub enum SignatureVerificationMode {
 pub struct ProtocolConfig {
     /// Signature verification mode
     pub signature_verification_mode: SignatureVerificationMode,
-    
+
     /// Whether to require identity verification
     pub require_identity_verification: bool,
-    
+
     /// Challenge difficulty for identity verification
     pub challenge_difficulty: u8,
 }
@@ -264,7 +240,7 @@ impl Protocol {
     /// Create a new protocol instance
     pub fn new(keypair: Keypair) -> Result<Self, Box<dyn Error>> {
         let local_peer_id = PeerId::from(keypair.public());
-        
+
         // Configure gossipsub with appropriate parameters
         let gossipsub_config = ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
@@ -272,13 +248,12 @@ impl Protocol {
             .message_id_fn(message_id_from_content)
             .build()
             .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
-        
+
         // Create gossipsub behavior
-        let gossipsub = gossipsub::Behaviour::new(
-            MessageAuthenticity::Signed(keypair),
-            gossipsub_config,
-        ).map_err(|e| format!("Failed to create gossipsub: {}", e))?;
-        
+        let gossipsub =
+            gossipsub::Behaviour::new(MessageAuthenticity::Signed(keypair), gossipsub_config)
+                .map_err(|e| format!("Failed to create gossipsub: {}", e))?;
+
         Ok(Self {
             gossipsub,
             local_peer_id,
@@ -286,7 +261,7 @@ impl Protocol {
             identity_challenges: HashMap::new(),
         })
     }
-    
+
     /// Subscribe to all protocol topics
     pub fn subscribe_to_topics(&mut self) -> Result<(), GossipsubError> {
         // Define the topics we want to subscribe to
@@ -297,32 +272,43 @@ impl Protocol {
             IdentTopic::new(HEADERS_TOPIC),
             IdentTopic::new(MEMPOOL_TOPIC),
         ];
-        
+
         // Subscribe to each topic with proper error conversion
         for topic in &topics {
-            self.gossipsub.subscribe(topic).map_err(GossipsubError::from)?;
+            self.gossipsub
+                .subscribe(topic)
+                .map_err(GossipsubError::from)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Access to the underlying gossipsub behavior
     pub fn gossipsub(&mut self) -> &mut gossipsub::Behaviour {
         &mut self.gossipsub
     }
-    
+
     /// Create and publish a message
-    pub fn publish_message(&mut self, topic: &str, message: Message) -> Result<MessageId, PublishError> {
+    pub fn publish_message(
+        &mut self,
+        topic: &str,
+        message: Message,
+    ) -> Result<MessageId, PublishError> {
         // Serialize message to binary
         let encoded = bincode::serialize(&message)?;
-        
+
         // Publish to gossipsub network
         let message_id = self.publish_to_topic(topic, message)?;
         Ok(message_id)
     }
-    
+
     /// Helper method to publish block announcements
-    pub fn announce_block(&mut self, block: &[u8], height: u64, total_difficulty: u64) -> Result<MessageId, PublishError> {
+    pub fn announce_block(
+        &mut self,
+        block: &[u8],
+        height: u64,
+        total_difficulty: u64,
+    ) -> Result<MessageId, PublishError> {
         let message = Message::NewBlock {
             block_data: block.to_vec(),
             height,
@@ -330,23 +316,29 @@ impl Protocol {
         };
         self.publish_message(BLOCKS_TOPIC, message)
     }
-    
+
     /// Helper method to announce new transactions
-    pub fn announce_transaction(&mut self, tx_data: &[u8], fee_rate: u64) -> Result<MessageId, PublishError> {
+    pub fn announce_transaction(
+        &mut self,
+        tx_data: &[u8],
+        fee_rate: u64,
+    ) -> Result<MessageId, PublishError> {
         // First try using the transaction itself
         let message = Message::Transaction {
             transaction: tx_data.to_vec(),
         };
         self.publish_message(TXS_TOPIC, message)
     }
-    
+
     /// Helper method to publish status updates
-    pub fn broadcast_status(&mut self, 
-                       version: u32, 
-                       height: u64, 
-                       best_hash: [u8; 32],
-                       total_difficulty: u64,
-                       head_timestamp: u64) -> Result<MessageId, PublishError> {
+    pub fn broadcast_status(
+        &mut self,
+        version: u32,
+        height: u64,
+        best_hash: [u8; 32],
+        total_difficulty: u64,
+        head_timestamp: u64,
+    ) -> Result<MessageId, PublishError> {
         let message = Message::Status {
             version,
             height,
@@ -356,51 +348,73 @@ impl Protocol {
         };
         self.publish_message(STATUS_TOPIC, message)
     }
-    
+
     /// Send a message to a specific peer
-    pub fn send_to_peer(&mut self, peer_id: &PeerId, message: Message) -> Result<MessageId, PublishError> {
+    pub fn send_to_peer(
+        &mut self,
+        peer_id: &PeerId,
+        message: Message,
+    ) -> Result<MessageId, PublishError> {
         // For now, we'll just publish to the regular topic and let the peer pick it up
         // This is less efficient but works with the current gossipsub implementation
         let topic_name = message_to_topic(&message);
-        
+
         // Log that we're targeting a specific peer, though we're using broadcast
-        debug!("Sending message to peer {} via topic {}", peer_id, topic_name);
-        
+        debug!(
+            "Sending message to peer {} via topic {}",
+            peer_id, topic_name
+        );
+
         self.publish_message(topic_name, message)
     }
-    
+
     /// Request blocks by hash
-    pub fn request_blocks(&mut self, block_hashes: Vec<[u8; 32]>) -> Result<MessageId, PublishError> {
+    pub fn request_blocks(
+        &mut self,
+        block_hashes: Vec<[u8; 32]>,
+    ) -> Result<MessageId, PublishError> {
         let message = Message::GetBlocksByHash { block_hashes };
         self.publish_message(BLOCKS_TOPIC, message)
     }
-    
+
     /// Request headers in a range
-    pub fn request_headers(&mut self, start_height: u64, end_height: u64) -> Result<MessageId, PublishError> {
+    pub fn request_headers(
+        &mut self,
+        start_height: u64,
+        end_height: u64,
+    ) -> Result<MessageId, PublishError> {
         let message = Message::GetHeaders {
             start_height,
             end_height,
         };
         self.publish_message(HEADERS_TOPIC, message)
     }
-    
+
     /// Request blocks by height range
-    pub fn request_blocks_by_height(&mut self, start_height: u64, end_height: u64) -> Result<MessageId, PublishError> {
+    pub fn request_blocks_by_height(
+        &mut self,
+        start_height: u64,
+        end_height: u64,
+    ) -> Result<MessageId, PublishError> {
         let message = Message::GetBlocksByHeight {
             start_height,
             end_height,
         };
         self.publish_message(BLOCKS_TOPIC, message)
     }
-    
+
     /// Broadcast a message to all subscribers of a topic
     pub fn broadcast(&mut self, message: Message) -> Result<MessageId, PublishError> {
         let topic_name = message_to_topic(&message);
         self.publish_message(topic_name, message)
     }
-    
+
     /// Generic method to publish to a topic
-    fn publish_to_topic(&mut self, topic: &str, message: Message) -> Result<MessageId, PublishError> {
+    fn publish_to_topic(
+        &mut self,
+        topic: &str,
+        message: Message,
+    ) -> Result<MessageId, PublishError> {
         let encoded = bincode::serialize(&message)?;
         let topic = IdentTopic::new(topic);
         match self.gossipsub.publish(topic, encoded) {
@@ -408,25 +422,28 @@ impl Protocol {
             Err(err) => Err(PublishError::Gossipsub(err.to_string())),
         }
     }
-    
+
     /// Create a new protocol instance with custom configuration
     pub fn with_config(keypair: Keypair, config: ProtocolConfig) -> Result<Self, ProtocolError> {
         let local_peer_id = PeerId::from(keypair.public());
-        
+
         // Configure gossipsub with appropriate parameters
         let gossipsub_config = ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
             .validation_mode(ValidationMode::Strict)
             .message_id_fn(message_id_from_content)
             .build()
-            .map_err(|e| ProtocolError::NetworkError(format!("Failed to build gossipsub config: {}", e)))?;
-        
+            .map_err(|e| {
+                ProtocolError::NetworkError(format!("Failed to build gossipsub config: {}", e))
+            })?;
+
         // Create gossipsub behavior
-        let gossipsub = gossipsub::Behaviour::new(
-            MessageAuthenticity::Signed(keypair),
-            gossipsub_config,
-        ).map_err(|e| ProtocolError::NetworkError(format!("Failed to create gossipsub: {}", e)))?;
-        
+        let gossipsub =
+            gossipsub::Behaviour::new(MessageAuthenticity::Signed(keypair), gossipsub_config)
+                .map_err(|e| {
+                    ProtocolError::NetworkError(format!("Failed to create gossipsub: {}", e))
+                })?;
+
         Ok(Self {
             gossipsub,
             local_peer_id,
@@ -434,38 +451,46 @@ impl Protocol {
             identity_challenges: HashMap::new(),
         })
     }
-    
+
     /// Set the signature verification mode
     pub fn set_signature_verification_mode(&mut self, mode: SignatureVerificationMode) {
         self.config.signature_verification_mode = mode;
     }
-    
+
     /// Generate an identity challenge for a peer
     pub fn generate_identity_challenge(&mut self, peer_id: &PeerId) -> Vec<u8> {
         // Generate random nonce
         let mut nonce = [0u8; 8];
         thread_rng().fill_bytes(&mut nonce);
-        
+
         // Store the challenge
         self.identity_challenges.insert(*peer_id, nonce.to_vec());
-        
+
         nonce.to_vec()
     }
-    
+
     /// Verify an identity challenge response
-    pub fn verify_identity_challenge(&self, peer_id: &PeerId, response: &[u8]) -> Result<bool, ProtocolError> {
+    pub fn verify_identity_challenge(
+        &self,
+        peer_id: &PeerId,
+        response: &[u8],
+    ) -> Result<bool, ProtocolError> {
         // Get the challenge
         let challenge = match self.identity_challenges.get(peer_id) {
             Some(c) => c,
-            None => return Err(ProtocolError::InvalidOperation("No challenge found for peer".to_string())),
+            None => {
+                return Err(ProtocolError::InvalidOperation(
+                    "No challenge found for peer".to_string(),
+                ))
+            }
         };
-        
+
         // Verify the response (hash of challenge + response should have required leading zeros)
         let mut hasher = sha2::Sha256::new();
         hasher.update(challenge);
         hasher.update(response);
         let hash = hasher.finalize();
-        
+
         // Count leading zero bits
         let mut leading_zeros = 0;
         for &byte in hash.as_slice() {
@@ -481,13 +506,13 @@ impl Protocol {
                 break;
             }
         }
-        
+
         // Check if difficulty requirement is met
         let success = leading_zeros >= self.config.challenge_difficulty;
-        
+
         Ok(success)
     }
-    
+
     /// Handle a message with quantum signature verification
     pub fn handle_message_with_quantum_verification(
         &self,
@@ -499,29 +524,31 @@ impl Protocol {
     ) -> Result<bool, ProtocolError> {
         // In a full implementation, this would use the btclib quantum signature verification
         // Based on the signature_type (Dilithium, Falcon, SPHINCS+, Hybrid)
-        
+
         // For now, we'll just return true as a placeholder
         // In production code, we would do proper verification using the appropriate algorithm
-        
+
         match signature_type {
             "Dilithium" => {
                 // Use Dilithium verification
                 // Would use btclib::crypto::quantum::verify_quantum_signature
                 Ok(true)
-            },
+            }
             "Falcon" => {
                 // Use Falcon verification
                 Ok(true)
-            },
+            }
             "SPHINCS+" => {
                 // Use SPHINCS+ verification
                 Ok(true)
-            },
+            }
             "Hybrid" => {
                 // Use Hybrid verification
                 Ok(true)
-            },
-            _ => Err(ProtocolError::InvalidSignature("Unknown quantum signature type".to_string())),
+            }
+            _ => Err(ProtocolError::InvalidSignature(
+                "Unknown quantum signature type".to_string(),
+            )),
         }
     }
 }
@@ -533,7 +560,7 @@ pub fn message_id_from_content(message: &gossipsub::Message) -> gossipsub::Messa
     if let Some(source) = &message.source {
         hasher.update(source.to_bytes());
     }
-    
+
     let hash = hasher.finalize();
     gossipsub::MessageId::from(hash.to_vec())
 }
@@ -543,7 +570,7 @@ pub fn message_id_from_content(message: &gossipsub::Message) -> gossipsub::Messa
 pub enum PublishError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] bincode::Error),
-    
+
     #[error("Gossipsub error: {0}")]
     Gossipsub(String),
 }
@@ -585,29 +612,26 @@ impl From<gossipsub::SubscriptionError> for GossipsubError {
 /// Helper function to determine the appropriate topic for a message
 fn message_to_topic(message: &Message) -> &'static str {
     match message {
-        Message::Block { .. } | 
-        Message::NewBlock { .. } | 
-        Message::GetBlocks { .. } |
-        Message::GetBlocksByHash { .. } |
-        Message::GetBlocksByHeight { .. } |
-        Message::Blocks { .. } |
-        Message::BlockResponse { .. } => BLOCKS_TOPIC,
-        
-        Message::Transaction { .. } |
-        Message::BroadcastTransaction(_) |
-        Message::TransactionAnnouncement { .. } => TXS_TOPIC,
-        
-        Message::GetHeaders { .. } |
-        Message::Headers { .. } => HEADERS_TOPIC,
-        
-        Message::Status { .. } |
-        Message::GetStatus => STATUS_TOPIC,
-        
-        Message::GetMempool { .. } |
-        Message::Mempool { .. } => MEMPOOL_TOPIC,
-        
+        Message::Block { .. }
+        | Message::NewBlock { .. }
+        | Message::GetBlocks { .. }
+        | Message::GetBlocksByHash { .. }
+        | Message::GetBlocksByHeight { .. }
+        | Message::Blocks { .. }
+        | Message::BlockResponse { .. } => BLOCKS_TOPIC,
+
+        Message::Transaction { .. }
+        | Message::BroadcastTransaction(_)
+        | Message::TransactionAnnouncement { .. } => TXS_TOPIC,
+
+        Message::GetHeaders { .. } | Message::Headers { .. } => HEADERS_TOPIC,
+
+        Message::Status { .. } | Message::GetStatus => STATUS_TOPIC,
+
+        Message::GetMempool { .. } | Message::Mempool { .. } => MEMPOOL_TOPIC,
+
         Message::GetData(_) => MEMPOOL_TOPIC,
-        
+
         // Default for other messages
         _ => STATUS_TOPIC,
     }
@@ -629,86 +653,91 @@ pub enum ProtocolError {
 mod tests {
     use super::*;
     use libp2p::identity;
-    
-    
+
     // Create a test protocol with mocked gossipsub behavior
     struct TestProtocol {
         topic_subscriptions: Vec<String>,
     }
-    
+
     impl TestProtocol {
         fn new() -> Self {
             Self {
                 topic_subscriptions: Vec::new(),
             }
         }
-        
+
         fn subscribe(&mut self, topic: &str) {
             self.topic_subscriptions.push(topic.to_string());
         }
-        
+
         // Mock publishing a message - always succeeds in test
         fn publish(&self, topic: &str, message: Message) -> Result<(), PublishError> {
             // In tests, we just verify the message is valid and return success
-            let _encoded = bincode::serialize(&message)
-                .map_err(|e| PublishError::Serialization(e))?;
-            
+            let _encoded =
+                bincode::serialize(&message).map_err(|e| PublishError::Serialization(e))?;
+
             // Check if subscribed to this topic
             if !self.topic_subscriptions.contains(&topic.to_string()) {
-                return Err(PublishError::Gossipsub("Not subscribed to topic".to_string()));
+                return Err(PublishError::Gossipsub(
+                    "Not subscribed to topic".to_string(),
+                ));
             }
-            
+
             Ok(())
         }
     }
-    
+
     #[test]
     fn test_protocol_creation() {
         let keypair = identity::Keypair::generate_ed25519();
         let protocol = Protocol::new(keypair).unwrap();
-        
+
         assert_eq!(protocol.gossipsub.topics().count(), 0);
     }
-    
+
     #[test]
     fn test_topic_subscription() {
         let keypair = identity::Keypair::generate_ed25519();
         let mut protocol = Protocol::new(keypair).unwrap();
-        
+
         protocol.subscribe_to_topics().unwrap();
         assert_eq!(protocol.gossipsub.topics().count(), 5); // 5 topics: blocks, transactions, headers, status, and mempool
     }
-    
+
     #[test]
     fn test_message_publishing() {
         // Instead of using the real Protocol which requires peers,
         // use our test-specific implementation
         let mut test_protocol = TestProtocol::new();
-        
+
         // Subscribe to all topics
         test_protocol.subscribe(BLOCKS_TOPIC);
         test_protocol.subscribe(TXS_TOPIC);
         test_protocol.subscribe(STATUS_TOPIC);
         test_protocol.subscribe(HEADERS_TOPIC);
         test_protocol.subscribe(MEMPOOL_TOPIC);
-        
+
         // Create a test transaction
         let transaction = vec![1, 2, 3, 4];
-        
+
         // Test transaction announcement
         let tx_message = Message::Transaction {
             transaction: transaction.clone(),
         };
         let result = test_protocol.publish(TXS_TOPIC, tx_message);
-        assert!(result.is_ok(), "Failed to publish transaction: {:?}", result);
-        
+        assert!(
+            result.is_ok(),
+            "Failed to publish transaction: {:?}",
+            result
+        );
+
         // Test block announcement
         let block_message = Message::Block {
             block: vec![1, 2, 3, 4],
         };
         let result = test_protocol.publish(BLOCKS_TOPIC, block_message);
         assert!(result.is_ok(), "Failed to publish block: {:?}", result);
-        
+
         // Test status message
         let status_message = Message::Status {
             version: 1,
@@ -720,36 +749,39 @@ mod tests {
         let result = test_protocol.publish(STATUS_TOPIC, status_message);
         assert!(result.is_ok(), "Failed to publish status: {:?}", result);
     }
-    
+
     #[test]
     fn test_message_serialization() {
         // Test block announcement message
         let block_message = Message::Block {
             block: vec![1, 2, 3, 4],
         };
-        
+
         let encoded = bincode::serialize(&block_message).unwrap();
         let decoded: Message = bincode::deserialize(&encoded).unwrap();
-        
+
         match decoded {
             Message::Block { block } => {
                 assert_eq!(block, vec![1, 2, 3, 4]);
             }
             _ => panic!("Wrong message type after deserialization"),
         }
-        
+
         // Test headers message
         let headers = vec![vec![0u8; 32], vec![1u8; 32]];
         let headers_message = Message::Headers {
             headers,
             total_difficulty: 100,
         };
-        
+
         let encoded = bincode::serialize(&headers_message).unwrap();
         let decoded: Message = bincode::deserialize(&encoded).unwrap();
-        
+
         match decoded {
-            Message::Headers { headers, total_difficulty } => {
+            Message::Headers {
+                headers,
+                total_difficulty,
+            } => {
                 assert_eq!(headers.len(), 2);
                 assert_eq!(total_difficulty, 100);
             }

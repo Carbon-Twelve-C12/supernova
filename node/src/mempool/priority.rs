@@ -16,9 +16,13 @@ pub struct TransactionPriority {
 impl TransactionPriority {
     /// Create new transaction priority
     pub fn new(fee_rate: u64, age: u64, size: usize) -> Self {
-        Self { fee_rate, age, size }
+        Self {
+            fee_rate,
+            age,
+            size,
+        }
     }
-    
+
     /// Calculate priority score
     pub fn score(&self) -> u64 {
         // Higher fee rate = higher priority
@@ -38,4 +42,4 @@ impl PartialOrd for TransactionPriority {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
-} 
+}

@@ -1,13 +1,13 @@
+use metrics::gauge;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time;
-use metrics::gauge;
 
 use crate::metrics::registry::MetricsRegistry;
-use sysinfo::System;
 use crate::metrics::types::SystemMetrics;
+use sysinfo::System;
 
 /// Configuration options for the metrics collector
 #[derive(Debug, Clone)]
@@ -79,7 +79,9 @@ impl MetricsCollector {
 
     /// Start the metrics collector
     pub async fn start(&self) -> Result<(), String> {
-        let mut running = self.running.lock()
+        let mut running = self
+            .running
+            .lock()
             .map_err(|_| "Running lock poisoned".to_string())?;
         if *running {
             return Err("Metrics collector is already running".to_string());
@@ -105,12 +107,12 @@ impl MetricsCollector {
                             .unwrap_or(false) {
                             break;
                         }
-                        
+
                         let start_time = Instant::now();
-                        Self::collect_metrics(&mut sys, system_metrics_clone.as_ref(), metrics_registry_clone.as_ref(), 
+                        Self::collect_metrics(&mut sys, system_metrics_clone.as_ref(), metrics_registry_clone.as_ref(),
                                             &config_clone.metrics_types, extended_due);
                         extended_due = false;
-                        
+
                         let duration = start_time.elapsed().as_secs_f64();
                         // Record collection time as a metric
                         gauge!("metrics.collection_time_seconds", duration);
@@ -128,18 +130,21 @@ impl MetricsCollector {
 
     /// Stop the metrics collector
     pub async fn stop(&self) -> Result<(), String> {
-        let mut running = self.running.lock()
+        let mut running = self
+            .running
+            .lock()
             .map_err(|_| "Running lock poisoned".to_string())?;
         if !*running {
             return Err("Metrics collector is not running".to_string());
         }
 
         *running = false;
-        
+
         if let Some(handle) = self.task_handle.lock().await.take() {
             if !handle.is_finished() {
                 // Wait for the task to complete cleanly
-                tokio::time::timeout(Duration::from_secs(5), handle).await
+                tokio::time::timeout(Duration::from_secs(5), handle)
+                    .await
                     .map_err(|_| "Timeout waiting for metrics collector to stop".to_string())?
                     .map_err(|e| format!("Error stopping metrics collector: {}", e))?;
             }
@@ -152,9 +157,15 @@ impl MetricsCollector {
     pub fn collect_now(&self) -> Result<(), String> {
         let mut sys = System::new_all();
         let metrics_types = self.config.metrics_types;
-        
-        Self::collect_metrics(&mut sys, self.system_metrics.as_ref(), self.metrics_registry.as_ref(), &metrics_types, true);
-        
+
+        Self::collect_metrics(
+            &mut sys,
+            self.system_metrics.as_ref(),
+            self.metrics_registry.as_ref(),
+            &metrics_types,
+            true,
+        );
+
         Ok(())
     }
 
@@ -165,17 +176,17 @@ impl MetricsCollector {
 
     /// Private method to collect metrics based on config
     fn collect_metrics(
-        sys: &mut System, 
-        system_metrics: &SystemMetrics, 
+        sys: &mut System,
+        system_metrics: &SystemMetrics,
         metrics_registry: &MetricsRegistry,
         metrics_types: &MetricsTypes,
-        collect_extended: bool
+        collect_extended: bool,
     ) {
         // Always refresh basic system information
         sys.refresh_memory();
         sys.refresh_cpu();
         sys.refresh_processes();
-        
+
         // We no longer need to refresh disks and networks on System
         // as they are now separate types that refresh on creation
 
@@ -185,11 +196,14 @@ impl MetricsCollector {
             let used_memory = sys.used_memory() * 1024;
             let total_swap = sys.total_swap() * 1024;
             let used_swap = sys.used_swap() * 1024;
-            
+
             // Record to metrics registry
             gauge!("system.memory.total_bytes", total_memory as f64);
             gauge!("system.memory.used_bytes", used_memory as f64);
-            gauge!("system.memory.utilization_pct", (used_memory as f64 / total_memory as f64) * 100.0);
+            gauge!(
+                "system.memory.utilization_pct",
+                (used_memory as f64 / total_memory as f64) * 100.0
+            );
             gauge!("system.swap.total_bytes", total_swap as f64);
             gauge!("system.swap.used_bytes", used_swap as f64);
         }
@@ -198,11 +212,11 @@ impl MetricsCollector {
         if metrics_types.cpu {
             let cpu_count = sys.cpus().len() as u64;
             let global_cpu_usage = sys.global_cpu_info().cpu_usage();
-            
+
             // Record to metrics registry
             gauge!("system.cpu.usage_pct", global_cpu_usage as f64);
             gauge!("system.cpu.count", cpu_count as f64);
-            
+
             // Per-CPU metrics
             for (i, cpu) in sys.cpus().iter().enumerate() {
                 // Use a match statement or if-else chain for static strings
@@ -231,11 +245,11 @@ impl MetricsCollector {
                 let process_memory = process.memory() * 1024; // Convert KB to bytes
                 let process_cpu = process.cpu_usage();
                 let process_uptime = process.run_time();
-                
+
                 // Get disk I/O if available
                 let disk_read = process.disk_usage().read_bytes;
                 let disk_written = process.disk_usage().written_bytes;
-                
+
                 // Record to metrics registry
                 gauge!("process.memory_bytes", process_memory as f64);
                 gauge!("process.cpu_pct", process_cpu as f64);
@@ -249,17 +263,17 @@ impl MetricsCollector {
         if metrics_types.disk && collect_extended {
             use sysinfo::Disks;
             let disks = Disks::new_with_refreshed_list();
-            
+
             for disk in &disks {
                 let name = disk.name().to_string_lossy().to_string();
                 let total_space = disk.total_space();
                 let available_space = disk.available_space();
                 let disk_type = format!("{:?}", disk.kind());
-                
+
                 // Record to metrics registry
                 let mount_point = disk.mount_point().to_string_lossy().to_string();
                 let mount_point_safe = mount_point.replace(['/', '\\'], "_");
-                
+
                 // Calculate used space and usage percentage
                 let used = total_space.saturating_sub(available_space);
                 let usage_pct = if total_space > 0 {
@@ -267,7 +281,7 @@ impl MetricsCollector {
                 } else {
                     0.0
                 };
-                
+
                 // Use static metric names based on common mount points
                 match mount_point_safe.as_str() {
                     "_" | "" => {
@@ -309,7 +323,7 @@ impl MetricsCollector {
         if metrics_types.network && collect_extended {
             use sysinfo::Networks;
             let networks = Networks::new_with_refreshed_list();
-            
+
             for (interface_name, network) in &networks {
                 let received_bytes = network.total_received();
                 let transmitted_bytes = network.total_transmitted();
@@ -317,50 +331,107 @@ impl MetricsCollector {
                 let transmitted_packets = network.total_packets_transmitted();
                 let receive_errors = network.total_errors_on_received();
                 let transmit_errors = network.total_errors_on_transmitted();
-                
+
                 // Record to metrics registry
                 // Use static metric names for common interfaces
                 match interface_name.as_str() {
                     "eth0" => {
                         gauge!("system.network.eth0.received_bytes", received_bytes as f64);
-                        gauge!("system.network.eth0.transmitted_bytes", transmitted_bytes as f64);
-                        gauge!("system.network.eth0.received_packets", received_packets as f64);
-                        gauge!("system.network.eth0.transmitted_packets", transmitted_packets as f64);
+                        gauge!(
+                            "system.network.eth0.transmitted_bytes",
+                            transmitted_bytes as f64
+                        );
+                        gauge!(
+                            "system.network.eth0.received_packets",
+                            received_packets as f64
+                        );
+                        gauge!(
+                            "system.network.eth0.transmitted_packets",
+                            transmitted_packets as f64
+                        );
                         gauge!("system.network.eth0.receive_errors", receive_errors as f64);
-                        gauge!("system.network.eth0.transmit_errors", transmit_errors as f64);
+                        gauge!(
+                            "system.network.eth0.transmit_errors",
+                            transmit_errors as f64
+                        );
                     }
                     "eth1" => {
                         gauge!("system.network.eth1.received_bytes", received_bytes as f64);
-                        gauge!("system.network.eth1.transmitted_bytes", transmitted_bytes as f64);
-                        gauge!("system.network.eth1.received_packets", received_packets as f64);
-                        gauge!("system.network.eth1.transmitted_packets", transmitted_packets as f64);
+                        gauge!(
+                            "system.network.eth1.transmitted_bytes",
+                            transmitted_bytes as f64
+                        );
+                        gauge!(
+                            "system.network.eth1.received_packets",
+                            received_packets as f64
+                        );
+                        gauge!(
+                            "system.network.eth1.transmitted_packets",
+                            transmitted_packets as f64
+                        );
                         gauge!("system.network.eth1.receive_errors", receive_errors as f64);
-                        gauge!("system.network.eth1.transmit_errors", transmit_errors as f64);
+                        gauge!(
+                            "system.network.eth1.transmit_errors",
+                            transmit_errors as f64
+                        );
                     }
                     "lo" => {
                         gauge!("system.network.lo.received_bytes", received_bytes as f64);
-                        gauge!("system.network.lo.transmitted_bytes", transmitted_bytes as f64);
-                        gauge!("system.network.lo.received_packets", received_packets as f64);
-                        gauge!("system.network.lo.transmitted_packets", transmitted_packets as f64);
+                        gauge!(
+                            "system.network.lo.transmitted_bytes",
+                            transmitted_bytes as f64
+                        );
+                        gauge!(
+                            "system.network.lo.received_packets",
+                            received_packets as f64
+                        );
+                        gauge!(
+                            "system.network.lo.transmitted_packets",
+                            transmitted_packets as f64
+                        );
                         gauge!("system.network.lo.receive_errors", receive_errors as f64);
                         gauge!("system.network.lo.transmit_errors", transmit_errors as f64);
                     }
                     "wlan0" => {
                         gauge!("system.network.wlan0.received_bytes", received_bytes as f64);
-                        gauge!("system.network.wlan0.transmitted_bytes", transmitted_bytes as f64);
-                        gauge!("system.network.wlan0.received_packets", received_packets as f64);
-                        gauge!("system.network.wlan0.transmitted_packets", transmitted_packets as f64);
+                        gauge!(
+                            "system.network.wlan0.transmitted_bytes",
+                            transmitted_bytes as f64
+                        );
+                        gauge!(
+                            "system.network.wlan0.received_packets",
+                            received_packets as f64
+                        );
+                        gauge!(
+                            "system.network.wlan0.transmitted_packets",
+                            transmitted_packets as f64
+                        );
                         gauge!("system.network.wlan0.receive_errors", receive_errors as f64);
-                        gauge!("system.network.wlan0.transmit_errors", transmit_errors as f64);
+                        gauge!(
+                            "system.network.wlan0.transmit_errors",
+                            transmit_errors as f64
+                        );
                     }
                     _ => {
                         // For other interfaces, use generic metrics
                         gauge!("system.network.other.received_bytes", received_bytes as f64);
-                        gauge!("system.network.other.transmitted_bytes", transmitted_bytes as f64);
-                        gauge!("system.network.other.received_packets", received_packets as f64);
-                        gauge!("system.network.other.transmitted_packets", transmitted_packets as f64);
+                        gauge!(
+                            "system.network.other.transmitted_bytes",
+                            transmitted_bytes as f64
+                        );
+                        gauge!(
+                            "system.network.other.received_packets",
+                            received_packets as f64
+                        );
+                        gauge!(
+                            "system.network.other.transmitted_packets",
+                            transmitted_packets as f64
+                        );
                         gauge!("system.network.other.receive_errors", receive_errors as f64);
-                        gauge!("system.network.other.transmit_errors", transmit_errors as f64);
+                        gauge!(
+                            "system.network.other.transmit_errors",
+                            transmit_errors as f64
+                        );
                     }
                 }
             }
@@ -399,4 +470,4 @@ mod tests {
         let collect_result = collector.collect_now();
         assert!(collect_result.is_ok());
     }
-} 
+}

@@ -6,18 +6,17 @@
 use actix_web::web;
 use bincode;
 
+use super::NodeData;
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::types::{
-    BlockInfo, TransactionInfo, BlockchainInfo, SubmitTxRequest,
-    TransactionSubmissionResponse, BlockchainStats,
+    BlockInfo, BlockchainInfo, BlockchainStats, SubmitTxRequest, TransactionInfo,
+    TransactionSubmissionResponse,
 };
 use btclib::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
-use super::NodeData;
 
 /// Configure blockchain routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg
-        .route("/info", web::get().to(get_blockchain_info))
+    cfg.route("/info", web::get().to(get_blockchain_info))
         .route("/block/{height}", web::get().to(get_block_by_height))
         .route("/block/hash/{hash}", web::get().to(get_block_by_hash))
         .route("/transaction/{txid}", web::get().to(get_transaction))
@@ -36,21 +35,21 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-pub async fn get_blockchain_info(
-    node: NodeData,
-) -> ApiResult<BlockchainInfo> {
+pub async fn get_blockchain_info(node: NodeData) -> ApiResult<BlockchainInfo> {
     let storage = node.storage();
-    let height = storage.get_height()
+    let height = storage
+        .get_height()
         .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
-    
+
     let best_block_hash = if height > 0 {
-        storage.get_block_hash_by_height(height)
+        storage
+            .get_block_hash_by_height(height)
             .map_err(|e| ApiError::internal_error(format!("Failed to get best block hash: {}", e)))?
             .unwrap_or([0u8; 32])
     } else {
         [0u8; 32]
     };
-    
+
     // Get the best block to extract difficulty
     let difficulty = if height > 0 {
         if let Ok(Some(block)) = storage.get_block(&best_block_hash) {
@@ -61,15 +60,16 @@ pub async fn get_blockchain_info(
     } else {
         1.0
     };
-    
+
     // Calculate total work (simplified - sum of difficulties)
     let total_work = format!("0x{:x}", (difficulty * height as f64) as u128);
-    
+
     let config = node.config();
-    let network_id = config.read()
+    let network_id = config
+        .read()
         .map(|c| c.network.network_id.clone())
         .unwrap_or_else(|_| "supernova-testnet".to_string());
-    
+
     let info = BlockchainInfo {
         height,
         best_block_hash: hex::encode(best_block_hash),
@@ -78,7 +78,7 @@ pub async fn get_blockchain_info(
         network: network_id,
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
-    
+
     Ok(info)
 }
 
@@ -97,39 +97,41 @@ pub async fn get_blockchain_info(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-pub async fn get_block_by_height(
-    path: web::Path<u64>,
-    node: NodeData,
-) -> ApiResult<BlockInfo> {
+pub async fn get_block_by_height(path: web::Path<u64>, node: NodeData) -> ApiResult<BlockInfo> {
     let height = path.into_inner();
     let storage = node.storage();
-    
-    let block_hash = storage.get_block_hash_by_height(height)
+
+    let block_hash = storage
+        .get_block_hash_by_height(height)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block hash: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
-    
-    let block = storage.get_block(&block_hash)
+
+    let block = storage
+        .get_block(&block_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
-    
-            let confirmations = node.chain_state().read()
-            .map(|state| state.get_height().saturating_sub(height) + 1)
-            .unwrap_or(0);
-    
+
+    let confirmations = node
+        .chain_state()
+        .read()
+        .map(|state| state.get_height().saturating_sub(height) + 1)
+        .unwrap_or(0);
+
     // Calculate actual block weight
     let block_size = bincode::serialize(&block).unwrap_or_default().len();
     let weight = block_size * 4; // Simplified weight calculation
-    
+
     // Get actual difficulty
     let difficulty = calculate_difficulty_from_bits(block.header().bits());
-    
+
     // Get next block hash if it exists
-    let next_block_hash = if let Ok(Some(next_hash)) = storage.get_block_hash_by_height(height + 1) {
+    let next_block_hash = if let Ok(Some(next_hash)) = storage.get_block_hash_by_height(height + 1)
+    {
         Some(hex::encode(next_hash))
     } else {
         None
     };
-    
+
     let block_info = BlockInfo {
         hash: hex::encode(block_hash),
         height,
@@ -144,9 +146,13 @@ pub async fn get_block_by_height(
         previous_block_hash: hex::encode(block.prev_block_hash()),
         next_block_hash,
         transaction_count: block.transactions().len() as u32,
-        transactions: block.transactions().iter().map(|tx| hex::encode(tx.hash())).collect(),
+        transactions: block
+            .transactions()
+            .iter()
+            .map(|tx| hex::encode(tx.hash()))
+            .collect(),
     };
-    
+
     Ok(block_info)
 }
 
@@ -165,48 +171,50 @@ pub async fn get_block_by_height(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-pub async fn get_block_by_hash(
-    path: web::Path<String>,
-    node: NodeData,
-) -> ApiResult<BlockInfo> {
+pub async fn get_block_by_hash(path: web::Path<String>, node: NodeData) -> ApiResult<BlockInfo> {
     let hash_str = path.into_inner();
-    let hash = hex::decode(&hash_str)
-        .map_err(|_| ApiError::bad_request("Invalid block hash format"))?;
-    
+    let hash =
+        hex::decode(&hash_str).map_err(|_| ApiError::bad_request("Invalid block hash format"))?;
+
     if hash.len() != 32 {
         return Err(ApiError::bad_request("Invalid block hash length"));
     }
-    
+
     let mut block_hash = [0u8; 32];
     block_hash.copy_from_slice(&hash);
-    
+
     let storage = node.storage();
-    let block = storage.get_block(&block_hash)
+    let block = storage
+        .get_block(&block_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Block not found"))?;
-    
-    let height = storage.get_block_height(&block_hash)
+
+    let height = storage
+        .get_block_height(&block_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
         .unwrap_or(0);
-    
-            let confirmations = node.chain_state().read()
-            .map(|state| state.get_height().saturating_sub(height) + 1)
-            .unwrap_or(0);
-    
+
+    let confirmations = node
+        .chain_state()
+        .read()
+        .map(|state| state.get_height().saturating_sub(height) + 1)
+        .unwrap_or(0);
+
     // Calculate actual block weight
     let block_size = bincode::serialize(&block).unwrap_or_default().len();
     let weight = block_size * 4; // Simplified weight calculation
-    
+
     // Get actual difficulty
     let difficulty = calculate_difficulty_from_bits(block.header().bits());
-    
+
     // Get next block hash if it exists
-    let next_block_hash = if let Ok(Some(next_hash)) = storage.get_block_hash_by_height(height + 1) {
+    let next_block_hash = if let Ok(Some(next_hash)) = storage.get_block_hash_by_height(height + 1)
+    {
         Some(hex::encode(next_hash))
     } else {
         None
     };
-    
+
     let block_info = BlockInfo {
         hash: hash_str,
         height,
@@ -221,9 +229,13 @@ pub async fn get_block_by_hash(
         previous_block_hash: hex::encode(block.prev_block_hash()),
         next_block_hash,
         transaction_count: block.transactions().len() as u32,
-        transactions: block.transactions().iter().map(|tx| hex::encode(tx.hash())).collect(),
+        transactions: block
+            .transactions()
+            .iter()
+            .map(|tx| hex::encode(tx.hash()))
+            .collect(),
     };
-    
+
     Ok(block_info)
 }
 
@@ -249,22 +261,22 @@ pub async fn get_transaction(
     let txid_str = path.into_inner();
     let txid = hex::decode(&txid_str)
         .map_err(|_| ApiError::bad_request("Invalid transaction ID format"))?;
-    
+
     if txid.len() != 32 {
         return Err(ApiError::bad_request("Invalid transaction ID length"));
     }
-    
+
     let mut tx_hash = [0u8; 32];
     tx_hash.copy_from_slice(&txid);
-    
+
     let storage = node.storage();
-    
+
     // First check mempool
     if let Some(mempool_tx) = node.mempool().get_transaction(&tx_hash) {
         let serialized_size = bincode::serialize(&mempool_tx).unwrap_or_default().len() as u64;
         let vsize = serialized_size; // Simplified - in reality would consider witness data
         let weight = serialized_size * 4; // Simplified weight calculation
-        
+
         let tx_info = TransactionInfo {
             txid: txid_str.clone(),
             hash: txid_str,
@@ -273,21 +285,30 @@ pub async fn get_transaction(
             vsize,
             weight,
             locktime: mempool_tx.lock_time(),
-            inputs: mempool_tx.inputs().iter().map(|input| {
-                serde_json::json!({
-                    "txid": hex::encode(input.prev_tx_hash()),
-                    "vout": input.prev_output_index(),
-                    "script_sig": hex::encode(input.script_sig()),
-                    "sequence": input.sequence()
+            inputs: mempool_tx
+                .inputs()
+                .iter()
+                .map(|input| {
+                    serde_json::json!({
+                        "txid": hex::encode(input.prev_tx_hash()),
+                        "vout": input.prev_output_index(),
+                        "script_sig": hex::encode(input.script_sig()),
+                        "sequence": input.sequence()
+                    })
                 })
-            }).collect(),
-            outputs: mempool_tx.outputs().iter().enumerate().map(|(i, output)| {
-                serde_json::json!({
-                    "value": output.value(),
-                    "n": i,
-                    "script_pubkey": hex::encode(output.script_pubkey())
+                .collect(),
+            outputs: mempool_tx
+                .outputs()
+                .iter()
+                .enumerate()
+                .map(|(i, output)| {
+                    serde_json::json!({
+                        "value": output.value(),
+                        "n": i,
+                        "script_pubkey": hex::encode(output.script_pubkey())
+                    })
                 })
-            }).collect(),
+                .collect(),
             block_hash: None,
             block_height: None,
             confirmations: 0,
@@ -296,73 +317,101 @@ pub async fn get_transaction(
         };
         return Ok(tx_info);
     }
-    
+
     // Check blockchain storage
-    let tx = storage.get_transaction(&tx_hash)
+    let tx = storage
+        .get_transaction(&tx_hash)
         .map_err(|e| ApiError::internal_error(format!("Failed to get transaction: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
-    
+
     // Calculate transaction size and weight
     let tx_size = bincode::serialize(&tx).unwrap_or_default().len();
     let vsize = tx_size; // Simplified - in reality would consider witness data
     let weight = tx_size * 4; // Simplified weight calculation
-    
+
     // Get block information if transaction is in a block
-    let (block_hash, block_height, confirmations, time, block_time) = 
-        if let Some(block_hash) = storage.get_transaction_block(&tx_hash)
-            .map_err(|e| ApiError::internal_error(format!("Failed to get transaction block: {}", e)))? {
-        let block_height = storage.get_block_height(&block_hash)
+    let (block_hash, block_height, confirmations, time, block_time) = if let Some(block_hash) =
+        storage.get_transaction_block(&tx_hash).map_err(|e| {
+            ApiError::internal_error(format!("Failed to get transaction block: {}", e))
+        })? {
+        let block_height = storage
+            .get_block_height(&block_hash)
             .map_err(|e| ApiError::internal_error(format!("Failed to get block height: {}", e)))?
             .unwrap_or(0);
-        
-        let block = storage.get_block(&block_hash)
+
+        let block = storage
+            .get_block(&block_hash)
             .map_err(|e| ApiError::internal_error(format!("Failed to get block: {}", e)))?
             .ok_or_else(|| ApiError::not_found("Block not found"))?;
-        
-        let confirmations = node.chain_state().read()
+
+        let confirmations = node
+            .chain_state()
+            .read()
             .map(|state| state.get_height().saturating_sub(block_height) + 1)
             .unwrap_or(0);
         let block_time = block.timestamp();
-        
-        (Some(hex::encode(block_hash)), Some(block_height), confirmations, Some(block_time), Some(block_time))
+
+        (
+            Some(hex::encode(block_hash)),
+            Some(block_height),
+            confirmations,
+            Some(block_time),
+            Some(block_time),
+        )
     } else {
         (None, None, 0, None, None)
     };
-    
+
     // Get input and output information
-    let inputs: Vec<serde_json::Value> = tx.inputs().iter().map(|input| {
-        let prev_output = storage.get_transaction_output(&input.prev_tx_hash(), input.prev_output_index())
-            .ok().flatten();
-        
-        serde_json::json!({
-            "txid": hex::encode(input.prev_tx_hash()),
-            "vout": input.prev_output_index(),
-            "script_sig": hex::encode(input.script_sig()),
-            "sequence": input.sequence(),
-            "prev_output": prev_output.map(hex::encode)
+    let inputs: Vec<serde_json::Value> = tx
+        .inputs()
+        .iter()
+        .map(|input| {
+            let prev_output = storage
+                .get_transaction_output(&input.prev_tx_hash(), input.prev_output_index())
+                .ok()
+                .flatten();
+
+            serde_json::json!({
+                "txid": hex::encode(input.prev_tx_hash()),
+                "vout": input.prev_output_index(),
+                "script_sig": hex::encode(input.script_sig()),
+                "sequence": input.sequence(),
+                "prev_output": prev_output.map(hex::encode)
+            })
         })
-    }).collect();
-    
-    let outputs: Vec<serde_json::Value> = tx.outputs().iter().enumerate().map(|(i, output)| {
-        let spent_info = storage.get_transaction_output(&tx_hash, i as u32)
-            .ok().flatten();
-        let is_spent = spent_info.is_none();
-        let spent_by_tx = if is_spent {
-            storage.is_output_spent(&tx_hash, i as u32)
-                .ok().flatten().map(hex::encode)
-        } else {
-            None
-        };
-        
-        serde_json::json!({
-            "value": output.value(),
-            "n": i,
-            "script_pubkey": hex::encode(output.script_pubkey()),
-            "spent": is_spent,
-            "spent_by": spent_by_tx
+        .collect();
+
+    let outputs: Vec<serde_json::Value> = tx
+        .outputs()
+        .iter()
+        .enumerate()
+        .map(|(i, output)| {
+            let spent_info = storage
+                .get_transaction_output(&tx_hash, i as u32)
+                .ok()
+                .flatten();
+            let is_spent = spent_info.is_none();
+            let spent_by_tx = if is_spent {
+                storage
+                    .is_output_spent(&tx_hash, i as u32)
+                    .ok()
+                    .flatten()
+                    .map(hex::encode)
+            } else {
+                None
+            };
+
+            serde_json::json!({
+                "value": output.value(),
+                "n": i,
+                "script_pubkey": hex::encode(output.script_pubkey()),
+                "spent": is_spent,
+                "spent_by": spent_by_tx
+            })
         })
-    }).collect();
-    
+        .collect();
+
     let tx_info = TransactionInfo {
         txid: txid_str.clone(),
         hash: hex::encode(tx.hash()),
@@ -379,7 +428,7 @@ pub async fn get_transaction(
         time,
         block_time,
     };
-    
+
     Ok(tx_info)
 }
 
@@ -403,41 +452,40 @@ pub async fn submit_transaction(
     // Parse the raw transaction
     let tx_data = hex::decode(&request.raw_tx)
         .map_err(|_| ApiError::bad_request("Invalid transaction format"))?;
-    
+
     // Deserialize the transaction
     let tx = bincode::deserialize::<btclib::types::transaction::Transaction>(&tx_data)
         .map_err(|_| ApiError::bad_request("Invalid transaction format"))?;
-    
+
     let txid = hex::encode(tx.hash());
-    
+
     // Add to mempool with default fee rate
     match node.mempool().add_transaction(tx.clone(), 1000) {
         Ok(()) => {
             // Broadcast to network
             node.broadcast_transaction(&tx);
-            
+
             Ok(TransactionSubmissionResponse {
                 txid: Some(txid),
                 accepted: true,
                 error: None,
             })
-        },
-        Err(e) => {
-            match e {
-                crate::mempool::MempoolError::TransactionExists(_) => {
-                    Err(ApiError::bad_request("Transaction already exists in mempool"))
-                },
-                crate::mempool::MempoolError::InvalidTransaction(msg) => {
-                    Err(ApiError::bad_request(format!("Invalid transaction: {}", msg)))
-                },
-                crate::mempool::MempoolError::FeeTooLow { .. } => {
-                    Err(ApiError::bad_request("Insufficient transaction fee"))
-                },
-                _ => {
-                    Err(ApiError::internal_error(format!("Failed to add transaction to mempool: {}", e)))
-                }
-            }
         }
+        Err(e) => match e {
+            crate::mempool::MempoolError::TransactionExists(_) => Err(ApiError::bad_request(
+                "Transaction already exists in mempool",
+            )),
+            crate::mempool::MempoolError::InvalidTransaction(msg) => Err(ApiError::bad_request(
+                format!("Invalid transaction: {}", msg),
+            )),
+            crate::mempool::MempoolError::FeeTooLow { .. } => {
+                Err(ApiError::bad_request("Insufficient transaction fee"))
+            }
+            _ => Err(ApiError::internal_error(format!(
+                "Failed to add transaction to mempool: {}",
+                e
+            ))),
+        },
     }
 }
 
@@ -452,13 +500,12 @@ pub async fn submit_transaction(
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-pub async fn get_blockchain_stats(
-    node: NodeData,
-) -> ApiResult<BlockchainStats> {
+pub async fn get_blockchain_stats(node: NodeData) -> ApiResult<BlockchainStats> {
     let storage = node.storage();
-    let height = storage.get_height()
+    let height = storage
+        .get_height()
         .map_err(|e| ApiError::internal_error(format!("Failed to get height: {}", e)))?;
-    
+
     // Get the latest block for difficulty and hashrate calculation
     let (difficulty, hashrate) = if height > 0 {
         if let Ok(Some(hash)) = storage.get_block_hash_by_height(height) {
@@ -475,19 +522,18 @@ pub async fn get_blockchain_stats(
     } else {
         (1.0, 0)
     };
-    
+
     // Get UTXO set size
-    let utxo_set_size = storage.get_utxo_count()
-        .unwrap_or(0);
-    
+    let utxo_set_size = storage.get_utxo_count().unwrap_or(0);
+
     // Calculate chain size (simplified - count blocks * average size)
     let avg_block_size = 1_000_000; // 1MB average
     let chain_size_bytes = (height + 1) * avg_block_size;
-    
+
     // Count total transactions (simplified - estimate based on blocks)
     let avg_txs_per_block = 2000;
     let total_transactions = (height + 1) * avg_txs_per_block;
-    
+
     let stats = BlockchainStats {
         height,
         total_transactions,
@@ -499,6 +545,6 @@ pub async fn get_blockchain_stats(
         utxo_set_size,
         chain_size_bytes,
     };
-    
+
     Ok(stats)
-} 
+}

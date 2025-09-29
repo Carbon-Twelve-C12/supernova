@@ -1,16 +1,13 @@
 use crate::api::error::{ApiError, ApiResult};
-use crate::api::types::{
-    ApiResponse, WalletInfo, BalanceInfo,
-    BackupResponse
-};
+use crate::api::types::{ApiResponse, BackupResponse, BalanceInfo, WalletInfo};
 use crate::node::Node;
 use actix_web::{web, HttpResponse, Responder};
+use hex;
 use serde::Deserialize;
+use sha2::Digest;
 use std::sync::Arc;
 use tracing::{debug, error};
 use utoipa::{IntoParams, ToSchema};
-use hex;
-use sha2::Digest;
 
 /// Configure wallet API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -50,7 +47,7 @@ pub async fn get_wallet_info(
     query: web::Query<WalletInfoParams>,
 ) -> ApiResult<impl Responder> {
     debug!("Get wallet info: {:?}", query);
-    
+
     // Since wallet is not fully integrated, return mock data
     // In production, this would query the actual wallet manager
     let wallet_info = WalletInfo {
@@ -65,7 +62,7 @@ pub async fn get_wallet_info(
         master_fingerprint: Some("d34db33f".to_string()),
         version: 1,
     };
-    
+
     Ok(HttpResponse::Ok().json(ApiResponse::success(wallet_info)))
 }
 
@@ -74,7 +71,7 @@ pub async fn get_wallet_info(
 struct BalanceParams {
     /// Minimum confirmations to include in balance
     min_conf: Option<u32>,
-    
+
     /// Whether to include watch-only addresses
     include_watchonly: Option<bool>,
 }
@@ -100,10 +97,10 @@ pub async fn get_wallet_balance(
     query: web::Query<BalanceParams>,
 ) -> ApiResult<impl Responder> {
     debug!("Get wallet balance: {:?}", query);
-    
+
     let min_conf = query.min_conf.unwrap_or(1);
     let include_watchonly = query.include_watchonly.unwrap_or(false);
-    
+
     // Since wallet is not fully integrated, return mock data
     // In production, this would calculate actual balances from UTXOs
     let balance_info = BalanceInfo {
@@ -113,7 +110,7 @@ pub async fn get_wallet_balance(
         immature: 0,
         spendable: 0,
     };
-    
+
     Ok(HttpResponse::Ok().json(ApiResponse::success(balance_info)))
 }
 
@@ -130,11 +127,9 @@ pub async fn get_wallet_balance(
         ("api_key" = [])
     )
 )]
-pub async fn create_backup(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<impl Responder> {
+pub async fn create_backup(node: web::Data<Arc<Node>>) -> ApiResult<impl Responder> {
     debug!("Create wallet backup");
-    
+
     // Use the node's backup functionality
     match node.create_backup(None, true, false) {
         Ok(backup_info) => {
@@ -145,12 +140,15 @@ pub async fn create_backup(
                 version: 1, // API version
                 checksum: hex::encode(sha2::Sha256::digest(backup_info.id.as_bytes())), // Mock checksum
             };
-            
+
             Ok(HttpResponse::Ok().json(ApiResponse::success(backup_response)))
         }
         Err(e) => {
             error!("Failed to create backup: {}", e);
-            Err(ApiError::internal_error(format!("Backup creation failed: {}", e)))
+            Err(ApiError::internal_error(format!(
+                "Backup creation failed: {}",
+                e
+            )))
         }
     }
-} 
+}

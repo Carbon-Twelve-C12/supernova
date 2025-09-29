@@ -7,4 +7,4 @@ pub mod block_producer;
 pub mod pow;
 
 pub use block_producer::BlockProducer;
-pub use pow::ProofOfWork; 
+pub use pow::ProofOfWork;

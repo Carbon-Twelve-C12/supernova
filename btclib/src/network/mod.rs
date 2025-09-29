@@ -1,8 +1,7 @@
 /// Network module for supernova
 ///
 /// This module provides networking capabilities for node-to-node communication.
-
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod quantum_p2p;
@@ -12,16 +11,16 @@ pub mod quantum_p2p;
 pub enum NetworkError {
     #[error("Connection error: {0}")]
     ConnectionError(String),
-    
+
     #[error("Peer error: {0}")]
     PeerError(String),
-    
+
     #[error("Message error: {0}")]
     MessageError(String),
-    
+
     #[error("Protocol error: {0}")]
     ProtocolError(String),
-    
+
     #[error("IO error: {0}")]
     IoError(String),
 }
@@ -31,16 +30,16 @@ pub enum NetworkError {
 pub struct NetworkConfig {
     /// Maximum number of connections
     pub max_connections: usize,
-    
+
     /// Maximum number of outbound connections
     pub max_outbound_connections: usize,
-    
+
     /// Maximum number of inbound connections
     pub max_inbound_connections: usize,
-    
+
     /// Connection timeout in seconds
     pub connection_timeout_secs: u64,
-    
+
     /// Peers to connect to on startup
     pub bootstrap_peers: Vec<String>,
 }
@@ -87,13 +86,13 @@ pub mod p2p {
 }
 
 // Re-export node protocol stubs
-pub use self::protocol::BlockHeader;
 pub use self::p2p::Block;
+pub use self::protocol::BlockHeader;
 
 // Re-export quantum P2P types
 pub use quantum_p2p::{
-    QuantumP2PConfig, QuantumPeerInfo, QuantumHandshake, QuantumMessage,
-    QuantumProtocolHandler, P2PError
+    P2PError, QuantumHandshake, QuantumMessage, QuantumP2PConfig, QuantumPeerInfo,
+    QuantumProtocolHandler,
 };
 
 // Re-export networking components that will be implemented later
@@ -102,4 +101,4 @@ pub use quantum_p2p::{
 // pub mod protocol;
 // pub use peer::Peer;
 // pub use message::Message;
-// pub use protocol::NetworkProtocol; 
+// pub use protocol::NetworkProtocol;

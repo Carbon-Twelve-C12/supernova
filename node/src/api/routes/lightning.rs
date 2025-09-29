@@ -1,13 +1,10 @@
 use crate::api::error::{ApiError, ApiResult};
-use crate::api::types::{
-    OpenChannelRequest, CloseChannelRequest, 
-    PaymentRequest, InvoiceRequest,
-};
+use crate::api::types::{CloseChannelRequest, InvoiceRequest, OpenChannelRequest, PaymentRequest};
 use crate::node::Node;
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
-use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
+use utoipa::{IntoParams, ToSchema};
 
 /// Configure lightning API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -48,19 +45,20 @@ async fn lightning_unavailable() -> ApiResult<HttpResponse> {
         (status = 500, description = "Internal server error", body = ApiError)
     )
 )]
-pub async fn get_lightning_info(
-    node: web::Data<Arc<Node>>,
-) -> ApiResult<HttpResponse> {
+pub async fn get_lightning_info(node: web::Data<Arc<Node>>) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Get Lightning info
-    let manager = lightning_manager.read()
+    let manager = lightning_manager
+        .read()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let info = manager.get_info()
+    let info = manager
+        .get_info()
         .map_err(|e| ApiError::internal_error(format!("Failed to get Lightning info: {}", e)))?;
-    
+
     Ok(HttpResponse::Ok().json(info))
 }
 
@@ -72,7 +70,7 @@ struct GetChannelsParams {
     /// Whether to include inactive channels (default: false)
     #[param(default = "false")]
     include_inactive: Option<bool>,
-    
+
     /// Whether to include pending channels (default: true)
     #[param(default = "true")]
     include_pending: Option<bool>,
@@ -95,17 +93,21 @@ pub async fn get_channels(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Get channels
-    let manager = lightning_manager.read()
+    let manager = lightning_manager
+        .read()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let channels = manager.get_channels(
-        params.include_inactive.unwrap_or(false),
-        params.include_pending.unwrap_or(true),
-    ).map_err(|e| ApiError::internal_error(format!("Failed to list channels: {}", e)))?;
-    
+    let channels = manager
+        .get_channels(
+            params.include_inactive.unwrap_or(false),
+            params.include_pending.unwrap_or(true),
+        )
+        .map_err(|e| ApiError::internal_error(format!("Failed to list channels: {}", e)))?;
+
     Ok(HttpResponse::Ok().json(channels))
 }
 
@@ -129,18 +131,21 @@ pub async fn get_channel(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     let channel_id = path.into_inner();
-    
+
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Get channel info
-    let manager = lightning_manager.read()
+    let manager = lightning_manager
+        .read()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let channel = manager.get_channel(&channel_id)
+    let channel = manager
+        .get_channel(&channel_id)
         .map_err(|e| ApiError::internal_error(format!("Failed to get channel: {}", e)))?
         .ok_or_else(|| ApiError::not_found(format!("Channel {} not found", channel_id)))?;
-    
+
     Ok(HttpResponse::Ok().json(channel))
 }
 
@@ -162,21 +167,25 @@ pub async fn open_channel(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Open channel
-    let manager = lightning_manager.write()
+    let manager = lightning_manager
+        .write()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let response = manager.open_channel(
-        &request.node_id,
-        request.local_funding_amount,
-        request.push_amount_msat,
-        request.private.unwrap_or(false),
-        request.min_htlc_msat,
-    ).await
-    .map_err(|e| ApiError::internal_error(format!("Failed to open channel: {}", e)))?;
-    
+    let response = manager
+        .open_channel(
+            &request.node_id,
+            request.local_funding_amount,
+            request.push_amount_msat,
+            request.private.unwrap_or(false),
+            request.min_htlc_msat,
+        )
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to open channel: {}", e)))?;
+
     Ok(HttpResponse::Ok().json(response))
 }
 
@@ -199,25 +208,28 @@ pub async fn close_channel(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Close channel
-    let manager = lightning_manager.write()
+    let manager = lightning_manager
+        .write()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let success = manager.close_channel(
-        &request.channel_id,
-        request.force.unwrap_or(false),
-    ).await
-    .map_err(|e| ApiError::internal_error(format!("Failed to close channel: {}", e)))?;
-    
+    let success = manager
+        .close_channel(&request.channel_id, request.force.unwrap_or(false))
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to close channel: {}", e)))?;
+
     if success {
         Ok(HttpResponse::Ok().json(serde_json::json!({
             "status": "closing",
             "channel_id": request.channel_id
         })))
     } else {
-        Err(ApiError::internal_error("Failed to initiate channel closure"))
+        Err(ApiError::internal_error(
+            "Failed to initiate channel closure",
+        ))
     }
 }
 
@@ -228,11 +240,11 @@ pub async fn close_channel(
 struct GetPaymentsParams {
     /// Optional payment index to start from
     index_offset: Option<u64>,
-    
+
     /// Maximum number of payments to retrieve (default: 100)
     #[param(default = "100")]
     max_payments: Option<u64>,
-    
+
     /// Whether to include pending payments (default: true)
     #[param(default = "true")]
     include_pending: Option<bool>,
@@ -255,18 +267,22 @@ pub async fn get_payments(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Get payments
-    let manager = lightning_manager.read()
+    let manager = lightning_manager
+        .read()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let payments = manager.get_payments(
-        params.index_offset.unwrap_or(0),
-        params.max_payments.unwrap_or(100),
-        params.include_pending.unwrap_or(true),
-    ).map_err(|e| ApiError::internal_error(format!("Failed to list payments: {}", e)))?;
-    
+    let payments = manager
+        .get_payments(
+            params.index_offset.unwrap_or(0),
+            params.max_payments.unwrap_or(100),
+            params.include_pending.unwrap_or(true),
+        )
+        .map_err(|e| ApiError::internal_error(format!("Failed to list payments: {}", e)))?;
+
     Ok(HttpResponse::Ok().json(payments))
 }
 
@@ -288,22 +304,26 @@ pub async fn send_payment(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Send payment
-    let manager = lightning_manager.write()
+    let manager = lightning_manager
+        .write()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let response = manager.send_payment(
-        &request.payment_request,
-        request.amount_msat,
-        request.timeout_seconds.unwrap_or(60),
-        request.fee_limit_msat,
-    ).await;
-    
-    let response = response
-        .map_err(|e| ApiError::internal_error(format!("Failed to send payment: {}", e)))?;
-    
+    let response = manager
+        .send_payment(
+            &request.payment_request,
+            request.amount_msat,
+            request.timeout_seconds.unwrap_or(60),
+            request.fee_limit_msat,
+        )
+        .await;
+
+    let response =
+        response.map_err(|e| ApiError::internal_error(format!("Failed to send payment: {}", e)))?;
+
     Ok(HttpResponse::Ok().json(response))
 }
 
@@ -315,10 +335,10 @@ struct GetInvoicesParams {
     /// Whether to include pending invoices (default: true)
     #[param(default = "true")]
     pending_only: Option<bool>,
-    
+
     /// Optional invoice index to start from
     index_offset: Option<u64>,
-    
+
     /// Maximum number of invoices to retrieve (default: 100)
     #[param(default = "100")]
     num_max_invoices: Option<u64>,
@@ -341,18 +361,22 @@ pub async fn get_invoices(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Get invoices
-    let manager = lightning_manager.read()
+    let manager = lightning_manager
+        .read()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let invoices = manager.get_invoices(
-        params.pending_only.unwrap_or(true),
-        params.index_offset.unwrap_or(0),
-        params.num_max_invoices.unwrap_or(100),
-    ).map_err(|e| ApiError::internal_error(format!("Failed to list invoices: {}", e)))?;
-    
+    let invoices = manager
+        .get_invoices(
+            params.pending_only.unwrap_or(true),
+            params.index_offset.unwrap_or(0),
+            params.num_max_invoices.unwrap_or(100),
+        )
+        .map_err(|e| ApiError::internal_error(format!("Failed to list invoices: {}", e)))?;
+
     Ok(HttpResponse::Ok().json(invoices))
 }
 
@@ -374,19 +398,23 @@ pub async fn create_invoice(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Create invoice
-    let manager = lightning_manager.write()
+    let manager = lightning_manager
+        .write()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let response = manager.create_invoice(
-        request.value_msat,
-        request.memo.as_deref().unwrap_or(""),
-        request.expiry.unwrap_or(3600),
-        request.private.unwrap_or(false),
-    ).map_err(|e| ApiError::internal_error(format!("Failed to create invoice: {}", e)))?;
-    
+    let response = manager
+        .create_invoice(
+            request.value_msat,
+            request.memo.as_deref().unwrap_or(""),
+            request.expiry.unwrap_or(3600),
+            request.private.unwrap_or(false),
+        )
+        .map_err(|e| ApiError::internal_error(format!("Failed to create invoice: {}", e)))?;
+
     Ok(HttpResponse::Ok().json(response))
 }
 
@@ -417,15 +445,18 @@ pub async fn get_network_nodes(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Get network nodes
-    let manager = lightning_manager.read()
+    let manager = lightning_manager
+        .read()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let nodes = manager.get_network_nodes(params.limit.unwrap_or(100))
+    let nodes = manager
+        .get_network_nodes(params.limit.unwrap_or(100))
         .map_err(|e| ApiError::internal_error(format!("Failed to list network nodes: {}", e)))?;
-    
+
     Ok(HttpResponse::Ok().json(nodes))
 }
 
@@ -449,18 +480,21 @@ pub async fn get_node_info(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     let node_id = path.into_inner();
-    
+
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Get node info
-    let manager = lightning_manager.read()
+    let manager = lightning_manager
+        .read()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let node_info = manager.get_node_info(&node_id)
+    let node_info = manager
+        .get_node_info(&node_id)
         .map_err(|e| ApiError::internal_error(format!("Failed to get node info: {}", e)))?
         .ok_or_else(|| ApiError::not_found(format!("Node {} not found", node_id)))?;
-    
+
     Ok(HttpResponse::Ok().json(node_info))
 }
 
@@ -471,10 +505,10 @@ pub async fn get_node_info(
 struct FindRouteParams {
     /// Destination node ID (public key)
     pub_key: String,
-    
+
     /// Amount to send in millisatoshis
     amt_msat: u64,
-    
+
     /// Maximum fee in millisatoshis (default: 10000)
     #[param(default = "10000")]
     fee_limit_msat: Option<u64>,
@@ -498,19 +532,23 @@ pub async fn find_route(
     node: web::Data<Arc<Node>>,
 ) -> ApiResult<HttpResponse> {
     // Check if Lightning Network is enabled
-    let lightning_manager = node.lightning()
+    let lightning_manager = node
+        .lightning()
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
-    
+
     // Find route
-    let manager = lightning_manager.read()
+    let manager = lightning_manager
+        .read()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
-    let route = manager.find_route(
-        &params.pub_key,
-        params.amt_msat,
-        params.fee_limit_msat.unwrap_or(10000),
-    ).await
-    .map_err(|e| ApiError::internal_error(format!("Failed to find route: {}", e)))?
-    .ok_or_else(|| ApiError::not_found("No route found to destination"))?;
-    
+    let route = manager
+        .find_route(
+            &params.pub_key,
+            params.amt_msat,
+            params.fee_limit_msat.unwrap_or(10000),
+        )
+        .await
+        .map_err(|e| ApiError::internal_error(format!("Failed to find route: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("No route found to destination"))?;
+
     Ok(HttpResponse::Ok().json(route))
-} 
+}

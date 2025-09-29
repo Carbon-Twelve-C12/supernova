@@ -5,16 +5,15 @@
 
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::api::types::*;
 use super::NodeData;
+use crate::api::types::*;
 
 /// Configure node routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg
-        .route("/info", web::get().to(get_node_info))
+    cfg.route("/info", web::get().to(get_node_info))
         .route("/status", web::get().to(get_node_status))
         .route("/config", web::get().to(get_config))
         .route("/config", web::put().to(update_config))
@@ -41,9 +40,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     ),
     tag = "node"
 )]
-pub async fn get_node_info(
-    node: NodeData,
-) -> impl Responder {
+pub async fn get_node_info(node: NodeData) -> impl Responder {
     match node.get_node_info() {
         Ok(info) => HttpResponse::Ok().json(info),
         Err(e) => {
@@ -65,9 +62,7 @@ pub async fn get_node_info(
     ),
     tag = "node"
 )]
-pub async fn get_node_status(
-    node: NodeData,
-) -> impl Responder {
+pub async fn get_node_status(node: NodeData) -> impl Responder {
     let status = node.get_status().await;
     HttpResponse::Ok().json(status)
 }
@@ -82,9 +77,7 @@ pub async fn get_node_status(
     ),
     tag = "node"
 )]
-pub async fn get_system_info(
-    node: NodeData,
-) -> impl Responder {
+pub async fn get_system_info(node: NodeData) -> impl Responder {
     match node.get_system_info() {
         Ok(info) => HttpResponse::Ok().json(info),
         Err(e) => {
@@ -123,14 +116,11 @@ pub struct LogsQuery {
     ),
     tag = "node"
 )]
-pub async fn get_logs(
-    node: NodeData,
-    query: web::Query<LogsQuery>,
-) -> impl Responder {
+pub async fn get_logs(node: NodeData, query: web::Query<LogsQuery>) -> impl Responder {
     let level = query.level.as_deref().unwrap_or("info");
     let limit = query.limit.unwrap_or(100);
     let offset = query.offset.unwrap_or(0);
-    
+
     match node.get_logs(level, query.component.as_deref(), limit, offset) {
         Ok(logs) => HttpResponse::Ok().json(logs),
         Err(e) => {
@@ -152,9 +142,7 @@ pub async fn get_logs(
     ),
     tag = "node"
 )]
-pub async fn get_version(
-    node: NodeData,
-) -> impl Responder {
+pub async fn get_version(node: NodeData) -> impl Responder {
     match node.get_version() {
         Ok(version) => HttpResponse::Ok().json(version),
         Err(e) => {
@@ -185,12 +173,9 @@ pub struct MetricsQuery {
     ),
     tag = "node"
 )]
-pub async fn get_metrics(
-    node: NodeData,
-    query: web::Query<MetricsQuery>,
-) -> impl Responder {
+pub async fn get_metrics(node: NodeData, query: web::Query<MetricsQuery>) -> impl Responder {
     let period = query.period.unwrap_or(60);
-    
+
     match node.get_metrics(period) {
         Ok(metrics) => HttpResponse::Ok().json(metrics),
         Err(e) => {
@@ -212,9 +197,7 @@ pub async fn get_metrics(
     ),
     tag = "node"
 )]
-pub async fn get_config(
-    node: NodeData,
-) -> impl Responder {
+pub async fn get_config(node: NodeData) -> impl Responder {
     match node.get_config() {
         Ok(config) => HttpResponse::Ok().json(config),
         Err(e) => {
@@ -278,13 +261,10 @@ pub struct BackupRequest {
     ),
     tag = "node"
 )]
-pub async fn create_backup(
-    node: NodeData,
-    request: web::Json<BackupRequest>,
-) -> impl Responder {
+pub async fn create_backup(node: NodeData, request: web::Json<BackupRequest>) -> impl Responder {
     let include_wallet = request.include_wallet;
     let encrypt = request.encrypt;
-    
+
     match node.create_backup(request.destination.as_deref(), include_wallet, encrypt) {
         Ok(backup) => {
             info!("Backup created: {}", backup.id);
@@ -309,9 +289,7 @@ pub async fn create_backup(
     ),
     tag = "node"
 )]
-pub async fn get_backup_info(
-    node: NodeData,
-) -> impl Responder {
+pub async fn get_backup_info(node: NodeData) -> impl Responder {
     match node.get_backup_info() {
         Ok(backups) => HttpResponse::Ok().json(backups),
         Err(e) => {
@@ -333,11 +311,9 @@ pub async fn get_backup_info(
     ),
     tag = "node"
 )]
-pub async fn restart_node(
-    node: NodeData,
-) -> impl Responder {
+pub async fn restart_node(node: NodeData) -> impl Responder {
     info!("Node restart requested");
-    
+
     match node.restart() {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({
             "message": "Node restart initiated"
@@ -361,11 +337,9 @@ pub async fn restart_node(
     ),
     tag = "node"
 )]
-pub async fn shutdown_node(
-    node: NodeData,
-) -> impl Responder {
+pub async fn shutdown_node(node: NodeData) -> impl Responder {
     warn!("Node shutdown requested");
-    
+
     match node.shutdown() {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({
             "message": "Node shutdown initiated"
@@ -389,9 +363,7 @@ pub async fn shutdown_node(
     ),
     tag = "node"
 )]
-pub async fn get_debug_info(
-    node: NodeData,
-) -> impl Responder {
+pub async fn get_debug_info(node: NodeData) -> impl Responder {
     match node.get_debug_info() {
         Ok(debug) => HttpResponse::Ok().json(debug),
         Err(e) => {
@@ -401,4 +373,4 @@ pub async fn get_debug_info(
             })
         }
     }
-} 
+}

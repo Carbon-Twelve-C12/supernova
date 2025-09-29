@@ -1,10 +1,10 @@
-use actix_web::{web, App, HttpResponse, HttpServer, middleware};
+use actix_web::{middleware, web, App, HttpResponse, HttpServer};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use chrono::{DateTime, Utc};
-use tracing::{info, error};
 use std::time::Duration;
+use tokio::sync::RwLock;
+use tracing::{error, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EnvironmentalData {
@@ -59,7 +59,7 @@ impl OracleService {
             let mut interval_timer = tokio::time::interval(interval);
             loop {
                 interval_timer.tick().await;
-                
+
                 // Mock data update - in production, this would fetch from real APIs
                 let mut state_guard = state.write().await;
                 state_guard.current_data.timestamp = Utc::now();
@@ -68,8 +68,9 @@ impl OracleService {
                 state_guard.current_data.grid_efficiency = 0.85 + (rand::random::<f64>() * 0.1);
                 state_guard.last_update = Utc::now();
                 state_guard.update_count += 1;
-                
-                info!("Updated environmental data: carbon_intensity={:.2} gCO2/kWh, renewable={:.1}%", 
+
+                info!(
+                    "Updated environmental data: carbon_intensity={:.2} gCO2/kWh, renewable={:.1}%",
                     state_guard.current_data.carbon_intensity,
                     state_guard.current_data.renewable_percentage * 100.0
                 );
@@ -117,9 +118,7 @@ async fn get_renewable_mix(oracle: web::Data<Arc<OracleService>>) -> HttpRespons
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     // Get configuration from environment
     let port = std::env::var("PORT")
@@ -136,8 +135,10 @@ async fn main() -> std::io::Result<()> {
     info!("Update interval: {} seconds", update_interval_secs);
 
     // Create oracle service
-    let oracle = Arc::new(OracleService::new(Duration::from_secs(update_interval_secs)));
-    
+    let oracle = Arc::new(OracleService::new(Duration::from_secs(
+        update_interval_secs,
+    )));
+
     // Start update loop
     oracle.start_update_loop().await;
 
@@ -150,7 +151,7 @@ async fn main() -> std::io::Result<()> {
                 actix_cors::Cors::default()
                     .allow_any_origin()
                     .allow_any_method()
-                    .allow_any_header()
+                    .allow_any_header(),
             )
             .route("/health", web::get().to(health_check))
             .route("/api/current", web::get().to(get_current_data))
@@ -161,4 +162,4 @@ async fn main() -> std::io::Result<()> {
     .bind(("0.0.0.0", port))?
     .run()
     .await
-} 
+}
