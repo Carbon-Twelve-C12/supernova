@@ -19,14 +19,14 @@ impl NetworkClient {
 
     pub async fn broadcast_transaction(&self, transaction: Transaction) -> Result<(), Box<dyn Error>> {
         let stream = TcpStream::connect(&self.node_address).await?;
-        
+
         // Serialize transaction
         let tx_data = bincode::serialize(&transaction)?;
         let message = NetworkMessage::BroadcastTransaction(tx_data);
-        
+
         // Send to node
         bincode::serialize_into(&stream, &message)?;
-        
+
         Ok(())
     }
 }

@@ -70,7 +70,7 @@ pub enum ScriptVerificationError {
 /// Determine the script type from a public key script
 pub fn identify_script_type(script: &[u8]) -> ScriptType {
     // P2PKH: OP_DUP OP_HASH160 <20 bytes> OP_EQUALVERIFY OP_CHECKSIG
-    if script.len() == 25 
+    if script.len() == 25
         && script[0] == 0x76  // OP_DUP
         && script[1] == 0xa9  // OP_HASH160
         && script[2] == 0x14  // Push 20 bytes

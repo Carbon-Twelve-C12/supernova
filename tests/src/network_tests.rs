@@ -30,11 +30,11 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
         let chain_state = ChainState::new(Arc::clone(&db)).unwrap();
-        
+
         // Create a test block
         let prev_hash = chain_state.get_best_block_hash();
         let block = Block::new(1, prev_hash, Vec::new(), u32::MAX);
-        
+
         // This is a simple smoke test that doesn't need to fully propagate
         assert!(block.hash() != [0u8; 32]);
     }

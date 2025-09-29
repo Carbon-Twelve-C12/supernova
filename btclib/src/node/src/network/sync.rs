@@ -29,7 +29,7 @@ const MIN_CHECKPOINT_PEERS: usize = 3; // Minimum peers to agree on checkpoint
 pub enum SyncState {
     /// Not currently syncing
     Idle,
-    
+
     /// Downloading headers
     HeaderSync {
         /// Current sync height
@@ -39,7 +39,7 @@ pub enum SyncState {
         /// Time when sync started
         start_time: Instant,
     },
-    
+
     /// Downloading blocks
     BlockSync {
         /// Current sync height
@@ -49,7 +49,7 @@ pub enum SyncState {
         /// Time when sync started
         start_time: Instant,
     },
-    
+
     /// Waiting for IBD (Initial Block Download) to complete
     IBDWait {
         /// Target height
@@ -61,46 +61,46 @@ pub enum SyncState {
 pub struct ChainSync {
     /// Current locally validated chain height
     pub height: u64,
-    
+
     /// Best known height from peers
     pub best_known_height: u64,
-    
+
     /// Headers we've downloaded but not yet processed
     pending_headers: VecDeque<BlockHeader>,
-    
+
     /// Blocks we've requested but not yet received
     pending_block_requests: HashMap<[u8; 32], (PeerId, Instant, usize)>, // hash -> (peer, request_time, retry_count)
-    
+
     /// Blocks we've received but not yet processed
     pending_blocks: HashMap<u64, Block>, // height -> block
-    
+
     /// Currently downloading heights
     blocks_in_flight: HashSet<u64>,
-    
+
     /// Sync state
     sync_state: SyncState,
-    
+
     /// Command sender to network layer
     command_sender: mpsc::Sender<NetworkCommand>,
-    
+
     /// Best peers for downloading
     best_peers: Vec<(PeerId, u64)>, // (peer_id, height)
-    
+
     /// Peer reputation scores
     peer_scores: HashMap<PeerId, i32>,
-    
+
     /// Block validator
     validator: Arc<BlockValidator>,
-    
+
     /// Block storage
     storage: Arc<dyn BlockStorage>,
-    
+
     /// Chain state
     chain_state: Arc<RwLock<BlockchainState>>,
-    
+
     /// Last checkpoint height
     last_checkpoint_height: u64,
-    
+
     /// Checkpoint proposals from peers
     checkpoint_proposals: HashMap<u64, HashMap<[u8; 32], HashSet<PeerId>>>, // height -> (hash -> peer_ids)
 }
@@ -108,7 +108,7 @@ pub struct ChainSync {
 impl ChainSync {
     /// Create a new chain synchronization manager
     pub fn new(
-        command_sender: mpsc::Sender<NetworkCommand>, 
+        command_sender: mpsc::Sender<NetworkCommand>,
         validator: Arc<BlockValidator>,
         storage: Arc<dyn BlockStorage>,
         chain_state: Arc<RwLock<BlockchainState>>,
@@ -116,7 +116,7 @@ impl ChainSync {
         // Get current height from storage
         let height = storage.get_current_height().unwrap_or(0);
         let last_checkpoint_height = storage.get_last_checkpoint_height().unwrap_or(0);
-        
+
         Self {
             height,
             best_known_height: height,
@@ -155,9 +155,9 @@ impl ChainSync {
             target_height,
             start_time: Instant::now(),
         };
-        
+
         info!("Starting sync from height {} to {}", self.height, target_height);
-        
+
         // Start headers-first sync
         self.request_next_headers_batch().await?;
 
@@ -167,14 +167,14 @@ impl ChainSync {
     /// Handles a new block announcement from the network
     pub async fn handle_block_announcement(&mut self, peer_id: PeerId, announcement: BlockAnnouncement) -> Result<(), Box<dyn Error>> {
         let height = announcement.height;
-        
+
         // Update our knowledge of the peer's height
         self.update_peer_height(peer_id, height);
-        
+
         // If this is higher than our known best, update sync target
         if height > self.best_known_height {
             self.best_known_height = height;
-            
+
             // If we're idle, start syncing
             if matches!(self.sync_state, SyncState::Idle) {
                 info!("New block announced at height {}, starting sync", height);
@@ -184,22 +184,22 @@ impl ChainSync {
                 self.update_sync_target(height);
             }
         }
-        
+
         // If this is just the next block we need, request it directly instead of full sync
-        if height == self.height + 1 && 
-           matches!(self.sync_state, SyncState::Idle) && 
+        if height == self.height + 1 &&
+           matches!(self.sync_state, SyncState::Idle) &&
            !self.blocks_in_flight.contains(&height) {
             info!("Requesting next block at height {}", height);
-            
+
             let message = Message::GetBlock { hash: announcement.hash };
             self.command_sender
                 .send(NetworkCommand::SendMessage(peer_id, message))
                 .await?;
-                
+
             self.pending_block_requests.insert(announcement.hash, (peer_id, Instant::now(), 0));
             self.blocks_in_flight.insert(height);
         }
-        
+
         Ok(())
     }
 
@@ -211,12 +211,12 @@ impl ChainSync {
         }
 
         info!("Received {} headers from peer {} starting at height {}", protocol_headers.len(), peer_id, start_height);
-        
+
         // Convert protocol headers to core headers
         let headers: Vec<BlockHeader> = protocol_headers.iter()
             .map(|h| BlockHeader::from_protocol_header(h))
             .collect();
-        
+
         // Validate headers (check linking and proof of work)
         let mut prev_hash = if start_height > 0 && start_height == self.height + 1 {
             // If this is continuing from our current chain tip, use the last hash
@@ -239,34 +239,34 @@ impl ChainSync {
                 [0; 32]
             }
         };
-        
+
         // Validate each header
         let mut valid_headers = Vec::new();
         for (i, header) in headers.iter().enumerate() {
             // Check proper linking to previous block
             if header.prev_block_hash != prev_hash {
-                warn!("Header at height {} has incorrect prev_hash, expected {}, got {}", 
+                warn!("Header at height {} has incorrect prev_hash, expected {}, got {}",
                     start_height + i as u64, hex::encode(prev_hash), hex::encode(header.prev_block_hash));
                 break;
             }
-            
+
             // Check proof of work
             if !header.meets_target() {
                 warn!("Header at height {} does not meet proof-of-work target", start_height + i as u64);
                 break;
             }
-            
+
             // Update prev_hash for the next iteration
             prev_hash = header.hash();
             valid_headers.push(header.clone());
         }
-        
+
         if valid_headers.is_empty() {
             warn!("No valid headers found in batch from peer {}", peer_id);
-            
+
             // Downgrade peer reputation for sending invalid headers
             self.adjust_peer_score(&peer_id, -5);
-            
+
             return Ok(());
         }
 
@@ -274,19 +274,19 @@ impl ChainSync {
         for header in valid_headers {
             self.pending_headers.push_back(header);
         }
-        
+
         if let SyncState::HeaderSync { current_height, target_height, start_time } = self.sync_state {
             // If we've got all headers up to target, start downloading blocks
             let new_height = current_height + valid_headers.len() as u64;
             if new_height >= target_height {
-                info!("Headers sync complete, switching to block download. Got {} headers", 
+                info!("Headers sync complete, switching to block download. Got {} headers",
                      self.pending_headers.len());
                 self.sync_state = SyncState::BlockSync {
                     current_height: self.height,
                     target_height,
                     start_time: Instant::now(),
                 };
-                
+
                 // Start downloading blocks
                 self.request_blocks_parallel().await?;
             } else {
@@ -296,7 +296,7 @@ impl ChainSync {
                     target_height,
                     start_time,
                 };
-                
+
                 // Request next headers batch
                 self.request_next_headers_batch().await?;
             }
@@ -308,7 +308,7 @@ impl ChainSync {
     /// Handle a received block from a peer
     pub async fn handle_block(&mut self, peer_id: PeerId, height: u64, block_data: Vec<u8>) -> Result<(), Box<dyn Error>> {
         debug!("Received block at height {} from peer {}", height, peer_id);
-        
+
         // Deserialize the block
         let block = match Block::deserialize(&block_data) {
             Ok(block) => block,
@@ -317,7 +317,7 @@ impl ChainSync {
                 return Ok(());
             }
         };
-        
+
         // Verify block hash matches the requested hash (if we have it)
         let block_hash = block.hash();
         for (hash, (request_peer, _, _)) in self.pending_block_requests.iter() {
@@ -327,29 +327,29 @@ impl ChainSync {
                 break;
             }
         }
-        
+
         // Mark as no longer in flight
         self.blocks_in_flight.remove(&height);
-        
+
         // Store in pending blocks
         self.pending_blocks.insert(height, block);
-        
+
         // Try to process any available blocks
         self.process_pending_blocks().await?;
-        
+
         // If we're in block sync and have capacity, request more blocks
-        if matches!(self.sync_state, SyncState::BlockSync { .. }) && 
+        if matches!(self.sync_state, SyncState::BlockSync { .. }) &&
            self.blocks_in_flight.len() < MAX_CONCURRENT_BLOCK_REQUESTS {
             self.request_blocks_parallel().await?;
         }
-        
+
         Ok(())
     }
 
     /// Process blocks that have been downloaded but not yet validated
     async fn process_pending_blocks(&mut self) -> Result<(), Box<dyn Error>> {
         let mut processed_heights = Vec::new();
-        
+
         // Process blocks in order as long as we have the next one
         let mut current_height = self.height + 1;
         while let Some(block) = self.pending_blocks.get(&current_height) {
@@ -357,16 +357,16 @@ impl ChainSync {
             match self.validate_block(current_height, block) {
                 Ok(_) => {
                     info!("Block at height {} validated and added to chain", current_height);
-                    
+
                     // Mark height for removal
                     processed_heights.push(current_height);
-                    
+
                     // Store block in persistent storage
                     if let Err(e) = self.storage.store_block(current_height, block) {
                         error!("Failed to store block at height {}: {}", current_height, e);
                         break;
                     }
-                    
+
                     // Update chain state
                     {
                         let mut state = self.chain_state.write().unwrap();
@@ -375,30 +375,30 @@ impl ChainSync {
                             break;
                         }
                     }
-                    
+
                     // Check if this height is a checkpoint multiple
                     if current_height % CHECKPOINT_INTERVAL == 0 {
                         self.create_checkpoint(current_height, block.hash()).await?;
                     }
-                    
+
                     // Move to next height
                     current_height += 1;
                     self.height = current_height - 1;
                 },
                 Err(e) => {
                     error!("Failed to validate block at height {}: {}", current_height, e);
-                    
+
                     // Handle invalid block by penalizing the peer that sent it
                     if let Some((block_hash, _)) = self.pending_blocks.get(&current_height)
                         .map(|b| (b.hash(), b)) {
-                        
+
                         // Find which peer sent this block
                         if let Some((peer_id, _, _)) = self.pending_block_requests.get(&block_hash).cloned() {
                             warn!("Peer {} sent invalid block at height {}", peer_id, current_height);
-                            
+
                             // Apply reputation penalty
                             self.adjust_peer_score(&peer_id, -10);
-                            
+
                             // Ban the peer if reputation is too low
                             if self.get_peer_score(&peer_id) < -50 {
                                 warn!("Banning peer {} due to low reputation score", peer_id);
@@ -409,30 +409,30 @@ impl ChainSync {
                             }
                         }
                     }
-                    
+
                     // For now, just remove the block and try to redownload
                     self.pending_blocks.remove(&current_height);
-                    
+
                     // Request the block again from a different peer
                     self.request_block_at_height(current_height).await?;
-                    
+
                     break;
                 }
             }
         }
-        
+
         // Remove processed blocks
         for height in processed_heights {
             self.pending_blocks.remove(&height);
         }
-        
+
         // Check if sync is complete
         if let SyncState::BlockSync { target_height, start_time, .. } = self.sync_state {
             if self.height >= target_height {
                 let elapsed = start_time.elapsed();
                 info!("Sync complete at height {}. Took {:?}", self.height, elapsed);
                 self.sync_state = SyncState::Idle;
-                
+
                 // Clear any remaining sync data to free memory
                 self.pending_headers.clear();
                 self.blocks_in_flight.clear();
@@ -445,7 +445,7 @@ impl ChainSync {
                 };
             }
         }
-        
+
         Ok(())
     }
 
@@ -461,12 +461,12 @@ impl ChainSync {
                 }
             }
         }
-        
+
         // Basic validation
         if !block.validate() {
             return Err(ValidationError::InvalidBlock);
         }
-        
+
         // Use block validator for full validation
         match self.validator.validate_block(block, height) {
             ValidationResult::Valid => Ok(()),
@@ -484,10 +484,10 @@ impl ChainSync {
             // Find best peer to request from
             if let Some((peer_id, _)) = self.get_best_peer() {
                 let start_height = current_height + 1;
-                
-                info!("Requesting headers from height {} (batch size: {})", 
+
+                info!("Requesting headers from height {} (batch size: {})",
                      start_height, HEADERS_BATCH_SIZE);
-                
+
                 // Send get headers request to peer
                 let message = Message::GetHeaders {
                     start_height,
@@ -504,7 +504,7 @@ impl ChainSync {
                 self.request_next_headers_batch().await?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -514,31 +514,31 @@ impl ChainSync {
         if !matches!(self.sync_state, SyncState::BlockSync { .. }) {
             return Ok(());
         }
-        
+
         let mut requested = 0;
         let mut next_height = self.height + 1;
-        
+
         // Request blocks until we hit the target concurrent request limit
-        while self.blocks_in_flight.len() < MAX_CONCURRENT_BLOCK_REQUESTS && 
+        while self.blocks_in_flight.len() < MAX_CONCURRENT_BLOCK_REQUESTS &&
               requested < BLOCKS_DOWNLOAD_BATCH_SIZE {
-            
+
             // Skip if we already have this block pending or in flight
-            if self.pending_blocks.contains_key(&next_height) || 
+            if self.pending_blocks.contains_key(&next_height) ||
                self.blocks_in_flight.contains(&next_height) {
                 next_height += 1;
                 continue;
             }
-            
+
             // Request this block
             if let Err(e) = self.request_block_at_height(next_height).await {
                 warn!("Failed to request block at height {}: {}", next_height, e);
                 break;
             }
-            
+
             requested += 1;
             next_height += 1;
         }
-        
+
         if requested > 0 {
             info!("Requested {} blocks in parallel", requested);
         }
@@ -553,20 +553,20 @@ impl ChainSync {
             // Find a suitable peer
             if let Some((peer_id, _)) = self.get_best_peer() {
                 let block_hash = header.hash();
-                
-                debug!("Requesting block at height {} (hash {}) from peer {}", 
+
+                debug!("Requesting block at height {} (hash {}) from peer {}",
                       height, hex::encode(&block_hash), peer_id);
-                
+
                 // Send request to peer
                 let message = Message::GetBlock { hash: block_hash };
                 self.command_sender
                     .send(NetworkCommand::SendMessage(peer_id, message))
                     .await?;
-                
+
                 // Track request
                 self.pending_block_requests.insert(block_hash, (peer_id, Instant::now(), 0));
                 self.blocks_in_flight.insert(height);
-                
+
                 Ok(())
             } else {
                 Err("No suitable peers available for block download".into())
@@ -580,28 +580,28 @@ impl ChainSync {
     pub async fn check_timeouts(&mut self) -> Result<(), Box<dyn Error>> {
         let now = Instant::now();
         let mut timed_out = Vec::new();
-        
+
         // Check for timed out requests
         for (hash, (peer_id, request_time, retry_count)) in &self.pending_block_requests {
             if now.duration_since(*request_time) > BLOCK_REQUEST_TIMEOUT {
                 timed_out.push((*hash, *peer_id, *retry_count));
             }
         }
-        
+
         // Handle timed out requests
         for (hash, peer_id, retry_count) in timed_out {
             self.pending_block_requests.remove(&hash);
-            
+
             // Find the height for this hash
             let height = self.find_height_by_hash(&hash);
-            
+
             if let Some(height) = height {
                 self.blocks_in_flight.remove(&height);
-                
+
                 if retry_count < MAX_RETRIES {
-                    warn!("Block request timed out for height {}, retrying (attempt {})", 
+                    warn!("Block request timed out for height {}, retrying (attempt {})",
                          height, retry_count + 1);
-                    
+
                     // Get a different peer
                     if let Some((new_peer_id, _)) = self.get_best_peer_excluding(&[peer_id]) {
                         // Retry with new peer
@@ -609,7 +609,7 @@ impl ChainSync {
                         self.command_sender
                             .send(NetworkCommand::SendMessage(new_peer_id, message))
                             .await?;
-                        
+
                         // Update request tracking
                         self.pending_block_requests.insert(hash, (new_peer_id, Instant::now(), retry_count + 1));
                         self.blocks_in_flight.insert(height);
@@ -618,16 +618,16 @@ impl ChainSync {
                     }
                 } else {
                     error!("Block request for height {} failed after {} retries", height, MAX_RETRIES);
-                    
+
                     // Penalize peer for repeated failures
                     self.adjust_peer_score(&peer_id, -3);
-                    
+
                     // If peer's reliability is too low, reduce its priority
                     if self.get_peer_score(&peer_id) < -20 {
                         warn!("Peer {} has low reliability score, deprioritizing", peer_id);
                         self.deprioritize_peer(&peer_id);
                     }
-                    
+
                     // For now, just try again with a longer timeout to recover
                     sleep(RETRY_DELAY * 2).await;
                     if let Some((new_peer_id, _)) = self.get_best_peer_excluding(&[peer_id]) {
@@ -636,7 +636,7 @@ impl ChainSync {
                         self.command_sender
                             .send(NetworkCommand::SendMessage(new_peer_id, message))
                             .await?;
-                        
+
                         // Reset retry count
                         self.pending_block_requests.insert(hash, (new_peer_id, Instant::now(), 0));
                         self.blocks_in_flight.insert(height);
@@ -644,7 +644,7 @@ impl ChainSync {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -653,9 +653,9 @@ impl ChainSync {
         if height <= self.last_checkpoint_height {
             return Ok(());
         }
-        
+
         info!("Creating new checkpoint at height {}", height);
-        
+
         // Store the checkpoint
         if let Err(e) = self.storage.store_checkpoint(height, hash) {
             error!("Failed to store checkpoint: {}", e);
@@ -664,7 +664,7 @@ impl ChainSync {
 
         // Update last checkpoint height
         self.last_checkpoint_height = height;
-        
+
         // Broadcast the checkpoint to peers
         let checkpoint_msg = Message::CheckpointAnnouncement {
             height,
@@ -674,7 +674,7 @@ impl ChainSync {
         self.command_sender
             .send(NetworkCommand::BroadcastMessage(checkpoint_msg))
             .await?;
-            
+
         info!("Checkpoint at height {} broadcast to peers", height);
 
         Ok(())
@@ -686,35 +686,35 @@ impl ChainSync {
         if height <= self.last_checkpoint_height {
             return Ok(());
         }
-        
+
         // Add to checkpoint proposals
         let peer_entry = self.checkpoint_proposals
             .entry(height)
             .or_insert_with(HashMap::new)
             .entry(hash)
             .or_insert_with(HashSet::new);
-            
+
         peer_entry.insert(peer_id);
-        
+
         // Check if we have enough peers agreeing on this checkpoint
         if peer_entry.len() >= MIN_CHECKPOINT_PEERS {
             info!("Checkpoint at height {} confirmed by {} peers", height, peer_entry.len());
-            
+
             // Store the checkpoint
             if let Err(e) = self.storage.store_checkpoint(height, hash) {
                 error!("Failed to store checkpoint: {}", e);
                 return Ok(());
             }
-            
+
             // Update our last checkpoint height
             if height > self.last_checkpoint_height {
                 self.last_checkpoint_height = height;
             }
-            
+
             // Clean up proposals for this height
             self.checkpoint_proposals.remove(&height);
         }
-        
+
         Ok(())
     }
 
@@ -753,10 +753,10 @@ impl ChainSync {
                 return;
             }
         }
-        
+
         // Add new peer
         self.best_peers.push((peer_id, height));
-        
+
         // Sort peers by height (descending)
         self.best_peers.sort_by(|a, b| b.1.cmp(&a.1));
     }
@@ -800,15 +800,15 @@ impl ChainSync {
                 return Some(self.height + 1 + i as u64);
             }
         }
-        
+
         // Check in storage
         if let Ok(Some(height)) = self.storage.get_block_height_by_hash(hash) {
             return Some(height);
         }
-        
+
         None
     }
-    
+
     /// Get the hash of our current chain tip
     fn get_tip_hash(&self) -> [u8; 32] {
         match self.storage.get_block_hash_at_height(self.height) {
@@ -825,7 +825,7 @@ impl ChainSync {
                 if target_height <= self.height {
                     100.0
                 } else {
-                    let progress = (current_height - self.height) as f64 / 
+                    let progress = (current_height - self.height) as f64 /
                                    (target_height - self.height) as f64;
                     (progress * 50.0).min(50.0) // Headers sync is first 50%
                 }
@@ -834,7 +834,7 @@ impl ChainSync {
                 if target_height <= self.height {
                     100.0
                 } else {
-                    let progress = (current_height - self.height) as f64 / 
+                    let progress = (current_height - self.height) as f64 /
                                    (target_height - self.height) as f64;
                     50.0 + (progress * 50.0).min(50.0) // Block sync is second 50%
                 }
@@ -842,17 +842,17 @@ impl ChainSync {
             SyncState::IBDWait { .. } => 0.0,
         }
     }
-    
+
     /// Get the current sync state
     pub fn get_sync_state(&self) -> SyncState {
         self.sync_state.clone()
     }
-    
+
     /// Check if we're currently syncing
     pub fn is_syncing(&self) -> bool {
         !matches!(self.sync_state, SyncState::Idle)
     }
-    
+
     /// Get statistics for current sync session
     pub fn get_sync_stats(&self) -> SyncStats {
         SyncStats {
@@ -871,7 +871,7 @@ impl ChainSync {
             peer_count: self.best_peers.len(),
         }
     }
-    
+
     /// Calculate the current download rate (blocks per second)
     fn calculate_download_rate(&self) -> f64 {
         match &self.sync_state {
@@ -895,7 +895,7 @@ impl ChainSync {
             SyncState::IBDWait { .. } => 0.0,
         }
     }
-    
+
     /// Estimate remaining sync time in seconds
     fn estimate_remaining_time(&self) -> u64 {
         match &self.sync_state {
@@ -917,7 +917,7 @@ impl ChainSync {
     /// Run the main sync process loop
     pub async fn run(&mut self) {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
-        
+
         loop {
             tokio::select! {
                 _ = interval.tick() => {
@@ -925,7 +925,7 @@ impl ChainSync {
                     if let Err(e) = self.check_timeouts().await {
                         error!("Error checking timeouts: {}", e);
                     }
-                    
+
                     // Log sync progress
                     match self.sync_state {
                         SyncState::Idle => {},
@@ -933,7 +933,7 @@ impl ChainSync {
                             let progress = self.get_sync_progress();
                             let stats = self.get_sync_stats();
                             info!("Sync progress: {:.2}% - Height: {}/{} - Rate: {:.2} blocks/s - ETA: {} seconds",
-                                progress, stats.current_height, stats.target_height, 
+                                progress, stats.current_height, stats.target_height,
                                 stats.download_rate, stats.estimated_remaining_time);
                         }
                     }
@@ -948,12 +948,12 @@ impl ChainSync {
         *score = (*score + delta).clamp(-100, 100);
         debug!("Adjusted peer {} reputation: {} (delta: {})", peer_id, *score, delta);
     }
-    
+
     /// Get peer reputation score
     fn get_peer_score(&self, peer_id: &PeerId) -> i32 {
         self.peer_scores.get(peer_id).copied().unwrap_or(0)
     }
-    
+
     /// Deprioritize a peer in the best_peers list
     fn deprioritize_peer(&mut self, peer_id: &PeerId) {
         if let Some(pos) = self.best_peers.iter().position(|(id, _)| id == peer_id) {

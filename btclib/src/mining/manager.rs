@@ -1161,7 +1161,7 @@ impl MiningManager {
         let max_reward = self.get_maximum_block_reward(height);
         let final_reward = total_reward.min(max_reward);
 
-        info!("Block reward calculation for height {}: base={}, env_bonus={}, quantum_bonus={}, early_bonus={}, network_bonus={}, total={}", 
+        info!("Block reward calculation for height {}: base={}, env_bonus={}, quantum_bonus={}, early_bonus={}, network_bonus={}, total={}",
               height, base_reward, environmental_bonus, quantum_bonus, early_adopter_bonus, network_bonus, final_reward);
 
         final_reward

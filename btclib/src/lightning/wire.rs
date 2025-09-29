@@ -16,25 +16,25 @@ use sha2::{Sha256, Digest};
 pub enum LightningError {
     #[error("Serialization error: {0}")]
     SerializationError(String),
-    
+
     #[error("Deserialization error: {0}")]
     DeserializationError(String),
-    
+
     #[error("Encryption error: {0}")]
     EncryptionError(String),
-    
+
     #[error("Decryption error: {0}")]
     DecryptionError(String),
-    
+
     #[error("Authentication error: {0}")]
     AuthenticationError(String),
-    
+
     #[error("Protocol error: {0}")]
     ProtocolError(String),
-    
+
     #[error("Connection error: {0}")]
     ConnectionError(String),
-    
+
     #[error("Invalid message: {0}")]
     InvalidMessage(String),
 }
@@ -44,61 +44,61 @@ pub enum LightningError {
 pub enum MessageType {
     /// Initialize connection
     Init,
-    
+
     /// Error message
     Error,
-    
+
     /// Ping message (keep-alive)
     Ping,
-    
+
     /// Pong response to ping
     Pong,
-    
+
     /// Open a new channel
     OpenChannel,
-    
+
     /// Accept a channel open request
     AcceptChannel,
-    
+
     /// Fund a channel
     FundingCreated,
-    
+
     /// Sign funding transaction
     FundingSigned,
-    
+
     /// Funding transaction is ready
     FundingLocked,
-    
+
     /// Channel announcement
     ChannelAnnouncement,
-    
+
     /// Channel update
     ChannelUpdate,
-    
+
     /// Add HTLCs to a channel
     UpdateAddHtlc,
-    
+
     /// Fulfill an HTLC
     UpdateFulfillHtlc,
-    
+
     /// Fail an HTLC
     UpdateFailHtlc,
-    
+
     /// Sign a commitment transaction
     CommitmentSigned,
-    
+
     /// Revoke a previous commitment transaction
     RevokeAndAck,
-    
+
     /// Close a channel
     Shutdown,
-    
+
     /// Signature for a closing transaction
     ClosingSigned,
-    
+
     /// Announce a new node
     NodeAnnouncement,
-    
+
     /// Request gossip messages
     GossipTimestampFilter,
 }
@@ -108,16 +108,16 @@ pub enum MessageType {
 pub struct Message {
     /// Message type
     pub msg_type: MessageType,
-    
+
     /// Channel ID if applicable
     pub channel_id: Option<ChannelId>,
-    
+
     /// Data payload
     pub payload: Vec<u8>,
-    
+
     /// Timestamp
     pub timestamp: u64,
-    
+
     /// Signature
     pub signature: Option<Vec<u8>>,
 }
@@ -129,7 +129,7 @@ impl Message {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs();
-            
+
         Self {
             msg_type,
             channel_id,
@@ -138,7 +138,7 @@ impl Message {
             signature: None,
         }
     }
-    
+
     /// Sign the message
     pub fn sign(&mut self, private_key: &[u8]) -> Result<(), LightningError> {
         // In a real implementation, this would sign the message with the private key
@@ -146,12 +146,12 @@ impl Message {
         let mut rng = thread_rng();
         let mut signature = vec![0u8; 64];
         rng.fill_bytes(&mut signature[..]);
-        
+
         self.signature = Some(signature);
-        
+
         Ok(())
     }
-    
+
     /// Verify the message signature
     pub fn verify(&self, public_key: &[u8]) -> Result<bool, LightningError> {
         // In a real implementation, this would verify the signature
@@ -164,31 +164,31 @@ impl Message {
             ))
         }
     }
-    
+
     /// Serialize the message to bytes
     pub fn serialize(&self) -> Result<Vec<u8>, LightningError> {
         // Use bincode for serialization
         bincode::serialize(self)
             .map_err(|e| LightningError::SerializationError(e.to_string()))
     }
-    
+
     /// Deserialize from bytes
     pub fn deserialize(bytes: &[u8]) -> Result<Self, LightningError> {
         // Use bincode for deserialization
         bincode::deserialize(bytes)
             .map_err(|e| LightningError::DeserializationError(e.to_string()))
     }
-    
+
     /// Get hash of the message
     pub fn hash(&self) -> [u8; 32] {
         let serialized = self.serialize().unwrap_or_default();
         let mut hasher = Sha256::new();
         hasher.update(&serialized);
         let result = hasher.finalize();
-        
+
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
-        
+
         hash
     }
 }
@@ -198,13 +198,13 @@ impl Message {
 pub struct InitPayload {
     /// Protocol version
     pub version: u32,
-    
+
     /// Local features
     pub local_features: Vec<u8>,
-    
+
     /// Global features
     pub global_features: Vec<u8>,
-    
+
     /// Node ID
     pub node_id: String,
 }
@@ -214,10 +214,10 @@ pub struct InitPayload {
 pub struct ErrorPayload {
     /// Error code
     pub code: u16,
-    
+
     /// Error message
     pub message: String,
-    
+
     /// Data for debugging
     pub data: Option<Vec<u8>>,
 }
@@ -227,55 +227,55 @@ pub struct ErrorPayload {
 pub struct OpenChannelPayload {
     /// Chain hash
     pub chain_hash: [u8; 32],
-    
+
     /// Temporary channel ID
     pub temporary_channel_id: [u8; 32],
-    
+
     /// Funding amount in satoshis
     pub funding_satoshis: u64,
-    
+
     /// Push amount in millisatoshis
     pub push_msat: u64,
-    
+
     /// Dust limit in satoshis
     pub dust_limit_satoshis: u64,
-    
+
     /// Maximum HTLC value in flight
     pub max_htlc_value_in_flight_msat: u64,
-    
+
     /// Channel reserve in satoshis
     pub channel_reserve_satoshis: u64,
-    
+
     /// Minimum HTLC value in millisatoshis
     pub htlc_minimum_msat: u64,
-    
+
     /// Fee rate per kiloweight
     pub feerate_per_kw: u32,
-    
+
     /// To-self delay in blocks
     pub to_self_delay: u16,
-    
+
     /// Maximum accepted HTLCs
     pub max_accepted_htlcs: u16,
-    
+
     /// Funding public key
     pub funding_pubkey: Vec<u8>,
-    
+
     /// Remote public key
     pub revocation_basepoint: Vec<u8>,
-    
+
     /// Payment basepoint
     pub payment_basepoint: Vec<u8>,
-    
+
     /// Delayed payment basepoint
     pub delayed_payment_basepoint: Vec<u8>,
-    
+
     /// HTLC basepoint
     pub htlc_basepoint: Vec<u8>,
-    
+
     /// First per-commitment point
     pub first_per_commitment_point: Vec<u8>,
-    
+
     /// Channel flags
     pub channel_flags: u8,
 }
@@ -285,19 +285,19 @@ pub struct OpenChannelPayload {
 pub struct HtlcPayload {
     /// Channel ID
     pub channel_id: ChannelId,
-    
+
     /// HTLC ID
     pub htlc_id: u64,
-    
+
     /// Amount in millisatoshis
     pub amount_msat: u64,
-    
+
     /// Payment hash
     pub payment_hash: PaymentHash,
-    
+
     /// CLTV expiry
     pub cltv_expiry: u32,
-    
+
     /// Onion routing packet
     pub onion_routing_packet: Vec<u8>,
 }
@@ -307,10 +307,10 @@ pub struct HtlcPayload {
 pub struct HtlcFulfillPayload {
     /// Channel ID
     pub channel_id: ChannelId,
-    
+
     /// HTLC ID
     pub htlc_id: u64,
-    
+
     /// Payment preimage
     pub payment_preimage: PaymentPreimage,
 }
@@ -320,10 +320,10 @@ pub struct HtlcFulfillPayload {
 pub struct HtlcFailPayload {
     /// Channel ID
     pub channel_id: ChannelId,
-    
+
     /// HTLC ID
     pub htlc_id: u64,
-    
+
     /// Reason for failure
     pub reason: Vec<u8>,
 }
@@ -332,7 +332,7 @@ pub struct HtlcFailPayload {
 pub struct MessageFactory {
     /// Local node ID
     local_node_id: String,
-    
+
     /// Private key for signing
     private_key: Vec<u8>,
 }
@@ -345,7 +345,7 @@ impl MessageFactory {
             private_key,
         }
     }
-    
+
     /// Create an init message
     pub fn create_init(&self, version: u32) -> Result<Message, LightningError> {
         let payload = InitPayload {
@@ -354,16 +354,16 @@ impl MessageFactory {
             global_features: vec![0, 0], // No special features
             node_id: self.local_node_id.clone(),
         };
-        
+
         let serialized = bincode::serialize(&payload)
             .map_err(|e| LightningError::SerializationError(e.to_string()))?;
-            
+
         let mut message = Message::new(MessageType::Init, None, serialized);
         message.sign(&self.private_key)?;
-        
+
         Ok(message)
     }
-    
+
     /// Create an error message
     pub fn create_error(&self, channel_id: Option<ChannelId>, code: u16, message: &str) -> Result<Message, LightningError> {
         let payload = ErrorPayload {
@@ -371,16 +371,16 @@ impl MessageFactory {
             message: message.to_string(),
             data: None,
         };
-        
+
         let serialized = bincode::serialize(&payload)
             .map_err(|e| LightningError::SerializationError(e.to_string()))?;
-            
+
         let mut message = Message::new(MessageType::Error, channel_id, serialized);
         message.sign(&self.private_key)?;
-        
+
         Ok(message)
     }
-    
+
     /// Create an open channel message
     pub fn create_open_channel(
         &self,
@@ -391,7 +391,7 @@ impl MessageFactory {
         let mut rng = thread_rng();
         let mut temporary_channel_id = [0u8; 32];
         rng.fill_bytes(&mut temporary_channel_id);
-        
+
         // Create chain hash (Bitcoin mainnet in this case)
         let chain_hash = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -399,7 +399,7 @@ impl MessageFactory {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
         ];
-        
+
         let payload = OpenChannelPayload {
             chain_hash,
             temporary_channel_id,
@@ -420,16 +420,16 @@ impl MessageFactory {
             first_per_commitment_point: vec![0; 33], // Dummy commitment point
             channel_flags: 0, // No special flags
         };
-        
+
         let serialized = bincode::serialize(&payload)
             .map_err(|e| LightningError::SerializationError(e.to_string()))?;
-            
+
         let mut message = Message::new(MessageType::OpenChannel, None, serialized);
         message.sign(&self.private_key)?;
-        
+
         Ok(message)
     }
-    
+
     /// Create an add HTLC message
     pub fn create_add_htlc(
         &self,
@@ -447,16 +447,16 @@ impl MessageFactory {
             cltv_expiry,
             onion_routing_packet: vec![0; 1366], // Dummy onion packet
         };
-        
+
         let serialized = bincode::serialize(&payload)
             .map_err(|e| LightningError::SerializationError(e.to_string()))?;
-            
+
         let mut message = Message::new(MessageType::UpdateAddHtlc, Some(channel_id), serialized);
         message.sign(&self.private_key)?;
-        
+
         Ok(message)
     }
-    
+
     /// Create a fulfill HTLC message
     pub fn create_fulfill_htlc(
         &self,
@@ -469,16 +469,16 @@ impl MessageFactory {
             htlc_id,
             payment_preimage,
         };
-        
+
         let serialized = bincode::serialize(&payload)
             .map_err(|e| LightningError::SerializationError(e.to_string()))?;
-            
+
         let mut message = Message::new(MessageType::UpdateFulfillHtlc, Some(channel_id), serialized);
         message.sign(&self.private_key)?;
-        
+
         Ok(message)
     }
-    
+
     /// Create a fail HTLC message
     pub fn create_fail_htlc(
         &self,
@@ -491,32 +491,32 @@ impl MessageFactory {
             htlc_id,
             reason: reason.as_bytes().to_vec(),
         };
-        
+
         let serialized = bincode::serialize(&payload)
             .map_err(|e| LightningError::SerializationError(e.to_string()))?;
-            
+
         let mut message = Message::new(MessageType::UpdateFailHtlc, Some(channel_id), serialized);
         message.sign(&self.private_key)?;
-        
+
         Ok(message)
     }
-    
+
     /// Create a ping message
     pub fn create_ping(&self) -> Result<Message, LightningError> {
         let mut rng = thread_rng();
         let payload: Vec<u8> = (0..16).map(|_| rng.gen::<u8>()).collect();
-        
+
         let mut message = Message::new(MessageType::Ping, None, payload);
         message.sign(&self.private_key)?;
-        
+
         Ok(message)
     }
-    
+
     /// Create a pong message in response to a ping
     pub fn create_pong(&self, ping_message: &Message) -> Result<Message, LightningError> {
         let mut message = Message::new(MessageType::Pong, None, ping_message.payload.clone());
         message.sign(&self.private_key)?;
-        
+
         Ok(message)
     }
-} 
+}

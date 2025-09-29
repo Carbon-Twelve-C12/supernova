@@ -44,7 +44,7 @@ impl JsonRpcResponse {
             id,
         }
     }
-    
+
     /// Create an error response
     pub fn error(id: Value, code: ErrorCode, message: String, data: Option<Value>) -> Self {
         Self {
@@ -81,56 +81,56 @@ pub enum ErrorCode {
     /// Invalid JSON was received by the server.
     /// An error occurred on the server while parsing the JSON text.
     ParseError = -32700,
-    
+
     /// Invalid Request (-32600)
     ///
     /// The JSON sent is not a valid Request object.
     InvalidRequest = -32600,
-    
+
     /// Method not found (-32601)
     ///
     /// The method does not exist / is not available.
     MethodNotFound = -32601,
-    
+
     /// Invalid params (-32602)
     ///
     /// Invalid method parameter(s).
     InvalidParams = -32602,
-    
+
     /// Internal error (-32603)
     ///
     /// Internal JSON-RPC error.
     InternalError = -32603,
-    
+
     // Server errors (-32000 to -32099)
-    
+
     /// Server error (-32000)
     ///
     /// Generic server error
     ServerError = -32000,
-    
+
     /// Node is syncing (-32001)
     ///
     /// Node is still syncing with the network
     NodeSyncing = -32001,
-    
+
     /// Blockchain error (-32002)
     ///
     /// Error in blockchain operations
     BlockchainError = -32002,
-    
+
     /// Transaction error (-32003)
     ///
     /// Error in transaction processing
     TransactionError = -32003,
-    
+
     /// Wallet error (-32004)
     ///
     /// Error in wallet operations
     WalletError = -32004,
-    
+
     /// Network error (-32005)
     ///
     /// Error in network operations
     NetworkError = -32005,
-} 
+}

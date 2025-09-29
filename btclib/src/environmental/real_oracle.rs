@@ -45,19 +45,19 @@ pub struct GridData {
 pub enum OracleError {
     #[error("API request failed: {0}")]
     ApiError(String),
-    
+
     #[error("Data parsing error: {0}")]
     ParseError(String),
-    
+
     #[error("No data available for region: {0:?}")]
     NoDataForRegion(Region),
-    
+
     #[error("Rate limit exceeded")]
     RateLimitExceeded,
-    
+
     #[error("Invalid API response: {0}")]
     InvalidResponse(String),
-    
+
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 }
@@ -66,7 +66,7 @@ impl GridDataProvider {
     /// Create a new grid data provider with real API endpoints
     pub fn new() -> Self {
         let mut api_endpoints = HashMap::new();
-        
+
         // Real API endpoints for different regions
         // These would be actual grid operator APIs in production
         api_endpoints.insert(
@@ -81,7 +81,7 @@ impl GridDataProvider {
             Region::AsiaPacific,
             "https://api.aemo.com.au/public/api".to_string()
         );
-        
+
         Self {
             client: Client::new(),
             api_endpoints,
@@ -91,7 +91,7 @@ impl GridDataProvider {
             })),
         }
     }
-    
+
     /// Get real-time grid data for a region
     pub async fn get_grid_data(&self, region: Region) -> Result<GridData, OracleError> {
         // Check cache first (5 minute TTL)
@@ -99,7 +99,7 @@ impl GridDataProvider {
             let cache = self.cache.read().map_err(|_| {
                 OracleError::ApiError("Cache lock error".to_string())
             })?;
-            
+
             if let Some(data) = cache.data.get(&region) {
                 let age = Utc::now() - cache.last_update;
                 if age.num_minutes() < 5 {
@@ -107,18 +107,18 @@ impl GridDataProvider {
                 }
             }
         }
-        
+
         // Fetch fresh data from API
         let endpoint = self.api_endpoints.get(&region)
             .ok_or(OracleError::NoDataForRegion(region))?;
-        
+
         // Make API request
         let response = self.client
             .get(endpoint)
             .timeout(std::time::Duration::from_secs(30))
             .send()
             .await?;
-        
+
         if !response.status().is_success() {
             if response.status().as_u16() == 429 {
                 return Err(OracleError::RateLimitExceeded);
@@ -127,10 +127,10 @@ impl GridDataProvider {
                 format!("API returned status: {}", response.status())
             ));
         }
-        
+
         // Parse response based on region/API format
         let grid_data = self.parse_api_response(region, response).await?;
-        
+
         // Update cache
         {
             let mut cache = self.cache.write().map_err(|_| {
@@ -139,10 +139,10 @@ impl GridDataProvider {
             cache.data.insert(region, grid_data.clone());
             cache.last_update = Utc::now();
         }
-        
+
         Ok(grid_data)
     }
-    
+
     /// Parse API response into GridData
     async fn parse_api_response(
         &self,
@@ -150,7 +150,7 @@ impl GridDataProvider {
         response: reqwest::Response,
     ) -> Result<GridData, OracleError> {
         let body = response.text().await?;
-        
+
         // In production, this would parse actual API responses
         // For now, we'll create realistic data based on typical grid compositions
         let (energy_mix, carbon_intensity) = match region {
@@ -190,7 +190,7 @@ impl GridDataProvider {
                 (mix, 500.0) // Global average
             }
         };
-        
+
         let renewable_percentage = energy_mix.iter()
             .filter(|(source, _)| matches!(
                 source,
@@ -198,7 +198,7 @@ impl GridDataProvider {
             ))
             .map(|(_, percentage)| percentage)
             .sum();
-        
+
         Ok(GridData {
             region,
             timestamp: Utc::now(),
@@ -220,7 +220,7 @@ pub struct CarbonCreditRegistry {
 impl CarbonCreditRegistry {
     pub fn new() -> Self {
         let mut registry_endpoints = HashMap::new();
-        
+
         // Real carbon credit registries
         registry_endpoints.insert(
             "verra".to_string(),
@@ -230,13 +230,13 @@ impl CarbonCreditRegistry {
             "gold_standard".to_string(),
             "https://registry.goldstandard.org/api/".to_string()
         );
-        
+
         Self {
             client: Client::new(),
             registry_endpoints,
         }
     }
-    
+
     /// Purchase carbon credits
     pub async fn purchase_credits(
         &self,
@@ -245,7 +245,7 @@ impl CarbonCreditRegistry {
     ) -> Result<CarbonCreditPurchase, OracleError> {
         let endpoint = self.registry_endpoints.get(registry)
             .ok_or_else(|| OracleError::ApiError(format!("Unknown registry: {}", registry)))?;
-        
+
         // In production, this would make actual API calls to purchase credits
         // For now, we'll simulate a successful purchase
         Ok(CarbonCreditPurchase {
@@ -281,7 +281,7 @@ pub struct RECValidator {
 impl RECValidator {
     pub fn new() -> Self {
         let mut validation_endpoints = HashMap::new();
-        
+
         // REC tracking systems by region
         validation_endpoints.insert(
             Region::NorthAmerica,
@@ -291,13 +291,13 @@ impl RECValidator {
             Region::Europe,
             "https://www.aib-net.org/api/validate".to_string()
         );
-        
+
         Self {
             client: Client::new(),
             validation_endpoints,
         }
     }
-    
+
     /// Validate a renewable energy certificate
     pub async fn validate_certificate(
         &self,
@@ -306,7 +306,7 @@ impl RECValidator {
     ) -> Result<RECValidation, OracleError> {
         let endpoint = self.validation_endpoints.get(&region)
             .ok_or(OracleError::NoDataForRegion(region))?;
-        
+
         // In production, this would validate against actual REC registries
         // For now, we'll simulate validation
         Ok(RECValidation {
@@ -346,7 +346,7 @@ impl SmartMeterInterface {
             meter_endpoints: HashMap::new(),
         }
     }
-    
+
     /// Read smart meter data
     pub async fn read_meter(
         &self,
@@ -381,30 +381,30 @@ pub struct SmartMeterReading {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_grid_data_provider() {
         let provider = GridDataProvider::new();
-        
+
         // Test getting grid data for North America
         let result = provider.get_grid_data(Region::NorthAmerica).await;
         assert!(result.is_ok());
-        
+
         let grid_data = result.unwrap();
         assert_eq!(grid_data.region, Region::NorthAmerica);
         assert!(grid_data.renewable_percentage >= 0.0);
         assert!(grid_data.carbon_intensity > 0.0);
     }
-    
+
     #[tokio::test]
     async fn test_carbon_credit_purchase() {
         let registry = CarbonCreditRegistry::new();
-        
+
         let result = registry.purchase_credits(10.0, "verra").await;
         assert!(result.is_ok());
-        
+
         let purchase = result.unwrap();
         assert_eq!(purchase.amount_tonnes, 10.0);
         assert!(purchase.total_cost > 0.0);
     }
-} 
+}

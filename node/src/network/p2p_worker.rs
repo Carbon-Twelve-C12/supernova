@@ -32,11 +32,11 @@ impl P2PWorker {
             event_tx,
         }
     }
-    
+
     /// Run the worker event loop
     pub async fn run(mut self) {
         info!("P2P worker started");
-        
+
         loop {
             tokio::select! {
                 // Handle commands
@@ -60,7 +60,7 @@ impl P2PWorker {
                         }
                     }
                 }
-                
+
                 // Handle swarm events
                 event = self.swarm.next() => {
                     if let Some(event) = event {
@@ -73,7 +73,7 @@ impl P2PWorker {
                 }
             }
         }
-        
+
         info!("P2P worker stopped");
     }
-} 
+}

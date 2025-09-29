@@ -26,12 +26,12 @@ impl HardwareSpec {
     pub fn daily_energy_consumption(&self) -> f64 {
         (self.power * 24.0) / 1000.0
     }
-    
+
     /// Calculate carbon footprint based on energy source and emission factor
     pub fn carbon_footprint(&self, renewable_percentage: f64, emission_factor: f64) -> f64 {
         let daily_energy = self.daily_energy_consumption();
         let grid_energy = daily_energy * (1.0 - renewable_percentage / 100.0);
-        
+
         // Calculate emissions (kgCO2e)
         // Energy (kWh) * Emission Factor (gCO2/kWh) / 1000 = kgCO2e
         grid_energy * emission_factor / 1000.0
@@ -108,28 +108,28 @@ impl HardwareDatabase {
             version: "1.0.0".to_string(),
             last_updated: chrono::Utc::now().timestamp(),
         };
-        
+
         // Populate with default data
         db.initialize_default_specs();
         db
     }
-    
+
     /// Get hardware specification for a given hardware type
     pub fn get_spec(&self, hardware_type: HardwareType) -> Option<&HardwareSpec> {
         self.specs.get(&hardware_type)
     }
-    
+
     /// Get a mutable reference to a hardware specification
     pub fn get_spec_mut(&mut self, hardware_type: HardwareType) -> Option<&mut HardwareSpec> {
         self.specs.get_mut(&hardware_type)
     }
-    
+
     /// Add or update a hardware specification
     pub fn update_spec(&mut self, hardware_type: HardwareType, spec: HardwareSpec) {
         self.specs.insert(hardware_type, spec);
         self.last_updated = chrono::Utc::now().timestamp();
     }
-    
+
     /// Initialize the database with default hardware specifications
     fn initialize_default_specs(&mut self) {
         // Antminer S9
@@ -145,7 +145,7 @@ impl HardwareDatabase {
                 chip_size: Some(16),
             }
         );
-        
+
         // Antminer S19
         self.update_spec(
             HardwareType::AntminerS19,
@@ -159,7 +159,7 @@ impl HardwareDatabase {
                 chip_size: Some(7),
             }
         );
-        
+
         // Antminer S19 Pro
         self.update_spec(
             HardwareType::AntminerS19Pro,
@@ -173,7 +173,7 @@ impl HardwareDatabase {
                 chip_size: Some(7),
             }
         );
-        
+
         // Antminer S19j Pro
         self.update_spec(
             HardwareType::AntminerS19jPro,
@@ -187,7 +187,7 @@ impl HardwareDatabase {
                 chip_size: Some(7),
             }
         );
-        
+
         // Antminer S19 XP
         self.update_spec(
             HardwareType::AntminerS19XP,
@@ -201,7 +201,7 @@ impl HardwareDatabase {
                 chip_size: Some(5),
             }
         );
-        
+
         // Whatsminer M30S
         self.update_spec(
             HardwareType::WhatsminerM30S,
@@ -215,7 +215,7 @@ impl HardwareDatabase {
                 chip_size: Some(8),
             }
         );
-        
+
         // Whatsminer M30S+
         self.update_spec(
             HardwareType::WhatsminerM30SPlus,
@@ -229,7 +229,7 @@ impl HardwareDatabase {
                 chip_size: Some(8),
             }
         );
-        
+
         // Whatsminer M30S++
         self.update_spec(
             HardwareType::WhatsminerM30SPlusPlus,
@@ -243,7 +243,7 @@ impl HardwareDatabase {
                 chip_size: Some(8),
             }
         );
-        
+
         // Whatsminer M50
         self.update_spec(
             HardwareType::WhatsminerM50,
@@ -257,7 +257,7 @@ impl HardwareDatabase {
                 chip_size: Some(5),
             }
         );
-        
+
         // Avalon A1246
         self.update_spec(
             HardwareType::AvalonA1246,
@@ -271,7 +271,7 @@ impl HardwareDatabase {
                 chip_size: Some(8),
             }
         );
-        
+
         // Avalon A1366
         self.update_spec(
             HardwareType::AvalonA1366,
@@ -285,7 +285,7 @@ impl HardwareDatabase {
                 chip_size: Some(7),
             }
         );
-        
+
         // Custom ASIC (placeholder for custom hardware)
         self.update_spec(
             HardwareType::CustomASIC,
@@ -299,7 +299,7 @@ impl HardwareDatabase {
                 chip_size: None,
             }
         );
-        
+
         // Other (placeholder for unrecognized hardware)
         self.update_spec(
             HardwareType::Other,
@@ -314,37 +314,37 @@ impl HardwareDatabase {
             }
         );
     }
-    
+
     /// Get hardware types sorted by efficiency (most efficient first)
     pub fn get_most_efficient_hardware(&self, count: usize) -> Vec<(HardwareType, &HardwareSpec)> {
         let mut hardware: Vec<(HardwareType, &HardwareSpec)> = self.specs
             .iter()
             .map(|(hw_type, spec)| (*hw_type, spec))
             .collect();
-        
+
         // Sort by efficiency (ascending = more efficient first)
         hardware.sort_by(|a, b| a.1.efficiency.partial_cmp(&b.1.efficiency).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         // Take top N
         hardware.into_iter().take(count).collect()
     }
-    
+
     /// Calculate average efficiency of all hardware
     pub fn calculate_average_efficiency(&self) -> f64 {
         if self.specs.is_empty() {
             return 0.0;
         }
-        
+
         let total_efficiency: f64 = self.specs.values().map(|spec| spec.efficiency).sum();
         total_efficiency / self.specs.len() as f64
     }
-    
+
     /// Export the database to JSON
     pub fn export_to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to export database to JSON: {}", e))
     }
-    
+
     /// Import the database from JSON
     pub fn import_from_json(json: &str) -> Result<Self, String> {
         serde_json::from_str(json)
@@ -361,45 +361,45 @@ impl Default for HardwareDatabase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_database_initialization() {
         let db = HardwareDatabase::new();
         assert!(!db.specs.is_empty());
         assert!(db.specs.contains_key(&HardwareType::AntminerS19Pro));
     }
-    
+
     #[test]
     fn test_get_spec() {
         let db = HardwareDatabase::new();
-        
+
         // Test getting a known hardware spec
         let spec = db.get_spec(HardwareType::AntminerS19Pro);
         assert!(spec.is_some());
         assert_eq!(spec.unwrap().efficiency, 29.5);
-        
+
         // Test getting an unknown hardware spec
         let spec = db.get_spec(HardwareType::Other);
         assert!(spec.is_some());
     }
-    
+
     #[test]
     fn test_daily_energy_consumption() {
         let db = HardwareDatabase::new();
         let spec = db.get_spec(HardwareType::AntminerS19Pro).unwrap();
-        
+
         // Daily consumption = power (W) * 24 hours / 1000 = kWh
         let expected_consumption = 3250.0 * 24.0 / 1000.0;
         assert_eq!(spec.daily_energy_consumption(), expected_consumption);
     }
-    
+
     #[test]
     fn test_most_efficient_hardware() {
         let db = HardwareDatabase::new();
         let most_efficient = db.get_most_efficient_hardware(1);
-        
+
         assert_eq!(most_efficient.len(), 1);
         // The S19 XP should be the most efficient
         assert_eq!(most_efficient[0].0, HardwareType::AntminerS19XP);
     }
-} 
+}

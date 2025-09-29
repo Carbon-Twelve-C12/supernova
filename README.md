@@ -1,5 +1,7 @@
 # Supernova: A Quantum-Resistant, Carbon-Negative Blockchain
 
+**Last Updated**: September 29, 2025
+
 <div align="center">
   <p>
     <h2><strong>Supernova is a PoW blockchain engineered from first principles to be quantum-resistant, environmentally sustainable, and scalable for a next-generation global financial system.</strong></h2>

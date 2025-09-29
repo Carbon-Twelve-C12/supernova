@@ -143,7 +143,7 @@ impl BlockHeader {
         // This is a placeholder - real implementation would use proper hashing
         // with SHA256d (double SHA256)
         let mut buffer = Vec::new();
-        
+
         // Version (Little Endian)
         buffer.extend_from_slice(&self.version.to_le_bytes());
         // Previous Block Hash
@@ -156,7 +156,7 @@ impl BlockHeader {
         buffer.extend_from_slice(&self.bits.to_le_bytes());
         // Nonce (Little Endian)
         buffer.extend_from_slice(&self.nonce.to_le_bytes());
-        
+
         // Hash the buffer (in a real implementation, this would be double SHA256)
         use sha2::{Sha256, Digest};
         let mut hasher = Sha256::new();
@@ -165,17 +165,17 @@ impl BlockHeader {
         hasher = Sha256::new();
         hasher.update(result);
         let result = hasher.finalize();
-        
+
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
         hash
     }
-    
+
     /// Check if the block header hash meets the target difficulty
     pub fn meets_target(&self) -> bool {
         let target = bits_to_target(self.bits);
         let hash_val = self.hash();
-        
+
         // Check if hash is less than target (simplified comparison)
         // Note: In a real implementation, this would do a proper comparison
         for i in (0..32).rev() {
@@ -186,7 +186,7 @@ impl BlockHeader {
                 return false;
             }
         }
-        
+
         true
     }
 }
@@ -194,11 +194,11 @@ impl BlockHeader {
 /// Convert difficulty bits to a target hash
 fn bits_to_target(bits: u32) -> [u8; 32] {
     let mut target = [0u8; 32];
-    
+
     // Extract the exponent and coefficient from bits
     let exponent = ((bits >> 24) & 0xFF) as usize;
     let coefficient = bits & 0x00FFFFFF;
-    
+
     // Calculate the target based on the formula target = coefficient * 2^(8*(exponent-3))
     if exponent >= 3 {
         // Set the coefficient in the correct position
@@ -210,7 +210,7 @@ fn bits_to_target(bits: u32) -> [u8; 32] {
             target[pos + 2] = ((value >> 16) & 0xFF) as u8;
         }
     }
-    
+
     target
 }
 
@@ -306,7 +306,7 @@ pub struct PeerInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChallengeMessage {
     /// Challenge request sent to peer
-    Request { 
+    Request {
         /// Random challenge string
         challenge: String,
         /// Difficulty required (leading zeros)
@@ -479,7 +479,7 @@ impl Protocol {
     /// Create a new protocol instance
     pub fn new(id_keys: identity::Keypair, network_type: NetworkType) -> Result<Self, Box<dyn Error>> {
         let node_id = libp2p::PeerId::from(id_keys.public());
-        
+
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(1))
             .validation_mode(ValidationMode::Strict)
@@ -498,7 +498,7 @@ impl Protocol {
             gossipsub_config,
         )?;
 
-        Ok(Self { 
+        Ok(Self {
             gossipsub,
             network_type,
             node_id,
@@ -512,19 +512,19 @@ impl Protocol {
         let headers_topic = Topic::new(HEADERS_TOPIC);
         let checkpoints_topic = Topic::new(CHECKPOINTS_TOPIC);
         let quantum_sigs_topic = Topic::new(QUANTUM_SIGNATURES_TOPIC);
-        
+
         self.gossipsub.subscribe(&blocks_topic)?;
         self.gossipsub.subscribe(&txs_topic)?;
         self.gossipsub.subscribe(&headers_topic)?;
         self.gossipsub.subscribe(&checkpoints_topic)?;
         self.gossipsub.subscribe(&quantum_sigs_topic)?;
-        
+
         Ok(())
     }
 
     /// Publish a block announcement to the network
-    pub fn publish_block(&mut self, block_data: Vec<u8>, announcement: BlockAnnouncement) 
-        -> Result<gossipsub::MessageId, gossipsub::PublishError> 
+    pub fn publish_block(&mut self, block_data: Vec<u8>, announcement: BlockAnnouncement)
+        -> Result<gossipsub::MessageId, gossipsub::PublishError>
     {
         let message = Message::Block(announcement);
         let encoded = bincode::serialize(&message).expect("Failed to serialize message");
@@ -532,8 +532,8 @@ impl Protocol {
     }
 
     /// Publish a transaction announcement to the network
-    pub fn publish_transaction(&mut self, tx_data: Vec<u8>, hash: [u8; 32], fee_rate: u64, is_quantum: bool, emissions: Option<f64>) 
-        -> Result<gossipsub::MessageId, gossipsub::PublishError> 
+    pub fn publish_transaction(&mut self, tx_data: Vec<u8>, hash: [u8; 32], fee_rate: u64, is_quantum: bool, emissions: Option<f64>)
+        -> Result<gossipsub::MessageId, gossipsub::PublishError>
     {
         let message = Message::Transaction(TransactionAnnouncement {
             hash,
@@ -545,10 +545,10 @@ impl Protocol {
         let encoded = bincode::serialize(&message).expect("Failed to serialize message");
         self.gossipsub.publish(Topic::new(TXS_TOPIC), encoded)
     }
-    
+
     /// Publish headers to the network
-    pub fn publish_headers(&mut self, headers: Vec<BlockHeader>, start_height: u64) 
-        -> Result<gossipsub::MessageId, gossipsub::PublishError> 
+    pub fn publish_headers(&mut self, headers: Vec<BlockHeader>, start_height: u64)
+        -> Result<gossipsub::MessageId, gossipsub::PublishError>
     {
         let message = Message::Headers {
             headers,
@@ -557,10 +557,10 @@ impl Protocol {
         let encoded = bincode::serialize(&message).expect("Failed to serialize message");
         self.gossipsub.publish(Topic::new(HEADERS_TOPIC), encoded)
     }
-    
+
     /// Publish a checkpoint announcement to the network
-    pub fn publish_checkpoint(&mut self, height: u64, hash: [u8; 32]) 
-        -> Result<gossipsub::MessageId, gossipsub::PublishError> 
+    pub fn publish_checkpoint(&mut self, height: u64, hash: [u8; 32])
+        -> Result<gossipsub::MessageId, gossipsub::PublishError>
     {
         let message = Message::CheckpointAnnouncement {
             height,
@@ -569,35 +569,35 @@ impl Protocol {
         let encoded = bincode::serialize(&message).expect("Failed to serialize message");
         self.gossipsub.publish(Topic::new(CHECKPOINTS_TOPIC), encoded)
     }
-    
+
     /// Publish environmental data to the network
-    pub fn publish_environmental_data(&mut self, data: EnvironmentalDataAnnouncement) 
-        -> Result<gossipsub::MessageId, gossipsub::PublishError> 
+    pub fn publish_environmental_data(&mut self, data: EnvironmentalDataAnnouncement)
+        -> Result<gossipsub::MessageId, gossipsub::PublishError>
     {
         let message = Message::EnvironmentalData(data);
         let encoded = bincode::serialize(&message).expect("Failed to serialize message");
         self.gossipsub.publish(Topic::new(BLOCKS_TOPIC), encoded) // Using blocks topic for now
     }
-    
+
     /// Publish quantum signature announcement to the network
-    pub fn publish_quantum_signature(&mut self, signature: QuantumSignatureAnnouncement) 
-        -> Result<gossipsub::MessageId, gossipsub::PublishError> 
+    pub fn publish_quantum_signature(&mut self, signature: QuantumSignatureAnnouncement)
+        -> Result<gossipsub::MessageId, gossipsub::PublishError>
     {
         let message = Message::QuantumSignature(signature);
         let encoded = bincode::serialize(&message).expect("Failed to serialize message");
         self.gossipsub.publish(Topic::new(QUANTUM_SIGNATURES_TOPIC), encoded)
     }
-    
+
     /// Get the protocol's node ID
     pub fn get_node_id(&self) -> libp2p::PeerId {
         self.node_id
     }
-    
+
     /// Get the network type
     pub fn get_network_type(&self) -> NetworkType {
         self.network_type
     }
-    
+
     /// Access the underlying gossipsub behavior
     pub fn gossipsub(&mut self) -> &mut gossipsub::Behaviour {
         &mut self.gossipsub
@@ -606,9 +606,9 @@ impl Protocol {
 
 /// Create a handshake message for the specified height and genesis hash
 pub fn create_handshake(
-    height: u64, 
-    genesis_hash: [u8; 32], 
-    network: NetworkType, 
+    height: u64,
+    genesis_hash: [u8; 32],
+    network: NetworkType,
     features: u64
 ) -> Message {
     Message::Handshake(HandshakeData {
@@ -623,9 +623,9 @@ pub fn create_handshake(
 
 /// Create a block announcement for the given block
 pub fn create_block_announcement(
-    hash: [u8; 32], 
-    height: u64, 
-    size: u32, 
+    hash: [u8; 32],
+    height: u64,
+    size: u32,
     tx_count: u32,
     energy_consumption: Option<f64>,
     timestamp: u64,
@@ -643,7 +643,7 @@ pub fn create_block_announcement(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_block_header_hash() {
         let header = BlockHeader {
@@ -654,28 +654,28 @@ mod tests {
             bits: 0x1d00ffff,
             nonce: 123456,
         };
-        
+
         let hash = header.hash();
         assert_ne!(hash, [0; 32], "Hash should not be zero");
     }
-    
+
     #[test]
     fn test_bits_to_target() {
         let bits = 0x1d00ffff;
         let target = bits_to_target(bits);
-        
+
         // Check that the target is reasonable (e.g., not all zeros or all ones)
         assert_ne!(target, [0; 32], "Target should not be zero");
         assert_ne!(target, [0xff; 32], "Target should not be all ones");
     }
-    
+
     #[test]
     fn test_protocol_messages_serialization() {
         // Test handshake message
         let handshake = create_handshake(100, [1; 32], NetworkType::Testnet, features::HEADERS_FIRST_SYNC);
         let encoded = bincode::serialize(&handshake).unwrap();
         let decoded: Message = bincode::deserialize(&encoded).unwrap();
-        
+
         match decoded {
             Message::Handshake(data) => {
                 assert_eq!(data.height, 100);
@@ -685,13 +685,13 @@ mod tests {
             },
             _ => panic!("Wrong message type after deserialization"),
         }
-        
+
         // Test block announcement
         let block_ann = create_block_announcement([2; 32], 200, 1000, 10, Some(0.5), 1623344400);
         let message = Message::Block(block_ann);
         let encoded = bincode::serialize(&message).unwrap();
         let decoded: Message = bincode::deserialize(&encoded).unwrap();
-        
+
         match decoded {
             Message::Block(ann) => {
                 assert_eq!(ann.hash, [2; 32]);

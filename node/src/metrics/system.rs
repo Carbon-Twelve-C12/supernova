@@ -10,27 +10,27 @@ pub struct SystemMetrics {
     memory_utilization_pct: Mutex<f64>,
     total_swap: Mutex<u64>,
     used_swap: Mutex<u64>,
-    
+
     // CPU metrics
     cpu_usage_pct: Mutex<f64>,
     cpu_count: Mutex<u64>,
-    
+
     // Process metrics
     process_memory: Mutex<u64>,
     process_cpu_pct: Mutex<f64>,
     process_uptime: Mutex<u64>,
     process_read_bytes: Mutex<u64>,
     process_written_bytes: Mutex<u64>,
-    
+
     // Disk metrics
     disk_metrics: Mutex<HashMap<String, DiskMetric>>,
-    
+
     // Network metrics
     network_metrics: Mutex<HashMap<String, NetworkMetric>>,
-    
+
     // Uptime metrics
     node_start_time: Instant,
-    
+
     // Collection metrics
     last_collection_duration: Mutex<f64>,
 }
@@ -68,24 +68,24 @@ impl SystemMetrics {
             memory_utilization_pct: Mutex::new(0.0),
             total_swap: Mutex::new(0),
             used_swap: Mutex::new(0),
-            
+
             cpu_usage_pct: Mutex::new(0.0),
             cpu_count: Mutex::new(0),
-            
+
             process_memory: Mutex::new(0),
             process_cpu_pct: Mutex::new(0.0),
             process_uptime: Mutex::new(0),
             process_read_bytes: Mutex::new(0),
             process_written_bytes: Mutex::new(0),
-            
+
             disk_metrics: Mutex::new(HashMap::new()),
             network_metrics: Mutex::new(HashMap::new()),
-            
+
             node_start_time: Instant::now(),
             last_collection_duration: Mutex::new(0.0),
         }
     }
-    
+
     /// Record memory usage metrics
     pub fn record_memory_usage(&self, total: u64, used: u64, total_swap: u64, used_swap: u64) {
         let memory_pct = if total > 0 {
@@ -93,7 +93,7 @@ impl SystemMetrics {
         } else {
             0.0
         };
-        
+
         if let Ok(mut mem) = self.total_memory.lock() {
             *mem = total;
         } else {
@@ -120,7 +120,7 @@ impl SystemMetrics {
             tracing::warn!("Failed to update used_swap metric: lock poisoned");
         }
     }
-    
+
     /// Record CPU usage metrics
     pub fn record_cpu_usage(&self, usage_pct: f64, cpu_count: u64) {
         if let Ok(mut cpu) = self.cpu_usage_pct.lock() {
@@ -134,7 +134,7 @@ impl SystemMetrics {
             tracing::warn!("Failed to update cpu_count metric: lock poisoned");
         }
     }
-    
+
     /// Record process-specific metrics
     pub fn record_process_metrics(
         &self,
@@ -170,7 +170,7 @@ impl SystemMetrics {
             tracing::warn!("Failed to update process_written_bytes metric: lock poisoned");
         }
     }
-    
+
     /// Record disk metrics for a specific disk
     pub fn record_disk_metrics(
         &self,
@@ -185,7 +185,7 @@ impl SystemMetrics {
         } else {
             0.0
         };
-        
+
         let mut disks = match self.disk_metrics.lock() {
             Ok(d) => d,
             Err(_) => {
@@ -204,7 +204,7 @@ impl SystemMetrics {
             },
         );
     }
-    
+
     /// Record network metrics for a specific interface
     pub fn record_network_metrics(
         &self,
@@ -224,9 +224,9 @@ impl SystemMetrics {
             }
         };
         let now = Instant::now();
-        
+
         // Calculate rate if we have previous values
-        let (bytes_per_sec_in, bytes_per_sec_out, previous_received, previous_transmitted) = 
+        let (bytes_per_sec_in, bytes_per_sec_out, previous_received, previous_transmitted) =
             if let Some(prev) = networks.get(&interface_name) {
                 let elapsed = now.duration_since(prev.last_updated).as_secs_f64();
                 if elapsed > 0.0 {
@@ -239,7 +239,7 @@ impl SystemMetrics {
             } else {
                 (0.0, 0.0, received_bytes, transmitted_bytes)
             };
-        
+
         networks.insert(
             interface_name,
             NetworkMetric {
@@ -257,7 +257,7 @@ impl SystemMetrics {
             },
         );
     }
-    
+
     /// Record the time taken to collect metrics
     pub fn record_metrics_collection_time(&self, duration_secs: f64) {
         if let Ok(mut duration) = self.last_collection_duration.lock() {
@@ -266,12 +266,12 @@ impl SystemMetrics {
             tracing::warn!("Failed to update last_collection_duration metric: lock poisoned");
         }
     }
-    
+
     /// Get the node uptime in seconds
     pub fn node_uptime(&self) -> u64 {
         self.node_start_time.elapsed().as_secs()
     }
-    
+
     /// Get memory usage information
     pub fn memory_usage(&self) -> (u64, u64, f64) {
         (
@@ -280,7 +280,7 @@ impl SystemMetrics {
             self.memory_utilization_pct.lock().map(|v| *v).unwrap_or(0.0),
         )
     }
-    
+
     /// Get CPU usage information
     pub fn cpu_usage(&self) -> (f64, u64) {
         (
@@ -288,7 +288,7 @@ impl SystemMetrics {
             self.cpu_count.lock().map(|v| *v).unwrap_or(0),
         )
     }
-    
+
     /// Get process metrics
     pub fn process_metrics(&self) -> (u64, f64, u64, u64, u64) {
         (
@@ -299,7 +299,7 @@ impl SystemMetrics {
             self.process_written_bytes.lock().map(|v| *v).unwrap_or(0),
         )
     }
-    
+
     /// Get collection of disk metrics
     pub fn disk_metrics(&self) -> HashMap<String, DiskMetric> {
         self.disk_metrics.lock()
@@ -309,7 +309,7 @@ impl SystemMetrics {
                 HashMap::new()
             })
     }
-    
+
     /// Get collection of network metrics
     pub fn network_metrics(&self) -> HashMap<String, NetworkMetric> {
         self.network_metrics.lock()
@@ -355,4 +355,4 @@ impl Clone for NetworkMetric {
             previous_transmitted: self.previous_transmitted,
         }
     }
-} 
+}

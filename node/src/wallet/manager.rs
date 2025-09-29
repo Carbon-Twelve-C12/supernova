@@ -33,7 +33,7 @@ impl WalletManager {
             let mnemonic = QuantumWallet::generate_mnemonic()?;
             println!("*** IMPORTANT *** Please write down this mnemonic phrase and keep it safe:");
             println!("\n{}\n", mnemonic);
-            
+
             let wallet = QuantumWallet::from_mnemonic(&mnemonic, &password, "testnet", btclib::crypto::quantum::QuantumScheme::Dilithium, 3)?;
             let encrypted_wallet = wallet.export_encrypted(&password)?;
             std::fs::write(&wallet_path, encrypted_wallet)?;
@@ -65,7 +65,7 @@ impl WalletManager {
         // 1. Select UTXOs
         let all_addresses: Vec<_> = wallet.addresses.values().cloned().collect();
         let available_utxos = utxo_set.get_utxos_for_addresses(&all_addresses);
-        
+
         let (selected_utxos, change) = self.select_utxos(available_utxos, amount, fee_rate)?;
 
         // 2. Create inputs
@@ -76,7 +76,7 @@ impl WalletManager {
         // 3. Create outputs
         let recipient_address = Address::from_str(recipient_str).map_err(|e| anyhow::anyhow!(e))?;
         let mut outputs = vec![TransactionOutput::new(amount, recipient_address.script_pubkey().as_bytes().to_vec())];
-        
+
         if change > 0 {
             let change_address = wallet.new_address()?;
             let change_script_pubkey = Address::from_str(&change_address.address)
@@ -93,7 +93,7 @@ impl WalletManager {
             let address_info = wallet.addresses.values().find(|a| a.address == utxo.address).ok_or_else(|| anyhow::anyhow!("Address not found for UTXO"))?;
             wallet.sign_transaction(&mut tx, i, address_info.index)?;
         }
-        
+
         Ok(tx)
     }
 
@@ -123,4 +123,4 @@ impl WalletManager {
         let change = total_amount - target_amount - fee;
         Ok((selected_utxos, change))
     }
-} 
+}

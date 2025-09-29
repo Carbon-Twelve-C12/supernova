@@ -1,5 +1,5 @@
 //! Fuzzing harness for transaction parsing and validation
-//! 
+//!
 //! This harness tests transaction deserialization, script execution, and
 //! signature verification to ensure robust handling of malformed inputs.
 
@@ -12,7 +12,7 @@ fn main() {
     fuzz!(|data: &[u8]| {
         // Test basic transaction parsing
         fuzz_transaction_parsing(data);
-        
+
         // Test specific transaction components
         if !data.is_empty() {
             match data[0] % 6 {
@@ -37,7 +37,7 @@ fn fuzz_transaction_parsing(data: &[u8]) {
                 Ok(_) => {
                     // Test serialization round-trip
                     test_serialization_roundtrip(&tx);
-                    
+
                     // Test transaction properties
                     test_transaction_properties(&tx);
                 }
@@ -58,16 +58,16 @@ fn fuzz_script_execution(data: &[u8]) {
     if data.len() < 2 {
         return;
     }
-    
+
     // Split data into script_sig and script_pubkey
     let split_point = (data[0] as usize) % data.len();
     let script_sig_data = &data[1..split_point.min(data.len())];
     let script_pubkey_data = &data[split_point.min(data.len())..];
-    
+
     // Create scripts
     let script_sig = Script::from_bytes(script_sig_data);
     let script_pubkey = Script::from_bytes(script_pubkey_data);
-    
+
     // Execute scripts (should never panic)
     match btclib::script::execute_scripts(&script_sig, &script_pubkey) {
         Ok(result) => {
@@ -85,7 +85,7 @@ fn fuzz_script_execution(data: &[u8]) {
             }
         }
     }
-    
+
     // Test specific script patterns
     test_script_patterns(data);
 }
@@ -93,22 +93,22 @@ fn fuzz_script_execution(data: &[u8]) {
 /// Fuzz witness data parsing (SegWit)
 fn fuzz_witness_parsing(data: &[u8]) {
     use btclib::types::transaction::{Witness, WitnessItem};
-    
+
     match Witness::from_bytes(data) {
         Ok(witness) => {
             // Validate witness structure
             test_witness_validation(&witness);
-            
+
             // Test witness script execution
             for item in &witness.items {
                 test_witness_item(item);
             }
-            
+
             // Test witness size limits
             let total_size: usize = witness.items.iter()
                 .map(|item| item.len())
                 .sum();
-                
+
             if total_size > 10_000 {  // 10KB witness limit
                 // Should be rejected in validation
                 assert!(validate_witness_size(&witness).is_err());
@@ -123,7 +123,7 @@ fn fuzz_sighash_computation(data: &[u8]) {
     if data.len() < 100 {
         return;
     }
-    
+
     // Create a transaction from fuzzer data
     match create_transaction_from_data(data) {
         Some(tx) => {
@@ -136,7 +136,7 @@ fn fuzz_sighash_computation(data: &[u8]) {
                 0x82,  // SIGHASH_NONE | SIGHASH_ANYONECANPAY
                 0x83,  // SIGHASH_SINGLE | SIGHASH_ANYONECANPAY
             ];
-            
+
             for &sighash_type in &sighash_types {
                 for input_index in 0..tx.inputs().len() {
                     // Compute sighash (should never panic)
@@ -159,16 +159,16 @@ fn fuzz_fee_calculation(data: &[u8]) {
         Ok(tx) => {
             // Test fee calculation with various UTXO sets
             let utxo_values = generate_utxo_values(data);
-            
+
             match calculate_transaction_fee(&tx, &utxo_values) {
                 Ok(fee) => {
                     // Test fee validation rules
                     test_fee_validation(fee, &tx);
-                    
+
                     // Test fee rate limits
                     let tx_size = tx.size();
                     let fee_rate = fee as f64 / tx_size as f64;
-                    
+
                     // Excessive fee rate check (prevent fee griefing)
                     if fee_rate > 10_000.0 {  // 10,000 sats/byte
                         assert!(validate_fee_rate(&tx, fee).is_err());
@@ -187,9 +187,9 @@ fn fuzz_transaction_malleability(data: &[u8]) {
         Ok(mut tx) => {
             // Get original txid
             let original_txid = tx.txid();
-            
+
             // Test various malleability vectors
-            
+
             // 1. Script signature malleability
             for input in tx.inputs_mut() {
                 if let Some(script_sig) = input.script_sig_mut() {
@@ -199,15 +199,15 @@ fn fuzz_transaction_malleability(data: &[u8]) {
                     *script_sig = Script::from_bytes(&sig_bytes);
                 }
             }
-            
+
             // Check if txid changed (it shouldn't for SegWit)
             if tx.is_segwit() {
                 assert_eq!(tx.txid(), original_txid, "SegWit txid malleability detected");
             }
-            
+
             // 2. Witness malleability
             test_witness_malleability(&mut tx);
-            
+
             // 3. Signature encoding malleability
             test_signature_malleability(&mut tx);
         }
@@ -218,7 +218,7 @@ fn fuzz_transaction_malleability(data: &[u8]) {
 /// Fuzz quantum signature validation in transactions
 fn fuzz_quantum_signatures(data: &[u8]) {
     use btclib::crypto::quantum_signatures::{QuantumSignature, SignatureType};
-    
+
     match Transaction::from_bytes(data) {
         Ok(tx) => {
             // Test quantum signature validation
@@ -265,11 +265,11 @@ fn test_transaction_properties(tx: &Transaction) {
     assert!(tx.version() > 0, "Invalid transaction version");
     assert!(!tx.inputs().is_empty(), "Transaction has no inputs");
     assert!(!tx.outputs().is_empty(), "Transaction has no outputs");
-    
+
     // Test size limits
     let size = tx.size();
     assert!(size <= 1_000_000, "Transaction exceeds maximum size");
-    
+
     // Test output value limits
     let total_output: u64 = tx.outputs()
         .iter()
@@ -334,7 +334,7 @@ fn calculate_transaction_fee(tx: &Transaction, utxo_values: &[u64]) -> Result<u6
     // Calculate fee based on inputs and outputs
     let input_total: u64 = utxo_values.iter().take(tx.inputs().len()).sum();
     let output_total: u64 = tx.outputs().iter().map(|out| out.value()).sum();
-    
+
     if input_total >= output_total {
         Ok(input_total - output_total)
     } else {
@@ -359,24 +359,24 @@ fn test_signature_malleability(tx: &mut Transaction) {
 }
 
 fn test_dilithium_signature_in_tx(
-    tx: &Transaction, 
-    input: &TxInput, 
+    tx: &Transaction,
+    input: &TxInput,
     sig: &btclib::crypto::quantum_signatures::QuantumSignature
 ) {
     // Test Dilithium signature validation in transaction context
 }
 
 fn test_sphincs_signature_in_tx(
-    tx: &Transaction, 
-    input: &TxInput, 
+    tx: &Transaction,
+    input: &TxInput,
     sig: &btclib::crypto::quantum_signatures::QuantumSignature
 ) {
     // Test SPHINCS+ signature validation in transaction context
 }
 
 fn test_falcon_signature_in_tx(
-    tx: &Transaction, 
-    input: &TxInput, 
+    tx: &Transaction,
+    input: &TxInput,
     sig: &btclib::crypto::quantum_signatures::QuantumSignature
 ) {
     // Test Falcon signature validation in transaction context

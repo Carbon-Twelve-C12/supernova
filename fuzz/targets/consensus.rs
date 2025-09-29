@@ -1,5 +1,5 @@
 //! Fuzzing harness for consensus mechanisms
-//! 
+//!
 //! This harness tests fork resolution, chain selection, and other consensus
 //! critical operations to ensure they handle adversarial inputs correctly.
 
@@ -17,7 +17,7 @@ fn main() {
         if data.is_empty() {
             return;
         }
-        
+
         // Test different consensus scenarios
         match data[0] % 5 {
             0 => fuzz_fork_resolution(data),
@@ -33,33 +33,33 @@ fn main() {
 /// Fuzz fork resolution logic
 fn fuzz_fork_resolution(data: &[u8]) {
     use btclib::consensus::secure_fork_resolution::{ForkResolver, ForkChain};
-    
+
     // Create fork resolver
     let resolver = match ForkResolver::new() {
         Ok(r) => r,
         Err(_) => return,
     };
-    
+
     // Generate multiple competing chains from fuzzer data
     let num_chains = (data.get(1).unwrap_or(&2) % 10) + 2;  // 2-11 chains
     let mut chains = Vec::new();
-    
+
     for i in 0..num_chains {
         if let Some(chain) = generate_chain_from_fuzzer_data(data, i as usize) {
             chains.push(chain);
         }
     }
-    
+
     if chains.len() < 2 {
         return;
     }
-    
+
     // Test fork resolution
     match resolver.resolve_fork(&chains[0], &chains[1]) {
         Ok(winning_chain) => {
             // Verify the winning chain is valid
             test_chain_validity(winning_chain);
-            
+
             // Test with additional chains
             for chain in &chains[2..] {
                 let _ = resolver.resolve_fork(winning_chain, chain);
@@ -75,7 +75,7 @@ fn fuzz_fork_resolution(data: &[u8]) {
             }
         }
     }
-    
+
     // Test multi-way fork resolution
     test_multiway_fork_resolution(&resolver, &chains);
 }
@@ -83,12 +83,12 @@ fn fuzz_fork_resolution(data: &[u8]) {
 /// Fuzz chain selection rules
 fn fuzz_chain_selection(data: &[u8]) {
     use btclib::consensus::chain_selection::{ChainSelector, SelectionCriteria};
-    
+
     let selector = ChainSelector::new();
-    
+
     // Generate chains with different properties
     let chains = generate_diverse_chains(data);
-    
+
     // Test different selection criteria
     let criteria = [
         SelectionCriteria::LongestChain,
@@ -96,7 +96,7 @@ fn fuzz_chain_selection(data: &[u8]) {
         SelectionCriteria::FirstSeen,
         SelectionCriteria::Environmental,  // Green mining preference
     ];
-    
+
     for criterion in criteria {
         match selector.select_best_chain(&chains, criterion) {
             Ok(best_chain) => {
@@ -111,17 +111,17 @@ fn fuzz_chain_selection(data: &[u8]) {
 /// Fuzz reorganization handling
 fn fuzz_reorg_handling(data: &[u8]) {
     use btclib::consensus::reorg::{ReorgHandler, ReorgDepth};
-    
+
     // Create reorg handler with depth limit
     let max_reorg_depth = data.get(1).unwrap_or(&100);
     let handler = ReorgHandler::new(*max_reorg_depth as usize);
-    
+
     // Generate initial chain
     let mut current_chain = match generate_chain_from_fuzzer_data(data, 0) {
         Some(c) => c,
         None => return,
     };
-    
+
     // Generate competing chains at various fork points
     for fork_depth in 1..10 {
         if let Some(new_chain) = generate_forked_chain(data, &current_chain, fork_depth) {
@@ -131,10 +131,10 @@ fn fuzz_reorg_handling(data: &[u8]) {
                     if reorg_result.depth > *max_reorg_depth as usize {
                         panic!("Reorg depth exceeded limit");
                     }
-                    
+
                     // Verify state consistency after reorg
                     test_post_reorg_consistency(&reorg_result);
-                    
+
                     current_chain = new_chain;
                 }
                 Err(_) => {}
@@ -146,13 +146,13 @@ fn fuzz_reorg_handling(data: &[u8]) {
 /// Fuzz timestamp validation in consensus
 fn fuzz_timestamp_validation(data: &[u8]) {
     use btclib::consensus::time::{TimeValidator, MedianTimePast};
-    
+
     let validator = TimeValidator::new();
-    
+
     // Generate blocks with various timestamp patterns
     let block_count = data.len() / 8;  // 8 bytes per timestamp
     let mut blocks = Vec::new();
-    
+
     for i in 0..block_count.min(100) {
         let timestamp = if i * 8 + 8 <= data.len() {
             u64::from_le_bytes([
@@ -162,21 +162,21 @@ fn fuzz_timestamp_validation(data: &[u8]) {
         } else {
             0
         };
-        
+
         let block = create_block_with_timestamp(timestamp);
         blocks.push(block);
     }
-    
+
     // Test median time past calculation
     if blocks.len() >= 11 {
         let mtp = MedianTimePast::calculate(&blocks);
-        
+
         // Test future time limit
         for block in &blocks {
             let _ = validator.validate_timestamp(block, mtp);
         }
     }
-    
+
     // Test time warp attack detection
     test_time_warp_detection(&validator, &blocks);
 }
@@ -184,21 +184,21 @@ fn fuzz_timestamp_validation(data: &[u8]) {
 /// Fuzz difficulty adjustment validation
 fn fuzz_difficulty_validation(data: &[u8]) {
     use btclib::consensus::difficulty::{DifficultyAdjuster, DifficultyParams};
-    
+
     // Create difficulty adjuster with fuzzer-provided parameters
     let params = DifficultyParams {
         adjustment_interval: data.get(0).map(|&b| b as u32 + 1).unwrap_or(2016),
         target_block_time: data.get(1).map(|&b| b as u64 + 1).unwrap_or(150),
         max_adjustment_factor: data.get(2).map(|&b| b as u32 + 1).unwrap_or(4),
     };
-    
+
     let adjuster = DifficultyAdjuster::new(params);
-    
+
     // Generate blocks with various timestamps and difficulties
     let mut blocks = Vec::new();
     let mut current_time = 1_600_000_000u64;  // Start time
     let mut current_diff = 1_000_000u32;      // Start difficulty
-    
+
     for i in 0..data.len() / 12 {
         // Extract time delta and difficulty from fuzzer data
         let time_delta = if i * 12 + 8 <= data.len() {
@@ -209,12 +209,12 @@ fn fuzz_difficulty_validation(data: &[u8]) {
         } else {
             150
         };
-        
+
         current_time += time_delta;
-        
+
         let block = create_block_with_time_and_diff(current_time, current_diff);
         blocks.push(block);
-        
+
         // Test difficulty adjustment at intervals
         if blocks.len() % params.adjustment_interval as usize == 0 {
             match adjuster.calculate_next_difficulty(&blocks) {
@@ -223,7 +223,7 @@ fn fuzz_difficulty_validation(data: &[u8]) {
                     let adjustment_ratio = new_diff as f64 / current_diff as f64;
                     assert!(adjustment_ratio <= params.max_adjustment_factor as f64);
                     assert!(adjustment_ratio >= 1.0 / params.max_adjustment_factor as f64);
-                    
+
                     current_diff = new_diff;
                 }
                 Err(_) => {}

@@ -18,4 +18,4 @@ pub fn to_response<T: serde::Serialize>(result: ApiResult<T>) -> impl Responder 
         Ok(data) => HttpResponse::Ok().json(data),
         Err(err) => err.error_response(),
     }
-} 
+}

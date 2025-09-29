@@ -77,7 +77,7 @@ where
 
         // Extract authorization header
         let auth_header = req.headers().get(AUTHORIZATION);
-        
+
         let api_key = self.api_key.clone();
         let service = self.service.clone();
 
@@ -136,7 +136,7 @@ mod tests {
         let req = test::TestRequest::get()
             .uri("/api/protected")
             .to_request();
-        
+
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
     }
@@ -153,7 +153,7 @@ mod tests {
             .uri("/api/protected")
             .insert_header(("Authorization", "Bearer test-key"))
             .to_request();
-        
+
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -169,8 +169,8 @@ mod tests {
         let req = test::TestRequest::get()
             .uri("/health")
             .to_request();
-        
+
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
-} 
+}

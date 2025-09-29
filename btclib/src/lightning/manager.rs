@@ -58,7 +58,7 @@ pub struct LightningManager {
     /// Payment index counter
     payment_index: Arc<std::sync::atomic::AtomicU64>,
 
-    /// Invoice index counter  
+    /// Invoice index counter
     invoice_index: Arc<std::sync::atomic::AtomicU64>,
 }
 

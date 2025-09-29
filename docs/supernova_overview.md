@@ -244,7 +244,7 @@ The supernova blockchain implementation has progressed through the following pha
 - ✅ Documentation and guides (100% complete)
 
 ### Phase 5: Ecosystem Development (Upcoming)
-- ⏳ Public testnet launch (Q2 2025)
+- ⏳ Public testnet launch (Q1 2026)
 - ⏳ Community validator onboarding
 - ⏳ DeFi protocol integration
 - ⏳ Cross-chain bridge development
@@ -333,10 +333,10 @@ curl -sSL https://raw.githubusercontent.com/mjohnson518/supernova/main/deploymen
 
 The immediate next steps for the project are:
 
-1. **Q2 2025**: Public testnet launch with community participation
-2. **Q3 2025**: External security audits and bug bounty program
-3. **Q4 2025**: Mainnet preparation and final optimizations
-4. **Q4 2025**: Mainnet launch and ecosystem development
+1. **Q1 2026**: Public testnet launch with community participation
+2. **Q2 2026**: External security audits and bug bounty program
+3. **Q3 2026**: Mainnet launch and community onboarding
+4. **Q4 2026**: Ecosystem development and DeFi integrations
 
 ## Architecture Overview
 

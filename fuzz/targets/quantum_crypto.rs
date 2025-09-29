@@ -1,5 +1,5 @@
 //! Fuzzing harness for quantum-resistant cryptography
-//! 
+//!
 //! This harness tests our post-quantum cryptographic implementations including
 //! Dilithium, SPHINCS+, and Falcon to ensure they handle malformed inputs safely.
 
@@ -15,7 +15,7 @@ fn main() {
         if data.is_empty() {
             return;
         }
-        
+
         match data[0] % 6 {
             0 => fuzz_dilithium_operations(data),
             1 => fuzz_sphincs_operations(data),
@@ -31,32 +31,32 @@ fn main() {
 /// Fuzz Dilithium signature operations
 fn fuzz_dilithium_operations(data: &[u8]) {
     use btclib::crypto::dilithium::{DilithiumKeyPair, DilithiumSignature};
-    
+
     // Test key generation with fuzzer-provided seed
     if data.len() >= 32 {
         let mut seed = [0u8; 32];
         seed.copy_from_slice(&data[..32]);
-        
+
         match DilithiumKeyPair::from_seed(&seed) {
             Ok(keypair) => {
                 // Test signing with various message sizes
                 for chunk_size in [32, 64, 128, 256, 1024] {
                     if data.len() > chunk_size {
                         let message = &data[32..32 + chunk_size.min(data.len() - 32)];
-                        
+
                         // Signing should never panic
                         match keypair.sign(message) {
                             Ok(signature) => {
                                 // Verification should handle any signature gracefully
                                 let _ = keypair.verify(message, &signature);
-                                
+
                                 // Test signature malleability
                                 if let Ok(mut sig_bytes) = signature.to_bytes() {
                                     // Flip random bits
                                     for i in 0..sig_bytes.len().min(10) {
                                         sig_bytes[i] ^= data.get(i).unwrap_or(&1);
                                     }
-                                    
+
                                     // Parse and verify corrupted signature
                                     if let Ok(corrupted_sig) = DilithiumSignature::from_bytes(&sig_bytes) {
                                         let _ = keypair.verify(message, &corrupted_sig);
@@ -75,7 +75,7 @@ fn fuzz_dilithium_operations(data: &[u8]) {
             }
         }
     }
-    
+
     // Test signature parsing from arbitrary data
     if data.len() >= 2420 {  // Dilithium signature size
         match DilithiumSignature::from_bytes(&data[..2420]) {
@@ -93,22 +93,22 @@ fn fuzz_dilithium_operations(data: &[u8]) {
 /// Fuzz SPHINCS+ operations
 fn fuzz_sphincs_operations(data: &[u8]) {
     use btclib::crypto::sphincs::{SphincsKeyPair, SphincsSignature};
-    
+
     // Test stateless signature operations
     if data.len() >= 64 {
         let mut seed = [0u8; 48];
         seed.copy_from_slice(&data[..48]);
-        
+
         match SphincsKeyPair::from_seed(&seed) {
             Ok(keypair) => {
                 let message = &data[48..];
-                
+
                 // Test signing with various security parameters
                 match keypair.sign(message) {
                     Ok(signature) => {
                         // Verify signature
                         let _ = keypair.verify(message, &signature);
-                        
+
                         // Test signature robustness
                         test_signature_robustness(&signature, message, &keypair);
                     }
@@ -123,7 +123,7 @@ fn fuzz_sphincs_operations(data: &[u8]) {
 /// Fuzz Falcon operations
 fn fuzz_falcon_operations(data: &[u8]) {
     use btclib::crypto::falcon::{FalconKeyPair, FalconSignature};
-    
+
     // Falcon uses floating-point arithmetic, test edge cases
     if data.len() >= 32 {
         match FalconKeyPair::generate_from_seed(&data[..32]) {
@@ -150,7 +150,7 @@ fn fuzz_falcon_operations(data: &[u8]) {
 /// Fuzz Kyber KEM operations
 fn fuzz_kyber_kem(data: &[u8]) {
     use btclib::crypto::kem::{KyberPublicKey, KyberCiphertext};
-    
+
     // Test key encapsulation
     if data.len() >= 32 {
         match KyberKEM::generate_keypair_from_seed(&data[..32]) {
@@ -166,7 +166,7 @@ fn fuzz_kyber_kem(data: &[u8]) {
                             }
                             Err(_) => {}
                         }
-                        
+
                         // Test ciphertext manipulation
                         let ct_bytes = ciphertext.to_bytes();
                         let mut corrupted = ct_bytes.clone();
@@ -189,18 +189,18 @@ fn fuzz_kyber_kem(data: &[u8]) {
 /// Fuzz signature verification with malformed inputs
 fn fuzz_signature_verification(data: &[u8]) {
     use btclib::crypto::quantum_signatures::verify_quantum_signature;
-    
+
     if data.len() < 100 {
         return;
     }
-    
+
     // Create various malformed signatures
     let message = &data[..32.min(data.len())];
     let sig_data = &data[32..];
-    
+
     // Test generic verification function
     let _ = verify_quantum_signature(message, sig_data);
-    
+
     // Test with truncated signatures
     for size in [100, 500, 1000, 2000, 3000] {
         if sig_data.len() >= size {
@@ -215,7 +215,7 @@ fn fuzz_key_generation(data: &[u8]) {
     for seed_size in [16, 24, 32, 48, 64] {
         if data.len() >= seed_size {
             let seed = &data[..seed_size];
-            
+
             // Test each algorithm's key generation
             let _ = btclib::crypto::dilithium::DilithiumKeyPair::from_seed_sized(seed);
             let _ = btclib::crypto::sphincs::SphincsKeyPair::from_seed_sized(seed);
@@ -225,8 +225,8 @@ fn fuzz_key_generation(data: &[u8]) {
 }
 
 /// Test signature robustness against bit flips
-fn test_signature_robustness<S, K>(sig: &S, msg: &[u8], keypair: &K) 
-where 
+fn test_signature_robustness<S, K>(sig: &S, msg: &[u8], keypair: &K)
+where
     S: btclib::crypto::traits::QuantumSignature,
     K: btclib::crypto::traits::QuantumKeyPair<Signature = S>,
 {

@@ -19,7 +19,7 @@ use utoipa::OpenApi;
         crate::api::routes::blockchain::get_block_by_hash,
         crate::api::routes::blockchain::get_transaction,
         crate::api::routes::blockchain::submit_transaction,
-        
+
         // Mempool routes
         crate::api::routes::mempool::get_mempool_info,
         crate::api::routes::mempool::get_mempool_transactions,
@@ -27,7 +27,7 @@ use utoipa::OpenApi;
         crate::api::routes::mempool::submit_transaction,
         crate::api::routes::mempool::validate_transaction,
         crate::api::routes::mempool::get_fee_estimates,
-        
+
         // Network routes
         crate::api::routes::network::get_network_info,
         crate::api::routes::network::get_connection_count,
@@ -36,7 +36,7 @@ use utoipa::OpenApi;
         crate::api::routes::network::add_peer,
         crate::api::routes::network::remove_peer,
         crate::api::routes::network::get_bandwidth_usage,
-        
+
         // Mining routes
         crate::api::routes::mining::get_mining_info,
         crate::api::routes::mining::get_mining_template,
@@ -47,7 +47,7 @@ use utoipa::OpenApi;
         crate::api::routes::mining::stop_mining,
         crate::api::routes::mining::get_mining_config,
         crate::api::routes::mining::update_mining_config,
-        
+
         // Environmental routes
         crate::api::routes::environmental::get_environmental_impact,
         crate::api::routes::environmental::get_energy_usage,
@@ -55,7 +55,7 @@ use utoipa::OpenApi;
         crate::api::routes::environmental::get_resource_utilization,
         crate::api::routes::environmental::get_environmental_settings,
         crate::api::routes::environmental::update_environmental_settings,
-        
+
         // Lightning routes
         crate::api::routes::lightning::get_lightning_info,
         crate::api::routes::lightning::get_channels,
@@ -69,7 +69,7 @@ use utoipa::OpenApi;
         crate::api::routes::lightning::get_network_nodes,
         crate::api::routes::lightning::get_node_info,
         crate::api::routes::lightning::find_route,
-        
+
         // Node routes
         crate::api::routes::node::get_node_info,
         crate::api::routes::node::get_system_info,
@@ -89,7 +89,7 @@ use utoipa::OpenApi;
         schemas(
             // API response
             types::ApiResponse<String>,
-            
+
             // Blockchain
             types::BlockInfo,
             types::TransactionInfo,
@@ -97,7 +97,7 @@ use utoipa::OpenApi;
             types::TransactionOutput,
             types::BlockchainInfo,
             types::TransactionSubmissionResponse,
-            
+
             // Mempool
             types::MempoolInfo,
             types::MempoolStatistics,
@@ -106,7 +106,7 @@ use utoipa::OpenApi;
             types::TransactionValidationResult,
             types::TransactionFees,
             crate::api::routes::mempool::SubmitTxRequest,
-            
+
             // Network
             types::NetworkInfo,
             types::NetworkAddress,
@@ -118,7 +118,7 @@ use utoipa::OpenApi;
             types::PeerAddResponse,
             types::NodeAddress,
             types::ConnectionCount,
-            
+
             // Mining
             types::MiningInfo,
             types::MiningTemplate,
@@ -128,14 +128,14 @@ use utoipa::OpenApi;
             types::MiningStatus,
             types::MiningConfiguration,
             crate::api::routes::mining::StartMiningRequest,
-            
+
             // Environmental
             types::EnvironmentalImpact,
             types::EnergyUsage,
             types::CarbonFootprint,
             types::EnvironmentalSettings,
             types::ResourceUtilization,
-            
+
             // Lightning Network
             types::LightningInfo,
             types::LightningChannel,
@@ -150,7 +150,7 @@ use utoipa::OpenApi;
             types::InvoiceResponse,
             types::NodeInfo,
             types::Route,
-            
+
             // Node
             types::SystemInfo,
             types::LogEntry,
@@ -163,7 +163,7 @@ use utoipa::OpenApi;
             crate::api::routes::node::BackupRequest,
             crate::api::routes::node::LogsQuery,
             crate::api::routes::node::MetricsQuery,
-            
+
             // Request parameters
             types::BlockHeightParams,
             types::BlockHashParams,

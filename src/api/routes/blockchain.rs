@@ -10,4 +10,4 @@ let block = match node.chain_state().get_block(&block_hash) {
 let height = node.chain_state().get_block_height(&block_hash).unwrap_or(0);
 
 // Calculate confirmations
-let confirmations = node.chain_state().get_height().saturating_sub(height) + 1; 
+let confirmations = node.chain_state().get_height().saturating_sub(height) + 1;

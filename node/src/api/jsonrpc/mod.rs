@@ -1,5 +1,5 @@
 //! JSON-RPC server implementation
-//! 
+//!
 //! This module implements the JSON-RPC 2.0 API for supernova blockchain.
 
 mod handlers;
@@ -21,7 +21,7 @@ pub async fn handle_jsonrpc(
 ) -> impl Responder {
     let req = request.into_inner();
     let id = req.id.clone();
-    
+
     // Validate JSON-RPC version
     if req.jsonrpc != "2.0" {
         return HttpResponse::Ok().json(JsonRpcResponse::error(
@@ -31,7 +31,7 @@ pub async fn handle_jsonrpc(
             None,
         ));
     }
-    
+
     // Dispatch to appropriate method handler
     let result = match handlers::dispatch(&req.method, req.params, node).await {
         Ok(result) => JsonRpcResponse::result(id, result),
@@ -42,7 +42,7 @@ pub async fn handle_jsonrpc(
             e.data,
         ),
     };
-    
+
     HttpResponse::Ok().json(result)
 }
 
@@ -59,12 +59,12 @@ pub async fn handle_jsonrpc_batch(
             None,
         ));
     }
-    
+
     let mut responses = Vec::with_capacity(requests.len());
-    
+
     for req in requests.iter() {
         let id = req.id.clone();
-        
+
         // Validate JSON-RPC version
         if req.jsonrpc != "2.0" {
             responses.push(JsonRpcResponse::error(
@@ -75,7 +75,7 @@ pub async fn handle_jsonrpc_batch(
             ));
             continue;
         }
-        
+
         // Dispatch to appropriate method handler
         let result = match handlers::dispatch(&req.method, req.params.clone(), node.clone()).await {
             Ok(result) => JsonRpcResponse::result(id, result),
@@ -86,17 +86,17 @@ pub async fn handle_jsonrpc_batch(
                 e.data,
             ),
         };
-        
+
         responses.push(result);
     }
-    
+
     HttpResponse::Ok().json(responses)
 }
 
 /// Serve JSON-RPC documentation
 pub async fn get_docs() -> impl Responder {
     let docs = JsonRpcDoc::markdown();
-    
+
     HttpResponse::Ok()
         .insert_header(header::ContentType::html())
         .body(format!(
@@ -115,19 +115,19 @@ pub async fn get_docs() -> impl Responder {
             margin: 0 auto;
             padding: 45px;
         }}
-        
+
         @media (max-width: 767px) {{
             .markdown-body {{
                 padding: 15px;
             }}
         }}
-        
+
         code {{
             background-color: #f6f8fa;
             padding: 0.2em 0.4em;
             border-radius: 3px;
         }}
-        
+
         pre {{
             background-color: #f6f8fa;
             padding: 16px;
@@ -167,4 +167,4 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         web::resource("/docs")
             .route(web::get().to(get_docs))
     );
-} 
+}

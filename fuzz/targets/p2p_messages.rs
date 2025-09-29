@@ -1,5 +1,5 @@
 //! Fuzzing harness for P2P network message parsing
-//! 
+//!
 //! This harness tests the P2P protocol message parsing to ensure it handles
 //! malformed, oversized, and malicious messages without panicking.
 
@@ -15,7 +15,7 @@ fn main() {
     fuzz!(|data: &[u8]| {
         // Test raw message deserialization
         fuzz_message_deserialization(data);
-        
+
         // Test specific message types
         if !data.is_empty() {
             match data[0] % 8 {
@@ -39,13 +39,13 @@ fn fuzz_message_deserialization(data: &[u8]) {
     for chunk_size in [24, 100, 1000, 10000, 100000] {
         if data.len() >= chunk_size {
             let chunk = &data[..chunk_size];
-            
+
             // This should never panic, only return errors
             match deserialize_message(chunk) {
                 Ok(msg) => {
                     // Test message validation
                     validate_message(&msg);
-                    
+
                     // Test serialization round-trip
                     test_serialization_roundtrip(&msg);
                 }
@@ -62,13 +62,13 @@ fn fuzz_block_message(data: &[u8]) {
     if data.len() < 80 {  // Minimum block header size
         return;
     }
-    
+
     // Create a block message from fuzzer data
     match BlockMessage::from_bytes(data) {
         Ok(msg) => {
             // Validate block message constraints
             test_block_message_validation(&msg);
-            
+
             // Test block size limits
             if msg.block_size() > 4_000_000 {  // 4MB block size limit
                 // Should be rejected in validation
@@ -85,10 +85,10 @@ fn fuzz_transaction_message(data: &[u8]) {
         Ok(msg) => {
             // Test transaction validation
             test_transaction_message_validation(&msg);
-            
+
             // Test script size limits
             test_script_size_limits(&msg);
-            
+
             // Test witness data parsing
             test_witness_parsing(&msg);
         }
@@ -105,7 +105,7 @@ fn fuzz_inv_message(data: &[u8]) {
                 // Should be rejected
                 assert!(validate_inv_message(&msg).is_err());
             }
-            
+
             // Test each inventory item
             for inv_item in &msg.inventory {
                 test_inventory_item(inv_item);
@@ -123,7 +123,7 @@ fn fuzz_addr_message(data: &[u8]) {
             if msg.addresses.len() > 1_000 {
                 assert!(validate_addr_message(&msg).is_err());
             }
-            
+
             // Test each address
             for addr in &msg.addresses {
                 test_network_address(addr);
@@ -139,12 +139,12 @@ fn fuzz_getblocks_message(data: &[u8]) {
         Ok(msg) => {
             // Test protocol version
             test_protocol_version(msg.version);
-            
+
             // Test block locator limits
             if msg.block_locators.len() > 500 {
                 assert!(validate_getblocks_message(&msg).is_err());
             }
-            
+
             // Test hash format
             for hash in &msg.block_locators {
                 test_hash_format(hash);
@@ -175,10 +175,10 @@ fn fuzz_ping_pong_messages(data: &[u8]) {
             data[0], data[1], data[2], data[3],
             data[4], data[5], data[6], data[7]
         ]);
-        
+
         let ping = PingMessage::new(nonce);
         test_ping_message(&ping);
-        
+
         // Test corresponding pong
         let pong = ping.create_pong();
         test_pong_message(&pong);
@@ -192,15 +192,15 @@ fn fuzz_header_parsing(data: &[u8]) {
             Ok(header) => {
                 // Test magic bytes validation
                 test_magic_bytes(&header);
-                
+
                 // Test command string validation
                 test_command_validation(&header);
-                
+
                 // Test payload size limits
                 if header.payload_size > 32_000_000 {  // 32MB max
                     assert!(validate_header(&header).is_err());
                 }
-                
+
                 // Test checksum validation
                 if data.len() >= 24 + header.payload_size as usize {
                     let payload = &data[24..24 + header.payload_size as usize];

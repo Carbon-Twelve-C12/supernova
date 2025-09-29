@@ -5,4 +5,4 @@
 
 pub mod manager;
 
-pub use manager::WalletManager; 
+pub use manager::WalletManager;

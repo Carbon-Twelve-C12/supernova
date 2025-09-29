@@ -9,21 +9,21 @@ use std::path::Path;
 fn main() {
     println!("supernova Testnet Runner");
     println!("-------------------------");
-    
+
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 && args[1] == "--help" {
         print_help();
         return;
     }
-    
+
     // Check for Docker
     if !check_docker() {
         println!("Docker is required but not installed or not running.");
         println!("Please install Docker and try again.");
         return;
     }
-    
+
     // Launch testnet
     launch_testnet();
 }
@@ -45,7 +45,7 @@ fn check_docker() -> bool {
     let output = Command::new("docker")
         .arg("--version")
         .output();
-    
+
     match output {
         Ok(_) => true,
         Err(_) => false
@@ -55,20 +55,20 @@ fn check_docker() -> bool {
 // Launch testnet environment
 fn launch_testnet() {
     println!("Launching supernova testnet...");
-    
+
     // Check if Docker Compose file exists
     if !Path::new("docker-compose.yml").exists() {
         println!("Error: docker-compose.yml not found");
         println!("Make sure you're running from the project root directory");
         return;
     }
-    
+
     // Start Docker Compose
     let output = Command::new("docker-compose")
         .arg("up")
         .arg("-d")
         .output();
-    
+
     match output {
         Ok(out) => {
             if out.status.success() {
@@ -83,4 +83,4 @@ fn launch_testnet() {
             println!("Failed to execute docker-compose: {}", e);
         }
     }
-} 
+}

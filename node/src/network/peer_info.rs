@@ -22,4 +22,4 @@ pub struct PeerInfo {
     pub bytes_received: u64,
     /// Latency in milliseconds
     pub latency_ms: Option<u32>,
-} 
+}

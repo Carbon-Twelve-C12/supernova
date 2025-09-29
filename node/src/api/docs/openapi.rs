@@ -30,7 +30,7 @@ impl Modify for SecurityAddon {
         blockchain::get_block_by_hash,
         blockchain::get_transaction,
         blockchain::submit_transaction,
-        
+
         // Mempool routes
         mempool::get_mempool_info,
         mempool::get_mempool_transactions,
@@ -38,7 +38,7 @@ impl Modify for SecurityAddon {
         mempool::submit_transaction,
         mempool::validate_transaction,
         mempool::get_fee_estimates,
-        
+
         // Network routes
         network::get_network_info,
         network::get_connection_count,
@@ -47,7 +47,7 @@ impl Modify for SecurityAddon {
         network::add_peer,
         network::remove_peer,
         network::get_bandwidth_usage,
-        
+
         // Mining routes
         mining::get_mining_info,
         mining::get_mining_template,
@@ -58,7 +58,7 @@ impl Modify for SecurityAddon {
         mining::stop_mining,
         mining::get_mining_config,
         mining::update_mining_config,
-        
+
         // Environmental routes
         environmental::get_environmental_impact,
         environmental::get_energy_usage,
@@ -66,7 +66,7 @@ impl Modify for SecurityAddon {
         environmental::get_resource_utilization,
         environmental::get_environmental_settings,
         environmental::update_environmental_settings,
-        
+
         // Lightning routes
         lightning::get_lightning_info,
         lightning::get_channels,
@@ -80,7 +80,7 @@ impl Modify for SecurityAddon {
         lightning::get_network_nodes,
         lightning::get_node_info,
         lightning::find_route,
-        
+
         // Node routes
         node::get_node_info,
         node::get_system_info,
@@ -95,7 +95,7 @@ impl Modify for SecurityAddon {
         node::restart_node,
         node::shutdown_node,
         node::get_debug_info,
-        
+
         // Faucet routes
         faucet::get_faucet_status,
         faucet::request_tokens,
@@ -111,7 +111,7 @@ impl Modify for SecurityAddon {
             types::TransactionOutput,
             types::BlockHeader,
             types::TransactionSubmissionResponse,
-            
+
             // Mempool types
             types::MempoolInfo,
             types::MempoolStatistics,
@@ -121,7 +121,7 @@ impl Modify for SecurityAddon {
             types::TransactionFees,
             mempool::SubmitTransactionRequest,
             mempool::ValidateTransactionRequest,
-            
+
             // Network types
             types::NetworkInfo,
             types::PeerInfo,
@@ -131,7 +131,7 @@ impl Modify for SecurityAddon {
             types::PeerAddResponse,
             types::NodeAddress,
             types::ConnectionCount,
-            
+
             // Mining types
             types::MiningInfo,
             types::MiningTemplate,
@@ -141,14 +141,14 @@ impl Modify for SecurityAddon {
             types::MiningStatus,
             types::MiningConfiguration,
             mining::StartMiningRequest,
-            
+
             // Environmental types
             types::EnvironmentalImpact,
             types::EnergyUsage,
             types::CarbonFootprint,
             types::EnvironmentalSettings,
             types::ResourceUtilization,
-            
+
             // Lightning types
             types::LightningInfo,
             types::LightningChannel,
@@ -163,7 +163,7 @@ impl Modify for SecurityAddon {
             types::InvoiceResponse,
             types::NodeInfo,
             types::Route,
-            
+
             // Node types
             types::NodeInfo,
             types::SystemInfo,
@@ -174,14 +174,14 @@ impl Modify for SecurityAddon {
             types::NodeMetrics,
             types::DebugInfo,
             node::BackupRequest,
-            
+
             // Faucet types
             faucet::FaucetStatusResponse,
             faucet::FaucetRequest,
             faucet::FaucetResponse,
             faucet::FaucetTransaction,
             faucet::RecentTransactionsResponse,
-            
+
             // Error types
             types::ErrorResponse,
         )

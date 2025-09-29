@@ -139,7 +139,7 @@ where
                     return Ok(());
                 }
             };
-            
+
             // Clean up old entries
             cleanup_old_entries(&mut state, now, config.window);
 
@@ -195,7 +195,7 @@ where
 fn cleanup_old_entries(state: &mut RateLimiterState, now: Instant, window: Duration) {
     // Clean up IP entries
     state.ip_requests.retain(|_, (_, start)| now.duration_since(*start) < window);
-    
+
     // Clean up subnet entries
     state.subnet_requests.retain(|_, (_, start)| now.duration_since(*start) < window);
 }
@@ -208,7 +208,7 @@ fn check_ip_limit(
     window: Duration,
 ) -> bool {
     let entry = state.ip_requests.entry(ip).or_insert((0, now));
-    
+
     if now.duration_since(entry.1) >= window {
         // New window
         entry.0 = 1;
@@ -232,7 +232,7 @@ fn check_subnet_limit(
     window: Duration,
 ) -> bool {
     let entry = state.subnet_requests.entry(subnet.to_string()).or_insert((0, now));
-    
+
     if now.duration_since(entry.1) >= window {
         entry.0 = 1;
         entry.1 = now;
@@ -252,7 +252,7 @@ fn check_global_limit(
     window: Duration,
 ) -> bool {
     let (count, start) = &mut state.global_requests;
-    
+
     if now.duration_since(*start) >= window {
         *count = 1;
         *start = now;
@@ -319,4 +319,4 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 429);
     }
-} 
+}

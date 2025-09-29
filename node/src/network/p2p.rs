@@ -687,7 +687,7 @@ impl P2PNetwork {
                                 }
                             }
                         }
-                        
+
                         // Handle swarm events
                         event = swarm.next() => {
                             if let Some(event) = event {

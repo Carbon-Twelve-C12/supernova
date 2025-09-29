@@ -1,5 +1,5 @@
 //! Mining module for Supernova node
-//! 
+//!
 //! This module provides mining-related functionality including
 //! secure difficulty adjustment to prevent manipulation attacks.
 
@@ -14,4 +14,4 @@ pub use difficulty_security::{
     DifficultySecurityConfig,
     DifficultyStatistics,
     BlockInfo,
-}; 
+};

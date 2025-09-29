@@ -24,13 +24,13 @@ impl TestParticipant {
     pub fn new(name: &str) -> Self {
         let private_key = MLDSAPrivateKey::generate(&mut OsRng);
         let public_key = private_key.public_key();
-        
+
         let info = ParticipantInfo {
             pubkey: public_key,
             address: format!("nova1{}", name),
             refund_address: Some(format!("nova1{}_refund", name)),
         };
-        
+
         Self { info, private_key }
     }
 }
@@ -42,7 +42,7 @@ pub fn create_test_htlc(
     amount: u64,
 ) -> SupernovaHTLC {
     let hash_lock = HashLock::new(HashFunction::SHA256).unwrap();
-    
+
     let time_lock = TimeLock {
         absolute_timeout: SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -51,13 +51,13 @@ pub fn create_test_htlc(
         relative_timeout: 144,
         grace_period: 6,
     };
-    
+
     let fee_structure = FeeStructure {
         claim_fee: 1000,
         refund_fee: 1000,
         service_fee: Some(100),
     };
-    
+
     SupernovaHTLC::new(
         alice.clone(),
         bob.clone(),
@@ -76,7 +76,7 @@ pub fn create_test_swap_session(
     nova_amount: u64,
 ) -> SwapSession {
     let swap_id = generate_secure_random_32();
-    
+
     let setup = AtomicSwapSetup {
         swap_id,
         bitcoin_amount: btc_amount,
@@ -91,9 +91,9 @@ pub fn create_test_swap_session(
             refund_safety_margin: 10,
         },
     };
-    
+
     let nova_htlc = create_test_htlc(alice, bob, nova_amount);
-    
+
     let btc_htlc = BitcoinHTLCReference {
         txid: "pending".to_string(),
         vout: 0,
@@ -102,7 +102,7 @@ pub fn create_test_swap_session(
         timeout_height: 0,
         address: "tb1qtest".to_string(),
     };
-    
+
     SwapSession {
         setup,
         secret: Some(nova_htlc.hash_lock.preimage.unwrap()),
@@ -134,7 +134,7 @@ pub fn create_mock_bitcoin_tx(
 ) -> BitcoinTransaction {
     use bitcoin::{Transaction, TxOut, TxIn, OutPoint, Txid};
     use std::str::FromStr;
-    
+
     Transaction {
         version: 2,
         lock_time: bitcoin::blockdata::locktime::absolute::LockTime::ZERO,
@@ -183,7 +183,7 @@ pub fn create_test_config() -> AtomicSwapConfig {
 /// Verify HTLC state transitions
 pub fn assert_valid_htlc_transition(from: HTLCState, to: HTLCState) -> bool {
     use HTLCState::*;
-    
+
     match (from, to) {
         (Created, Funded) => true,
         (Funded, Claimed) => true,
@@ -196,14 +196,14 @@ pub fn assert_valid_htlc_transition(from: HTLCState, to: HTLCState) -> bool {
 /// Generate test hash and preimage
 pub fn generate_test_hash_pair() -> ([u8; 32], [u8; 32]) {
     use sha2::{Sha256, Digest};
-    
+
     let preimage = generate_secure_random_32();
     let mut hasher = Sha256::new();
     hasher.update(&preimage);
     let hash_result = hasher.finalize();
-    
+
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&hash_result);
-    
+
     (preimage, hash)
-} 
+}

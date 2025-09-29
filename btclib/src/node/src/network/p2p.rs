@@ -176,27 +176,27 @@ impl NetworkDiversityTracker {
             ..Default::default()
         }
     }
-    
+
     /// Add peer to diversity tracking
     pub fn add_peer(&mut self, info: &PeerInfo) {
         // Track subnet
         let subnet = IpSubnet::from_ip(info.ip);
         *self.subnets.entry(subnet).or_insert(0) += 1;
-        
+
         // Track ASN if available
         if let Some(asn) = info.asn {
             *self.asns.entry(asn).or_insert(0) += 1;
         }
-        
+
         // Track region if available
         if let Some(region) = &info.region {
             *self.regions.entry(region.clone()).or_insert(0) += 1;
         }
-        
+
         // Mark as needing recalculation
         self.last_calculation = Instant::now();
     }
-    
+
     /// Remove peer from diversity tracking
     pub fn remove_peer(&mut self, info: &PeerInfo) {
         // Untrack subnet
@@ -207,7 +207,7 @@ impl NetworkDiversityTracker {
                 self.subnets.remove(&subnet);
             }
         }
-        
+
         // Untrack ASN if available
         if let Some(asn) = info.asn {
             if let Some(count) = self.asns.get_mut(&asn) {
@@ -217,7 +217,7 @@ impl NetworkDiversityTracker {
                 }
             }
         }
-        
+
         // Untrack region if available
         if let Some(region) = &info.region {
             if let Some(count) = self.regions.get_mut(region) {
@@ -227,46 +227,46 @@ impl NetworkDiversityTracker {
                 }
             }
         }
-        
+
         // Mark as needing recalculation
         self.last_calculation = Instant::now();
     }
-    
+
     /// Calculate diversity score (0-1)
     pub fn calculate_diversity_score(&mut self) -> f64 {
         // Skip recalculation if recent
         if self.last_calculation.elapsed() < Duration::from_secs(60) {
             return self.last_score;
         }
-        
+
         // Calculate entropy across different dimensions
         let subnet_entropy = Self::calculate_entropy(&self.subnets);
         let asn_entropy = Self::calculate_entropy(&self.asns);
         let region_entropy = Self::calculate_entropy(&self.regions);
-        
+
         // Weight the entropies
         let score = subnet_entropy * 0.5 + asn_entropy * 0.3 + region_entropy * 0.2;
-        
+
         // Normalize to 0-1
         self.last_score = score.min(1.0);
         self.last_calculation = Instant::now();
-        
+
         self.last_score
     }
-    
+
     /// Calculate entropy of a distribution
     fn calculate_entropy<K>(distribution: &HashMap<K, usize>) -> f64 {
         if distribution.is_empty() {
             return 0.0;
         }
-        
+
         let total: usize = distribution.values().sum();
         if total == 0 {
             return 0.0;
         }
-        
+
         let total_f64 = total as f64;
-        
+
         // Calculate Shannon entropy: -sum(p_i * log(p_i))
         let mut entropy = 0.0;
         for &count in distribution.values() {
@@ -275,7 +275,7 @@ impl NetworkDiversityTracker {
                 entropy -= p * p.log2();
             }
         }
-        
+
         // Normalize by max entropy
         let max_entropy = (distribution.len() as f64).log2();
         if max_entropy > 0.0 {
@@ -284,7 +284,7 @@ impl NetworkDiversityTracker {
             0.0
         }
     }
-    
+
     /// Check if a new connection would exceed diversity limits
     pub fn would_exceed_limits(&self, info: &PeerInfo, config: &EclipsePreventionConfig) -> bool {
         // Check subnet limit
@@ -294,7 +294,7 @@ impl NetworkDiversityTracker {
                 return true;
             }
         }
-        
+
         // Check ASN limit if available
         if let Some(asn) = info.asn {
             if let Some(&count) = self.asns.get(&asn) {
@@ -303,7 +303,7 @@ impl NetworkDiversityTracker {
                 }
             }
         }
-        
+
         // Check region limit if available
         if let Some(region) = &info.region {
             if let Some(&count) = self.regions.get(region) {
@@ -312,7 +312,7 @@ impl NetworkDiversityTracker {
                 }
             }
         }
-        
+
         false
     }
 }
@@ -329,90 +329,90 @@ impl ConnectionManager {
             protected_peers: HashSet::new(),
         }
     }
-    
+
     /// Add a new connection
     pub fn add_connection(&mut self, peer_id: PeerId, direction: ConnectionDirection, info: &PeerInfo) -> Result<(), String> {
         // Check if adding this peer would exceed diversity limits
-        if direction == ConnectionDirection::Inbound && 
+        if direction == ConnectionDirection::Inbound &&
            self.network_diversity.would_exceed_limits(info, &self.eclipse_config) {
             return Err("Connection would exceed diversity limits".to_string());
         }
-        
+
         // Check inbound/outbound ratio
         let (inbound, outbound) = self.count_connections_by_direction();
-        if direction == ConnectionDirection::Inbound && 
+        if direction == ConnectionDirection::Inbound &&
            inbound as f64 >= outbound as f64 * self.eclipse_config.max_inbound_ratio {
             return Err("Too many inbound connections relative to outbound".to_string());
         }
-        
+
         // Add to connected peers
         self.connected_peers.insert(peer_id, direction);
-        
+
         // Update diversity tracking
         self.network_diversity.add_peer(info);
-        
+
         Ok(())
     }
-    
+
     /// Remove a connection
     pub fn remove_connection(&mut self, peer_id: &PeerId, info: &PeerInfo) {
         self.connected_peers.remove(peer_id);
         self.network_diversity.remove_peer(info);
     }
-    
+
     /// Add peer to protected list (never rotated)
     pub fn protect_peer(&mut self, peer_id: PeerId) {
         self.protected_peers.insert(peer_id);
     }
-    
+
     /// Remove peer from protected list
     pub fn unprotect_peer(&mut self, peer_id: &PeerId) {
         self.protected_peers.remove(peer_id);
     }
-    
+
     /// Count connections by direction
     pub fn count_connections_by_direction(&self) -> (usize, usize) {
         let mut inbound = 0;
         let mut outbound = 0;
-        
+
         for &direction in self.connected_peers.values() {
             match direction {
                 ConnectionDirection::Inbound => inbound += 1,
                 ConnectionDirection::Outbound => outbound += 1,
             }
         }
-        
+
         (inbound, outbound)
     }
-    
+
     /// Check if we need to rotate peers
     pub fn check_rotation_needed(&self) -> bool {
         // Check if rotation is enabled
         if !self.eclipse_config.enable_automatic_rotation {
             return false;
         }
-        
+
         // Check if enough time has passed since last rotation
         if self.last_rotation.elapsed() < Duration::from_secs(self.eclipse_config.forced_rotation_interval) {
             return false;
         }
-        
+
         // Check if we have enough connections to rotate
         let (_, outbound) = self.count_connections_by_direction();
         if outbound <= self.eclipse_config.min_outbound_connections {
             return false;
         }
-        
+
         true
     }
-    
+
     /// Create a rotation plan
     pub fn create_rotation_plan(&self) -> Option<(Vec<PeerId>, usize)> {
         // Check if rotation is needed
         if !self.check_rotation_needed() {
             return None;
         }
-        
+
         // Find outbound peers eligible for rotation
         let mut candidates: Vec<PeerId> = self.connected_peers.iter()
             .filter(|(peer_id, &direction)| {
@@ -420,49 +420,49 @@ impl ConnectionManager {
             })
             .map(|(peer_id, _)| *peer_id)
             .collect();
-        
+
         // Shuffle candidates
         let mut rng = thread_rng();
         candidates.shuffle(&mut rng);
-        
+
         // Calculate how many peers to rotate (20-30% of outbound connections)
         let (_, outbound) = self.count_connections_by_direction();
         let min_to_keep = self.eclipse_config.min_outbound_connections;
         let max_to_rotate = (outbound - min_to_keep).max(0);
-        
+
         if max_to_rotate == 0 {
             return None;
         }
-        
+
         // Rotate 20-30% of eligible connections
         let to_rotate = (max_to_rotate as f64 * thread_rng().gen_range(0.2..0.3)) as usize;
         if to_rotate == 0 {
             return None;
         }
-        
+
         // Take the first N candidates
         let rotation_list = candidates.into_iter().take(to_rotate).collect();
-        
+
         Some((rotation_list, to_rotate))
     }
-    
+
     /// Perform peer rotation
     pub fn perform_rotation(&mut self) -> Option<Vec<PeerId>> {
         let rotation_plan = self.create_rotation_plan()?;
         self.last_rotation = Instant::now();
         Some(rotation_plan.0)
     }
-    
+
     /// Get diversity score
     pub fn get_diversity_score(&mut self) -> f64 {
         self.network_diversity.calculate_diversity_score()
     }
-    
+
     /// Get the number of connections
     pub fn connection_count(&self) -> usize {
         self.connected_peers.len()
     }
-    
+
     /// Get inbound connection ratio
     pub fn inbound_ratio(&self) -> f64 {
         let (inbound, outbound) = self.count_connections_by_direction();
@@ -486,10 +486,10 @@ impl P2PNetwork {
         let (command_sender, command_receiver) = mpsc::channel(32);
         let (event_sender, event_receiver) = mpsc::channel(32);
         let peer_manager = PeerManager::new();
-        
+
         // Create protocol instance
         let protocol = Protocol::new(id_keys.clone())?;
-        
+
         // Create chain sync with a reference to the command sender for sending requests
         let sync_command_sender = command_sender.clone();
         let chain_sync = Arc::new(Mutex::new(ChainSync::new(sync_command_sender)));
@@ -513,14 +513,14 @@ impl P2PNetwork {
         if let Err(e) = self.protocol.subscribe_to_topics() {
             error!("Failed to subscribe to topics: {}", e);
         }
-        
+
         // Start the chain sync background process
         let chain_sync_clone = self.chain_sync.clone();
         let event_sender_clone = self.event_sender.clone();
         tokio::spawn(async move {
             let mut sync = chain_sync_clone.lock().unwrap();
             let mut interval = tokio::time::interval(Duration::from_secs(5));
-            
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -533,7 +533,7 @@ impl P2PNetwork {
                 }
             }
         });
-        
+
         loop {
             tokio::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await,
@@ -595,19 +595,19 @@ impl P2PNetwork {
                         match self.peer_manager.try_add_connection(peer_id, ip, port) {
                             Ok(_) => {
                                 info!("Connection established with {}", peer_id);
-                                
+
                                 // Send handshake to the new peer
                                 let handshake = Message::Handshake(super::protocol::HandshakeData {
                                     version: super::protocol::PROTOCOL_VERSION,
                                     user_agent: "supernova/1.0.0".to_string(),
-                                    features: super::protocol::features::HEADERS_FIRST_SYNC | 
+                                    features: super::protocol::features::HEADERS_FIRST_SYNC |
                                               super::protocol::features::PARALLEL_BLOCK_DOWNLOAD,
                                     height: {
                                         let sync = self.chain_sync.lock().unwrap();
                                         sync.height
                                     },
                                 });
-                                
+
                                 self.send_message_to_peer(peer_id, handshake).await;
                             }
                             Err(e) => {
@@ -633,7 +633,7 @@ impl P2PNetwork {
 
     async fn handle_gossipsub_event(&mut self, event: libp2p::gossipsub::Event) {
         match event {
-            libp2p::gossipsub::Event::Message { 
+            libp2p::gossipsub::Event::Message {
                 propagation_source: peer_id,
                 message_id: _,
                 message,
@@ -656,18 +656,18 @@ impl P2PNetwork {
     async fn handle_message(&mut self, peer_id: PeerId, message: Message) {
         match message {
             Message::Handshake(handshake) => {
-                info!("Received handshake from peer {}: v{}, height: {}", 
+                info!("Received handshake from peer {}: v{}, height: {}",
                      peer_id, handshake.version, handshake.height);
-                
+
                 // Record the peer's features and height
-                self.peer_manager.set_peer_protocols(&peer_id, 
+                self.peer_manager.set_peer_protocols(&peer_id,
                     vec![format!("supernova/{}", handshake.version)]);
-                
+
                 // Update chain sync with peer's height
                 {
                     let mut sync = self.chain_sync.lock().unwrap();
                     sync.update_peer_height(peer_id, handshake.height);
-                    
+
                     // If peer has higher blocks, consider syncing
                     if handshake.height > sync.height {
                         // Don't start sync here directly to avoid race conditions
@@ -676,9 +676,9 @@ impl P2PNetwork {
                 }
             }
             Message::Block(announcement) => {
-                debug!("Received block announcement: height={}, hash={:?}", 
+                debug!("Received block announcement: height={}, hash={:?}",
                       announcement.height, announcement.hash);
-                
+
                 // Process block announcement in chain sync
                 let mut sync = self.chain_sync.lock().unwrap();
                 if let Err(e) = sync.handle_block_announcement(peer_id, announcement).await {
@@ -691,7 +691,7 @@ impl P2PNetwork {
             }
             Message::GetHeaders { start_height, count } => {
                 debug!("Received GetHeaders request: start={}, count={}", start_height, count);
-                
+
                 // Get headers from chain sync
                 let headers = {
                     let sync = self.chain_sync.lock().unwrap();
@@ -701,7 +701,7 @@ impl P2PNetwork {
                             Vec::new()
                         })
                 };
-                
+
                 let response = Message::Headers {
                     headers,
                     start_height,
@@ -709,9 +709,9 @@ impl P2PNetwork {
                 self.send_message_to_peer(peer_id, response).await;
             }
             Message::Headers { headers, start_height } => {
-                info!("Received {} headers starting at height {} from peer {}", 
+                info!("Received {} headers starting at height {} from peer {}",
                      headers.len(), start_height, peer_id);
-                
+
                 // Process headers in chain sync
                 {
                     let mut sync = self.chain_sync.lock().unwrap();
@@ -719,7 +719,7 @@ impl P2PNetwork {
                         warn!("Error handling headers: {}", e);
                     }
                 }
-                
+
                 // Notify listeners
                 self.event_sender.send(NetworkEvent::HeadersReceived(
                     peer_id, headers, start_height
@@ -727,13 +727,13 @@ impl P2PNetwork {
             }
             Message::GetBlock { hash } => {
                 debug!("Received GetBlock request for hash {:?}", hash);
-                
+
                 // Get block from chain sync
                 let block_response = {
                     let sync = self.chain_sync.lock().unwrap();
                     sync.get_block_by_hash(&hash).await
                 };
-                
+
                 if let Ok(Some((height, block_data))) = block_response {
                     let response = Message::Block { height, block: block_data };
                     self.send_message_to_peer(peer_id, response).await;
@@ -743,11 +743,11 @@ impl P2PNetwork {
             }
             Message::Block { height, block } => {
                 info!("Received block at height {} from peer {}", height, peer_id);
-                
+
                 // Convert to Block type
                 // This is a placeholder - actual implementation would deserialize properly
                 let block_data = Block { /* ... */ };
-                
+
                 // Process block in chain sync
                 {
                     let mut sync = self.chain_sync.lock().unwrap();
@@ -755,7 +755,7 @@ impl P2PNetwork {
                         warn!("Error handling block: {}", e);
                     }
                 }
-                
+
                 // Notify listeners
                 self.event_sender.send(NetworkEvent::BlockReceived(
                     peer_id, height, block_data
@@ -763,7 +763,7 @@ impl P2PNetwork {
             }
             Message::GetBlocks { start, end } => {
                 debug!("Received GetBlocks request: start={}, end={}", start, end);
-                
+
                 // Get blocks from chain sync
                 let blocks = {
                     let sync = self.chain_sync.lock().unwrap();
@@ -773,7 +773,7 @@ impl P2PNetwork {
                             Vec::new()
                         })
                 };
-                
+
                 let response = Message::Blocks { blocks };
                 self.send_message_to_peer(peer_id, response).await;
             }
@@ -784,13 +784,13 @@ impl P2PNetwork {
                     // Convert to Block type
                     // This is a placeholder - actual implementation would deserialize properly
                     let block = Block { /* ... */ };
-                    
+
                     // Process in chain sync
                     let mut sync = self.chain_sync.lock().unwrap();
                     if let Err(e) = sync.handle_block(peer_id, height, block.clone()).await {
                         warn!("Error handling block at height {}: {}", height, e);
                     }
-                    
+
                     // Notify listeners
                     self.event_sender.send(NetworkEvent::BlockReceived(
                         peer_id, height, block
@@ -818,7 +818,7 @@ impl P2PNetwork {
                                 features: 0,  // Set features in actual implementation
                             })
                             .collect();
-                        
+
                         let response = Message::PeerDiscovery(
                             super::protocol::PeerDiscoveryMessage::Peers(protocol_peers)
                         );
@@ -828,19 +828,19 @@ impl P2PNetwork {
                         // Process discovered peers
                         for peer_info in peers {
                             debug!("Discovered peer via exchange: {}", peer_info.address);
-                            
+
                             // Parse address and add to peer manager for future connections
                             if let Ok(addr) = peer_info.address.parse::<String>() {
                                 // Extract IP and port from address string (format: "ip:port")
                                 if let Some((ip_str, port_str)) = addr.split_once(':') {
                                     if let (Ok(ip), Ok(port)) = (ip_str.parse::<IpAddr>(), port_str.parse::<u16>()) {
-                                        // Create a new peer ID from the address (in real implementation, 
+                                        // Create a new peer ID from the address (in real implementation,
                                         // this would be provided in the peer info)
                                         let new_peer_id = PeerId::random();
-                                        
+
                                         // Add to peer manager's known peers for future connections
                                         self.peer_manager.add_known_peer(new_peer_id, ip, port);
-                                        
+
                                         // Consider dialing if we need more connections
                                         if self.peer_manager.should_connect_to_more_peers() {
                                             self.try_dial_peer(new_peer_id).await;
@@ -901,10 +901,10 @@ impl P2PNetwork {
                 if let Some((to_disconnect, to_connect)) = self.peer_manager.create_rotation_plan() {
                     // Notify about the plan
                     self.event_sender.send(NetworkEvent::PeerRotationPlan(
-                        to_disconnect.clone(), 
+                        to_disconnect.clone(),
                         to_connect.clone()
                     )).await.ok();
-                    
+
                     // Execute the plan
                     self.execute_rotation_plan(to_disconnect, to_connect).await;
                 }
@@ -924,20 +924,20 @@ impl P2PNetwork {
             }
         }
     }
-    
+
     async fn try_dial_peer(&mut self, peer_id: PeerId) {
         // Check if we're already connected
         if self.swarm.is_connected(&peer_id) {
             return;
         }
-        
+
         // Check if we have too many connections from this peer's subnet
         // For now, just dial - the connection will be evaluated when established
         if let Err(e) = self.swarm.dial(peer_id) {
             warn!("Failed to dial peer {}: {}", peer_id, e);
         }
     }
-    
+
     async fn execute_rotation_plan(&mut self, to_disconnect: Vec<PeerId>, to_connect: Vec<PeerId>) {
         // Disconnect peers to improve diversity
         for peer_id in &to_disconnect {
@@ -945,7 +945,7 @@ impl P2PNetwork {
             self.swarm.disconnect_peer_id(*peer_id);
             // The disconnection will be handled in the ConnectionClosed event
         }
-        
+
         // Connect to new peers to improve diversity
         for peer_id in &to_connect {
             info!("Diversity rotation: connecting to peer {}", peer_id);
@@ -954,7 +954,7 @@ impl P2PNetwork {
             }
         }
     }
-    
+
     async fn send_message_to_peer(&mut self, peer_id: PeerId, message: Message) {
         match bincode::serialize(&message) {
             Ok(encoded) => {
@@ -969,12 +969,12 @@ impl P2PNetwork {
             }
         }
     }
-    
+
     async fn broadcast_message(&mut self, message: Message) {
         // This is a simplistic broadcast implementation
         // In a real implementation, you would use a proper broadcast protocol
         let connected_peers: Vec<PeerId> = self.swarm.connected_peers().copied().collect();
-        
+
         match bincode::serialize(&message) {
             Ok(encoded) => {
                 for peer_id in connected_peers {
@@ -1022,14 +1022,14 @@ async fn build_behaviour(
     ));
 
     let mdns = Mdns::new(Default::default()).await?;
-    
+
     // Configure gossipsub
     let gossipsub_config = libp2p::gossipsub::ConfigBuilder::default()
         .heartbeat_interval(Duration::from_secs(1))
         .validation_mode(libp2p::gossipsub::ValidationMode::Strict)
         .build()
         .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
-    
+
     let gossipsub = libp2p::gossipsub::Behaviour::new(
         libp2p::gossipsub::MessageAuthenticity::Signed(id_keys.clone()),
         gossipsub_config,
@@ -1046,7 +1046,7 @@ async fn build_behaviour(
 // Helper function to extract IP and port from a multiaddr
 fn extract_ip_port(addr: &libp2p::Multiaddr) -> Option<(IpAddr, u16)> {
     let mut iter = addr.iter();
-    
+
     // Look for IP protocol in the multiaddr
     let ip = loop {
         match iter.next() {
@@ -1056,7 +1056,7 @@ fn extract_ip_port(addr: &libp2p::Multiaddr) -> Option<(IpAddr, u16)> {
             None => return None,
         }
     };
-    
+
     // Look for TCP or UDP protocol with port
     match iter.next() {
         Some(MultiAddrProtocol::Tcp(port)) => Some((ip, port)),

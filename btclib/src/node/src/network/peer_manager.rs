@@ -243,7 +243,7 @@ impl PeerBehavior {
             ..Default::default()
         }
     }
-    
+
     /// Record message response time
     pub fn record_response_time(&mut self, time_ms: u64) {
         if self.response_times.len() >= 100 {
@@ -251,48 +251,48 @@ impl PeerBehavior {
         }
         self.response_times.push_back(time_ms);
     }
-    
+
     /// Calculate average response time
     pub fn average_response_time(&self) -> Option<f64> {
         if self.response_times.is_empty() {
             return None;
         }
-        
+
         let sum: u64 = self.response_times.iter().sum();
         Some(sum as f64 / self.response_times.len() as f64)
     }
-    
+
     /// Record unusual behavior pattern
     pub fn record_unusual_pattern(&mut self, pattern: &str) {
         self.unusual_patterns_detected.push(pattern.to_string());
     }
-    
+
     /// Calculate behavior reliability score (0-1)
     pub fn reliability_score(&self) -> f64 {
         let mut score = 1.0;
-        
+
         // Penalize for invalid blocks/transactions
         let total_blocks = self.valid_blocks_announced + self.invalid_blocks_announced;
         if total_blocks > 0 {
             let invalid_ratio = self.invalid_blocks_announced as f64 / total_blocks as f64;
             score -= invalid_ratio * 0.3; // Up to 0.3 point penalty
         }
-        
+
         let total_txns = self.valid_txns_relayed + self.invalid_txns_relayed;
         if total_txns > 0 {
             let invalid_ratio = self.invalid_txns_relayed as f64 / total_txns as f64;
             score -= invalid_ratio * 0.3; // Up to 0.3 point penalty
         }
-        
+
         // Penalize for protocol violations
         score -= (self.protocol_violations as f64 * 0.05).min(0.2);
-        
+
         // Penalize for unexpected disconnects
         score -= (self.unexpected_disconnects as f64 * 0.02).min(0.1);
-        
+
         // Penalize for unusual patterns
         score -= (self.unusual_patterns_detected.len() as f64 * 0.05).min(0.1);
-        
+
         score.max(0.0)
     }
 }
@@ -359,12 +359,12 @@ impl PeerInfo {
         if self.successful_exchanges + self.failed_exchanges > 0 {
             let total = self.successful_exchanges + self.failed_exchanges;
             let exchange_ratio = self.successful_exchanges as f64 / total as f64;
-            
+
             // Combine with behavior reliability score
             let reliability = self.behavior_patterns.reliability_score();
             self.score.behavior_score = (exchange_ratio * 0.7 + reliability * 0.3) * 5.0;
         }
-        
+
         // Adjust score based on verification status
         match &self.challenge_status {
             ChallengeStatus::Verified { .. } => {
@@ -378,7 +378,7 @@ impl PeerInfo {
             _ => {}
         }
     }
-    
+
     /// Get the latency if available
     pub fn get_latency(&self) -> Option<f64> {
         self.behavior_patterns.average_response_time()
@@ -512,7 +512,7 @@ impl PeerDiversityManager {
         let subnet_count = self.subnet_distribution
             .get(&subnet)
             .map_or(0, |peers| peers.len());
-        
+
         // Add 1.0 - (count / max) to favor underrepresented subnets
         score += 1.0 - (subnet_count as f64 / self.max_peers_per_subnet as f64).min(1.0);
 
@@ -521,7 +521,7 @@ impl PeerDiversityManager {
             let asn_count = self.asn_distribution
                 .get(&asn)
                 .map_or(0, |peers| peers.len());
-            
+
             score += 1.0 - (asn_count as f64 / self.max_peers_per_asn as f64).min(1.0);
         }
 
@@ -530,7 +530,7 @@ impl PeerDiversityManager {
             let region_count = self.geographic_distribution
                 .get(region)
                 .map_or(0, |peers| peers.len());
-            
+
             score += 1.0 - (region_count as f64 / self.max_peers_per_region as f64).min(1.0);
         }
 
@@ -586,7 +586,7 @@ impl PeerManager {
             last_rotation_time: Instant::now(),
         }
     }
-    
+
     /// Generate a new challenge for peer verification
     pub fn generate_challenge(&self) -> String {
         let random_string: String = thread_rng()
@@ -594,10 +594,10 @@ impl PeerManager {
             .take(32)
             .map(char::from)
             .collect();
-        
+
         random_string
     }
-    
+
     /// Verify a challenge response
     pub fn verify_challenge_response(&self, challenge: &str, response: &str, difficulty: u8) -> bool {
         // Check if response has the required number of leading zeros
@@ -619,7 +619,7 @@ impl PeerManager {
         }
         false
     }
-    
+
     /// Issue a challenge to a peer
     pub fn issue_challenge(&mut self, peer_id: &PeerId) -> Option<String> {
         if let Some(peer) = self.peers.get_mut(peer_id) {
@@ -642,7 +642,7 @@ impl PeerManager {
                             };
                             return None;
                         }
-                        
+
                         let challenge = self.generate_challenge();
                         peer.challenge_status = ChallengeStatus::Pending {
                             challenge: challenge.clone(),
@@ -658,13 +658,13 @@ impl PeerManager {
         }
         None
     }
-    
+
     /// Process a challenge response
     pub fn process_challenge_response(&mut self, peer_id: &PeerId, response: &str) -> bool {
         if let Some(peer) = self.peers.get_mut(peer_id) {
             if let ChallengeStatus::Pending { challenge, attempts, .. } = &peer.challenge_status {
                 let success = self.verify_challenge_response(challenge, response, self.challenge_difficulty);
-                
+
                 if success {
                     peer.challenge_status = ChallengeStatus::Verified {
                         verified_at: Instant::now(),
@@ -771,8 +771,8 @@ impl PeerManager {
         // Check if banned
         if let Some(banned_until) = rate_limit.banned_until {
             if banned_until > Instant::now() {
-                return Err(format!("IP is banned until {:?}: {}", 
-                            banned_until, 
+                return Err(format!("IP is banned until {:?}: {}",
+                            banned_until,
                             rate_limit.ban_reason.as_deref().unwrap_or("No reason provided")));
             }
         }
@@ -798,29 +798,29 @@ impl PeerManager {
         let rate_limit = self.subnet_rate_limits
             .entry(subnet.clone())
             .or_insert_with(|| RateLimitInfo::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))); // Dummy IP for subnet
-            
+
         // Check if banned
         if let Some(banned_until) = rate_limit.banned_until {
             if banned_until > Instant::now() {
-                return Err(format!("Subnet is banned until {:?}: {}", 
-                        banned_until, 
+                return Err(format!("Subnet is banned until {:?}: {}",
+                        banned_until,
                         rate_limit.ban_reason.as_deref().unwrap_or("No reason provided")));
             }
         }
-        
+
         // Record attempt
         rate_limit.record_attempt();
-        
+
         // Calculate subnet limit (higher than individual IP limit)
         let subnet_limit = self.max_connection_attempts_per_min * 3;
-        
+
         // Check if too many recent attempts from this subnet
         if rate_limit.recent_attempts.len() > subnet_limit {
             // Ban subnet temporarily
             rate_limit.ban(Duration::from_secs(300), "Subnet rate limit exceeded");
             return Err(format!("Too many connection attempts from subnet, banned for 5 minutes"));
         }
-        
+
         Ok(())
     }
 
@@ -829,10 +829,10 @@ impl PeerManager {
         let mut scored_peers: Vec<_> = self.peers.iter()
             .map(|(id, info)| (*id, info.score.total()))
             .collect();
-        
+
         // Sort by score (descending)
         scored_peers.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         // Return top N peer IDs
         scored_peers.iter()
             .take(count)
@@ -887,7 +887,7 @@ impl PeerManager {
 
         // Sort by score (descending)
         potential_connects.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         // Take top peers to connect
         for (id, _) in potential_connects.iter().take(to_disconnect.len()) {
             to_connect.push(*id);
@@ -915,35 +915,35 @@ impl PeerManager {
             info.update_score();
         }
     }
-    
+
     /// Set protocols supported by a peer
     pub fn set_peer_protocols(&mut self, peer_id: &PeerId, protocols: Vec<String>) {
         if let Some(info) = self.peers.get_mut(peer_id) {
             info.protocols = protocols;
         }
     }
-    
+
     /// Get statistics about current peer distribution
     pub fn get_diversity_stats(&self) -> PeerDiversityStats {
         let subnet_count = self.diversity_manager.subnet_distribution.len();
         let asn_count = self.diversity_manager.asn_distribution.len();
         let region_count = self.diversity_manager.geographic_distribution.len();
-        
+
         let max_subnet_peers = self.diversity_manager.subnet_distribution.values()
             .map(|peers| peers.len())
             .max()
             .unwrap_or(0);
-            
+
         let max_asn_peers = self.diversity_manager.asn_distribution.values()
             .map(|peers| peers.len())
             .max()
             .unwrap_or(0);
-            
+
         let max_region_peers = self.diversity_manager.geographic_distribution.values()
             .map(|peers| peers.len())
             .max()
             .unwrap_or(0);
-            
+
         PeerDiversityStats {
             total_peers: self.peers.len(),
             connected_peers: self.connected_peers.len(),
@@ -962,27 +962,27 @@ impl PeerManager {
             .filter_map(|peer_id| self.peers.get(peer_id).cloned())
             .collect()
     }
-    
+
     /// Get information about a specific peer
     pub fn get_peer_info(&self, peer_id: &PeerId) -> Option<PeerInfo> {
         self.peers.get(peer_id).cloned()
     }
-    
+
     /// Get all known peers (connected and disconnected)
     pub fn get_all_peer_infos(&self) -> Vec<PeerInfo> {
         self.peers.values().cloned().collect()
     }
-    
+
     /// Check if a peer is currently connected
     pub fn is_connected(&self, peer_id: &PeerId) -> bool {
         self.connected_peers.contains(peer_id)
     }
-    
+
     /// Get count of connected peers
     pub fn connected_peer_count(&self) -> usize {
         self.connected_peers.len()
     }
-    
+
     /// Get count of all known peers
     pub fn total_peer_count(&self) -> usize {
         self.peers.len()
@@ -994,25 +994,25 @@ impl PeerManager {
         if self.last_rotation_time.elapsed() >= self.forced_rotation_interval {
             return true;
         }
-        
+
         // Also check for signs of an eclipse attack
         // (Implement heuristics for detecting potential eclipse attacks)
-        
+
         false
     }
-    
+
     /// Perform forced peer rotation
     pub fn perform_forced_rotation(&mut self) -> (Vec<PeerId>, usize) {
         let rotation_plan = self.create_rotation_plan();
-        
+
         if let Some((to_disconnect, _to_connect)) = rotation_plan {
             self.last_rotation_time = Instant::now();
             return (to_disconnect, to_disconnect.len());
         }
-        
+
         (vec![], 0)
     }
-    
+
     /// Record block announcement from peer
     pub fn record_block_announcement(&mut self, peer_id: &PeerId, valid: bool) {
         if let Some(peer) = self.peers.get_mut(peer_id) {
@@ -1024,7 +1024,7 @@ impl PeerManager {
             peer.update_score();
         }
     }
-    
+
     /// Record transaction relay from peer
     pub fn record_transaction_relay(&mut self, peer_id: &PeerId, valid: bool) {
         if let Some(peer) = self.peers.get_mut(peer_id) {
@@ -1036,27 +1036,27 @@ impl PeerManager {
             peer.update_score();
         }
     }
-    
+
     /// Record protocol violation by peer
     pub fn record_protocol_violation(&mut self, peer_id: &PeerId, violation: &str) {
         if let Some(peer) = self.peers.get_mut(peer_id) {
             peer.behavior_patterns.protocol_violations += 1;
             peer.behavior_patterns.record_unusual_pattern(violation);
             peer.update_score();
-            
+
             // If severe violations, ban the peer
             if peer.behavior_patterns.protocol_violations > 5 {
                 let ip = peer.ip;
                 if let Some(rate_limit) = self.rate_limits.get_mut(&ip) {
                     rate_limit.ban(
-                        Duration::from_secs(3600), 
+                        Duration::from_secs(3600),
                         &format!("Multiple protocol violations: {}", violation)
                     );
                 }
             }
         }
     }
-    
+
     /// Record message response time
     pub fn record_response_time(&mut self, peer_id: &PeerId, time_ms: u64) {
         if let Some(peer) = self.peers.get_mut(peer_id) {
@@ -1071,7 +1071,7 @@ impl PeerManager {
             peer.update_score();
         }
     }
-    
+
     /// Set the client version for a peer
     pub fn set_client_version(&mut self, peer_id: &PeerId, version: String) {
         if let Some(peer) = self.peers.get_mut(peer_id) {
@@ -1105,7 +1105,7 @@ pub struct PeerDiversityStats {
 mod tests {
     use super::*;
     use std::net::{Ipv4Addr, Ipv6Addr};
-    
+
     #[test]
     fn test_ip_subnet_contains() {
         // IPv4 test
@@ -1113,48 +1113,48 @@ mod tests {
             base: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)),
             mask_bits: 24,
         };
-        
+
         assert!(subnet.contains(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))));
         assert!(subnet.contains(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(!subnet.contains(&IpAddr::V4(Ipv4Addr::new(192, 168, 2, 1))));
-        
+
         // IPv6 test
         let subnet_v6 = IpSubnet {
             base: IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0)),
             mask_bits: 48,
         };
-        
+
         assert!(subnet_v6.contains(&IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))));
         assert!(!subnet_v6.contains(&IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb9, 0, 0, 0, 0, 0, 0))));
     }
-    
+
     #[test]
     fn test_rate_limit_tracking() {
         let mut rate_info = RateLimitInfo::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)));
-        
+
         // Add 3 attempts
         for _ in 0..3 {
             rate_info.record_attempt();
         }
-        
+
         // Not rate limited yet
         assert!(!rate_info.is_rate_limited(5));
-        
+
         // Add 3 more
         for _ in 0..3 {
             rate_info.record_attempt();
         }
-        
+
         // Now it should be rate limited
         assert!(rate_info.is_rate_limited(5));
-        
+
         // Ban the IP
         rate_info.ban(Duration::from_secs(300), "Test ban");
-        
+
         // Should be rate limited due to ban
         assert!(rate_info.is_rate_limited(10));
     }
-    
+
     #[test]
     fn test_peer_score_calculation() {
         let mut peer_info = PeerInfo::new(
@@ -1162,23 +1162,23 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
             8333,
         );
-        
+
         // Add some connection history
         peer_info.record_connection();
         peer_info.record_disconnection(Some("Test disconnect".to_string()));
         peer_info.record_connection();
-        
+
         // Add some exchanges
         peer_info.successful_exchanges = 8;
         peer_info.failed_exchanges = 2;
-        
+
         // Update score
         peer_info.update_score();
-        
+
         // Check score components
         assert!(peer_info.score.base_score > 0.0);
         assert!(peer_info.score.stability_score > 0.0);
         assert!(peer_info.score.behavior_score > 0.0);
         assert!(peer_info.score.total() > 0.0);
     }
-} 
+}

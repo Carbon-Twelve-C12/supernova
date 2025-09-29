@@ -271,7 +271,7 @@ impl QuantumSecurityAuditor {
     pub fn document_post_quantum_security_proofs(&self) -> PostQuantumSecurityProofs {
         println!("📄 Documenting post-quantum security proofs...");
 
-        let lattice_problem_hardness = 
+        let lattice_problem_hardness =
             "Dilithium security reduces to the hardness of Module-LWE and Module-SIS problems, \
              which are believed to be hard for quantum computers. Security proof: Ducas et al. 2018".to_string();
 

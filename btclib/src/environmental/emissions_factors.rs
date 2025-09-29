@@ -51,12 +51,12 @@ impl EmissionsFactorDatabase {
             version: "1.0.0".to_string(),
             last_updated: chrono::Utc::now().timestamp(),
         };
-        
+
         // Populate with default data
         db.initialize_default_data();
         db
     }
-    
+
     /// Get emission factor for a country with fallback to global average
     pub fn get_factor(&self, country_code: &str, source: EmissionFactorSource) -> f64 {
         self.countries
@@ -65,7 +65,7 @@ impl EmissionsFactorDatabase {
             .copied()
             .unwrap_or(self.global_average)
     }
-    
+
     /// Get best available emission factor for a country,
     /// prioritizing WattTime > IFI > IEA data
     pub fn get_best_factor(&self, country_code: &str) -> f64 {
@@ -87,11 +87,11 @@ impl EmissionsFactorDatabase {
                 return *iea2020;
             }
         }
-        
+
         // Fallback to global average
         self.global_average
     }
-    
+
     /// Update emission factor for a country and source
     pub fn update_factor(&mut self, country_code: &str, source: EmissionFactorSource, value: f64) -> Result<(), String> {
         if let Some(country) = self.countries.get_mut(country_code) {
@@ -102,31 +102,31 @@ impl EmissionsFactorDatabase {
             Err(format!("Country code {} not found in database", country_code))
         }
     }
-    
+
     /// Add a new country to the database
     pub fn add_country(&mut self, name: &str, iso_code: &str) -> Result<(), String> {
         if self.countries.contains_key(iso_code) {
             return Err(format!("Country with code {} already exists", iso_code));
         }
-        
+
         let country = CountryEmissionFactor {
             name: name.to_string(),
             iso_code: iso_code.to_string(),
             factors: HashMap::new(),
             last_updated: chrono::Utc::now().timestamp(),
         };
-        
+
         self.countries.insert(iso_code.to_string(), country);
         Ok(())
     }
-    
+
     /// Initialize the database with default emission factor data
     fn initialize_default_data(&mut self) {
         // Function to add a country with emission factors
-        let mut add_country_with_factors = |name: &str, 
-                                            iso_code: &str, 
-                                            iea2020: Option<f64>, 
-                                            iea2021: Option<f64>, 
+        let mut add_country_with_factors = |name: &str,
+                                            iso_code: &str,
+                                            iea2020: Option<f64>,
+                                            iea2021: Option<f64>,
                                             ifi2020: Option<f64>,
                                             wt_moer: Option<f64>,
                                             wt_oer: Option<f64>| {
@@ -134,7 +134,7 @@ impl EmissionsFactorDatabase {
             if !self.countries.contains_key(iso_code) {
                 let _ = self.add_country(name, iso_code);
             }
-            
+
             // Add factors
             if let Some(factor) = iea2020 {
                 let _ = self.update_factor(iso_code, EmissionFactorSource::IEA2020, factor);
@@ -152,7 +152,7 @@ impl EmissionsFactorDatabase {
                 let _ = self.update_factor(iso_code, EmissionFactorSource::WattTimeOER, factor);
             }
         };
-        
+
         // Add countries with emission factors
         // Including a subset of countries from the data table
         add_country_with_factors("United States", "USA", Some(353.4), Some(366.5), Some(416.0), Some(515.0), Some(1136.0));
@@ -175,41 +175,41 @@ impl EmissionsFactorDatabase {
         add_country_with_factors("Spain", "ESP", Some(153.3), Some(150.3), Some(402.0), Some(371.0), Some(817.0));
         add_country_with_factors("Poland", "POL", Some(622.8), Some(640.3), Some(828.0), Some(852.0), Some(1879.0));
         add_country_with_factors("Switzerland", "CHE", Some(24.3), Some(22.9), Some(48.0), None, None);
-        
+
         // Add more countries as needed from the data table
         // This is a subset of the data for example purposes
     }
-    
+
     /// Update the database from external sources
     pub fn update_from_api(&mut self) -> Result<(), String> {
         // In a real implementation, this would fetch data from an API
         // For now, we just update the timestamp
         self.last_updated = chrono::Utc::now().timestamp();
         self.version = format!("1.0.{}", self.last_updated % 1000);
-        
+
         Ok(())
     }
-    
+
     /// Get countries with lowest emission factors
     pub fn get_greenest_countries(&self, count: usize) -> Vec<(String, f64)> {
         let mut countries: Vec<(String, f64)> = self.countries
             .iter()
             .map(|(code, country)| (code.clone(), self.get_best_factor(code)))
             .collect();
-        
+
         // Sort by emission factor (ascending)
         countries.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         // Take top N
         countries.into_iter().take(count).collect()
     }
-    
+
     /// Export the database to JSON
     pub fn export_to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to export database to JSON: {}", e))
     }
-    
+
     /// Import the database from JSON
     pub fn import_from_json(json: &str) -> Result<Self, String> {
         serde_json::from_str(json)
@@ -226,42 +226,42 @@ impl Default for EmissionsFactorDatabase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_database_initialization() {
         let db = EmissionsFactorDatabase::new();
         assert!(!db.countries.is_empty());
         assert!(db.countries.contains_key("USA"));
     }
-    
+
     #[test]
     fn test_get_best_factor() {
         let db = EmissionsFactorDatabase::new();
-        
+
         // Test country with WattTime data (prioritized)
         let usa_factor = db.get_best_factor("USA");
         assert_eq!(usa_factor, 515.0); // Should return WattTime MOER
-        
+
         // Test country with only IEA data
         let bra_factor = db.get_best_factor("BRA");
         assert_eq!(bra_factor, 284.0); // Should return IFI2020
-        
+
         // Test non-existent country
         let unknown_factor = db.get_best_factor("XYZ");
         assert_eq!(unknown_factor, db.global_average); // Should return global average
     }
-    
+
     #[test]
     fn test_update_factor() {
         let mut db = EmissionsFactorDatabase::new();
-        
+
         // Update existing country
         let result = db.update_factor("USA", EmissionFactorSource::IEA2021, 400.0);
         assert!(result.is_ok());
         assert_eq!(db.get_factor("USA", EmissionFactorSource::IEA2021), 400.0);
-        
+
         // Update non-existent country
         let result = db.update_factor("XYZ", EmissionFactorSource::IEA2021, 500.0);
         assert!(result.is_err());
     }
-} 
+}

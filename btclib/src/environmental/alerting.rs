@@ -13,13 +13,13 @@ use crate::environmental::treasury::{EnvironmentalTreasury, TreasuryAccountType}
 pub enum AlertingError {
     #[error("Invalid alert configuration: {0}")]
     InvalidConfiguration(String),
-    
+
     #[error("Metric calculation error: {0}")]
     MetricCalculationError(String),
-    
+
     #[error("Notification error: {0}")]
     NotificationError(String),
-    
+
     #[error("Database error: {0}")]
     DatabaseError(String),
 }
@@ -232,23 +232,23 @@ impl EnvironmentalAlertingSystem {
             config,
         }
     }
-    
+
     /// Add an alert rule
     pub fn add_rule(&self, rule: AlertRule) -> Result<(), AlertingError> {
         let mut rules = self.rules.write().unwrap();
         rules.insert(rule.id.clone(), rule);
         Ok(())
     }
-    
+
     /// Trigger an alert
     pub fn trigger_alert(&self, alert: Alert) -> Result<(), AlertingError> {
         if !self.config.enabled {
             return Ok(());
         }
-        
+
         let mut alerts = self.alerts.write().unwrap();
         alerts.insert(alert.id.clone(), alert);
-        
+
         // Clean up old alerts if necessary
         if alerts.len() > self.config.max_alerts_per_hour as usize {
             let oldest_id = alerts.keys().next().cloned();
@@ -256,7 +256,7 @@ impl EnvironmentalAlertingSystem {
                 alerts.remove(&id);
             }
         }
-        
+
         Ok(())
     }
 }
@@ -283,7 +283,7 @@ impl EnvironmentalAlertingSystem {
             treasury,
         }
     }
-    
+
     /// Add a new alert rule
     pub fn add_rule(&mut self, rule: AlertRule) -> Result<(), AlertingError> {
         // Validate rule
@@ -292,47 +292,47 @@ impl EnvironmentalAlertingSystem {
                 format!("Invalid threshold value: {}", rule.threshold)
             ));
         }
-        
+
         if rule.cooldown_seconds == 0 {
             return Err(AlertingError::InvalidConfiguration(
                 "Cooldown seconds must be greater than zero".to_string()
             ));
         }
-        
+
         // Add rule
         self.rules.push(rule);
         Ok(())
     }
-    
+
     /// Check all alert rules
     pub fn check_alerts(&mut self) -> Vec<Alert> {
         if !self.config.enabled {
             return Vec::new();
         }
-        
+
         // Reset hourly counter if needed
         let now = Utc::now();
         if (now - self.current_hour_start).num_seconds() > 3600 {
             self.alerts_this_hour = 0;
             self.current_hour_start = now;
         }
-        
+
         // Don't send more alerts than configured maximum per hour
         if self.alerts_this_hour >= self.config.max_alerts_per_hour {
             return Vec::new();
         }
-        
+
         let mut new_alerts = Vec::new();
-        
+
         // Collect all data first to avoid borrow conflicts
-        
+
         // 1. Collect the rules that need processing
         let mut rules_to_process = Vec::new();
         for rule in &self.rules {
             if !rule.enabled {
                 continue;
             }
-            
+
             // Check cooldown period
             let should_process = if let Some(last_check) = self.last_check.get(&rule.id) {
                 let cooldown = chrono::Duration::seconds(rule.cooldown_seconds as i64);
@@ -340,35 +340,35 @@ impl EnvironmentalAlertingSystem {
             } else {
                 true
             };
-            
+
             // Check if already alerting
-            let is_already_alerting = self.active_alerts.values().any(|a| 
+            let is_already_alerting = self.active_alerts.values().any(|a|
                 a.rule_id == rule.id && a.status == AlertStatus::Active
             );
-            
+
             if should_process && !is_already_alerting {
                 rules_to_process.push(rule.clone());
             }
         }
-        
+
         // 2. Collect metrics for all rules we need to process
         let mut rule_metrics: Vec<(AlertRule, Result<f64, AlertingError>)> = Vec::new();
         for rule in rules_to_process {
             // Update last check time here
             self.last_check.insert(rule.id.clone(), now);
-            
+
             // Get the metric value
             let metric_value = self.get_metric_value(rule.metric_type);
             rule_metrics.push((rule, metric_value));
         }
-        
+
         // 3. Collect rules that need auto-resolving
         let mut auto_resolves = Vec::new();
         for (rule, metric_result) in &rule_metrics {
             if !rule.auto_resolve {
                 continue;
             }
-            
+
             if let Ok(value) = metric_result {
                 // If condition no longer met
                 if !self.compare_value(*value, rule.threshold, rule.operator) {
@@ -381,7 +381,7 @@ impl EnvironmentalAlertingSystem {
                 }
             }
         }
-        
+
         // 4. Process all metrics and create new alerts
         for (rule, metric_result) in rule_metrics {
             match metric_result {
@@ -391,7 +391,7 @@ impl EnvironmentalAlertingSystem {
                         // Generate a simple random alert ID
                         let random_id = format!("{:x}", rand::random::<u64>());
                         let alert_id = format!("alert_{}", random_id);
-                        
+
                         // Create alert message
                         let message = format!("{}: {} is {} {} (threshold: {})",
                             rule.name,
@@ -400,7 +400,7 @@ impl EnvironmentalAlertingSystem {
                             self.get_operator_symbol(rule.operator),
                             rule.threshold
                         );
-                        
+
                         // Create the alert
                         let alert = Alert {
                             id: alert_id.clone(),
@@ -414,10 +414,10 @@ impl EnvironmentalAlertingSystem {
                             resolved_at: None,
                             context: HashMap::new(),
                         };
-                        
+
                         // Store alert
                         self.active_alerts.insert(alert_id.clone(), alert.clone());
-                        
+
                         // Create history record
                         let history_record = AlertHistoryRecord {
                             alert_id: alert_id.clone(),
@@ -427,16 +427,16 @@ impl EnvironmentalAlertingSystem {
                             note: None,
                         };
                         self.alert_history.push(history_record);
-                        
+
                         // Send notifications
                         self.send_notifications(&rule, &alert);
-                        
+
                         // Increment alert counter
                         self.alerts_this_hour += 1;
-                        
+
                         // Add to new alerts
                         new_alerts.push(alert);
-                        
+
                         // Stop if we've reached the hourly limit
                         if self.alerts_this_hour >= self.config.max_alerts_per_hour {
                             break;
@@ -449,14 +449,14 @@ impl EnvironmentalAlertingSystem {
                 }
             }
         }
-        
+
         // 5. Process auto-resolves
         for (alert_id, rule) in auto_resolves {
             if let Some(alert) = self.active_alerts.get_mut(&alert_id) {
                 alert.status = AlertStatus::Resolved;
                 alert.resolved_by = Some("System".to_string());
                 alert.resolved_at = Some(now);
-                
+
                 // Create history record for the resolution
                 let history_record = AlertHistoryRecord {
                     alert_id: alert_id.clone(),
@@ -466,7 +466,7 @@ impl EnvironmentalAlertingSystem {
                     note: Some("Auto-resolved: condition no longer met".to_string()),
                 };
                 self.alert_history.push(history_record);
-                
+
                 // Log the auto-resolve if configured
                 if self.config.log_all_activity {
                     println!("[{}] Alert {} changed to {:?} by System: Auto-resolved: condition no longer met",
@@ -477,22 +477,22 @@ impl EnvironmentalAlertingSystem {
                 }
             }
         }
-        
+
         // 6. Clean up history if needed
         if self.alert_history.len() > self.config.max_history_records {
             self.alert_history.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
             self.alert_history.truncate(self.config.max_history_records);
         }
-        
+
         new_alerts
     }
-    
+
     /// Acknowledge an alert
     pub fn acknowledge_alert(&mut self, alert_id: &str, user: &str, note: Option<String>) -> Result<(), AlertingError> {
         if let Some(alert) = self.active_alerts.get_mut(alert_id) {
             if alert.status == AlertStatus::Active {
                 alert.status = AlertStatus::Acknowledged;
-                
+
                 // Create history record
                 let history_record = AlertHistoryRecord {
                     alert_id: alert_id.to_string(),
@@ -502,7 +502,7 @@ impl EnvironmentalAlertingSystem {
                     note: note.clone(),
                 };
                 self.alert_history.push(history_record);
-                
+
                 // Log if configured
                 if self.config.log_all_activity {
                     let note_str = if let Some(note) = note {
@@ -510,7 +510,7 @@ impl EnvironmentalAlertingSystem {
                     } else {
                         "".to_string()
                     };
-                    
+
                     println!("[{}] Alert {} changed to {:?} by {}{}",
                         Utc::now().format("%Y-%m-%d %H:%M:%S"),
                         alert_id,
@@ -519,7 +519,7 @@ impl EnvironmentalAlertingSystem {
                         note_str
                     );
                 }
-                
+
                 Ok(())
             } else {
                 Err(AlertingError::InvalidConfiguration(
@@ -532,7 +532,7 @@ impl EnvironmentalAlertingSystem {
             ))
         }
     }
-    
+
     /// Resolve an alert
     pub fn resolve_alert(&mut self, alert_id: &str, user: &str, note: Option<&str>) -> Result<(), AlertingError> {
         if let Some(alert) = self.active_alerts.get_mut(alert_id) {
@@ -540,7 +540,7 @@ impl EnvironmentalAlertingSystem {
                 alert.status = AlertStatus::Resolved;
                 alert.resolved_by = Some(user.to_string());
                 alert.resolved_at = Some(Utc::now());
-                
+
                 // Create history record
                 let history_record = AlertHistoryRecord {
                     alert_id: alert_id.to_string(),
@@ -550,7 +550,7 @@ impl EnvironmentalAlertingSystem {
                     note: note.map(|s| s.to_string()),
                 };
                 self.alert_history.push(history_record);
-                
+
                 // Log if configured
                 if self.config.log_all_activity {
                     let note_str = if let Some(note) = note {
@@ -558,7 +558,7 @@ impl EnvironmentalAlertingSystem {
                     } else {
                         "".to_string()
                     };
-                    
+
                     println!("[{}] Alert {} changed to {:?} by {}{}",
                         Utc::now().format("%Y-%m-%d %H:%M:%S"),
                         alert_id,
@@ -567,7 +567,7 @@ impl EnvironmentalAlertingSystem {
                         note_str
                     );
                 }
-                
+
                 Ok(())
             } else {
                 Err(AlertingError::InvalidConfiguration(
@@ -580,14 +580,14 @@ impl EnvironmentalAlertingSystem {
             ))
         }
     }
-    
+
     /// Dismiss an alert
     pub fn dismiss_alert(&mut self, alert_id: &str, user: &str, note: Option<String>) -> Result<(), AlertingError> {
         if let Some(alert) = self.active_alerts.get_mut(alert_id) {
             alert.status = AlertStatus::Dismissed;
             alert.resolved_by = Some(user.to_string());
             alert.resolved_at = Some(Utc::now());
-            
+
             // Create history record
             let history_record = AlertHistoryRecord {
                 alert_id: alert_id.to_string(),
@@ -597,7 +597,7 @@ impl EnvironmentalAlertingSystem {
                 note: note.clone(),
             };
             self.alert_history.push(history_record);
-            
+
             // Log if configured
             if self.config.log_all_activity {
                 let note_str = if let Some(note) = &note {
@@ -605,7 +605,7 @@ impl EnvironmentalAlertingSystem {
                 } else {
                     "".to_string()
                 };
-                
+
                 println!("[{}] Alert {} changed to {:?} by {}{}",
                     Utc::now().format("%Y-%m-%d %H:%M:%S"),
                     alert_id,
@@ -614,7 +614,7 @@ impl EnvironmentalAlertingSystem {
                     note_str
                 );
             }
-            
+
             Ok(())
         } else {
             Err(AlertingError::InvalidConfiguration(
@@ -622,26 +622,26 @@ impl EnvironmentalAlertingSystem {
             ))
         }
     }
-    
+
     /// Get a list of active alerts
     pub fn get_active_alerts(&self) -> Vec<&Alert> {
         self.active_alerts.values()
             .filter(|a| a.status == AlertStatus::Active || a.status == AlertStatus::Acknowledged)
             .collect()
     }
-    
+
     /// Get a list of all alerts
     pub fn get_all_alerts(&self) -> Vec<&Alert> {
         self.active_alerts.values().collect()
     }
-    
+
     /// Get alerts by status
     pub fn get_alerts_by_status(&self, status: AlertStatus) -> Vec<&Alert> {
         self.active_alerts.values()
             .filter(|a| a.status == status)
             .collect()
     }
-    
+
     /// Get alerts by severity
     pub fn get_alerts_by_severity(&self, severity: AlertSeverity) -> Vec<&Alert> {
         self.active_alerts.values()
@@ -654,7 +654,7 @@ impl EnvironmentalAlertingSystem {
             })
             .collect()
     }
-    
+
     /// Get alerts by metric type
     pub fn get_alerts_by_metric(&self, metric_type: MetricType) -> Vec<&Alert> {
         self.active_alerts.values()
@@ -667,22 +667,22 @@ impl EnvironmentalAlertingSystem {
             })
             .collect()
     }
-    
+
     /// Get alert history
     pub fn get_alert_history(&self, limit: Option<usize>) -> Vec<&AlertHistoryRecord> {
         let limit = limit.unwrap_or(self.alert_history.len());
-        
+
         self.alert_history.iter()
             .rev()
             .take(limit)
             .collect()
     }
-    
+
     /// Get alert rules
     pub fn get_rules(&self) -> &[AlertRule] {
         &self.rules
     }
-    
+
     /// Enable or disable a rule
     pub fn set_rule_enabled(&mut self, rule_id: &str, enabled: bool) -> Result<(), AlertingError> {
         for rule in &mut self.rules {
@@ -691,17 +691,17 @@ impl EnvironmentalAlertingSystem {
                 return Ok(());
             }
         }
-        
+
         Err(AlertingError::InvalidConfiguration(
             format!("Rule {} not found", rule_id)
         ))
     }
-    
+
     /// Get the rule by ID
     fn get_rule(&self, rule_id: &str) -> Option<&AlertRule> {
         self.rules.iter().find(|r| r.id == rule_id)
     }
-    
+
     /// Get the current value for a metric
     fn get_metric_value(&self, metric_type: MetricType) -> Result<f64, AlertingError> {
         match metric_type {
@@ -770,7 +770,7 @@ impl EnvironmentalAlertingSystem {
             },
         }
     }
-    
+
     /// Compare a value against a threshold using the specified operator
     fn compare_value(&self, value: f64, threshold: f64, operator: ComparisonOperator) -> bool {
         match operator {
@@ -782,7 +782,7 @@ impl EnvironmentalAlertingSystem {
             ComparisonOperator::NotEqual => (value - threshold).abs() >= f64::EPSILON,
         }
     }
-    
+
     /// Get a human-readable name for a metric
     fn get_metric_name(&self, metric_type: MetricType) -> &'static str {
         match metric_type {
@@ -798,7 +798,7 @@ impl EnvironmentalAlertingSystem {
             MetricType::VerifiedMinerPercentage => "Verified Miner Percentage",
         }
     }
-    
+
     /// Get a symbol for a comparison operator
     fn get_operator_symbol(&self, operator: ComparisonOperator) -> &'static str {
         match operator {
@@ -810,7 +810,7 @@ impl EnvironmentalAlertingSystem {
             ComparisonOperator::NotEqual => "!=",
         }
     }
-    
+
     /// Send notifications for an alert
     fn send_notifications(&self, rule: &AlertRule, alert: &Alert) {
         for method in &rule.notification_methods {
@@ -824,7 +824,7 @@ impl EnvironmentalAlertingSystem {
                     println!("Calling webhook at {}: {}", url, alert.message);
                 },
                 NotificationMethod::Log => {
-                    println!("[{}] ALERT {}: {} ({})", 
+                    println!("[{}] ALERT {}: {} ({})",
                         Utc::now().format("%Y-%m-%d %H:%M:%S"),
                         rule.severity.to_string().to_uppercase(),
                         alert.message,
@@ -832,7 +832,7 @@ impl EnvironmentalAlertingSystem {
                     );
                 },
                 NotificationMethod::Console => {
-                    eprintln!("\x1b[31mALERT {}: {} ({})\x1b[0m", 
+                    eprintln!("\x1b[31mALERT {}: {} ({})\x1b[0m",
                         rule.severity.to_string().to_uppercase(),
                         alert.message,
                         alert.id
@@ -859,7 +859,7 @@ impl ToString for AlertSeverity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_comparison_operators() {
         let system = EnvironmentalAlertingSystem::new(
@@ -868,25 +868,25 @@ mod tests {
             EmissionsTracker::new(),
             EnvironmentalTreasury::new(),
         );
-        
+
         assert!(system.compare_value(10.0, 5.0, ComparisonOperator::GreaterThan));
         assert!(!system.compare_value(5.0, 10.0, ComparisonOperator::GreaterThan));
-        
+
         assert!(system.compare_value(10.0, 10.0, ComparisonOperator::GreaterThanOrEqual));
         assert!(system.compare_value(15.0, 10.0, ComparisonOperator::GreaterThanOrEqual));
         assert!(!system.compare_value(5.0, 10.0, ComparisonOperator::GreaterThanOrEqual));
-        
+
         assert!(system.compare_value(5.0, 10.0, ComparisonOperator::LessThan));
         assert!(!system.compare_value(10.0, 5.0, ComparisonOperator::LessThan));
-        
+
         assert!(system.compare_value(10.0, 10.0, ComparisonOperator::LessThanOrEqual));
         assert!(system.compare_value(5.0, 10.0, ComparisonOperator::LessThanOrEqual));
         assert!(!system.compare_value(15.0, 10.0, ComparisonOperator::LessThanOrEqual));
-        
+
         assert!(system.compare_value(10.0, 10.0, ComparisonOperator::Equal));
         assert!(!system.compare_value(10.1, 10.0, ComparisonOperator::Equal));
-        
+
         assert!(system.compare_value(10.1, 10.0, ComparisonOperator::NotEqual));
         assert!(!system.compare_value(10.0, 10.0, ComparisonOperator::NotEqual));
     }
-} 
+}

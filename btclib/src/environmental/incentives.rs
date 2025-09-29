@@ -15,16 +15,16 @@ use chrono::{DateTime, Utc};
 pub enum IncentiveError {
     #[error("Invalid miner information: {0}")]
     InvalidMinerInfo(String),
-    
+
     #[error("Verification error: {0}")]
     VerificationError(String),
-    
+
     #[error("Treasury error: {0}")]
     TreasuryError(#[from] TreasuryError),
-    
+
     #[error("Emissions calculation error: {0}")]
     EmissionsError(#[from] EmissionsError),
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
 }
@@ -52,49 +52,49 @@ pub enum IncentiveTier {
 pub struct IncentiveConfig {
     /// Whether green mining incentives are enabled
     pub enabled: bool,
-    
+
     /// Minimum renewable percentage for Bronze tier
     pub bronze_threshold: f64,
-    
+
     /// Minimum renewable percentage for Silver tier
     pub silver_threshold: f64,
-    
+
     /// Minimum renewable percentage for Gold tier
     pub gold_threshold: f64,
-    
+
     /// Minimum renewable percentage for Platinum tier
     pub platinum_threshold: f64,
-    
+
     /// Fee discount percentage for Bronze tier
     pub bronze_fee_discount: f64,
-    
+
     /// Fee discount percentage for Silver tier
     pub silver_fee_discount: f64,
-    
+
     /// Fee discount percentage for Gold tier
     pub gold_fee_discount: f64,
-    
+
     /// Fee discount percentage for Platinum tier
     pub platinum_fee_discount: f64,
-    
+
     /// Reward multiplier for Bronze tier (as percentage above base reward)
     pub bronze_reward_multiplier: f64,
-    
+
     /// Reward multiplier for Silver tier
     pub silver_reward_multiplier: f64,
-    
+
     /// Reward multiplier for Gold tier
     pub gold_reward_multiplier: f64,
-    
+
     /// Reward multiplier for Platinum tier
     pub platinum_reward_multiplier: f64,
-    
+
     /// Percentage of additional rewards funded by treasury
     pub treasury_funding_percentage: f64,
-    
+
     /// Whether verification is required for incentives
     pub require_verification: bool,
-    
+
     /// Maximum total additional rewards per block (as percentage of base reward)
     pub max_additional_rewards_percentage: f64,
 }
@@ -127,22 +127,22 @@ impl Default for IncentiveConfig {
 pub struct MinerIncentiveStatus {
     /// Miner's ID
     pub miner_id: String,
-    
+
     /// Incentive tier
     pub tier: IncentiveTier,
-    
+
     /// Renewable energy percentage
     pub renewable_percentage: f64,
-    
+
     /// Verification status
     pub verification_status: VerificationStatus,
-    
+
     /// Fee discount percentage
     pub fee_discount: f64,
-    
+
     /// Reward multiplier
     pub reward_multiplier: f64,
-    
+
     /// Last updated timestamp
     pub last_updated: DateTime<Utc>,
 }
@@ -151,13 +151,13 @@ pub struct MinerIncentiveStatus {
 pub struct GreenIncentiveManager {
     /// Configuration
     config: IncentiveConfig,
-    
+
     /// Miner incentive status by ID
     miner_status: Arc<RwLock<HashMap<String, MinerIncentiveStatus>>>,
-    
+
     /// Emissions tracker reference
     emissions_tracker: Arc<EmissionsTracker>,
-    
+
     /// Treasury reference
     treasury: Arc<EnvironmentalTreasury>,
 }
@@ -176,33 +176,33 @@ impl GreenIncentiveManager {
             treasury,
         }
     }
-    
+
     /// Update the incentive configuration
     pub fn update_config(&mut self, config: IncentiveConfig) {
         self.config = config;
     }
-    
+
     /// Register or update a miner's environmental information
     pub async fn register_miner(&self, miner_id: &str, info: &MinerEnvironmentalInfo) -> IncentiveResult<MinerIncentiveStatus> {
         if !self.config.enabled {
             return Err(IncentiveError::ConfigError("Green incentives are not enabled".to_string()));
         }
-        
+
         // Calculate the tier based on renewable percentage
         let tier = self.calculate_tier(info.renewable_percentage);
-        
+
         // Calculate fee discount and reward multiplier based on tier
         let (fee_discount, reward_multiplier) = self.calculate_incentives(tier);
-        
+
         // Check verification if required
-        if self.config.require_verification && 
+        if self.config.require_verification &&
            info.verification_status != VerificationStatus::Verified &&
            tier != IncentiveTier::Standard {
             return Err(IncentiveError::VerificationError(
                 "Verification required for incentives".to_string()
             ));
         }
-        
+
         // Create status
         let status = MinerIncentiveStatus {
             miner_id: miner_id.to_string(),
@@ -213,14 +213,14 @@ impl GreenIncentiveManager {
             reward_multiplier,
             last_updated: Utc::now(),
         };
-        
+
         // Store status
         let mut miner_status = self.miner_status.write().await;
         miner_status.insert(miner_id.to_string(), status.clone());
-        
+
         Ok(status)
     }
-    
+
     /// Calculate the appropriate tier for a given renewable percentage
     fn calculate_tier(&self, renewable_percentage: f64) -> IncentiveTier {
         if renewable_percentage >= self.config.platinum_threshold {
@@ -235,7 +235,7 @@ impl GreenIncentiveManager {
             IncentiveTier::Standard
         }
     }
-    
+
     /// Calculate fee discount and reward multiplier based on tier
     fn calculate_incentives(&self, tier: IncentiveTier) -> (f64, f64) {
         match tier {
@@ -258,41 +258,41 @@ impl GreenIncentiveManager {
             IncentiveTier::Standard => (0.0, 0.0),
         }
     }
-    
+
     /// Get a miner's incentive status
     pub async fn get_miner_status(&self, miner_id: &str) -> Option<MinerIncentiveStatus> {
         let miner_status = self.miner_status.read().await;
         miner_status.get(miner_id).cloned()
     }
-    
+
     /// Calculate additional reward for a green miner
     pub async fn calculate_additional_reward(&self, miner_id: &str, base_reward: u64) -> IncentiveResult<u64> {
         if !self.config.enabled {
             return Ok(0);
         }
-        
+
         // Get miner status
         let status = match self.get_miner_status(miner_id).await {
             Some(status) => status,
             None => return Ok(0), // No additional reward for unregistered miners
         };
-        
+
         // Calculate additional reward
         let additional_percentage = status.reward_multiplier;
         if additional_percentage <= 0.0 {
             return Ok(0);
         }
-        
+
         // Calculate additional reward amount
         let additional_reward = (base_reward as f64 * additional_percentage / 100.0) as u64;
-        
+
         // Apply maximum cap
         let max_additional = (base_reward as f64 * self.config.max_additional_rewards_percentage / 100.0) as u64;
         let capped_reward = additional_reward.min(max_additional);
-        
+
         // Determine how much comes from the treasury
         let treasury_contribution = (capped_reward as f64 * self.config.treasury_funding_percentage / 100.0) as u64;
-        
+
         // Transfer from treasury if needed
         if treasury_contribution > 0 {
             self.treasury.transfer(
@@ -301,87 +301,87 @@ impl GreenIncentiveManager {
                 treasury_contribution as f64
             ).await.map_err(IncentiveError::TreasuryError)?;
         }
-        
+
         Ok(capped_reward)
     }
-    
+
     /// Calculate fee discount for a transaction based on miner status
     pub async fn calculate_fee_discount(&self, miner_id: &str, base_fee: u64) -> IncentiveResult<u64> {
         if !self.config.enabled {
             return Ok(0);
         }
-        
+
         // Get miner status
         let status = match self.get_miner_status(miner_id).await {
             Some(status) => status,
             None => return Ok(0), // No discount for unregistered miners
         };
-        
+
         // Calculate discount amount
         let discount = (base_fee as f64 * status.fee_discount / 100.0) as u64;
-        
+
         Ok(discount)
     }
-    
+
     /// Process a block mined by a green miner
     pub async fn process_green_block(&self, block: &Block, miner_id: &str, base_reward: u64) -> IncentiveResult<u64> {
         if !self.config.enabled {
             return Ok(0);
         }
-        
+
         // Calculate additional reward
         let additional_reward = self.calculate_additional_reward(miner_id, base_reward).await?;
-        
+
         // Record environmental impact
         if additional_reward > 0 {
             // This would integrate with emissions tracking to record the positive impact
             // of incentivizing green mining
         }
-        
+
         Ok(additional_reward)
     }
-    
+
     /// Get all miner incentive statuses
     pub async fn get_all_miner_statuses(&self) -> HashMap<String, MinerIncentiveStatus> {
         self.miner_status.read().await.clone()
     }
-    
+
     /// Get miners by tier
     pub async fn get_miners_by_tier(&self, tier: IncentiveTier) -> Vec<MinerIncentiveStatus> {
         let miner_status = self.miner_status.read().await;
-        
+
         miner_status.values()
             .filter(|status| status.tier == tier)
             .cloned()
             .collect()
     }
-    
+
     /// Get tier distribution statistics
     pub async fn get_tier_distribution(&self) -> HashMap<IncentiveTier, usize> {
         let miner_status = self.miner_status.read().await;
         let mut distribution = HashMap::new();
-        
+
         // Initialize all tiers with 0
         distribution.insert(IncentiveTier::Standard, 0);
         distribution.insert(IncentiveTier::Bronze, 0);
         distribution.insert(IncentiveTier::Silver, 0);
         distribution.insert(IncentiveTier::Gold, 0);
         distribution.insert(IncentiveTier::Platinum, 0);
-        
+
         // Count miners in each tier
         for status in miner_status.values() {
             *distribution.entry(status.tier).or_insert(0) += 1;
         }
-        
+
         distribution
     }
-    
+
     /// Get total fees discounted
     pub async fn get_total_discounted_fees(&self) -> f64 {
         // In a real implementation, this would track and return actual discounted fees
         0.0
     }
-    
+
     /// Get total additional rewards paid
     pub async fn get_total_additional_rewards(&self) -> f64 {
         // In a real implementation, this would track and return actual additional rewards
@@ -392,7 +392,7 @@ impl GreenIncentiveManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     // Helper to create a test miner info
     fn create_test_miner_info(renewable_percentage: f64, verified: bool) -> MinerEnvironmentalInfo {
         MinerEnvironmentalInfo {
@@ -412,19 +412,19 @@ mod tests {
             energy_consumption_kwh: 0.0,
         }
     }
-    
+
     #[tokio::test]
     async fn test_tier_calculation() {
         // Test would go here
     }
-    
+
     #[tokio::test]
     async fn test_incentive_calculation() {
         // Test would go here
     }
-    
+
     #[tokio::test]
     async fn test_verification_requirement() {
         // Test would go here
     }
-} 
+}

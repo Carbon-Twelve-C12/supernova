@@ -13,10 +13,10 @@ use tempfile::tempdir;
 fn bench_transaction_validation(b: &mut Bencher) {
     let temp_dir = tempdir().unwrap();
     let db = BlockchainDB::new(temp_dir.path()).unwrap();
-    
+
     // Create a transaction for benchmarking
     let tx = create_benchmark_transaction();
-    
+
     b.iter(|| {
         // Validate transaction (simplified for benchmark)
         tx.validate(|_, _| Some(TransactionOutput::new(100_000, vec![])))
@@ -27,10 +27,10 @@ fn bench_transaction_validation(b: &mut Bencher) {
 fn bench_block_validation(b: &mut Bencher) {
     let temp_dir = tempdir().unwrap();
     let db = BlockchainDB::new(temp_dir.path()).unwrap();
-    
+
     // Create a block for benchmarking
     let block = create_benchmark_block();
-    
+
     b.iter(|| {
         // Validate block
         block.validate()
@@ -48,7 +48,7 @@ fn bench_merkle_tree_construction(b: &mut Bencher) {
             data
         })
         .collect::<Vec<_>>();
-    
+
     b.iter(|| {
         // Construct merkle tree
         let tree = MerkleTree::new(&transactions);
@@ -60,12 +60,12 @@ fn bench_merkle_tree_construction(b: &mut Bencher) {
 fn bench_mempool_insertion(b: &mut Bencher) {
     let config = MempoolConfig::default();
     let pool = TransactionPool::new(config);
-    
+
     // Create transactions for benchmarking
     let transactions: Vec<_> = (0..100)
         .map(|i| create_transaction_with_hash([i as u8; 32]))
         .collect();
-    
+
     b.iter(|| {
         for tx in &transactions {
             let _ = pool.add_transaction(tx.clone(), 1);
@@ -80,12 +80,12 @@ fn create_benchmark_transaction() -> Transaction {
         vec![],
         0xffffffff,
     );
-    
+
     let output = TransactionOutput::new(
         100_000,
         vec![1, 2, 3, 4],
     );
-    
+
     Transaction::new(
         1,
         vec![input],
@@ -101,12 +101,12 @@ fn create_transaction_with_hash(hash: [u8; 32]) -> Transaction {
         vec![],
         0xffffffff,
     );
-    
+
     let output = TransactionOutput::new(
         100_000,
         vec![1, 2, 3, 4],
     );
-    
+
     Transaction::new(
         1,
         vec![input],
@@ -119,7 +119,7 @@ fn create_benchmark_block() -> Block {
     let transactions = (0..100)
         .map(|_| create_benchmark_transaction())
         .collect();
-    
+
     Block::new(
         1,
         [0u8; 32],
