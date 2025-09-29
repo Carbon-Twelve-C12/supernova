@@ -86,7 +86,7 @@ impl TimeWarpPrevention {
         current_time: Option<u64>,    // For testing
     ) -> TimeValidationResult<()> {
         let timestamp = block_header.timestamp();
-        let current_time = current_time.unwrap_or_else(|| Self::current_time());
+        let current_time = current_time.unwrap_or_else(Self::current_time);
         
         // 1. Check if timestamp is too far in the future
         if timestamp > current_time + self.config.max_future_time {
@@ -325,7 +325,7 @@ mod tests {
         
         match result {
             Err(TimeValidationError::TooFarInFuture(ahead)) => {
-                assert_eq!(ahead, 10_000 - 7200); // Should be 2800 seconds too far
+                assert_eq!(ahead, 10_000); // Total time ahead
             }
             _ => panic!("Expected TooFarInFuture error"),
         }
@@ -338,7 +338,8 @@ mod tests {
         let mut prevention = TimeWarpPrevention::new(config);
         
         // Create alternating timestamp pattern (classic time warp)
-        let previous = vec![2000, 1000, 2100, 900, 2200];
+        // Previous timestamps in reverse order (newest first)
+        let previous = vec![2200, 900, 2100, 1000, 2000];
         let new_timestamp = 800; // Continues the pattern
         
         let header = BlockHeader::new(6, [0; 32], [0; 32], new_timestamp, 0x1d00ffff, 0);

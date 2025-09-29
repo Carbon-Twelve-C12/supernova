@@ -1,11 +1,8 @@
 use crate::api::error::{ApiError, ApiResult};
-use crate::api::types::{
-    EnvironmentalImpact, EnergyUsage, CarbonFootprint, EnvironmentalSettings,
-    ResourceUtilization,
-};
+use crate::api::types::EnvironmentalSettings;
 use crate::environmental::EnvironmentalMonitor;
 use actix_web::{web, HttpResponse};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
 

@@ -1,4 +1,4 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read, Write, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,8 +9,7 @@ use sha2::{Sha256, Digest};
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 
-use crate::types::block::{Block, BlockHeader};
-use crate::types::transaction::Transaction;
+use crate::types::block::Block;
 use crate::storage::chain_state::Checkpoint;
 
 /// Error types for backup operations
@@ -622,7 +621,7 @@ impl BackupManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::transaction::Transaction;
+    use crate::test_common::*;
     use tempfile::tempdir;
     
     #[test]

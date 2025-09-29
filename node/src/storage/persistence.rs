@@ -182,7 +182,7 @@ impl ChainState {
         let new_total = current_difficulty.saturating_add(new_block_difficulty);
         
         let difficulty_bytes = bincode::serialize(&new_total)
-            .map_err(|e| StorageError::Serialization(e))?;
+            .map_err(StorageError::Serialization)?;
             
         self.db.store_metadata(b"total_difficulty", &difficulty_bytes)?;
         Ok(())
@@ -659,7 +659,7 @@ impl ChainState {
         let mut distance = 0;
 
         while current.height() > 0 {
-            if self.db.get_block(&current.prev_block_hash())?.is_some() {
+            if self.db.get_block(current.prev_block_hash())?.is_some() {
                 return Ok(distance);
             }
             distance += 1;

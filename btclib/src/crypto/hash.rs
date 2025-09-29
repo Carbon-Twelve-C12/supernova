@@ -99,7 +99,7 @@ impl Hash for DoubleSha256Hash {
         let first_hash = hasher1.finalize();
         
         let mut hasher2 = Sha256::new();
-        hasher2.update(&first_hash);
+        hasher2.update(first_hash);
         hasher2.finalize().to_vec()
     }
     
@@ -226,6 +226,7 @@ pub fn hash_to_hex(hash: &[u8]) -> String {
 
 /// A 256-bit hash
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct CryptoHash([u8; 32]);
 
 impl CryptoHash {
@@ -241,7 +242,7 @@ impl CryptoHash {
     
     /// Convert to a hex string
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
     
     /// Create from a hex string
@@ -268,11 +269,6 @@ impl fmt::Display for CryptoHash {
     }
 }
 
-impl Default for CryptoHash {
-    fn default() -> Self {
-        CryptoHash([0u8; 32])
-    }
-}
 
 impl AsRef<[u8]> for CryptoHash {
     fn as_ref(&self) -> &[u8] {
@@ -303,7 +299,7 @@ pub fn sha256(data: &[u8]) -> CryptoHash {
 /// Compute SHA256(SHA256(data))
 pub fn hash256(data: &[u8]) -> [u8; 32] {
     let first_hash = Sha256::digest(data);
-    let second_hash = Sha256::digest(&first_hash);
+    let second_hash = Sha256::digest(first_hash);
     let mut result = [0u8; 32];
     result.copy_from_slice(&second_hash);
     result
@@ -314,7 +310,7 @@ pub fn hash160(data: &[u8]) -> [u8; 20] {
     use ripemd::{Ripemd160, Digest as RipemdDigest};
     
     let sha256_hash = Sha256::digest(data);
-    let ripemd_hash = Ripemd160::digest(&sha256_hash);
+    let ripemd_hash = Ripemd160::digest(sha256_hash);
     
     let mut result = [0u8; 20];
     result.copy_from_slice(&ripemd_hash);

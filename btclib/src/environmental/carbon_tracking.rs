@@ -2,15 +2,15 @@
 // Implements real-time carbon footprint measurement with multi-oracle consensus
 // Leveraging Nova Energy expertise for environmental leadership
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc, Duration};
-use sha2::{Sha256, Digest};
+use chrono::{DateTime, Utc};
+use sha2::Digest;
 
 use crate::environmental::{
-    oracle::{EnvironmentalOracle, OracleSubmission, EnvironmentalData, OracleError},
-    emissions::{EmissionFactor, EmissionsCalculator},
+    oracle::{EnvironmentalOracle, EnvironmentalData, OracleError},
+    emissions::EmissionsCalculator,
     types::{Region, EnergySource as EnergySourceType},
     verification::{RenewableCertificate as BaseRenewableCertificate, CarbonOffset as BaseCarbonOffset},
 };
@@ -475,12 +475,10 @@ impl CarbonTracker {
         entity_id: &str,
         energy_sources: &HashMap<EnergySourceType, f64>,
     ) -> Result<f64, OracleError> {
-        let renewable_types = vec![
-            EnergySourceType::Solar,
+        let renewable_types = [EnergySourceType::Solar,
             EnergySourceType::Wind,
             EnergySourceType::Hydro,
-            EnergySourceType::Geothermal,
-        ];
+            EnergySourceType::Geothermal];
         
         let renewable_percentage: f64 = energy_sources.iter()
             .filter(|(source, _)| renewable_types.contains(source))

@@ -1,5 +1,4 @@
 use btclib::types::{Block, BlockHeader, Transaction, TransactionInput, TransactionOutput};
-use btclib::crypto::hash256;
 use chrono::Utc;
 
 /// Create the genesis block for a given chain ID

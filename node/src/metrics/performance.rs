@@ -4,7 +4,6 @@ use std::collections::VecDeque;
 use serde::{Serialize, Deserialize};
 use tokio::time;
 use std::future::Future;
-use std::pin::Pin;
 
 /// Performance metric types
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -86,7 +85,7 @@ impl PerformanceMetrics {
             context,
         };
         
-        let metric_history = self.metrics.entry(metric_type).or_insert_with(VecDeque::new);
+        let metric_history = self.metrics.entry(metric_type).or_default();
         
         // Add new data point
         metric_history.push_back(data_point);

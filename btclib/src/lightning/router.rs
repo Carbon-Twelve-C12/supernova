@@ -3,14 +3,13 @@
 // This file contains the implementation of the Lightning Network router,
 // which handles finding payment paths and routing payments through the network.
 
-use crate::lightning::channel::{ChannelId, ChannelState};
-use std::collections::{HashMap, HashSet, BTreeMap};
+use crate::lightning::channel::ChannelId;
+use std::collections::{HashMap, HashSet};
 use std::cmp::Ordering;
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
-use tracing::{debug, info, warn, error};
+use tracing::{info, warn, error};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use priority_queue::PriorityQueue;
 use serde::{Serialize, Deserialize};
 
 /// Error types for routing operations
@@ -155,6 +154,12 @@ pub struct PaymentPath {
     
     /// Total amount to send including fees
     pub total_amount_msat: u64,
+}
+
+impl Default for PaymentPath {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PaymentPath {
@@ -373,6 +378,12 @@ pub struct NetworkGraph {
     last_update: u64,
 }
 
+impl Default for NetworkGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetworkGraph {
     /// Create a new network graph
     pub fn new() -> Self {
@@ -389,9 +400,7 @@ impl NetworkGraph {
     
     /// Add a node to the graph
     pub fn add_node(&mut self, node_id: NodeId) {
-        if !self.nodes.contains_key(&node_id) {
-            self.nodes.insert(node_id, Vec::new());
-        }
+        self.nodes.entry(node_id).or_default();
     }
     
     /// Add a channel to the graph
@@ -524,6 +533,12 @@ pub struct Router {
     local_node: NodeId,
 }
 
+impl Default for Router {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Router {
     /// Create a new router
     pub fn new() -> Self {
@@ -628,7 +643,7 @@ impl Router {
     ) -> Result<PaymentPath, RoutingError> {
         // Implement Dijkstra's algorithm for Lightning Network routing
         use std::collections::BinaryHeap;
-        use std::cmp::Reverse;
+        
         
         #[derive(Debug, Clone, PartialEq, Eq)]
         struct RouteState {
@@ -860,7 +875,7 @@ impl Router {
         self.preferences = new_prefs;
         
         // Find a new route
-        let last_hop = path.hops.last().ok_or_else(|| RoutingError::NoRouteFound)?;
+        let last_hop = path.hops.last().ok_or(RoutingError::NoRouteFound)?;
         let result = self.find_route(
             last_hop.node_id.as_str(),
             last_hop.amount_msat,
@@ -1118,7 +1133,7 @@ impl Router {
         }
         
         // Create a new path with the same endpoints
-        let mut optimized = PaymentPath::new();
+        let optimized = PaymentPath::new();
         let amount_msat = path.total_amount_msat;
         
         // Get start and end nodes
@@ -1126,7 +1141,7 @@ impl Router {
         let destination = &path.hops.last().unwrap().node_id;
         
         // Create modified preferences that optimize for fees
-        let mut fee_preferences = self.preferences.clone();
+        let fee_preferences = self.preferences.clone();
         
         // Set a custom scoring function that prioritizes lower fees
         let fee_scorer = ChannelScorer::new(ScoringFunction::LowestFee);

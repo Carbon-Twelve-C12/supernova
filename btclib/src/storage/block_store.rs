@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock, Mutex};
 
 use bincode;
@@ -246,7 +246,7 @@ impl BlockStore {
         };
         
         // Get current file info
-        let (file_no, mut offset) = {
+        let (file_no, offset) = {
             let file_no = *self.current_file_no.read().map_err(|_| {
                 BlockStoreError::IndexError("Failed to acquire read lock".to_string())
             })?;

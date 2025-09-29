@@ -1,8 +1,8 @@
 //! Logging utilities for the Supernova blockchain
 
 use tracing::{info, warn, error, debug, Level};
-use tracing_subscriber::{EnvFilter, fmt};
-use std::fs::{File, OpenOptions};
+use tracing_subscriber::EnvFilter;
+use std::fs::OpenOptions;
 use std::path::PathBuf;
 use chrono::Local;
 

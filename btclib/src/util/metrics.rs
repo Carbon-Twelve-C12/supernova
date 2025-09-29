@@ -1,11 +1,10 @@
 //! Metrics collection and reporting utilities
 
 use prometheus::{
-    Registry, IntGauge, IntGaugeVec, IntCounter, IntCounterVec, 
-    Gauge, GaugeVec, Histogram, HistogramVec, Opts, HistogramOpts
+    Registry, IntGauge, IntCounter, 
+    Gauge, Histogram, HistogramOpts
 };
 use lazy_static::lazy_static;
-use std::sync::Arc;
 
 /// Default histogram buckets for timing operations
 pub const DEFAULT_BUCKETS: &[f64] = &[

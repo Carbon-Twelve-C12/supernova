@@ -1,12 +1,9 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
-use tracing::{info, warn, error};
+use tracing::info;
 use serde::{Serialize, Deserialize};
 use btclib::testnet::{TestNetManager, TestNetConfig};
 use btclib::testnet::faucet::{Faucet, FaucetError};
-use crate::storage::BlockchainDB;
-use crate::network::P2PNetwork;
 
 /// Testnet manager for the Supernova node
 pub struct NodeTestnetManager {
@@ -51,6 +48,7 @@ pub struct TestnetNodeConfig {
 
 /// Testnet statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct TestnetStats {
     /// Total faucet distributions
     pub total_faucet_distributions: u64,
@@ -129,19 +127,6 @@ impl Default for TestnetNodeConfig {
     }
 }
 
-impl Default for TestnetStats {
-    fn default() -> Self {
-        Self {
-            total_faucet_distributions: 0,
-            total_faucet_amount: 0,
-            unique_faucet_recipients: 0,
-            test_blocks_mined: 0,
-            test_transactions_processed: 0,
-            network_simulation_events: 0,
-            uptime_seconds: 0,
-        }
-    }
-}
 
 impl NodeTestnetManager {
     /// Create a new testnet manager

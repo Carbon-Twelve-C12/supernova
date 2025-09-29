@@ -10,7 +10,6 @@ use std::time::{Instant, Duration};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use sha2::{Sha256, Digest};
-use btclib::types::transaction::Transaction;
 
 // Memory-hard constants for ASIC resistance
 const MEMORY_SIZE: usize = 4 * 1024 * 1024; // 4MB memory requirement
@@ -22,6 +21,12 @@ pub struct MiningMetrics {
     blocks_mined: AtomicU64,
     last_block_time: std::sync::Mutex<Option<Instant>>,
     start_time: Instant,
+}
+
+impl Default for MiningMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MiningMetrics {
@@ -128,7 +133,7 @@ impl MiningWorker {
         let mut template = BlockTemplate::new(
             version,
             prev_block_hash,
-            self.target.load(Ordering::Relaxed) as u32,
+            self.target.load(Ordering::Relaxed),
             reward_address.clone(),
             self.mempool.as_ref(),
             block_height,
@@ -177,7 +182,7 @@ impl MiningWorker {
                 template = BlockTemplate::new(
                     version,
                     prev_block_hash,
-                    self.target.load(Ordering::Relaxed) as u32,
+                    self.target.load(Ordering::Relaxed),
                     reward_address.clone(),
                     self.mempool.as_ref(),
                     block_height,
@@ -197,7 +202,7 @@ impl MiningWorker {
         let mut hash_value = [0u8; 8];
         hash_value[..4].copy_from_slice(&hash[..4]);
         let hash_value = u64::from_be_bytes(hash_value);
-        hash_value as u32 <= self.target.load(Ordering::Relaxed) as u32
+        hash_value as u32 <= self.target.load(Ordering::Relaxed)
     }
     
     // Extract block header for hashing
@@ -206,7 +211,7 @@ impl MiningWorker {
         
         // We need to extract header fields by directly accessing the header fields
         // or using the available methods
-        header.extend_from_slice(&*block.prev_block_hash());
+        header.extend_from_slice(block.prev_block_hash());
         
         // Use hash directly as we don't have access to other header fields
         let hash = block.hash();

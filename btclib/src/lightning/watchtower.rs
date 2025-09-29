@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
-use sha2::{Sha256, Digest};
+use sha2::Digest;
 use crate::lightning::channel::ChannelId;
 
 /// Encrypted channel state for watchtower storage
@@ -427,6 +427,12 @@ pub struct ChannelMonitor {
     channels: HashMap<ChannelId, ChannelMonitorInfo>,
     /// Quantum security configuration
     quantum_scheme: Option<QuantumScheme>,
+}
+
+impl Default for ChannelMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ChannelMonitor {

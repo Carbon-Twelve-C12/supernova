@@ -1,10 +1,9 @@
 //! API error types and error handling
 
 use std::fmt;
-use actix_web::{HttpResponse, ResponseError, Responder, HttpRequest};
+use actix_web::{HttpResponse, ResponseError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use utoipa::ToSchema;
 
 /// API error types with security-conscious error messages
 #[derive(Debug, Serialize, Deserialize)]
@@ -239,7 +238,7 @@ impl From<crate::node::NodeError> for ApiError {
             crate::node::NodeError::LightningError(_) => Self::service_unavailable("Lightning Network unavailable"),
             crate::node::NodeError::IoError(_) => Self::internal_error("I/O operation failed"),
             crate::node::NodeError::General(msg) => Self::internal_error(&msg),
-            crate::node::NodeError::MempoolError(e) => Self::bad_request(&e.to_string()),
+            crate::node::NodeError::MempoolError(e) => Self::bad_request(e.to_string()),
             crate::node::NodeError::TestnetError(e) => Self::bad_request(&e),
         }
     }

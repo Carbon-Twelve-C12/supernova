@@ -151,7 +151,7 @@ impl MerkleTree {
             }
             
             // Move to parent index for the next level
-            current_index = current_index / 2;
+            current_index /= 2;
         }
         
         Ok(MerkleProof {

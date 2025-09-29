@@ -171,7 +171,7 @@ impl BlockTemplate {
         }
         
         // Update the coinbase output with additional fee
-        if let Some(output) = self.coinbase.outputs().get(0) {
+        if let Some(output) = self.coinbase.outputs().first() {
             // Since we can't modify output directly, create a new output with higher amount
             let current_amount = output.amount();
             let new_amount = current_amount + additional_fee;

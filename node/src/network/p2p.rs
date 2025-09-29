@@ -4,37 +4,29 @@ use libp2p::{
     identity,
     PeerId,
     Multiaddr,
-    gossipsub::{self, Behaviour as Gossipsub, Event as GossipsubEvent, MessageAuthenticity, ValidationMode, ConfigBuilder, MessageId, Topic, TopicHash},
-    identify::{self, Behaviour as Identify, Event as IdentifyEvent},
-    kad::{self, Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, store::MemoryStore, record::Key},
-    mdns::{self, tokio::Behaviour as Mdns, Event as MdnsEvent},
+    gossipsub::{self, Behaviour as Gossipsub, TopicHash},
+    identify::{self, Behaviour as Identify},
+    kad::{Behaviour as Kademlia, store::MemoryStore},
+    mdns::{self, tokio::Behaviour as Mdns},
     noise,
-    swarm::{Swarm, SwarmBuilder, SwarmEvent, NetworkBehaviour, ConnectionError},
+    swarm::{Swarm, SwarmBuilder, SwarmEvent},
     tcp,
     yamux,
     Transport,
-    core::{
-        ConnectedPoint,
-        multiaddr::Protocol,
-        transport::{self, Transport as CoreTransport},
-        upgrade,
-    },
-    dns,
+    core::transport::{Transport as CoreTransport},
 };
-use void::Void;
-use byteorder::{BigEndian, WriteBytesExt};
 use crate::{
     network::{
         behaviour::{SupernovaBehaviour, SupernovaBehaviourEvent},
         discovery::PeerDiscovery,
-        protocol::{Message, Protocol as NetworkProtocol, PublishError, message_id_from_content},
+        protocol::Message,
         rate_limiter::{NetworkRateLimiter as RateLimiter, RateLimitConfig, RateLimitMetrics},
         peer::{self, PeerInfo, PeerState},
         eclipse_prevention::EclipseRiskLevel,
         peer_manager::{PeerManager, ConnectionLimits},
-        identity_verification::{IdentityVerificationSystem, IdentityChallenge as IdentityVerificationChallenge},
+        identity_verification::IdentityVerificationSystem,
     },
-    api::types::{PeerInfo as ApiPeerInfo, NetworkInfo, ConnectionCount, PeerAddResponse, BandwidthUsage},
+    api::types::{NetworkInfo, ConnectionCount, PeerAddResponse, BandwidthUsage},
 };
 use btclib::{Block, BlockHeader, Transaction};
 use std::{
@@ -46,13 +38,9 @@ use std::{
 };
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
-use tracing::{debug, info, warn, error, trace};
-use dashmap::DashMap;
+use tracing::{debug, info, warn};
 use futures::StreamExt;
-use rand::{Rng, RngCore, rngs::OsRng};
 use sha2::{Sha256, Digest};
-use serde::{Serialize, Deserialize};
 
 // Constants for network behavior
 const MIN_PEERS: usize = 3;
@@ -480,7 +468,7 @@ impl P2PNetwork {
         network_id: &str,
     ) -> Result<(Self, mpsc::Sender<NetworkCommand>, mpsc::Receiver<NetworkEvent>), Box<dyn Error>> {
         // Generate keypair if not provided
-        let id_keys = keypair.unwrap_or_else(|| identity::Keypair::generate_ed25519());
+        let id_keys = keypair.unwrap_or_else(identity::Keypair::generate_ed25519);
         let local_peer_id = PeerId::from(id_keys.public());
         info!("Local peer id: {}", local_peer_id);
         
@@ -522,7 +510,7 @@ impl P2PNetwork {
     
     /// Get the local peer ID
     pub fn local_peer_id(&self) -> PeerId {
-        self.local_peer_id.clone()
+        self.local_peer_id
     }
     
     /// Get the network ID
@@ -599,12 +587,12 @@ impl P2PNetwork {
                 gossipsub_config,
             ).map_err(|e| format!("Failed to create gossipsub: {}", e))?;
             
-            let store = MemoryStore::new(self.local_peer_id.clone());
-            let kademlia = Kademlia::new(self.local_peer_id.clone(), store);
+            let store = MemoryStore::new(self.local_peer_id);
+            let kademlia = Kademlia::new(self.local_peer_id, store);
             
             let mdns = Mdns::new(
                 mdns::Config::default(),
-                self.local_peer_id.clone(),
+                self.local_peer_id,
             )?;
             
             let identify = Identify::new(
@@ -614,7 +602,7 @@ impl P2PNetwork {
             
             // Create behaviour
             let behaviour = SupernovaBehaviour::new(
-                self.local_peer_id.clone(),
+                self.local_peer_id,
                 gossipsub,
                 kademlia,
                 mdns,
@@ -622,7 +610,7 @@ impl P2PNetwork {
             );
             
             // Create swarm
-            let swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, self.local_peer_id.clone())
+            let swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, self.local_peer_id)
                 .build();
             
             *self.swarm.write().await = Some(swarm);
@@ -710,26 +698,20 @@ impl P2PNetwork {
                                     SwarmEvent::Behaviour(behaviour_event) => {
                                         match behaviour_event {
                                             SupernovaBehaviourEvent::Gossipsub(gossipsub_event) => {
-                                                match gossipsub_event {
-                                                    gossipsub::Event::Message { propagation_source, message, .. } => {
-                                                        let wrapped = SwarmEventWrapper::Message {
-                                                            peer_id: propagation_source,
-                                                            topic: message.topic.to_string(),
-                                                            data: message.data,
-                                                        };
-                                                        let _ = swarm_event_tx.send(wrapped).await;
-                                                    }
-                                                    _ => {}
+                                                if let gossipsub::Event::Message { propagation_source, message, .. } = gossipsub_event {
+                                                    let wrapped = SwarmEventWrapper::Message {
+                                                        peer_id: propagation_source,
+                                                        topic: message.topic.to_string(),
+                                                        data: message.data,
+                                                    };
+                                                    let _ = swarm_event_tx.send(wrapped).await;
                                                 }
                                             }
                                             SupernovaBehaviourEvent::Mdns(mdns_event) => {
-                                                match mdns_event {
-                                                    mdns::Event::Discovered(list) => {
-                                                        let peers: Vec<PeerId> = list.into_iter().map(|(peer_id, _)| peer_id).collect();
-                                                        let wrapped = SwarmEventWrapper::Discovered { peers };
-                                                        let _ = swarm_event_tx.send(wrapped).await;
-                                                    }
-                                                    _ => {}
+                                                if let mdns::Event::Discovered(list) = mdns_event {
+                                                    let peers: Vec<PeerId> = list.into_iter().map(|(peer_id, _)| peer_id).collect();
+                                                    let wrapped = SwarmEventWrapper::Discovered { peers };
+                                                    let _ = swarm_event_tx.send(wrapped).await;
                                                 }
                                             }
                                             _ => {}
@@ -855,8 +837,8 @@ impl P2PNetwork {
                 // Parse the address and attempt to connect
                 if let Ok(addr) = addr_str.parse::<Multiaddr>() {
                     let addr_str = addr.to_string();
-                    let mut swarm_guard = swarm_cmd_tx.send(SwarmCommand::Dial(addr)).await;
-                    if let Ok(_) = swarm_guard {
+                    let swarm_guard = swarm_cmd_tx.send(SwarmCommand::Dial(addr)).await;
+                    if swarm_guard.is_ok() {
                         debug!("Dialing peer at {}", addr_str);
                         let mut stats_guard = stats.write().await;
                         stats_guard.connection_attempts += 1;
@@ -1452,7 +1434,7 @@ impl P2PNetwork {
         let ban_until = Instant::now() + duration.unwrap_or(BAN_DURATION);
         
         // Add to banned peers
-        self.banned_peers.write().await.insert(peer_id.clone(), ban_until);
+        self.banned_peers.write().await.insert(*peer_id, ban_until);
         
         // Remove from connected peers
         self.connected_peers.write().await.remove(peer_id);
@@ -1520,7 +1502,7 @@ impl P2PNetwork {
         
         // Send pong response
         Self::send_to_peer_static(
-            peer_id.clone(),
+            *peer_id,
             pong_message,
             &self.swarm,
             &self.stats,
@@ -1994,7 +1976,7 @@ fn solve_pow_challenge(challenge: &[u8], difficulty: u8) -> Vec<u8> {
         // Hash challenge + nonce
         let mut hasher = Sha256::new();
         hasher.update(challenge);
-        hasher.update(&nonce_bytes);
+        hasher.update(nonce_bytes);
         let hash = hasher.finalize();
         
         // Check if it meets difficulty

@@ -1,12 +1,10 @@
 use prometheus::{
-    Registry, IntGauge, IntGaugeVec, IntCounter, IntCounterVec, 
-    Gauge, GaugeVec, Histogram, HistogramVec, Opts, HistogramOpts
+    Registry, IntGaugeVec, IntCounterVec, GaugeVec, HistogramVec, Opts, HistogramOpts
 };
-use std::sync::Arc;
 use std::time::Duration;
 use std::collections::HashMap;
 use crate::monitoring::MetricsError;
-use tracing::{info, warn, error, debug};
+use tracing::{warn, debug};
 
 /// Network metrics collector
 pub struct NetworkMetrics {

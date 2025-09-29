@@ -1,11 +1,6 @@
 use libp2p::{
-    core::{
-        muxing::StreamMuxerBox,
-        upgrade::{self, InboundUpgrade, OutboundUpgrade, UpgradeInfo, Negotiated, DeniedUpgrade},
-        ConnectedPoint, Multiaddr,
-    },
-    kad::{self, Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, QueryId, QueryResult, Record, BootstrapError, store::MemoryStore},
-    swarm::DialError,
+    core::Multiaddr,
+    kad::{Behaviour as Kademlia, Config as KademliaConfig, Event as KademliaEvent, QueryId, QueryResult, store::MemoryStore},
     mdns::{self, Event as MdnsEvent, Config as MdnsConfig},
     identity::Keypair,
     PeerId,
@@ -17,9 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn, error};
-use serde::{Serialize, Deserialize};
-use void::Void;
+use tracing::{debug, info, warn};
 
 /// Events emitted by the discovery system
 #[derive(Debug, Clone)]
@@ -87,8 +80,8 @@ impl PeerDiscovery {
         kad_config.set_query_timeout(Duration::from_secs(60));
         kad_config.set_record_ttl(Some(Duration::from_secs(3600 * 24))); // 24 hours
         
-        let store = MemoryStore::new(local_peer_id.clone());
-        let mut kademlia = Kademlia::with_config(local_peer_id.clone(), store, kad_config);
+        let store = MemoryStore::new(local_peer_id);
+        let kademlia = Kademlia::with_config(local_peer_id, store, kad_config);
         
         // Set up mDNS for local network discovery if enabled
         let mdns = if enable_mdns {
@@ -231,7 +224,7 @@ impl PeerDiscovery {
                         let mut known_peers = self.known_peers.lock().unwrap();
                         known_peers
                             .entry(peer_id)
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(addr.clone());
                     }
                     

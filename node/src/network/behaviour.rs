@@ -1,8 +1,8 @@
 use libp2p::{
-    gossipsub::{self, Event as GossipsubEvent, Behaviour as Gossipsub},
-    identify::{self, Event as IdentifyEvent, Behaviour as Identify},
-    kad::{self, Event as KademliaEvent, store::MemoryStore, Behaviour as Kademlia},
-    mdns::{self, Event as MdnsEvent, tokio::Behaviour as Mdns},
+    gossipsub::{Event as GossipsubEvent, Behaviour as Gossipsub},
+    identify::{Event as IdentifyEvent, Behaviour as Identify},
+    kad::{Event as KademliaEvent, store::MemoryStore, Behaviour as Kademlia},
+    mdns::{Event as MdnsEvent, tokio::Behaviour as Mdns},
     swarm::NetworkBehaviour,
     PeerId,
 };

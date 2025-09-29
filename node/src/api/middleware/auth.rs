@@ -7,14 +7,13 @@
 use std::future::{ready, Ready};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     error::ErrorUnauthorized,
     http::header,
     Error,
 };
-use tracing::{debug, warn, error};
+use tracing::{warn, error};
 
 use super::auth_rate_limiter::{AuthRateLimiter, AuthRateLimiterConfig, AuthBlockedError};
 

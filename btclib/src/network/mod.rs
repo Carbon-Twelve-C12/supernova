@@ -4,7 +4,6 @@
 
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
-use std::net::{IpAddr, SocketAddr};
 
 pub mod quantum_p2p;
 

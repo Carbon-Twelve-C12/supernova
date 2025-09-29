@@ -126,6 +126,12 @@ pub struct DifficultyAdjustment {
     timestamp_validator: TimestampValidator,
 }
 
+impl Default for DifficultyAdjustment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DifficultyAdjustment {
     /// Create a new difficulty adjustment manager with default configuration (mainnet)
     pub fn new() -> Self {
@@ -171,7 +177,7 @@ impl DifficultyAdjustment {
         
         // Check if we're at an adjustment interval
         let latest_height = *block_heights.last()
-            .ok_or_else(|| DifficultyAdjustmentError::InsufficientHistory(1))?;
+            .ok_or(DifficultyAdjustmentError::InsufficientHistory(1))?;
         if latest_height % self.config.adjustment_interval != 0 && latest_height > 0 {
             // Not at an adjustment interval, so return the current target
             return Ok(current_target);
@@ -421,7 +427,7 @@ pub fn calculate_required_work(difficulty: u32) -> [u8; 32] {
     
     let mut target = [0u8; 32];
     
-    if exponent >= 3 && exponent <= 32 {
+    if (3..=32).contains(&exponent) {
         let pos = 32 - exponent;
         // Set the mantissa bytes
         if pos < 30 {

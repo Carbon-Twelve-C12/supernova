@@ -1,16 +1,13 @@
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::types::{
-    LightningInfo, LightningChannel, LightningPayment, LightningInvoice, 
-    OpenChannelRequest, OpenChannelResponse, CloseChannelRequest, 
-    PaymentRequest, PaymentResponse, InvoiceRequest, InvoiceResponse,
-    NodeInfo, Route,
+    OpenChannelRequest, CloseChannelRequest, 
+    PaymentRequest, InvoiceRequest,
 };
 use crate::node::Node;
 use actix_web::{web, HttpResponse};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
-use hex::FromHex;
 
 /// Configure lightning API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -169,7 +166,7 @@ pub async fn open_channel(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Open channel
-    let mut manager = lightning_manager.write()
+    let manager = lightning_manager.write()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let response = manager.open_channel(
         &request.node_id,
@@ -206,7 +203,7 @@ pub async fn close_channel(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Close channel
-    let mut manager = lightning_manager.write()
+    let manager = lightning_manager.write()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let success = manager.close_channel(
         &request.channel_id,
@@ -295,7 +292,7 @@ pub async fn send_payment(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Send payment
-    let mut manager = lightning_manager.write()
+    let manager = lightning_manager.write()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let response = manager.send_payment(
         &request.payment_request,
@@ -381,7 +378,7 @@ pub async fn create_invoice(
         .ok_or_else(|| ApiError::service_unavailable("Lightning Network is not enabled"))?;
     
     // Create invoice
-    let mut manager = lightning_manager.write()
+    let manager = lightning_manager.write()
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let response = manager.create_invoice(
         request.value_msat,

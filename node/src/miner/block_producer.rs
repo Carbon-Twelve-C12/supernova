@@ -72,17 +72,17 @@ impl BlockProducer {
             let mut next_level = Vec::new();
             for chunk in level.chunks(2) {
                 let mut hasher = Sha256::new();
-                hasher.update(&chunk[0]);
+                hasher.update(chunk[0]);
                 if let Some(second) = chunk.get(1) {
                     hasher.update(second);
                 } else {
-                    hasher.update(&chunk[0]); // Duplicate last hash if odd number
+                    hasher.update(chunk[0]); // Duplicate last hash if odd number
                 }
                 let result = hasher.finalize();
                 
                 // Double SHA-256
                 let mut hasher = Sha256::new();
-                hasher.update(&result);
+                hasher.update(result);
                 let double_hash = hasher.finalize();
                 
                 let mut hash = [0u8; 32];

@@ -304,7 +304,7 @@ impl<'a> ScriptValidator<'a> {
         // Find the start of the last push
         while pos > 0 {
             let len = script_sig[pos - 1] as usize;
-            if pos >= len + 1 {
+            if pos > len {
                 // Found a valid push
                 return Ok(script_sig[pos..pos + len].to_vec());
             }
@@ -321,7 +321,7 @@ impl<'a> ScriptValidator<'a> {
         let sha_result = sha.finalize();
         
         let mut ripemd = Ripemd160::new();
-        ripemd.update(&sha_result);
+        ripemd.update(sha_result);
         ripemd.finalize().to_vec()
     }
 }

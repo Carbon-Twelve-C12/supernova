@@ -13,13 +13,12 @@ use crate::crypto::quantum::{
     QuantumKeyPair, QuantumScheme, QuantumParameters, 
     sign_quantum, verify_quantum_signature
 };
-use crate::crypto::hash::{hash256, hash160};
+use crate::crypto::hash::hash256;
 use crate::crypto::zkp::{ZkpParams, ZeroKnowledgeProof, generate_zkp, verify_zkp};
-use crate::types::{Transaction, TransactionInput, TransactionOutput};
+use crate::types::{Transaction, TransactionOutput};
 use serde::{Serialize, Deserialize};
-use serde_arrays::*;
 use std::collections::HashMap;
-use std::time::{SystemTime, Duration};
+use std::time::SystemTime;
 use hex;
 
 /// Quantum-safe channel state

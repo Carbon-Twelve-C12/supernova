@@ -2,16 +2,14 @@
 // Implements carbon-conscious payment routing with environmental optimization
 // Prioritizes renewable energy nodes and carbon-negative routes
 
-use std::collections::{HashMap, HashSet, BinaryHeap};
+use std::collections::{HashMap, BinaryHeap};
 use std::sync::{Arc, RwLock};
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
-use serde_arrays::*;
 
 use crate::lightning::quantum_lightning::{
-    GreenLightningRoute, GreenRouteHop, QuantumLightningChannel,
-    ChannelEnvironmentalData, EnvironmentalLightningMetrics,
+    GreenLightningRoute, GreenRouteHop,
 };
 use crate::environmental::{
     carbon_tracking::CarbonTracker,
@@ -479,7 +477,7 @@ impl GreenLightningRouter {
         let mut zone_stats = Vec::new();
         for (region, zone) in &graph.zones {
             zone_stats.push(ZoneEnvironmentalStats {
-                region: region.clone(),
+                region: *region,
                 green_nodes_percentage: (zone.green_nodes_count as f64 / zone.total_nodes as f64) * 100.0,
                 average_renewable: zone.average_renewable_percentage,
                 carbon_intensity: zone.carbon_intensity,

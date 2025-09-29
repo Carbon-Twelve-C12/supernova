@@ -5,15 +5,13 @@
 
 use std::sync::Arc;
 use std::sync::RwLock as StdRwLock;
-use tokio::sync::RwLock;
 use crate::node::{Node, NodeError};
 use crate::api::types::*;
 use crate::storage::{BlockchainDB, ChainState};
 use crate::mempool::TransactionPool;
 use crate::network::NetworkProxy;
 use btclib::types::transaction::Transaction;
-use btclib::types::block::Block;
-use sysinfo::{System, Disks};
+use sysinfo::System;
 
 /// Thread-safe API facade that wraps the Node
 pub struct ApiFacade {
@@ -48,7 +46,7 @@ impl ApiFacade {
             chain_state: node.chain_state(),
             mempool: node.mempool(),
             network: node.network_proxy(),
-            peer_id: node.peer_id.clone(),
+            peer_id: node.peer_id,
             start_time: node.start_time,
             lightning_manager: node.lightning(),
         }
@@ -83,7 +81,7 @@ impl ApiFacade {
     pub fn get_node_info(&self) -> Result<NodeInfo, NodeError> {
         let chain_state = self.chain_state.read()
             .map_err(|e| NodeError::General(format!("Chain state lock poisoned: {}", e)))?;
-        let chain_height = chain_state.get_height() as u64;
+        let chain_height = chain_state.get_height();
         let best_block_hash = chain_state.get_best_block_hash();
         let connections = self.network.peer_count_sync() as u32;
         let synced = !self.network.is_syncing();
@@ -104,7 +102,7 @@ impl ApiFacade {
     /// Get node status
     pub async fn get_status(&self) -> NodeStatus {
         let (chain_height, best_block_hash) = match self.chain_state.read() {
-            Ok(state) => (state.get_height() as u64, state.get_best_block_hash()),
+            Ok(state) => (state.get_height(), state.get_best_block_hash()),
             Err(_) => (0, [0u8; 32]), // Safe default if lock is poisoned
         };
         let peer_count = self.network.peer_count().await;
@@ -143,7 +141,7 @@ impl ApiFacade {
     
     /// Get system info
     pub fn get_system_info(&self) -> Result<SystemInfo, NodeError> {
-        let mut sys = System::new_all();
+        let sys = System::new_all();
         
         let load_avg = System::load_average();
         
@@ -202,7 +200,7 @@ impl ApiFacade {
             uptime: self.start_time.elapsed().as_secs(),
             peer_count,
             block_height: self.chain_state.read()
-                .map(|state| state.get_height() as u64)
+                .map(|state| state.get_height())
                 .unwrap_or(0),
             mempool_size: self.mempool.size(),
             mempool_bytes: self.mempool.get_memory_usage() as usize,
@@ -254,10 +252,10 @@ impl ApiFacade {
         
         let backup_path = tokio::runtime::Handle::current().block_on(async {
             backup_manager.create_backup().await
-        }).map_err(|e| NodeError::StorageError(e))?;
+        }).map_err(NodeError::StorageError)?;
         
         let metadata = std::fs::metadata(&backup_path)
-            .map_err(|e| NodeError::IoError(e))?;
+            .map_err(NodeError::IoError)?;
         
         Ok(BackupInfo {
             id: uuid::Uuid::new_v4().to_string(),

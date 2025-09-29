@@ -81,7 +81,7 @@ impl WeightCalculator {
     /// Calculate weight for a P2WPKH input
     pub fn p2wpkh_input_weight() -> Weight {
         // Input base (no script sig) + witness data
-        Weight::new(4 * (32 + 4 + 1 + 4) + 1 * (1 + 73 + 34))
+        Weight::new(4 * (32 + 4 + 1 + 4) + (1 + 73 + 34))
     }
     
     /// Calculate weight for a P2PKH output

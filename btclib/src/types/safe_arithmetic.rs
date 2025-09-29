@@ -67,7 +67,7 @@ pub fn sum_safe<I>(mut iter: I) -> Result<u64, ArithmeticError>
 where
     I: Iterator<Item = u64>,
 {
-    iter.try_fold(0u64, |acc, val| safe_add(acc, val))
+    iter.try_fold(0u64, safe_add)
 }
 
 /// Safe percentage calculation (value * percentage / 100)

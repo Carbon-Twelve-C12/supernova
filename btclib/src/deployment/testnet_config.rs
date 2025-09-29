@@ -8,11 +8,7 @@ use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 
 use crate::crypto::quantum::{QuantumScheme, QuantumParameters};
-use crate::environmental::{
-    types::{Region, EnergySourceType},
-    oracle::OracleInfo,
-};
-use crate::lightning::quantum_lightning::QuantumChannelParams;
+use crate::environmental::types::Region;
 
 /// Comprehensive testnet configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,6 +221,12 @@ enum DeploymentPhase {
     InitializingOracles,
     LaunchingLightning,
     TestnetActive,
+}
+
+impl Default for TestnetDeploymentManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TestnetDeploymentManager {
@@ -454,8 +456,7 @@ impl TestnetDeploymentManager {
         println!("🔐 Setting up quantum signature testing...");
         
         // Create test scenarios
-        let test_scenarios = vec![
-            QuantumTestScenario {
+        let test_scenarios = [QuantumTestScenario {
                 name: "Dilithium Level 3 Performance".to_string(),
                 test_type: QuantumTestType::Performance,
                 iterations: 10000,
@@ -469,8 +470,7 @@ impl TestnetDeploymentManager {
                 name: "Hybrid Signature Compatibility".to_string(),
                 test_type: QuantumTestType::Compatibility,
                 iterations: 1000,
-            },
-        ];
+            }];
         
         println!("  Created {} quantum test scenarios", test_scenarios.len());
         

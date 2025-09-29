@@ -4,13 +4,11 @@
 // including invoice generation, parsing, and verification.
 
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use std::str::FromStr;
 use std::fmt;
 use thiserror::Error;
-use sha2::{Sha256, Digest};
-use rand::{thread_rng, Rng, RngCore};
+use sha2::Digest;
+use rand::{thread_rng, RngCore};
 use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize};
 
 // Import shared payment types
 use super::payment::{PaymentHash, PaymentPreimage};
@@ -657,6 +655,12 @@ pub struct InvoiceDatabase {
     last_update: u64,
 }
 
+impl Default for InvoiceDatabase {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InvoiceDatabase {
     /// Create a new invoice database
     pub fn new() -> Self {
@@ -803,10 +807,8 @@ impl InvoiceDatabase {
         for (payment_hash, invoice) in &self.invoices {
             let invoice_age = now.saturating_sub(invoice.base_invoice().timestamp());
             
-            if invoice_age > max_age_seconds {
-                if matches!(invoice.state(), InvoiceState::Paid | InvoiceState::Expired | InvoiceState::Canceled) {
-                    to_remove.push(*payment_hash);
-                }
+            if invoice_age > max_age_seconds && matches!(invoice.state(), InvoiceState::Paid | InvoiceState::Expired | InvoiceState::Canceled) {
+                to_remove.push(*payment_hash);
             }
         }
         

@@ -9,8 +9,6 @@ use chrono::{DateTime, Utc, Duration, Datelike, TimeZone};
 use sha2::{Sha256, Digest};
 
 use crate::environmental::{
-    verification::{RenewableCertificate, CarbonOffset},
-    renewable_validation::{ValidatedREC, ValidationStatus},
     types::{EnergySourceType, Region},
     oracle::OracleError,
 };
@@ -317,6 +315,12 @@ struct VerificationMetrics {
     pub average_review_time: Duration,
     pub approval_rate: f64,
     pub total_mwh_verified: f64,
+}
+
+impl Default for ManualVerificationSystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ManualVerificationSystem {

@@ -45,7 +45,7 @@ impl IdentityChallenge {
         // Combine peer ID, nonce, and solution
         let mut hasher = Sha256::new();
         hasher.update(peer_id.to_bytes());
-        hasher.update(&self.nonce);
+        hasher.update(self.nonce);
         hasher.update(solution);
         let hash = hasher.finalize();
         

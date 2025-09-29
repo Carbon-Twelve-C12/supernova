@@ -1,17 +1,16 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}};
-use std::time::{Duration, SystemTime, UNIX_EPOCH, Instant};
+use std::sync::{Arc, RwLock, atomic::{AtomicBool, AtomicU64, Ordering}};
+use std::time::{SystemTime, UNIX_EPOCH, Instant};
 use tokio::sync::mpsc;
-use tracing::{info, warn, error, debug};
+use tracing::{info, error};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use std::cell::RefCell;
 
-use crate::mining::{MiningConfig, BlockTemplate, MiningWorker, MiningMetrics};
+use crate::mining::{MiningConfig, BlockTemplate, MiningWorker};
 use crate::types::{Block, Transaction};
 use crate::mempool::TransactionPool;
 use crate::environmental::EmissionsTracker;
-use crate::crypto::quantum::QuantumScheme;
 
 /// Mining Manager - Central coordinator for mining operations
 pub struct MiningManager {
@@ -342,16 +341,12 @@ impl MiningManager {
             .clone();
         
         // Get environmental impact if tracker is available
-        let environmental_impact = if let Some(tracker) = &self.environmental_tracker {
-            Some(EnvironmentalImpact {
+        let environmental_impact = self.environmental_tracker.as_ref().map(|tracker| EnvironmentalImpact {
                 power_consumption_watts: self.estimate_power_consumption(hashrate),
                 carbon_emissions_per_hour: self.estimate_carbon_emissions(hashrate),
                 renewable_percentage: tracker.calculate_network_renewable_percentage(),
                 energy_efficiency: self.config.energy_efficiency_j_th,
-            })
-        } else {
-            None
-        };
+            });
         
         Ok(MiningInfo {
             is_mining,
@@ -405,15 +400,11 @@ impl MiningManager {
         };
         
         // Environmental data
-        let environmental_data = if let Some(tracker) = &self.environmental_tracker {
-            Some(TemplateEnvironmentalData {
+        let environmental_data = self.environmental_tracker.as_ref().map(|tracker| TemplateEnvironmentalData {
                 estimated_energy_kwh: self.estimate_block_energy_consumption(),
                 estimated_carbon_grams: self.estimate_block_carbon_emissions(),
                 green_mining_bonus: self.calculate_green_mining_bonus(),
-            })
-        } else {
-            None
-        };
+            });
         
         let template = MiningTemplate {
             version: 1,
@@ -691,7 +682,7 @@ impl MiningManager {
         }
         
         if let Some(intensity) = config.intensity {
-            if intensity < 0.0 || intensity > 1.0 {
+            if !(0.0..=1.0).contains(&intensity) {
                 return Err(MiningError::ConfigError("Intensity must be between 0.0 and 1.0".to_string()));
             }
         }
@@ -797,13 +788,13 @@ impl MiningManager {
             
             for chunk in hashes.chunks(2) {
                 let mut hasher = sha2::Sha256::new();
-                hasher.update(&chunk[0]);
+                hasher.update(chunk[0]);
                 
                 // If odd number of hashes, duplicate the last one
                 if chunk.len() == 2 {
-                    hasher.update(&chunk[1]);
+                    hasher.update(chunk[1]);
                 } else {
-                    hasher.update(&chunk[0]);
+                    hasher.update(chunk[0]);
                 }
                 
                 let result = hasher.finalize();
@@ -946,7 +937,7 @@ impl MiningManager {
         let estimated_emissions = self.estimate_block_emissions(&all_transactions);
         
         // Create block template with correct structure
-        let prev_hash_bytes = if let Ok(bytes) = hex::decode(&self.get_previous_block_hash()) {
+        let prev_hash_bytes = if let Ok(bytes) = hex::decode(self.get_previous_block_hash()) {
             if bytes.len() == 32 {
                 let mut hash = [0u8; 32];
                 hash.copy_from_slice(&bytes);
@@ -1282,13 +1273,13 @@ impl MiningManager {
             
             for chunk in hashes.chunks(2) {
                 let mut hasher = sha2::Sha256::new();
-                hasher.update(&chunk[0]);
+                hasher.update(chunk[0]);
                 
                 // If odd number of hashes, duplicate the last one
                 if chunk.len() == 2 {
-                    hasher.update(&chunk[1]);
+                    hasher.update(chunk[1]);
                 } else {
-                    hasher.update(&chunk[0]);
+                    hasher.update(chunk[0]);
                 }
                 
                 let result = hasher.finalize();
@@ -1371,4 +1362,4 @@ impl Default for MiningStats {
 // Mock mempool for template creation
 struct MockMempool;
 
-use sha2::{Sha256, Digest}; 
+use sha2::Digest; 

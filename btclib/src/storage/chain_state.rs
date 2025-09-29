@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock, Mutex};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
-use log::{error, warn};
+use log::error;
 
 use crate::types::block::{Block, BlockHeader};
-use crate::types::transaction::{Transaction, OutPoint};
+use crate::types::transaction::OutPoint;
 use crate::storage::utxo_set::{UtxoSet, UtxoEntry, UtxoCommitment};
 use crate::consensus::fork_resolution_v2::ProofOfWorkForkResolver;
 use crate::consensus::secure_fork_resolution::SecureForkConfig;
@@ -206,7 +206,7 @@ impl ChainState {
             };
             
             // Add to UTXO set
-            self.utxo_set.add(utxo_entry).map_err(|e| ChainStateError::UtxoError(e))?;
+            self.utxo_set.add(utxo_entry).map_err(ChainStateError::UtxoError)?;
         }
         
         // Create genesis checkpoint
@@ -272,7 +272,7 @@ impl ChainState {
         }
         
         // Get the previous block header
-        let prev_header = self.get_header(&block.prev_block_hash())?
+        let prev_header = self.get_header(block.prev_block_hash())?
             .ok_or_else(|| ChainStateError::BlockNotFound(hex::encode(block.prev_block_hash())))?;
         
         // Calculate height of this block
@@ -315,7 +315,7 @@ impl ChainState {
             };
             
             // Use secure fork resolver
-            let mut resolver = self.fork_resolver.lock().map_err(|e| 
+            let resolver = self.fork_resolver.lock().map_err(|e| 
                 ChainStateError::StorageError(format!("Fork resolver lock poisoned: {}", e)))?;
             
             match resolver.compare_chains(&block_hash, &current_tip, get_header) {
@@ -453,7 +453,7 @@ impl ChainState {
     fn create_checkpoint(&self, height: u32, hash: &[u8; 32]) -> ChainStateResult<()> {
         // Get UTXO commitment
         let utxo_commitment = self.utxo_set.get_commitment()
-            .map_err(|e| ChainStateError::UtxoError(e))?;
+            .map_err(ChainStateError::UtxoError)?;
         
         // Create checkpoint
         let checkpoint = Checkpoint {
@@ -515,7 +515,7 @@ impl ChainState {
         }
         
         // Get the previous header
-        let prev_header = self.get_header(&block.prev_block_hash())?
+        let prev_header = self.get_header(block.prev_block_hash())?
             .ok_or_else(|| ChainStateError::BlockNotFound(hex::encode(block.prev_block_hash())))?;
         
         // Determine the height of this block
@@ -761,20 +761,19 @@ impl Clone for ChainState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_common::*;
     
     // Helper function to create a test block
     fn create_test_block(prev_hash: [u8; 32], height: u32, target: u32) -> Block {
-        // In a real test, would create a proper block
-        let header = BlockHeader::new_with_height(
-            1,
-            prev_hash,
-            [0; 32], // merkle_root
-            0, // timestamp
-            target,
-            0, // nonce
-            height as u64,
-        );
-        Block::new(header, vec![Transaction::new(1, vec![], vec![], 0)])
+        // Create a proper block with coinbase transaction
+        let coinbase_input = TransactionInput::new_coinbase(height.to_le_bytes().to_vec());
+        let coinbase_output = TransactionOutput::new(50_000_000_000, vec![1, 2, 3, 4]);
+        let coinbase_tx = Transaction::new(1, vec![coinbase_input], vec![coinbase_output], 0);
+        
+        // Use a test-friendly target if target is u32::MAX
+        let safe_target = if target == u32::MAX { 0x207fffff } else { target };
+        
+        Block::new_with_params(height, prev_hash, vec![coinbase_tx], safe_target)
     }
     
     #[test]

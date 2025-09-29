@@ -4,10 +4,6 @@ use crate::environmental::emissions::{EmissionsError, EmissionsTracker, Emission
 use crate::crypto::signature::{SignatureType, SignatureVerifier, SignatureError};
 use crate::crypto::quantum::{QuantumParameters, QuantumScheme, QuantumKeyPair};
 use std::fmt;
-use chrono::{DateTime, Utc};
-use crate::types::block::BlockHeader;
-use crate::crypto::hash::{hash_to_hex, double_sha256};
-use crate::crypto::signature::{SignatureParams};
 
 /// Transaction validation and processing errors
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -320,7 +316,7 @@ impl Transaction {
             .iter()
             .map(|input| get_output(&input.prev_tx_hash, input.prev_output_index))
             .try_fold(0u64, |acc, output| {
-                output.map(|o| acc.checked_add(o.amount)).flatten()
+                output.and_then(|o| acc.checked_add(o.amount))
             })
     }
 
@@ -442,26 +438,20 @@ impl Transaction {
         // Determine which verification logic to use based on the signature scheme
         match signature_data.scheme {
             SignatureSchemeType::Legacy => {
-                match signature_verifier.verify(
+                signature_verifier.verify(
                     SignatureType::Secp256k1,
                     &signature_data.public_key,
                     &message_hash,
                     &signature_data.data
-                ) {
-                    Ok(result) => result,
-                    Err(_) => false,
-                }
+                ).unwrap_or_default()
             },
             SignatureSchemeType::Ed25519 => {
-                match signature_verifier.verify(
+                signature_verifier.verify(
                     SignatureType::Ed25519,
                     &signature_data.public_key,
                     &message_hash,
                     &signature_data.data
-                ) {
-                    Ok(result) => result,
-                    Err(_) => false,
-                }
+                ).unwrap_or_default()
             },
             SignatureSchemeType::Dilithium => {
                 let params = QuantumParameters {
@@ -469,15 +459,12 @@ impl Transaction {
                     security_level: signature_data.security_level,
                 };
                 
-                match crate::crypto::quantum::verify_quantum_signature(
+                crate::crypto::quantum::verify_quantum_signature(
                     &signature_data.public_key,
                     &message_hash,
                     &signature_data.data,
                     params
-                ) {
-                    Ok(result) => result,
-                    Err(_) => false,
-                }
+                ).unwrap_or_default()
             },
             SignatureSchemeType::Falcon => {
                 let params = QuantumParameters {
@@ -485,15 +472,12 @@ impl Transaction {
                     security_level: signature_data.security_level,
                 };
                 
-                match crate::crypto::quantum::verify_quantum_signature(
+                crate::crypto::quantum::verify_quantum_signature(
                     &signature_data.public_key,
                     &message_hash,
                     &signature_data.data,
                     params
-                ) {
-                    Ok(result) => result,
-                    Err(_) => false,
-                }
+                ).unwrap_or_default()
             },
             SignatureSchemeType::SphincsPlus => {
                 let params = QuantumParameters {
@@ -501,15 +485,12 @@ impl Transaction {
                     security_level: signature_data.security_level,
                 };
                 
-                match crate::crypto::quantum::verify_quantum_signature(
+                crate::crypto::quantum::verify_quantum_signature(
                     &signature_data.public_key,
                     &message_hash,
                     &signature_data.data,
                     params
-                ) {
-                    Ok(result) => result,
-                    Err(_) => false,
-                }
+                ).unwrap_or_default()
             },
             SignatureSchemeType::Hybrid => {
                 // Implementation for hybrid verification is more complex and would require
@@ -666,7 +647,7 @@ impl Transaction {
             },
             SignatureSchemeType::Dilithium => {
                 // Create a quantum keypair for signing
-                let mut quantum_keypair = QuantumKeyPair {
+                let quantum_keypair = QuantumKeyPair {
                     public_key: public_key.to_vec(),
                     secret_key: private_key.to_vec(),
                     parameters: QuantumParameters {
@@ -681,7 +662,7 @@ impl Transaction {
             },
             SignatureSchemeType::Falcon => {
                 // Create a quantum keypair for signing
-                let mut quantum_keypair = QuantumKeyPair {
+                let quantum_keypair = QuantumKeyPair {
                     public_key: public_key.to_vec(),
                     secret_key: private_key.to_vec(),
                     parameters: QuantumParameters {

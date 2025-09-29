@@ -3,7 +3,7 @@ use sha2::{Sha256, Digest};
 use pqcrypto_traits::sign::{PublicKey as SignPublicKeyTrait, SecretKey as SignSecretKeyTrait, DetachedSignature as SignDetachedSignatureTrait};
 use crate::crypto::quantum::{QuantumScheme, QuantumParameters, QuantumError, ClassicalScheme};
 use crate::crypto::zkp::{Commitment, ZeroKnowledgeProof, ZkpParams};
-use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+use crate::types::transaction::{Transaction, TransactionInput};
 
 /// Extended transaction input with support for quantum signatures
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,7 +303,7 @@ impl QuantumTransaction {
                         secp.verify_ecdsa(&msg, &sig, &pk).is_ok()
                     }
                     ClassicalScheme::Ed25519 => {
-                        use ed25519_dalek::{Signature, VerifyingKey, Verifier};
+                        use ed25519_dalek::{Signature, VerifyingKey};
                         
                         let pk = VerifyingKey::from_bytes(classical_pk.try_into()
                             .map_err(|_| QuantumError::InvalidKey("Invalid Ed25519 public key length".to_string()))?)

@@ -1,7 +1,6 @@
 //! Mempool error types
 
 use thiserror::Error;
-use std::fmt;
 
 /// Result type for mempool operations
 pub type MempoolResult<T> = Result<T, MempoolError>;

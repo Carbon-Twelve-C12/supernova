@@ -1,26 +1,25 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
-use tracing::{info, warn, error, debug};
+use tracing::{info, error};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 use crate::lightning::{
-    Channel, ChannelId, ChannelState, ChannelConfig, ChannelError,
-    Invoice, InvoiceError,
-    PaymentHash, PaymentPreimage, Payment, PaymentStatus, PaymentError,
-    Router, RoutingError,
-    LightningWallet, WalletError,
-    Watchtower, WatchtowerConfig,
+    Channel, ChannelId, ChannelState, ChannelConfig,
+    Invoice,
+    PaymentHash, Payment, PaymentStatus,
+    Router,
+    LightningWallet,
+    Watchtower,
     OnionRouter,
     QuantumChannelSecurity,
-    AtomicChannel, AtomicOperationError,
+    AtomicChannel,
 };
 use super::{LightningConfig, LightningNetworkError};
-use crate::lightning::payment::{RouteHop, Htlc, HtlcState};
+use crate::lightning::payment::RouteHop;
 use crate::types::transaction::Transaction;
-use crate::crypto::quantum::QuantumScheme;
 
 /// Lightning Network Manager - Central coordinator for Lightning Network operations
 pub struct LightningManager {
@@ -428,16 +427,16 @@ impl LightningManager {
         // Initialize onion router with a default private key
         let private_key = [1u8; 32]; // In production, this would be derived from the wallet
         let quantum_scheme = if config.use_quantum_signatures {
-            config.quantum_scheme.clone()
+            config.quantum_scheme
         } else {
             None
         };
-        let onion_router = Arc::new(OnionRouter::new(private_key, quantum_scheme.clone()));
+        let onion_router = Arc::new(OnionRouter::new(private_key, quantum_scheme));
         
         // Initialize watchtower if enabled
         let watchtower = if config.use_quantum_signatures { // Using quantum flag as watchtower flag
             let watchtower_config = crate::lightning::watchtower::WatchtowerConfig::default();
-            Some(Arc::new(Watchtower::new(watchtower_config, quantum_scheme.clone())))
+            Some(Arc::new(Watchtower::new(watchtower_config, quantum_scheme)))
         } else {
             None
         };
@@ -673,7 +672,7 @@ impl LightningManager {
             local_funding_amount,
             push_amount,
             config,
-            self.config.quantum_scheme.clone(),
+            self.config.quantum_scheme,
         ).map_err(|e| ManagerError::ChannelError(e.to_string()))?;
         
         // Wrap in AtomicChannel for thread safety
@@ -801,11 +800,11 @@ impl LightningManager {
         }
         
         // Create payment
-        let payment_hash = invoice.payment_hash.clone();
+        let payment_hash = invoice.payment_hash;
         let payment_index = self.payment_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         
         let payment = Payment {
-            payment_hash: payment_hash.clone(),
+            payment_hash,
             payment_preimage: None,
             amount_msat: amount,
             status: PaymentStatus::Pending,
@@ -826,7 +825,7 @@ impl LightningManager {
         // Store payment with original request
         {
             let mut payments = self.payments.write().unwrap();
-            payments.insert(payment_hash.clone(), payment);
+            payments.insert(payment_hash, payment);
         }
         
         // Send payment through route
@@ -837,13 +836,13 @@ impl LightningManager {
             let mut payments = self.payments.write().unwrap();
             if let Some(payment) = payments.get_mut(&payment_hash) {
                 payment.status = PaymentStatus::Succeeded;
-                payment.payment_preimage = Some(preimage.clone());
+                payment.payment_preimage = Some(preimage);
                 payment.completed_at = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
             }
         }
         
         // Send event
-        let _ = self.event_sender.send(LightningEvent::PaymentSent(payment_hash.clone(), amount));
+        let _ = self.event_sender.send(LightningEvent::PaymentSent(payment_hash, amount));
         
         Ok(PaymentResponse {
             payment_hash: payment_hash.to_hex(),
@@ -898,7 +897,7 @@ impl LightningManager {
         // Store invoice using payment module types
         {
             let mut invoices = self.invoices.write().unwrap();
-            invoices.insert(payment_hash.clone(), invoice.clone());
+            invoices.insert(payment_hash, invoice.clone());
         }
         
         // Convert HTLCs from invoice (if any pending)

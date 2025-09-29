@@ -8,7 +8,7 @@ use crate::types::block::{Block, BlockHeader};
 use crate::types::transaction::{Transaction, TransactionOutput};
 use crate::consensus::time_warp_prevention::{TimeWarpPrevention, TimeWarpConfig};
 use crate::consensus::difficulty::DifficultyAdjustment;
-use sha2::{Sha256, Digest};
+use sha2::Digest;
 use std::collections::HashMap;
 
 /// Unified validation errors
@@ -70,6 +70,12 @@ pub struct UnifiedBlockValidator {
     
     /// Difficulty adjustment system
     difficulty_adjustment: DifficultyAdjustment,
+}
+
+impl Default for UnifiedBlockValidator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UnifiedBlockValidator {

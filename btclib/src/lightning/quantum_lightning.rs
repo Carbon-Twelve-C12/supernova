@@ -8,15 +8,14 @@ use sha2::{Sha256, Digest};
 use chrono::{DateTime, Utc};
 
 // Use our internal types instead of external crates
-use crate::types::transaction::{Transaction, TransactionOutput};
+use crate::types::transaction::Transaction;
 use crate::crypto::quantum::{
-    QuantumKeyPair, QuantumParameters, QuantumScheme,
+    QuantumKeyPair, QuantumScheme,
     verify_quantum_signature,
 };
 use crate::environmental::{
-    carbon_tracking::{CarbonTracker, CarbonTrackingResult},
+    carbon_tracking::CarbonTracker,
     renewable_validation::RenewableValidationResult,
-    types::{Region, EnergySourceType},
 };
 
 /// Quantum-secure Lightning channel
@@ -250,7 +249,7 @@ impl QuantumLightningManager {
         
         // Create quantum channel parameters
         let quantum_params = QuantumChannelParams {
-            quantum_scheme: self.node_quantum_keys.parameters.scheme.clone(),
+            quantum_scheme: self.node_quantum_keys.parameters.scheme,
             security_level: self.node_quantum_keys.parameters.security_level,
             hybrid_mode: matches!(
                 self.node_quantum_keys.parameters.scheme,
@@ -423,7 +422,7 @@ impl QuantumLightningManager {
         let route = self.find_green_payment_route(
             amount_sats,
             &self.node_quantum_keys.public_key,
-            &vec![0u8; 33], // Test destination
+            &[0u8; 33], // Test destination
         ).await?;
         
         println!("  Green route found:");
@@ -600,15 +599,15 @@ impl QuantumLightningManager {
     fn generate_channel_id(&self, funding_tx: &Transaction) -> [u8; 32] {
         let mut hasher = Sha256::new();
         // Use transaction hash method
-        hasher.update(&funding_tx.hash());
-        hasher.update(&Utc::now().timestamp().to_le_bytes());
+        hasher.update(funding_tx.hash());
+        hasher.update(Utc::now().timestamp().to_le_bytes());
         hasher.finalize().into()
     }
     
     fn generate_htlc_id(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(&self.node_quantum_keys.public_key);
-        hasher.update(&Utc::now().timestamp_nanos_opt().unwrap_or(0).to_le_bytes());
+        hasher.update(Utc::now().timestamp_nanos_opt().unwrap_or(0).to_le_bytes());
         hasher.finalize().into()
     }
     

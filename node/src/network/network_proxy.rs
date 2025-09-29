@@ -5,16 +5,15 @@
 
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
-use libp2p::{Multiaddr, PeerId};
+use libp2p::PeerId;
 use std::time::Duration;
 use std::error::Error;
-use serde::{Serialize, Deserialize};
 
 use crate::api::types::{
     NetworkInfo, PeerInfo, ConnectionCount, BandwidthUsage, 
-    PeerAddResponse, NetworkAddress,
+    PeerAddResponse,
 };
-use super::{P2PNetwork, NetworkCommand, NetworkEvent, P2PNetworkStats as NetworkStats};
+use super::{P2PNetwork, NetworkCommand, P2PNetworkStats as NetworkStats};
 
 /// Thread-safe network proxy that can be shared across threads
 #[derive(Clone)]

@@ -1,5 +1,5 @@
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
-use utoipa::{Modify, OpenApi, ToSchema};
+use utoipa::{Modify, OpenApi};
 use crate::api::types;
 use crate::api::routes::{
     blockchain,
@@ -11,7 +11,6 @@ use crate::api::routes::{
     node,
     faucet,
 };
-use serde::{Deserialize, Serialize};
 
 /// API security schema modification
 struct SecurityAddon;

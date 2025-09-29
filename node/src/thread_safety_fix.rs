@@ -3,19 +3,12 @@
 //! This module implements the thread safety fixes required for Phase 9
 //! to allow the Node struct to be safely shared across threads in the API server.
 
-use std::sync::{Arc, RwLock, Mutex};
-use std::time::Instant;
-use libp2p::PeerId;
+use std::sync::Arc;
 use tokio::sync::RwLock as TokioRwLock;
 use sysinfo::System;
 use crate::config::NodeConfig;
-use btclib::types::block::Block;
-use btclib::types::transaction::Transaction;
-use crate::node::{Node, NodeError};
-use crate::api::ApiConfig;
-use crate::adapters::method_adapters::{BlockNodeMethods, TransactionPoolNodeMethods};
-use crate::mempool::TransactionPool;
-use crate::storage::ChainState;
+use crate::node::Node;
+use crate::adapters::method_adapters::TransactionPoolNodeMethods;
 use crate::network::{NetworkProxy, P2PNetworkStats};
 
 /// Thread-safe wrapper for Node that can be shared across threads
@@ -113,7 +106,7 @@ impl NodeApiFacade {
     
     /// Get system information
     pub fn get_system_info(&self) -> Result<crate::api::types::SystemInfo, String> {
-        let mut sys = System::new_all();
+        let sys = System::new_all();
         
         let load_avg = System::load_average();
         
@@ -291,8 +284,8 @@ impl NodeApiFacade {
     fn estimate_network_hashrate(&self, difficulty: f64) -> u64 {
         // Network hashrate = difficulty * 2^32 / block_time_seconds
         // For 2.5 minute blocks (150 seconds)
-        let hashrate = (difficulty * 4_294_967_296.0 / 150.0) as u64;
-        hashrate
+        
+        (difficulty * 4_294_967_296.0 / 150.0) as u64
     }
 }
 

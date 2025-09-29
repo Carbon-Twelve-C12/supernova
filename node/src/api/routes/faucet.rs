@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use tracing::{debug, error, info, warn};
+use tracing::debug;
 use actix_web::{web, HttpResponse};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 
 use crate::node::Node;
 use crate::api::error::ApiError;
@@ -98,7 +98,7 @@ pub async fn get_faucet_status(
             ApiError::service_unavailable("Faucet is not enabled on this node")
         )),
         Err(e) => return Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(&format!("Failed to get faucet: {}", e))
+            ApiError::internal_error(format!("Failed to get faucet: {}", e))
         )),
     };
     
@@ -113,7 +113,7 @@ pub async fn get_faucet_status(
             distribution_amount: status.distribution_amount,
         })),
         Err(e) => Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(&format!("Failed to get faucet status: {}", e))
+            ApiError::internal_error(format!("Failed to get faucet status: {}", e))
         )),
     }
 }
@@ -151,7 +151,7 @@ pub async fn request_tokens(
             ApiError::service_unavailable("Faucet is not enabled on this node")
         )),
         Err(e) => return Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(&format!("Failed to get faucet: {}", e))
+            ApiError::internal_error(format!("Failed to get faucet: {}", e))
         )),
     };
     
@@ -166,7 +166,7 @@ pub async fn request_tokens(
         Err(e) => match e {
             FaucetError::CooldownPeriod { remaining_time } => {
                 Ok(HttpResponse::TooManyRequests().json(
-                    ApiError::rate_limited(&format!("Please wait {} seconds before requesting again", remaining_time))
+                    ApiError::rate_limited(format!("Please wait {} seconds before requesting again", remaining_time))
                 ))
             },
             FaucetError::DailyLimitExceeded => {
@@ -185,7 +185,7 @@ pub async fn request_tokens(
                 ))
             },
             _ => Ok(HttpResponse::InternalServerError().json(
-                ApiError::internal_error(&format!("Failed to distribute coins: {}", e))
+                ApiError::internal_error(format!("Failed to distribute coins: {}", e))
             )),
         }
     }
@@ -213,7 +213,7 @@ pub async fn get_recent_transactions(
             ApiError::service_unavailable("Faucet is not enabled on this node")
         )),
         Err(e) => return Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(&format!("Failed to get faucet: {}", e))
+            ApiError::internal_error(format!("Failed to get faucet: {}", e))
         )),
     };
     
@@ -235,7 +235,7 @@ pub async fn get_recent_transactions(
             }))
         },
         Err(e) => Ok(HttpResponse::InternalServerError().json(
-            ApiError::internal_error(&format!("Failed to get recent transactions: {}", e))
+            ApiError::internal_error(format!("Failed to get recent transactions: {}", e))
         )),
     }
 }

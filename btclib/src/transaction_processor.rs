@@ -8,7 +8,7 @@ use crate::types::extended_transaction::{
     QuantumTransactionBuilder, ConfidentialTransactionBuilder
 };
 use crate::crypto::quantum::{QuantumScheme, QuantumError};
-use crate::crypto::zkp::{ZkpParams, ZkpType};
+use crate::crypto::zkp::ZkpParams;
 
 /// Error types for transaction validation and processing
 #[derive(Debug, Error)]
@@ -196,6 +196,12 @@ pub struct TransactionBuilder {
     
     /// Confidential transaction builder
     confidential_builder: Option<ConfidentialTransactionBuilder>,
+}
+
+impl Default for TransactionBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TransactionBuilder {

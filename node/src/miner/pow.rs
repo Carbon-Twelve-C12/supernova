@@ -4,7 +4,6 @@
 //! to find a valid block hash.
 
 use btclib::types::Block;
-use btclib::crypto::hash256;
 use std::thread;
 use std::sync::{mpsc, Arc, Mutex};
 

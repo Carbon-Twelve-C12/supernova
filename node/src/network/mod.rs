@@ -20,13 +20,11 @@ pub mod eclipse_prevention_tests;
 pub mod rate_limiter_tests;
 
 use std::sync::Arc;
-use crate::config::NetworkConfig;
 use tokio::sync::mpsc;
 use libp2p::PeerId;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, warn};
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // Re-export network types for external use
 pub use connection::ConnectionState;
@@ -209,7 +207,7 @@ impl NetworkManager {
     pub async fn disconnect_from_peer(&self, peer_id: &PeerId) -> Result<(), String> {
         debug!("Disconnecting from peer: {}", peer_id);
         
-        let command = NetworkCommand::DisconnectPeer(peer_id.clone());
+        let command = NetworkCommand::DisconnectPeer(*peer_id);
         self.command_sender.send(command).await
             .map_err(|e| format!("Failed to send disconnect command: {}", e))?;
         
@@ -232,7 +230,7 @@ impl NetworkManager {
         debug!("Sending message to peer: {}", peer_id);
         
         let command = NetworkCommand::SendToPeer {
-            peer_id: peer_id.clone(),
+            peer_id: *peer_id,
             message,
         };
         self.command_sender.send(command).await
@@ -304,7 +302,7 @@ impl NetworkManager {
         warn!("Banning peer {} for: {}", peer_id, reason);
         
         let command = NetworkCommand::BanPeer {
-            peer_id: peer_id.clone(),
+            peer_id: *peer_id,
             reason,
             duration,
         };
@@ -358,7 +356,7 @@ impl NetworkManager {
     ) {
         info!("Starting network event processing loop");
         
-        let mut receiver = {
+        let receiver = {
             let mut guard = event_receiver.write().await;
             guard.take()
         };
@@ -389,7 +387,7 @@ impl NetworkManager {
         match event {
             NetworkEvent::PeerConnected(peer_info) => {
                 info!("Peer connected: {}", peer_info.peer_id);
-                peers.write().await.insert(peer_info.peer_id.clone(), peer_info);
+                peers.write().await.insert(peer_info.peer_id, peer_info);
                 
                 // Update stats
                 let mut stats_guard = stats.write().await;

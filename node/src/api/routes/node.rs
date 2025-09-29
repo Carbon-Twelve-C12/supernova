@@ -5,12 +5,10 @@
 
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tracing::{info, warn, error};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::types::*;
-use crate::api_facade::ApiFacade;
 use super::NodeData;
 
 /// Configure node routes

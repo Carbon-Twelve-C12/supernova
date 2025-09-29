@@ -1,23 +1,17 @@
 use libp2p::{
     core::{
-        muxing::StreamMuxerBox,
-        transport::Boxed,
-        upgrade::{self, InboundUpgrade, OutboundUpgrade, UpgradeInfo, Negotiated},
         ConnectedPoint, Multiaddr,
     },
     swarm::DialError,
-    identity::Keypair,
     PeerId,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use serde::{Serialize, Deserialize};
-use tracing::{debug, info, warn, error};
+use tracing::debug;
 use tokio::sync::mpsc;
 use crate::network::peer::{PeerState, PeerManager};
 use crate::network::peer_diversity::PeerDiversityManager;
-use void::Void;
 
 /// State of a connection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,12 +194,12 @@ impl ConnectionManager {
         
         // Update connection tracking
         self.connections
-            .entry(peer_id.clone())
-            .or_insert_with(Vec::new)
+            .entry(*peer_id)
+            .or_default()
             .push(connection_id);
         
         // Set connection state
-        self.connection_states.insert((peer_id.clone(), connection_id), ConnectionState::Connected);
+        self.connection_states.insert((*peer_id, connection_id), ConnectionState::Connected);
         
         // Update count
         if is_inbound {
@@ -215,14 +209,14 @@ impl ConnectionManager {
         }
         
         // Store endpoint
-        self.peer_endpoints.insert(peer_id.clone(), endpoint.clone());
+        self.peer_endpoints.insert(*peer_id, endpoint.clone());
         
         // Update peer state
         self.peer_manager.update_peer_state(peer_id, PeerState::Connected);
         
         // Emit connection event
-        self.emit_event(ConnectionEvent::Connected(peer_id.clone(), endpoint));
-        self.emit_event(ConnectionEvent::StateChanged(peer_id.clone(), ConnectionState::Connected));
+        self.emit_event(ConnectionEvent::Connected(*peer_id, endpoint));
+        self.emit_event(ConnectionEvent::StateChanged(*peer_id, ConnectionState::Connected));
         
         debug!("Connection established with peer {}: inbound={}", peer_id, is_inbound);
     }
@@ -253,7 +247,7 @@ impl ConnectionManager {
                 self.peer_manager.update_peer_state(peer_id, PeerState::Disconnected);
                 
                 // Emit disconnection event
-                self.emit_event(ConnectionEvent::Disconnected(peer_id.clone()));
+                self.emit_event(ConnectionEvent::Disconnected(*peer_id));
                 
                 // Update count
                 if is_inbound {
@@ -272,14 +266,14 @@ impl ConnectionManager {
                 if self.persistent_peers.contains(peer_id) {
                     if let Some(addr) = self.get_peer_address(peer_id) {
                         debug!("Re-queueing persistent peer {} for connection", peer_id);
-                        self.queue_connection(peer_id.clone(), addr);
+                        self.queue_connection(*peer_id, addr);
                     }
                 }
             }
         }
         
         // Remove connection state
-        self.connection_states.remove(&(peer_id.clone(), connection_id));
+        self.connection_states.remove(&(*peer_id, connection_id));
     }
     
     /// Handle a failed connection attempt
@@ -291,7 +285,7 @@ impl ConnectionManager {
         self.peer_manager.record_failed_attempt(peer_id);
         
         // Emit failure event
-        self.emit_event(ConnectionEvent::Failed(peer_id.clone(), error.to_string()));
+        self.emit_event(ConnectionEvent::Failed(*peer_id, error.to_string()));
         
         // Notify about available outbound slot
         self.emit_event(ConnectionEvent::OutboundSlotAvailable);
@@ -307,14 +301,14 @@ impl ConnectionManager {
         state: ConnectionState,
     ) {
         // Update connection state
-        self.connection_states.insert((peer_id.clone(), connection_id), state);
+        self.connection_states.insert((*peer_id, connection_id), state);
         
         // If all connections to this peer are ready, update peer state
         if state == ConnectionState::Ready {
             let all_ready = if let Some(connections) = self.connections.get(peer_id) {
                 connections.iter().all(|conn_id| {
                     self.connection_states
-                        .get(&(peer_id.clone(), *conn_id))
+                        .get(&(*peer_id, *conn_id))
                         .map_or(false, |&s| s == ConnectionState::Ready)
                 })
             } else {
@@ -328,7 +322,7 @@ impl ConnectionManager {
         }
         
         // Emit state change event
-        self.emit_event(ConnectionEvent::StateChanged(peer_id.clone(), state));
+        self.emit_event(ConnectionEvent::StateChanged(*peer_id, state));
     }
     
     /// Process the connection queue
@@ -361,8 +355,8 @@ impl ConnectionManager {
             
             if let Some(addr) = self.get_peer_address(peer_id) {
                 debug!("Dialing persistent peer {}", peer_id);
-                dial_peer(peer_id.clone(), addr);
-                self.pending_dials.insert(peer_id.clone());
+                dial_peer(*peer_id, addr);
+                self.pending_dials.insert(*peer_id);
                 
                 // Break if no more slots
                 if !self.has_outbound_slots() {
@@ -385,7 +379,7 @@ impl ConnectionManager {
                 }
                 
                 debug!("Dialing queued peer {}", peer_id);
-                dial_peer(peer_id.clone(), addr);
+                dial_peer(peer_id, addr);
                 self.pending_dials.insert(peer_id);
                 
                 // Break if no more slots
@@ -436,8 +430,8 @@ impl ConnectionManager {
             let addr = peer.addresses[0].clone();
             
             debug!("Dialing feeler connection to {}", peer.peer_id);
-            dial_peer(peer.peer_id.clone(), addr);
-            self.pending_dials.insert(peer.peer_id.clone());
+            dial_peer(peer.peer_id, addr);
+            self.pending_dials.insert(peer.peer_id);
             self.feeler_addresses.insert(peer.peer_id, now);
             
             // Only try a limited number per cycle
@@ -473,7 +467,7 @@ impl ConnectionManager {
             let mut best_state = ConnectionState::Connecting;
             
             for &conn_id in connections {
-                if let Some(&state) = self.connection_states.get(&(peer_id.clone(), conn_id)) {
+                if let Some(&state) = self.connection_states.get(&(*peer_id, conn_id)) {
                     if state == ConnectionState::Ready {
                         return Some(ConnectionState::Ready);
                     } else if state == ConnectionState::Connected && best_state != ConnectionState::Ready {

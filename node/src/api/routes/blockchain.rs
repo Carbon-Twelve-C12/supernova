@@ -3,22 +3,14 @@
 //! This module provides API endpoints for accessing blockchain data,
 //! including blocks and transactions.
 
-use actix_web::{web, HttpResponse, Responder};
-use hex::FromHex;
-use std::sync::Arc;
-use utoipa::OpenApi;
-use tracing::{info, warn, error, debug};
-use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
+use actix_web::web;
 use bincode;
 
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::types::{
-    ApiResponse, BlockInfo, TransactionInfo, BlockchainInfo, BlockHeightParams, BlockHashParams, TxHashParams, SubmitTxRequest,
-    TransactionSubmissionResponse, TransactionInput, TransactionOutput, BlockchainStats,
+    BlockInfo, TransactionInfo, BlockchainInfo, SubmitTxRequest,
+    TransactionSubmissionResponse, BlockchainStats,
 };
-use crate::storage::StorageError;
-use btclib::types::transaction::{Transaction, TransactionError};
 use btclib::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
 use super::NodeData;
 
@@ -347,7 +339,7 @@ pub async fn get_transaction(
             "vout": input.prev_output_index(),
             "script_sig": hex::encode(input.script_sig()),
             "sequence": input.sequence(),
-            "prev_output": prev_output.map(|data| hex::encode(data))
+            "prev_output": prev_output.map(hex::encode)
         })
     }).collect();
     
@@ -357,7 +349,7 @@ pub async fn get_transaction(
         let is_spent = spent_info.is_none();
         let spent_by_tx = if is_spent {
             storage.is_output_spent(&tx_hash, i as u32)
-                .ok().flatten().map(|hash| hex::encode(hash))
+                .ok().flatten().map(hex::encode)
         } else {
             None
         };

@@ -1,9 +1,7 @@
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 // Macro definitions moved to the top
 macro_rules! register_counter {
@@ -35,6 +33,12 @@ pub struct BackupMetrics {
     verification_duration: metrics::Histogram,
     failed_verifications: metrics::Counter,
     last_verification_success: metrics::Gauge,
+}
+
+impl Default for BackupMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BackupMetrics {
@@ -155,6 +159,12 @@ pub struct ApiMetrics {
     pub requests_per_second: metrics::Gauge,
 }
 
+impl Default for ApiMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ApiMetrics {
     pub fn new() -> Self {
         Self {
@@ -209,21 +219,21 @@ impl ApiMetricsManager {
     
     /// Record a successful request
     pub fn record_success(&self, endpoint: &str, response_time: Duration) {
-        if let Ok(mut metrics) = self.metrics.lock() {
+        if let Ok(metrics) = self.metrics.lock() {
             metrics.record_success(response_time);
         }
     }
     
     /// Record a failed request
     pub fn record_failure(&self, endpoint: &str, response_time: Duration) {
-        if let Ok(mut metrics) = self.metrics.lock() {
+        if let Ok(metrics) = self.metrics.lock() {
             metrics.record_failure(response_time);
         }
     }
     
     /// Update active connections
     pub fn set_active_connections(&self, count: u64) {
-        if let Ok(mut metrics) = self.metrics.lock() {
+        if let Ok(metrics) = self.metrics.lock() {
             metrics.set_active_connections(count);
         }
     }

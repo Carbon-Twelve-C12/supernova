@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use prometheus::{
     Registry, IntGauge, IntCounter, IntCounterVec, 
-    Histogram, HistogramVec, Opts, HistogramOpts
+    Histogram, Opts, HistogramOpts
 };
 use tokio::sync::RwLock;
 use log::{info, debug, warn};
@@ -119,6 +119,12 @@ pub struct BlockchainMetrics {
     
     /// Tracking data for transaction propagation
     transaction_first_seen: Arc<RwLock<HashMap<[u8; 32], Instant>>>,
+}
+
+impl Default for BlockchainMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BlockchainMetrics {

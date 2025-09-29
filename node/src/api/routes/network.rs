@@ -2,14 +2,11 @@
 //!
 //! This module implements API endpoints for network operations.
 
-use crate::api::error::{ApiError, ApiResult};
-use crate::api::types::{
-    NetworkInfo, PeerInfo, PeerConnectionStatus, BandwidthUsage, 
-    PeerAddRequest, PeerAddResponse, NodeAddress, ConnectionCount,
-};
+use crate::api::error::ApiError;
+use crate::api::types::PeerAddRequest;
 use crate::api_facade::ApiFacade;
 use actix_web::{web, HttpResponse};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
 use serde_json;
@@ -104,7 +101,7 @@ pub async fn get_peers(
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let network = node.network();
-    let connection_state = params.connection_state.as_ref().map(|s| s.clone());
+    let connection_state = params.connection_state.clone();
     let verbose = params.verbose.unwrap_or(false);
     
     match network.get_peers().await {
@@ -174,7 +171,7 @@ pub async fn add_peer(
     let address = &request.address;
     let permanent = request.permanent.unwrap_or(false);
     
-    match network.add_peer(&address, permanent).await {
+    match network.add_peer(address, permanent).await {
         Ok(result) => Ok(HttpResponse::Ok().json(result)),
         Err(e) => Ok(HttpResponse::InternalServerError().json(
             ApiError::internal_error(format!("Failed to add peer: {}", e))

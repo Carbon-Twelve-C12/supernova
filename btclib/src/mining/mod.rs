@@ -162,7 +162,7 @@ impl MiningWorker {
         template: BlockTemplate,
     ) {
         use crate::types::{Block, BlockHeader, Transaction, TransactionInput, TransactionOutput};
-        use crate::crypto::hash256;
+        
         use std::time::{SystemTime, UNIX_EPOCH};
         
         let mut nonce = 0u32;

@@ -386,6 +386,12 @@ pub struct DefaultEmissionsFactors {
     pub factors: HashMap<Region, EmissionFactor>,
 }
 
+impl Default for DefaultEmissionsFactors {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultEmissionsFactors {
     /// Create a new set of default emissions factors
     pub fn new() -> Self {

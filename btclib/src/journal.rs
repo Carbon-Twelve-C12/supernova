@@ -1,7 +1,6 @@
 // Journal module for transaction history and logging
 // Provides backwards compatibility
 
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

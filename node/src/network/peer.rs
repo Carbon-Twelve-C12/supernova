@@ -10,7 +10,7 @@ use std::{
 };
 use dashmap::DashMap;
 use crate::network::peer_diversity::IpSubnet;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// State of a peer connection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,7 +225,7 @@ impl PeerManager {
             // Create a new peer entry with this address
             let now = Instant::now();
             let peer_info = PeerInfo {
-                peer_id: peer_id.clone(),
+                peer_id: *peer_id,
                 state: PeerState::Disconnected,
                 addresses: vec![addr],
                 first_seen: now,
@@ -247,7 +247,7 @@ impl PeerManager {
                 bytes_received: 0,
                 metadata: PeerMetadata::default(),
             };
-            self.peers.insert(peer_id.clone(), peer_info);
+            self.peers.insert(*peer_id, peer_info);
         }
     }
     
@@ -309,7 +309,7 @@ impl PeerManager {
         }
         
         // Add to banned peers map
-        self.banned_peers.insert(peer_id.clone(), (expiration, duration, reason.clone()));
+        self.banned_peers.insert(*peer_id, (expiration, duration, reason.clone()));
         
         info!("Banned peer {} for {} seconds: {:?}", 
              peer_id, duration.as_secs(), reason);
@@ -503,7 +503,7 @@ impl PeerManager {
             .filter(|entry| {
                 entry.value().0 < now
             })
-            .map(|entry| entry.key().clone())
+            .map(|entry| *entry.key())
             .collect();
             
         for peer_id in expired {
@@ -519,7 +519,7 @@ impl PeerManager {
             .iter()
             .map(|entry| {
                 (
-                    entry.key().clone(),
+                    *entry.key(),
                     entry.value().0,
                     entry.value().1,
                     entry.value().2.clone()

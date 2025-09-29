@@ -5,16 +5,15 @@
 
 use crate::crypto::quantum::{
     QuantumKeyPair, QuantumScheme, QuantumParameters,
-    sign_quantum, verify_quantum_signature, QuantumError
+    sign_quantum, QuantumError
 };
-use crate::crypto::{hash256, hash160};
-use crate::crypto::zkp::{ZkpParams, ZeroKnowledgeProof, generate_zkp, verify_zkp};
-use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput, TransactionSignatureData, SignatureSchemeType};
+use crate::crypto::hash256;
+use crate::types::transaction::{Transaction, TransactionSignatureData, SignatureSchemeType};
 use bip39::{Mnemonic, Language};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use sha2::{Sha256, Digest};
-use sha3::{Sha3_512, Digest as Sha3Digest};
+use sha2::Digest;
+use sha3::Digest as Sha3Digest;
 use rand::RngCore;
 
 /// Quantum-safe HD wallet
@@ -344,18 +343,18 @@ impl QuantumWallet {
         let mut hasher = Sha3_512::new();
         
         // Hash transaction data
-        hasher.update(&tx.version().to_le_bytes());
+        hasher.update(tx.version().to_le_bytes());
         
         // Hash all outputs
         for output in tx.outputs() {
-            hasher.update(&output.value().to_le_bytes());
+            hasher.update(output.value().to_le_bytes());
             hasher.update(output.script_pubkey());
         }
         
         // Hash the specific input being signed
         if let Some(input) = tx.inputs().get(input_index) {
             hasher.update(input.prev_tx_hash());
-            hasher.update(&input.prev_output_index().to_le_bytes());
+            hasher.update(input.prev_output_index().to_le_bytes());
         }
         
         Ok(hasher.finalize().to_vec())
@@ -417,8 +416,8 @@ impl QuantumWallet {
         
         // Create threshold script hash
         let mut hasher = Sha3_512::new();
-        hasher.update(&[required]);
-        hasher.update(&[pubkeys.len() as u8]);
+        hasher.update([required]);
+        hasher.update([pubkeys.len() as u8]);
         
         for pubkey in pubkeys {
             hasher.update(pubkey);
@@ -521,7 +520,7 @@ impl QuantumWallet {
         // In production, use post-quantum KEM like Kyber
         // For now, use XChaCha20Poly1305 with Argon2 key derivation
         use chacha20poly1305::{
-            aead::{Aead, KeyInit, OsRng},
+            aead::{Aead, KeyInit},
             XChaCha20Poly1305, XNonce,
         };
 

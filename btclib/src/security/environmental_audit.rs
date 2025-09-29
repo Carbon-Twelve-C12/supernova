@@ -3,17 +3,9 @@
 // Demonstrates environmental integrity and security measures
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 
-use crate::environmental::{
-    carbon_tracking::{CarbonTracker, CarbonTrackingResult, OracleConsensusResult},
-    renewable_validation::{RenewableEnergyValidator, RenewableValidationResult},
-    manual_verification::{ManualVerificationSystem, ManualVerificationRequest},
-    oracle::{EnvironmentalOracle, OracleError},
-    types::{Region, EnergySourceType},
-};
 
 /// Comprehensive environmental system audit report
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,6 +133,12 @@ struct TestResult {
     passed: bool,
     score: f64,
     details: String,
+}
+
+impl Default for EnvironmentalSecurityAuditor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EnvironmentalSecurityAuditor {

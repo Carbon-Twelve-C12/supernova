@@ -14,6 +14,12 @@ pub struct MemoryStorage {
     banned_peers: Arc<RwLock<HashMap<PeerId, (String, std::time::Instant)>>>,
 }
 
+impl Default for MemoryStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryStorage {
     pub fn new() -> Self {
         Self {

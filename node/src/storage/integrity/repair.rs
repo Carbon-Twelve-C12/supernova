@@ -1,5 +1,4 @@
 // integrity/repair.rs - Handles repairs for integrity issues
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -7,7 +6,7 @@ use tracing::{debug, info, warn, error};
 
 use crate::storage::BlockchainDB;
 use crate::storage::StorageError;
-use crate::storage::corruption::{CorruptionHandler, CorruptionType, RecoveryStrategy, RepairResult};
+use crate::storage::corruption::{CorruptionHandler, CorruptionType, RecoveryStrategy};
 use crate::storage::integrity::models::{IntegrityConfig, IntegrityIssue, IssueType, IssueLocation, IssueSeverity};
 
 /// Handles repairs for integrity issues

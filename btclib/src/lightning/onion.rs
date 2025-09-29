@@ -7,10 +7,9 @@ use crate::crypto::quantum::QuantumScheme;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
-use tracing::{debug, info, warn, error};
-use rand::{Rng, RngCore};
+use tracing::{debug, error};
+use rand::RngCore;
 use sha2::{Sha256, Digest};
-use serde_bytes;
 
 /// Maximum number of hops in an onion route
 pub const MAX_ONION_HOPS: usize = 20;
@@ -60,7 +59,7 @@ impl<'de> Deserialize<'de> for OnionPacket {
     where
         D: serde::Deserializer<'de>,
     {
-        use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
+        use serde::de::{self, Deserializer, MapAccess, Visitor};
         use std::fmt;
 
         #[derive(Deserialize)]
@@ -140,7 +139,7 @@ impl<'de> Deserialize<'de> for OnionPacket {
             }
         }
 
-        const FIELDS: &'static [&'static str] = &["version", "public_key", "routing_info", "hmac"];
+        const FIELDS: &[&str] = &["version", "public_key", "routing_info", "hmac"];
         deserializer.deserialize_struct("OnionPacket", FIELDS, OnionPacketVisitor)
     }
 }
@@ -519,7 +518,7 @@ impl OnionRouter {
         while keystream.len() < length {
             let mut hasher = Sha256::new();
             hasher.update(shared_secret.as_bytes());
-            hasher.update(&counter.to_be_bytes());
+            hasher.update(counter.to_be_bytes());
             let hash = hasher.finalize();
             
             let remaining = length - keystream.len();

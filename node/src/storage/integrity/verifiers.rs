@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bincode;
 use sha2::{Digest, Sha256};
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::storage::BlockchainDB;
 use crate::storage::StorageError;
@@ -759,20 +759,20 @@ impl<'a> CryptoVerifier<'a> {
             
             for chunk in hashes.chunks(2) {
                 let mut hasher = Sha256::new();
-                hasher.update(&chunk[0]);
+                hasher.update(chunk[0]);
                 
                 // If odd number of hashes, duplicate the last one
                 if chunk.len() == 2 {
-                    hasher.update(&chunk[1]);
+                    hasher.update(chunk[1]);
                 } else {
-                    hasher.update(&chunk[0]);
+                    hasher.update(chunk[0]);
                 }
                 
                 let hash_result = hasher.finalize();
                 
                 // Double SHA-256
                 let mut hasher = Sha256::new();
-                hasher.update(&hash_result);
+                hasher.update(hash_result);
                 let result = hasher.finalize();
                 
                 let mut hash = [0u8; 32];
@@ -788,7 +788,7 @@ impl<'a> CryptoVerifier<'a> {
     
     /// Calculate transaction hash
     fn calculate_tx_hash(tx: &Transaction) -> [u8; 32] {
-        let serialized = bincode::serialize(tx).unwrap_or(vec![]);
+        let serialized = bincode::serialize(tx).unwrap_or_default();
         
         let mut hasher = Sha256::new();
         hasher.update(&serialized);
@@ -796,7 +796,7 @@ impl<'a> CryptoVerifier<'a> {
         
         // Double SHA-256 for Bitcoin-like chains
         let mut hasher = Sha256::new();
-        hasher.update(&result);
+        hasher.update(result);
         let result = hasher.finalize();
         
         let mut hash = [0u8; 32];

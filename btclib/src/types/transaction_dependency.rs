@@ -24,8 +24,8 @@ impl TransactionDependencyGraph {
         let tx_hash = tx.hash();
         
         // Initialize empty sets if needed
-        self.dependencies.entry(tx_hash).or_insert_with(HashSet::new);
-        self.dependents.entry(tx_hash).or_insert_with(HashSet::new);
+        self.dependencies.entry(tx_hash).or_default();
+        self.dependents.entry(tx_hash).or_default();
         
         // Check each input for dependencies on other mempool transactions
         for input in tx.inputs() {
@@ -37,7 +37,7 @@ impl TransactionDependencyGraph {
                 self.dependencies.get_mut(&tx_hash).unwrap().insert(prev_tx_hash);
                 
                 // Add dependent relationship (inverse of dependency)
-                self.dependents.entry(prev_tx_hash).or_insert_with(HashSet::new).insert(tx_hash);
+                self.dependents.entry(prev_tx_hash).or_default().insert(tx_hash);
             }
         }
     }

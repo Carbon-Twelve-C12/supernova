@@ -7,10 +7,9 @@ use crate::crypto::quantum::{QuantumScheme, QuantumKeyPair, QuantumSignature};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
-use tracing::{debug, info, warn, error};
-use rand::{Rng, RngCore};
+use tracing::{debug, info, error};
+use rand::RngCore;
 use rand::{SeedableRng};
-use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
 use sha2::{Sha256, Digest};
 use std::sync::{Arc, Mutex};
@@ -165,7 +164,7 @@ impl QuantumChannelSecurity {
             channel_id,
             current_keypair,
             next_keypair: None,
-            quantum_scheme: self.config.primary_scheme.clone(),
+            quantum_scheme: self.config.primary_scheme,
             security_level: self.config.security_level,
             last_rotation_height: initial_height,
             quantum_beacon,
@@ -202,7 +201,7 @@ impl QuantumChannelSecurity {
         
         // Create security metadata
         let security_metadata = QuantumSecurityMetadata {
-            scheme: channel_state.quantum_scheme.clone(),
+            scheme: channel_state.quantum_scheme,
             level: channel_state.security_level,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -230,7 +229,7 @@ impl QuantumChannelSecurity {
     fn generate_quantum_keypair(&self) -> Result<QuantumKeyPair, QuantumSecurityError> {
         // Use the quantum scheme to generate a key pair
         let params = crate::crypto::quantum::QuantumParameters {
-            scheme: self.config.primary_scheme.clone(),
+            scheme: self.config.primary_scheme,
             security_level: self.config.security_level as u8,
         };
         
@@ -250,7 +249,7 @@ impl QuantumChannelSecurity {
         // Convert Vec<u8> to QuantumSignature
         let quantum_signature = QuantumSignature {
             signature: signature_bytes,
-            parameters: keypair.parameters.clone(),
+            parameters: keypair.parameters,
         };
         
         Ok(quantum_signature)
@@ -291,6 +290,12 @@ pub struct QuantumRng {
     entropy_pool: Arc<Mutex<Vec<u8>>>,
 }
 
+impl Default for QuantumRng {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl QuantumRng {
     pub fn new() -> Self {
         Self {
@@ -311,6 +316,12 @@ impl QuantumRng {
 /// Quantum key derivation function
 pub struct QuantumKdf {
     // Quantum-resistant key derivation
+}
+
+impl Default for QuantumKdf {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl QuantumKdf {

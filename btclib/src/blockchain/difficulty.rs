@@ -1,4 +1,3 @@
-use crate::types::BlockHeader;
 
 /// Calculate difficulty from compact bits representation
 pub fn calculate_difficulty_from_bits(bits: u32) -> f64 {

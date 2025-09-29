@@ -23,7 +23,7 @@ impl TransactionSafe for Transaction {
         self.outputs()
             .iter()
             .map(|output| output.amount())
-            .try_fold(0u64, |acc, amount| safe_add(acc, amount))
+            .try_fold(0u64, safe_add)
     }
     
     fn calculate_fee_safe(&self, get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>) -> Result<u64, ArithmeticError> {

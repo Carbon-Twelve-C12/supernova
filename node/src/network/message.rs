@@ -6,9 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn, error, trace};
-use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{warn, trace};
 use blake3;
 
 /// Maximum size of a network message in bytes

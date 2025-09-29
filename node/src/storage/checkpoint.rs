@@ -8,7 +8,7 @@ use crate::storage::persistence::ChainState;
 use crate::metrics::BackupMetrics;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH, Duration, Instant};
-use std::collections::{HashMap, HashSet, BTreeMap};
+use std::collections::{HashMap, HashSet};
 use tokio::fs;
 use tracing::{info, warn, error, debug};
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,6 @@ use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Digest};
 use tokio::sync::mpsc;
 use tokio::time;
-use btclib::types::block::Block;
 use thiserror::Error;
 use std::str::FromStr;
 
@@ -47,8 +46,10 @@ const DEFAULT_INTEGRITY_CHECK_INTERVAL: Duration = Duration::from_secs(86400); /
 
 /// Types of checkpoints the system can create
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum CheckpointType {
     /// Regular checkpoint created based on time/block intervals
+    #[default]
     Regular,
     /// Checkpoint created before a potentially risky operation
     PreOperation,
@@ -78,11 +79,6 @@ impl FromStr for CheckpointType {
     }
 }
 
-impl Default for CheckpointType {
-    fn default() -> Self {
-        CheckpointType::Regular
-    }
-}
 
 /// Configuration for the checkpoint system
 #[derive(Debug, Clone)]
@@ -606,8 +602,8 @@ impl CheckpointManager {
         };
         
         // Add height and hash to hasher
-        hasher.update(&height.to_le_bytes());
-        hasher.update(&hash);
+        hasher.update(height.to_le_bytes());
+        hasher.update(hash);
         
         // Add a sample of UTXOs
         // Note: In a real implementation, you would hash the entire UTXO set

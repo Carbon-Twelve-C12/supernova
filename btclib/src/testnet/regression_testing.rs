@@ -1,13 +1,8 @@
-use super::config::TestNetConfig as BlockchainConfig;
-use crate::testnet::{TestNetManager, config::TestNetConfig};
-use crate::types::transaction::Transaction;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{info, warn, error, debug};
 use thiserror::Error;
 
@@ -405,7 +400,7 @@ impl RegressionTestingManager {
         // Add to in-memory cache
         self.test_results
             .entry(test_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(result.clone());
         
         if result.passed {

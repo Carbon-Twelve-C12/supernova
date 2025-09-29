@@ -93,6 +93,12 @@ pub struct TimestampValidator {
     config: TimestampValidationConfig,
 }
 
+impl Default for TimestampValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TimestampValidator {
     /// Create a new timestamp validator with default config
     pub fn new() -> Self {

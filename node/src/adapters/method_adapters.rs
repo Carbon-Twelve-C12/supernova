@@ -3,14 +3,11 @@
 //! This module provides comprehensive method adapters to bridge the API gap
 //! between btclib (core library) and node (application layer).
 
-use btclib::storage::chain_state::{ChainState, ChainStateError};
+use btclib::storage::chain_state::ChainState;
 use btclib::types::block::Block;
-use crate::storage::database::{BlockchainDB, StorageError};
+use crate::storage::database::StorageError;
 use crate::mempool::pool::TransactionPool;
 use std::sync::Arc;
-use dashmap::DashMap;
-use std::collections::HashMap;
-use tracing::{error, warn};
 
 /// Extension trait for ChainState to provide all missing node-compatible methods
 pub trait ChainStateNodeMethods {

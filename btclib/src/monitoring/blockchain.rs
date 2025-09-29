@@ -1,11 +1,10 @@
 use prometheus::{
-    Registry, IntGauge, IntGaugeVec, IntCounter, IntCounterVec, 
+    Registry, IntGauge, IntCounter, IntCounterVec, 
     Gauge, GaugeVec, Histogram, HistogramVec, Opts, HistogramOpts
 };
-use std::sync::Arc;
 use std::time::Duration;
 use crate::monitoring::MetricsError;
-use tracing::{info, warn, error, debug};
+use tracing::{info, debug};
 
 /// Blockchain metrics collector
 pub struct BlockchainMetrics {

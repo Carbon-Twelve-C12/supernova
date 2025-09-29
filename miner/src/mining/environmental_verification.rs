@@ -73,7 +73,7 @@ impl ConsumedCertificates {
         self.consumed.insert(certificate_id.clone(), (miner_id.clone(), timestamp));
         self.by_miner
             .entry(miner_id)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(certificate_id);
         
         Ok(())
@@ -82,6 +82,12 @@ impl ConsumedCertificates {
     /// Get all certificates consumed by a miner
     pub fn get_miner_certificates(&self, miner_id: &str) -> Option<&HashSet<String>> {
         self.by_miner.get(miner_id)
+    }
+}
+
+impl Default for EnvironmentalVerifier {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -12,7 +12,6 @@ use std::str::FromStr;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
-use reqwest;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalletError {
@@ -124,7 +123,7 @@ impl Wallet {
             // Construct witness
             let mut witness_stack = Witness::new();
             witness_stack.push(signatures[input_index].clone());
-            witness_stack.push(public_key.to_bytes().to_vec());
+            witness_stack.push(&public_key.to_bytes());
             
             // Set witness
             input.witness = witness_stack;
@@ -244,7 +243,7 @@ impl Wallet {
             .unwrap_or_else(|_| "http://localhost:9332".to_string());
         
         let client = reqwest::blocking::Client::new();
-        let response = client.post(&format!("{}/api/v1/mempool/transactions", node_url))
+        let response = client.post(format!("{}/api/v1/mempool/transactions", node_url))
             .header("Content-Type", "application/octet-stream")
             .body(tx_data)
             .send()
@@ -305,7 +304,7 @@ impl Wallet {
     /// Add a new UTXO to the wallet
     pub fn add_utxo(&mut self, utxo: UTXO) {
         self.utxos.entry(utxo.tx_hash)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(utxo);
     }
 

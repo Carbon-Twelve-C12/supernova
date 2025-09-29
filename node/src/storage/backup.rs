@@ -1,5 +1,4 @@
 use super::database::{BlockchainDB, StorageError};
-use super::persistence;
 use crate::metrics::BackupMetrics;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
@@ -10,15 +9,9 @@ use std::sync::Arc;
 use futures::future::join_all;
 use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
-use std::io::{Read, Write};
-use btclib::types::block::Block;
+use std::io::Write;
 use btclib::storage::chain_state::ChainState;
 use thiserror::Error;
-use tokio::sync::RwLock;
-use flate2::write::GzEncoder;
-use flate2::read::GzDecoder;
-use flate2::Compression;
-use chrono::{DateTime, Utc};
 
 const CHECKPOINT_INTERVAL: u64 = 10000;
 const PARALLEL_VERIFICATION_CHUNKS: usize = 4;
@@ -207,7 +200,7 @@ impl BackupManager {
     pub async fn create_backup(&self) -> Result<PathBuf, StorageError> {
         // Ensure backup directory exists
         fs::create_dir_all(&self.backup_dir).await
-            .map_err(|e| StorageError::Io(e))?;
+            .map_err(StorageError::Io)?;
 
         // Create backup filename with timestamp
         let timestamp = SystemTime::now()
@@ -226,15 +219,15 @@ impl BackupManager {
         
         // Create a snapshot using tokio's file operations
         let mut src_entries = fs::read_dir(db_path).await
-            .map_err(|e| StorageError::Io(e))?;
+            .map_err(StorageError::Io)?;
             
         // Create destination directory
         fs::create_dir_all(&backup_path).await
-            .map_err(|e| StorageError::Io(e))?;
+            .map_err(StorageError::Io)?;
             
         // Copy all database files
         while let Some(entry) = src_entries.next_entry().await
-            .map_err(|e| StorageError::Io(e))? {
+            .map_err(StorageError::Io)? {
                 
             let src_path = entry.path();
             let file_name = src_path.file_name().ok_or_else(|| 
@@ -243,7 +236,7 @@ impl BackupManager {
             let dest_path = backup_path.join(file_name);
             
             fs::copy(&src_path, &dest_path).await
-                .map_err(|e| StorageError::Io(e))?;
+                .map_err(StorageError::Io)?;
         }
 
         // Verify the backup
@@ -258,7 +251,7 @@ impl BackupManager {
                 self.metrics.record_verification_failure();
                 verification.complete();
                 fs::remove_dir_all(&backup_path).await
-                    .map_err(|e| StorageError::Io(e))?;
+                    .map_err(StorageError::Io)?;
                 Err(StorageError::BackupVerificationFailed)
             }
             Err(e) => {
@@ -303,14 +296,14 @@ impl BackupManager {
 
         // Check for the presence of sled database files
         let mut entries = fs::read_dir(backup_path).await
-            .map_err(|e| StorageError::Io(e))?;
+            .map_err(StorageError::Io)?;
             
         let mut has_db_files = false;
         
         while let Some(entry) = entries.next_entry().await
-            .map_err(|e| StorageError::Io(e))? {
+            .map_err(StorageError::Io)? {
                 
-            if entry.file_type().await.map_err(|e| StorageError::Io(e))?.is_file() {
+            if entry.file_type().await.map_err(StorageError::Io)?.is_file() {
                 // Found at least one file, assume it's a valid backup
                 has_db_files = true;
                 break;
@@ -423,8 +416,8 @@ impl RecoveryManager {
         utxos.sort_by_key(|&(hash, index, _)| (hash, index));
 
         for (hash, index, output) in utxos {
-            hasher.update(&hash);
-            hasher.update(&index.to_le_bytes());
+            hasher.update(hash);
+            hasher.update(index.to_le_bytes());
             hasher.update(&bincode::serialize(&output)?);
         }
 
@@ -745,7 +738,7 @@ async fn verify_blockchain_range(
                 // Verify all transactions in the block
                 for tx in block.transactions() {
                     // Basic transaction validation
-                    if tx.inputs().len() == 0 {
+                    if tx.inputs().is_empty() {
                         // Check if this is the coinbase transaction (first tx in the block)
                         let is_coinbase = tx.hash() == block.transactions()[0].hash();
                         if !is_coinbase {

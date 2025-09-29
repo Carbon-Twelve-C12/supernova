@@ -1,15 +1,10 @@
-use crate::api::error::{ApiError, ApiResult};
-use crate::api::types::{
-    MempoolInfo, MempoolStatistics, MempoolTransaction, MempoolTransactionSubmissionResponse, 
-    TransactionFees, TransactionValidationResult,
-};
+use crate::api::error::ApiError;
+use crate::api::types::MempoolTransactionSubmissionResponse;
 use crate::node::Node;
-use crate::mempool::TransactionPool;
 use actix_web::{web, HttpResponse};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
-use hex::FromHex;
 use bincode;
 
 /// Configure mempool API routes

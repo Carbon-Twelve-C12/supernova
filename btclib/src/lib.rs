@@ -135,3 +135,6 @@ pub use testnet::network_simulator::SimulationConfig;
 // Test utilities module - only available in test builds
 #[cfg(test)]
 pub mod test_utils;
+
+#[cfg(test)]
+pub mod test_common;

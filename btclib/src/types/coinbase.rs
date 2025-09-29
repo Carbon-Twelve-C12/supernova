@@ -1,5 +1,3 @@
-/// Coinbase transaction utilities
-use serde::{Serialize, Deserialize};
 use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 
 /// Coinbase transaction builder

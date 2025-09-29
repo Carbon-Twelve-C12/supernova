@@ -5,7 +5,6 @@
 //! down to attaNOVA (10^-18 NOVA) using high-precision internal representation.
 
 use std::fmt;
-use std::convert::TryFrom;
 use std::str::FromStr;
 use thiserror::Error;
 use serde::{Serialize, Deserialize};

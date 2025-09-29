@@ -1,5 +1,4 @@
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use btclib::testnet::faucet::{Faucet as BtclibFaucet, FaucetError};
 

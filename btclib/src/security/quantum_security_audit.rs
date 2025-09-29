@@ -6,19 +6,10 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
-use rand::rngs::OsRng;
 
 use crate::crypto::quantum::{
     QuantumKeyPair, QuantumParameters, QuantumScheme,
     verify_quantum_signature,
-};
-use crate::lightning::quantum_lightning::{
-    QuantumLightningManager, QuantumHTLC, QuantumLightningChannel,
-};
-use crate::environmental::{
-    carbon_tracking::CarbonTracker,
-    renewable_validation::RenewableEnergyValidator,
-    manual_verification::ManualVerificationSystem,
 };
 
 /// Comprehensive quantum security audit report
@@ -168,6 +159,12 @@ struct TestResult {
     passed: bool,
     duration: Duration,
     details: String,
+}
+
+impl Default for QuantumSecurityAuditor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl QuantumSecurityAuditor {

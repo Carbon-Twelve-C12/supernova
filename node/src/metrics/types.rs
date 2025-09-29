@@ -1,7 +1,6 @@
 //! Metric types and data structures
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Metric value types
 #[derive(Debug, Clone, Serialize, Deserialize)]

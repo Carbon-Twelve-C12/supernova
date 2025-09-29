@@ -11,7 +11,6 @@ use crate::crypto::quantum::{
     QuantumKeyPair, QuantumScheme, QuantumParameters,
     sign_quantum, verify_quantum_signature
 };
-use crate::types::{Transaction, TransactionOutput};
 use serde::{Serialize, Deserialize};
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, Duration};

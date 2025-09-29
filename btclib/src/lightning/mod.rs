@@ -50,12 +50,12 @@ pub use green_routing::{
 
 // Re-export main types from this module
 
-use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
-use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
+use crate::types::transaction::Transaction;
+use crate::crypto::quantum::QuantumScheme;
 use std::sync::{Arc, RwLock, Mutex};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use thiserror::Error;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, error};
 use rand;
 
 /// Direction of an HTLC
@@ -154,7 +154,7 @@ impl LightningNetwork {
         let router = Arc::new(Router::new());
         let monitor = Arc::new(RwLock::new(ChannelMonitor::new()));
         
-        let quantum_scheme = config.quantum_scheme.clone();
+        let quantum_scheme = config.quantum_scheme;
         
         Self {
             channels: Arc::new(RwLock::new(HashMap::new())),
@@ -202,7 +202,7 @@ impl LightningNetwork {
         }
         
         // Create channel with default or custom config
-        let config = channel_config.unwrap_or_else(|| ChannelConfig::default());
+        let config = channel_config.unwrap_or_default();
         
         // Create actual channel (implementation in channel.rs)
         let channel = Channel::open(
@@ -210,7 +210,7 @@ impl LightningNetwork {
             capacity,
             push_amount,
             config,
-            self.quantum_scheme.clone(),
+            self.quantum_scheme,
         )?;
         
         let channel_id = channel.id().clone();
@@ -348,10 +348,10 @@ impl LightningNetwork {
         // First, create a payment hash and shared secret for each hop
         let payment_hash = invoice.payment_hash();
         let payment_hash_bytes = payment_hash.into_inner(); // Store the bytes once
-        let mut next_hop_shared_secret = [0u8; 32]; // Would be derived in a real implementation
+        let next_hop_shared_secret = [0u8; 32]; // Would be derived in a real implementation
         
         // Generate random payment preimages for testing
-        let mut rng = rand::thread_rng();
+        let rng = rand::thread_rng();
         let payment_preimage = payment::PaymentPreimage::new_random();
         let payment_preimage_bytes = payment_preimage.into_inner(); // Store the bytes once
         

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use serde::{Serialize, Deserialize};
 use std::sync::RwLock;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use std::collections::HashMap;
@@ -289,6 +289,12 @@ impl BatchOp {
     }
 }
 
+impl Default for BatchOperation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BatchOperation {
     pub fn new() -> Self {
         Self {
@@ -366,7 +372,7 @@ impl BlockchainDB {
         Self::with_config(path, BlockchainDBConfig::default())
     }
     
-    pub fn with_config<P: AsRef<Path>>(path: P, mut db_config: BlockchainDBConfig) -> Result<Self, StorageError> {
+    pub fn with_config<P: AsRef<Path>>(path: P, db_config: BlockchainDBConfig) -> Result<Self, StorageError> {
         let path_buf = path.as_ref().to_path_buf();
         
         // Configure sled database with optimized settings
@@ -448,7 +454,7 @@ impl BlockchainDB {
             
             for height in start_height..=current_height {
                 let height_key = height.to_be_bytes();
-                if let Some(hash) = blockchain_db.block_height_index.get(&height_key)? {
+                if let Some(hash) = blockchain_db.block_height_index.get(height_key)? {
                     // Warm up header cache
                     if let Some(header_data) = blockchain_db.headers.get(&hash)? {
                         if let Some(header_cache) = &blockchain_db.header_cache {
@@ -620,7 +626,7 @@ impl BlockchainDB {
         // If height is known, index by height
         if let Some(h) = height {
             let height_key = h.to_be_bytes();
-            self.pending_blocks_index.insert(&height_key, block_hash)?;
+            self.pending_blocks_index.insert(height_key, block_hash)?;
         }
         
         // Check if we need to prune old pending blocks
@@ -676,7 +682,7 @@ impl BlockchainDB {
     /// Update pending block metadata
     pub fn update_pending_block_metadata(&self, metadata: &PendingBlockMetadata) -> Result<(), StorageError> {
         let meta_data = bincode::serialize(metadata)?;
-        self.pending_blocks_meta.insert(&metadata.hash, meta_data)?;
+        self.pending_blocks_meta.insert(metadata.hash, meta_data)?;
         Ok(())
     }
 
@@ -689,7 +695,7 @@ impl BlockchainDB {
             // Remove height index if present
             if let Some(height) = metadata.height {
                 let height_key = height.to_be_bytes();
-                self.pending_blocks_index.remove(&height_key)?;
+                self.pending_blocks_index.remove(height_key)?;
             }
         }
         
@@ -704,7 +710,7 @@ impl BlockchainDB {
     pub fn get_pending_block_by_height(&self, height: u64) -> Result<Option<Block>, StorageError> {
         let height_key = height.to_be_bytes();
         
-        if let Some(hash_bytes) = self.pending_blocks_index.get(&height_key)? {
+        if let Some(hash_bytes) = self.pending_blocks_index.get(height_key)? {
             let mut block_hash = [0u8; 32];
             block_hash.copy_from_slice(&hash_bytes);
             self.get_pending_block(&block_hash)
@@ -898,13 +904,13 @@ impl BlockchainDB {
 
     /// Store block height to hash mapping
     pub fn store_block_height_index(&self, height: u64, block_hash: &[u8; 32]) -> Result<(), StorageError> {
-        self.block_height_index.insert(&height.to_be_bytes(), block_hash)?;
+        self.block_height_index.insert(height.to_be_bytes(), block_hash)?;
         Ok(())
     }
 
     /// Get block hash by height
     pub fn get_block_by_height(&self, height: u64) -> Result<Option<Block>, StorageError> {
-        if let Some(hash) = self.block_height_index.get(&height.to_be_bytes())? {
+        if let Some(hash) = self.block_height_index.get(height.to_be_bytes())? {
             let hash_array: [u8; 32] = hash.as_ref().try_into()
                 .map_err(|_| StorageError::DatabaseError("Invalid block hash length".to_string()))?;
             self.get_block(&hash_array)
@@ -917,9 +923,9 @@ impl BlockchainDB {
     pub fn prune_blocks(&self, height: u64) -> Result<(), StorageError> {
         let mut pruned_count = 0;
         for i in 0..height {
-            if let Some(hash) = self.block_height_index.get(&i.to_be_bytes())? {
+            if let Some(hash) = self.block_height_index.get(i.to_be_bytes())? {
                 self.blocks.remove(hash.as_ref())?;
-                self.block_height_index.remove(&i.to_be_bytes())?;
+                self.block_height_index.remove(i.to_be_bytes())?;
                 pruned_count += 1;
             }
         }
@@ -1008,7 +1014,7 @@ impl BlockchainDB {
         let tree_names = match self.get_metadata(b"tree_registry") {
             Ok(Some(data)) => {
                 bincode::deserialize::<Vec<String>>(&data)
-                    .map_err(|e| StorageError::Serialization(e))?
+                    .map_err(StorageError::Serialization)?
             },
             _ => {
                 // If no registry exists, return the known default trees
@@ -1031,7 +1037,7 @@ impl BlockchainDB {
     /// Open a specific tree by name
     pub fn open_tree(&self, name: &str) -> Result<sled::Tree, StorageError> {
         let tree = self.db.open_tree(name)
-            .map_err(|e| StorageError::Database(e))?;
+            .map_err(StorageError::Database)?;
         
         // Register the tree if it's new
         self.register_tree(name)?;
@@ -1044,7 +1050,7 @@ impl BlockchainDB {
         let mut trees = match self.get_metadata(b"tree_registry") {
             Ok(Some(data)) => {
                 bincode::deserialize::<Vec<String>>(&data)
-                    .map_err(|e| StorageError::Serialization(e))?
+                    .map_err(StorageError::Serialization)?
             },
             _ => Vec::new(),
         };
@@ -1053,7 +1059,7 @@ impl BlockchainDB {
         if !trees.contains(&name.to_string()) {
             trees.push(name.to_string());
             let serialized = bincode::serialize(&trees)
-                .map_err(|e| StorageError::Serialization(e))?;
+                .map_err(StorageError::Serialization)?;
             self.store_metadata(b"tree_registry", &serialized)?;
         }
         
@@ -1069,25 +1075,25 @@ impl BlockchainDB {
     pub fn tree_contains_key(&self, tree_name: &str, key: &[u8]) -> Result<bool, StorageError> {
         let tree = self.open_tree(tree_name)?;
         tree.contains_key(key)
-            .map_err(|e| StorageError::Database(e))
+            .map_err(StorageError::Database)
     }
     
     /// Get raw data from a tree by key
     pub fn get_raw_data(&self, tree_name: &str, key: &[u8]) -> Result<Option<IVec>, StorageError> {
         let tree = self.open_tree(tree_name)?;
-        tree.get(key).map_err(|e| StorageError::Database(e))
+        tree.get(key).map_err(StorageError::Database)
     }
     
     /// Store raw data in a tree
     pub fn store_raw_data(&self, tree_name: &str, key: &[u8], value: &[u8]) -> Result<(), StorageError> {
         let tree = self.open_tree(tree_name)?;
-        tree.insert(key, value).map(|_| ()).map_err(|e| StorageError::Database(e))
+        tree.insert(key, value).map(|_| ()).map_err(StorageError::Database)
     }
     
     /// Remove a key from a specific tree
     pub fn remove_from_tree(&self, tree_name: &str, key: &[u8]) -> Result<(), StorageError> {
         let tree = self.open_tree(tree_name)?;
-        tree.remove(key).map(|_| ()).map_err(|e| StorageError::Database(e))
+        tree.remove(key).map(|_| ()).map_err(StorageError::Database)
     }
     
     /// Perform a database backup to a specific directory
@@ -1226,7 +1232,7 @@ impl BlockchainDB {
         // Group operations by tree
         let mut ops_by_tree: HashMap<String, Vec<BatchOp>> = HashMap::new();
         for op in batch.operations {
-            ops_by_tree.entry(op.tree().to_string()).or_insert_with(Vec::new).push(op);
+            ops_by_tree.entry(op.tree().to_string()).or_default().push(op);
         }
         
         // Execute operations for each tree
@@ -1262,25 +1268,21 @@ impl BlockchainDB {
     /// Set database configuration
     pub fn set_config(&mut self, config: BlockchainDBConfig) -> Result<(), StorageError> {
         // Update bloom filters if the configuration changed
-        if config.use_bloom_filters != self.config.use_bloom_filters 
-            || config.bloom_filter_capacity != self.config.bloom_filter_capacity 
-            || config.bloom_filter_fpr != self.config.bloom_filter_fpr {
+        if (config.use_bloom_filters != self.config.use_bloom_filters 
+            || config.bloom_filter_capacity != self.config.bloom_filter_capacity || config.bloom_filter_fpr != self.config.bloom_filter_fpr) && config.use_bloom_filters {
+            // Create new bloom filters with the new settings
+            self.block_filter = Arc::new(RwLock::new(BloomFilter::new(
+                config.bloom_filter_capacity,
+                config.bloom_filter_fpr,
+            )));
             
-            if config.use_bloom_filters {
-                // Create new bloom filters with the new settings
-                self.block_filter = Arc::new(RwLock::new(BloomFilter::new(
-                    config.bloom_filter_capacity,
-                    config.bloom_filter_fpr,
-                )));
-                
-                self.tx_filter = Arc::new(RwLock::new(BloomFilter::new(
-                    config.bloom_filter_capacity,
-                    config.bloom_filter_fpr,
-                )));
-                
-                // Initialize with existing data
-                self.init_bloom_filters()?;
-            }
+            self.tx_filter = Arc::new(RwLock::new(BloomFilter::new(
+                config.bloom_filter_capacity,
+                config.bloom_filter_fpr,
+            )));
+            
+            // Initialize with existing data
+            self.init_bloom_filters()?;
         }
         
         // Update pending block settings
@@ -1548,7 +1550,7 @@ impl BlockchainDB {
                     for tx in block.transactions() {
                         let tx_hash = tx.hash();
                         
-                        if self.transactions.get(&tx_hash)?.is_none() {
+                        if self.transactions.get(tx_hash)?.is_none() {
                             result.issues.push(IntegrityIssue {
                                 issue_type: IntegrityIssueType::BrokenReference,
                                 description: format!(
@@ -1564,7 +1566,7 @@ impl BlockchainDB {
                             if repair {
                                 // Store missing transaction
                                 let tx_data = bincode::serialize(tx)?;
-                                batch.insert(TXNS_TREE, &tx_hash, tx_data)?;
+                                batch.insert(TXNS_TREE, tx_hash, tx_data)?;
                             }
                         }
                     }
@@ -1639,7 +1641,7 @@ impl BlockchainDB {
                         if repair {
                             // Remove invalid transaction and store with correct key
                             batch.remove(TXNS_TREE, &key)?;
-                            batch.insert(TXNS_TREE, &computed_hash, &value)?;
+                            batch.insert(TXNS_TREE, computed_hash, &value)?;
                         }
                     }
                 }
@@ -1703,7 +1705,7 @@ impl BlockchainDB {
             tx_hash.copy_from_slice(&key[0..32]);
             
             // Check if the transaction exists
-            if self.transactions.get(&tx_hash)?.is_none() {
+            if self.transactions.get(tx_hash)?.is_none() {
                 result.issues.push(IntegrityIssue {
                     issue_type: IntegrityIssueType::BrokenReference,
                     description: format!(
@@ -1777,7 +1779,7 @@ impl BlockchainDB {
                     
                     if !is_genesis {
                         // Check if parent exists
-                        if self.blocks.get(&prev_hash)?.is_none() {
+                        if self.blocks.get(prev_hash)?.is_none() {
                             result.issues.push(IntegrityIssue {
                                 issue_type: IntegrityIssueType::BrokenReference,
                                 description: format!(
@@ -1913,7 +1915,7 @@ impl BlockchainDB {
                 best_hash.copy_from_slice(&best_hash_data);
                 
                 // Check if this block exists
-                if self.blocks.get(&best_hash)?.is_none() {
+                if self.blocks.get(best_hash)?.is_none() {
                     result.issues.push(IntegrityIssue {
                         issue_type: IntegrityIssueType::BrokenReference,
                         description: format!(
@@ -1936,7 +1938,7 @@ impl BlockchainDB {
                                 // Try to find a valid block at this height or lower
                                 for h in (0..=height).rev() {
                                     let height_key = h.to_be_bytes();
-                                    if let Some(hash_data) = self.block_height_index.get(&height_key)? {
+                                    if let Some(hash_data) = self.block_height_index.get(height_key)? {
                                         if hash_data.len() == 32 {
                                             // Check if this block exists
                                             if self.blocks.get(&hash_data)?.is_some() {
@@ -2033,8 +2035,8 @@ impl BlockchainDB {
         
         // Update bloom filter capacities based on available memory
         if self.config.use_bloom_filters {
-            let block_filter_capacity = (blocks_budget / 100) as usize; // Each block requires ~100 bytes in filter
-            let tx_filter_capacity = (tx_budget / 50) as usize; // Each tx requires ~50 bytes in filter
+            let block_filter_capacity = (blocks_budget / 100); // Each block requires ~100 bytes in filter
+            let tx_filter_capacity = (tx_budget / 50); // Each tx requires ~50 bytes in filter
             
             let mut block_filter = self.block_filter.write()
                 .map_err(|e| StorageError::LockPoisoned(format!("Block filter write lock poisoned: {}", e)))?;
@@ -2053,7 +2055,7 @@ impl BlockchainDB {
         
         // Update the configuration
         self.config.cache_size = total_budget_bytes;
-        self.config.bloom_filter_capacity = (utxo_budget / 30) as usize; // Each UTXO requires ~30 bytes in filter
+        self.config.bloom_filter_capacity = (utxo_budget / 30); // Each UTXO requires ~30 bytes in filter
         
         // Reinitialize bloom filters with existing data
         if self.config.use_bloom_filters {
@@ -2091,7 +2093,7 @@ impl BlockchainDB {
         
         for height in start_height..=current_height {
             let height_key = height.to_be_bytes();
-            if let Some(hash) = self.block_height_index.get(&height_key)? {
+            if let Some(hash) = self.block_height_index.get(height_key)? {
                 // This will load the block into sled's internal cache
                 self.blocks.get(&hash)?;
                 
@@ -2114,7 +2116,7 @@ impl BlockchainDB {
         
         for op in batch.operations {
             tree_operations.entry(op.tree().to_string())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(op);
         }
         
@@ -2172,7 +2174,7 @@ impl BlockchainDB {
         task.await
             .map_err(|e| StorageError::DatabaseError(format!("Async flush failed: {}", e)))?
             .map(|_| ()) // Discard the usize result and return ()
-            .map_err(|e| StorageError::Database(e))
+            .map_err(StorageError::Database)
     }
 
     /// Invalidate caches when necessary (e.g., during chain reorganization)
@@ -2297,7 +2299,7 @@ impl BlockchainDB {
     /// Get block hash by height
     pub fn get_block_hash_by_height(&self, height: u64) -> Result<Option<[u8; 32]>, StorageError> {
         let height_key = height.to_be_bytes();
-        if let Some(hash_data) = self.block_height_index.get(&height_key)? {
+        if let Some(hash_data) = self.block_height_index.get(height_key)? {
             if hash_data.len() == 32 {
                 let mut hash = [0u8; 32];
                 hash.copy_from_slice(&hash_data);

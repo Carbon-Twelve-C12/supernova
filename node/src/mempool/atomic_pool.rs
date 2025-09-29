@@ -4,13 +4,12 @@
 //! that prevents double-spending attacks through atomic operations.
 
 use dashmap::DashMap;
-use btclib::types::transaction::{Transaction, TransactionInput};
+use btclib::types::transaction::Transaction;
 use std::time::{Duration, SystemTime};
-use std::sync::{Arc, Mutex, RwLock};
-use std::collections::{HashMap, HashSet};
-use parking_lot::{Mutex as PMutex, RwLock as PRwLock};
-use crate::config;
-use crate::api::types::{MempoolInfo, MempoolTransaction, TransactionFees, TransactionValidationResult, MempoolTransactionSubmissionResponse};
+use std::sync::{Arc, RwLock};
+use std::collections::HashSet;
+use parking_lot::Mutex as PMutex;
+use crate::api::types::MempoolInfo;
 use crate::mempool::pool::MempoolConfig;
 use crate::mempool::MempoolError;
 use hex;

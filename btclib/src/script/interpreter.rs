@@ -4,10 +4,8 @@
 //! transaction scripts by executing opcodes and maintaining the stack.
 
 use crate::script::opcodes::Opcode;
-use crate::script::ScriptVerificationError;
 use sha2::{Sha256, Digest};
 use ripemd::{Ripemd160, Digest as RipemdDigest};
-use std::cmp;
 
 /// Maximum script size in bytes
 pub const MAX_SCRIPT_SIZE: usize = 10_000;
@@ -78,6 +76,12 @@ pub enum ScriptError {
 #[derive(Debug, Clone)]
 pub struct ExecutionStack {
     items: Vec<Vec<u8>>,
+}
+
+impl Default for ExecutionStack {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ExecutionStack {
@@ -171,6 +175,12 @@ pub struct ScriptInterpreter {
     gas_limit: u64,
 }
 
+impl Default for ScriptInterpreter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScriptInterpreter {
     /// Create a new script interpreter
     pub fn new() -> Self {
@@ -223,7 +233,7 @@ impl ScriptInterpreter {
             pc += 1;
             
             // Handle push operations (1-75 bytes)
-            if opcode_byte >= 1 && opcode_byte <= 75 {
+            if (1..=75).contains(&opcode_byte) {
                 let push_len = opcode_byte as usize;
                 if pc + push_len > script.len() {
                     return Err(ScriptError::UnexpectedEndOfScript);
@@ -347,7 +357,7 @@ impl ScriptInterpreter {
         if self.stack.is_empty() {
             Ok(false)
         } else {
-            Ok(self.is_true(&self.stack.peek()?))
+            Ok(self.is_true(self.stack.peek()?))
         }
     }
     
@@ -504,7 +514,7 @@ impl ScriptInterpreter {
                 Ok(())
             },
             Opcode::OP_RETURN => {
-                return Err(ScriptError::VerifyFailed);
+                Err(ScriptError::VerifyFailed)
             },
             
             // Stack operations
@@ -556,7 +566,7 @@ impl ScriptInterpreter {
                 let sha_result = sha.finalize();
                 
                 let mut ripemd = Ripemd160::new();
-                ripemd.update(&sha_result);
+                ripemd.update(sha_result);
                 let result = ripemd.finalize();
                 self.stack.push(result.to_vec())?;
                 Ok(())
@@ -569,7 +579,7 @@ impl ScriptInterpreter {
                 let result1 = sha1.finalize();
                 
                 let mut sha2 = Sha256::new();
-                sha2.update(&result1);
+                sha2.update(result1);
                 let result2 = sha2.finalize();
                 self.stack.push(result2.to_vec())?;
                 Ok(())
@@ -625,7 +635,7 @@ impl ScriptInterpreter {
             
             _ => {
                 // Unimplemented opcode
-                return Err(ScriptError::InvalidOpcode(opcode as u8));
+                Err(ScriptError::InvalidOpcode(opcode as u8))
             }
         }
     }

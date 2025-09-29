@@ -12,11 +12,8 @@ use thiserror::Error;
 use sha2::{Sha256, Digest};
 use chrono::{DateTime, Utc};
 
-use crate::types::transaction::Transaction;
-use crate::types::block::Block;
 use crate::environmental::emissions::{
-    RECCertificateInfo, CarbonOffsetInfo, VerificationStatus,
-    RegionalEnergySource, EnergySourceInfo, EnergySourceType,
+    RECCertificateInfo, CarbonOffsetInfo, VerificationStatus, EnergySourceInfo, EnergySourceType,
 };
 
 /// Oracle error types
@@ -470,7 +467,7 @@ impl EnvironmentalOracle {
         // Add submission
         let mut submissions = self.oracle_submissions.write().unwrap();
         submissions.entry(request_id.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(verification_data);
         
         // Check if we have enough submissions for consensus
@@ -493,7 +490,7 @@ impl EnvironmentalOracle {
         let mut verification_groups: HashMap<String, Vec<&OracleSubmission>> = HashMap::new();
         for submission in oracle_submissions {
             let key = self.hash_verification_data(&submission.data);
-            verification_groups.entry(key).or_insert_with(Vec::new).push(submission);
+            verification_groups.entry(key).or_default().push(submission);
         }
         
         // Find the majority group
@@ -642,8 +639,8 @@ impl EnvironmentalOracle {
     fn generate_request_id(&self, data: &EnvironmentalData, requester: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(requester.as_bytes());
-        hasher.update(&bincode::serialize(data).unwrap_or_default());
-        hasher.update(&SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().to_le_bytes());
+        hasher.update(bincode::serialize(data).unwrap_or_default());
+        hasher.update(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().to_le_bytes());
         format!("{:x}", hasher.finalize())
     }
     

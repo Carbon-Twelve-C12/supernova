@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use std::path::PathBuf;
 
 /// Configuration for the test network

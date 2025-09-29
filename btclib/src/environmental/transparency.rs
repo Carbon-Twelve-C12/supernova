@@ -1,14 +1,11 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use std::fmt;
-use std::sync::{Arc, RwLock};
 use serde::{Serialize, Deserialize};
 
 use crate::environmental::verification::{RenewableCertificate, CarbonOffset};
 use crate::environmental::miner_reporting::MinerVerificationStatus;
-use crate::environmental::emissions::{EmissionsTracker, VerificationStatus};
-use crate::environmental::types::Region;
-use crate::environmental::dashboard::EnvironmentalDashboard;
+use crate::environmental::emissions::VerificationStatus;
 
 /// Level of transparency in reporting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -124,6 +121,12 @@ pub struct TransparencyDashboard {
     latest_report: Option<TransparencyReport>,
     /// Report history
     report_history: Vec<TransparencyReport>,
+}
+
+impl Default for TransparencyDashboard {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TransparencyDashboard {

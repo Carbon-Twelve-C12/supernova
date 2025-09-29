@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::Digest;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::util::merkle::MerkleTree;
-use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+use crate::types::transaction::Transaction;
 use crate::hash::{hash256, Hash256};
 use std::fmt;
 
 // Placeholder network protocol types for compilation compatibility
 pub mod network_protocol {
-    use super::*;
+    
     
     #[derive(Debug, Clone)]
     pub struct BlockHeader {
@@ -222,8 +222,8 @@ impl fmt::Display for BlockHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BlockHeader {{ version: {}, prev_block: {}, merkle_root: {}, timestamp: {}, bits: {:#x}, nonce: {} }}",
             self.version,
-            hex::encode(&self.prev_block_hash),
-            hex::encode(&self.merkle_root),
+            hex::encode(self.prev_block_hash),
+            hex::encode(self.merkle_root),
             self.timestamp,
             self.bits,
             self.nonce
@@ -254,11 +254,13 @@ fn bits_to_target(bits: u32) -> [u8; 32] {
     } else {
         // Normal case: place coefficient at the correct position
         // Target is stored in little-endian, so we need to place bytes from the end
-        let pos = 32 - (exponent - 3);
-        if pos >= 3 {
-            target[pos - 1] = (coefficient & 0xFF) as u8;
-            target[pos - 2] = ((coefficient >> 8) & 0xFF) as u8;
-            target[pos - 3] = ((coefficient >> 16) & 0xFF) as u8;
+        if exponent >= 3 && exponent <= 34 {
+            let pos = 32 - (exponent - 3);
+            if pos >= 3 {
+                target[pos - 1] = (coefficient & 0xFF) as u8;
+                target[pos - 2] = ((coefficient >> 8) & 0xFF) as u8;
+                target[pos - 3] = ((coefficient >> 16) & 0xFF) as u8;
+            }
         }
     }
     
@@ -615,14 +617,13 @@ impl network_protocol::BlockHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_common::{Transaction, TransactionInput, TransactionOutput};
 
     #[test]
     fn test_block_creation() {
-        use crate::types::transaction::{Transaction, TransactionInput};
         
         let prev_hash = [0u8; 32];
         // Create a coinbase transaction
-        use crate::types::transaction::TransactionOutput;
         let coinbase_input = TransactionInput::new_coinbase(vec![1, 2, 3]);
         let coinbase_output = TransactionOutput::new(50_000_000_000, vec![1, 2, 3, 4]);
         let coinbase_tx = Transaction::new(1, vec![coinbase_input], vec![coinbase_output], 0);

@@ -7,14 +7,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
-use crate::types::transaction::{TransactionOutput, TransactionInput, Transaction};
-use crate::types::block::Block;
 use crate::wallet::quantum_wallet::QuantumAddress;
 // use bitcoin::{Address, ScriptBuf};
-use hex;
 
-use dashmap::DashMap;
-use tracing::{debug, info, warn, error};
+use tracing::{info, error};
 
 /// Size of merkle tree leaf node in bytes
 const MERKLE_LEAF_SIZE: usize = 32 + 8 + 2 + 8; // hash + value + script_type + script_length
@@ -393,21 +389,21 @@ impl UtxoSet {
         for entry in utxos {
             // Hash the entry
             let mut hasher = Sha256::new();
-            hasher.update(&entry.outpoint.txid);
-            hasher.update(&entry.outpoint.vout.to_le_bytes());
+            hasher.update(entry.outpoint.txid);
+            hasher.update(entry.outpoint.vout.to_le_bytes());
             
             // Hash value
             let amount = entry.amount();
-            hasher.update(&amount.to_le_bytes());
+            hasher.update(amount.to_le_bytes());
             
             // Hash script (simplified)
             let script = &entry.output.pub_key_script;
             hasher.update(script);
             
             // Hash metadata
-            hasher.update(&entry.height.to_le_bytes());
-            hasher.update(&[entry.is_coinbase as u8]);
-            hasher.update(&[entry.is_confirmed as u8]);
+            hasher.update(entry.height.to_le_bytes());
+            hasher.update([entry.is_coinbase as u8]);
+            hasher.update([entry.is_confirmed as u8]);
         }
         
         let result = hasher.finalize();

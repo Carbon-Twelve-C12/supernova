@@ -25,7 +25,7 @@ mod tests {
             prev_hash,
             [0; 32], // Merkle root will be calculated
             timestamp,
-            0x1d00ffff, // Easy difficulty
+            0x207fffff, // Test difficulty - max target
             0,
         );
         header.set_height(height);
@@ -360,7 +360,7 @@ mod tests {
     fn test_coinbase_subsidy_validation() {
         let validator = BlockValidator::new();
         
-        let context = create_test_context(0, [0; 32], 0);
+        let context = create_test_context(0, [0; 32], 0);  // prev_height is 0, so next should be 1
         
         // Create a coinbase with excessive reward
         let coinbase_input = TransactionInput::new_coinbase(vec![1, 2, 3]);
@@ -371,13 +371,16 @@ mod tests {
             0
         );
         
-        let mut block = Block::new(
-            BlockHeader::new(1, [0; 32], [0; 32], 
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(), 
-                0x1d00ffff, 0),
-            vec![coinbase],
-        );
-        block.header.set_height(1);
+        // Create block at height 1 (prev_height + 1)
+        let mut block = create_test_block(1, [0; 32], 
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(), 
+            1);
+        
+        // Replace the coinbase with our excessive one
+        block.transactions[0] = coinbase;
+        // Recalculate merkle root
+        let new_merkle = block.calculate_merkle_root();
+        block.header.merkle_root = new_merkle;
         
         let result = validator.validate_block_with_context(&block, &context);
         assert!(result.is_err());

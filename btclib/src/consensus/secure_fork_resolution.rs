@@ -5,10 +5,9 @@
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use sha2::{Sha256, Digest};
+use sha2::Digest;
 use thiserror::Error;
 
-use crate::types::Block;
 use crate::types::block::BlockHeader;
 use crate::consensus::difficulty::calculate_required_work;
 

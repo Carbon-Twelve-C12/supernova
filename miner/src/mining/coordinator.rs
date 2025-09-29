@@ -7,8 +7,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tracing::{info, error};
 use std::time::{Duration, Instant};
-use async_trait::async_trait;
-use btclib::types::transaction::Transaction;
 
 pub struct MiningMetrics {
     total_hash_rate: AtomicU64,
@@ -16,6 +14,12 @@ pub struct MiningMetrics {
     active_workers: AtomicU64,
     start_time: Instant,
     last_hash_time: std::sync::Mutex<Option<Instant>>,
+}
+
+impl Default for MiningMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MiningMetrics {

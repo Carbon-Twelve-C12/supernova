@@ -8,6 +8,7 @@ use notify::{self, Watcher, RecommendedWatcher, RecursiveMode};
 use crate::api::ApiConfig;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Default)]
 pub struct NodeConfig {
     pub network: NetworkConfig,
     pub storage: StorageConfig,
@@ -176,20 +177,6 @@ mod duration_serde {
     }
 }
 
-impl Default for NodeConfig {
-    fn default() -> Self {
-        Self {
-            network: NetworkConfig::default(),
-            storage: StorageConfig::default(),
-            mempool: MempoolConfig::default(),
-            backup: BackupConfig::default(),
-            node: GeneralConfig::default(),
-            checkpoint: CheckpointConfig::default(),
-            api: ApiConfig::default(),
-            testnet: TestnetConfig::default(),
-        }
-    }
-}
 
 impl Default for NetworkConfig {
     fn default() -> Self {

@@ -1,10 +1,7 @@
-use super::config::TestNetConfig as BlockchainConfig;
 use crate::testnet::{TestNetManager, config::TestNetConfig};
-use crate::testnet::network_simulator::{NetworkSimulator, SimulationConfig, NetworkCondition};
+use crate::testnet::network_simulator::{SimulationConfig, NetworkCondition};
 use crate::testnet::config::NetworkSimulationConfig;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::time::{Duration, sleep};
 use tracing::{info, warn, error};
 
@@ -698,7 +695,7 @@ impl TestHarness {
 /// Example test scenarios
 pub mod example_scenarios {
     use super::*;
-    use std::collections::HashMap;
+    
     
     /// Create a basic network partition test scenario
     pub fn network_partition_scenario() -> TestScenario {

@@ -1,17 +1,13 @@
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::types::{
-    ApiResponse, Address, AddressInfo, WalletInfo, BalanceInfo, 
-    Transaction, TransactionList, SignRequest, SignResponse, 
-    VerifyRequest, VerifyResponse, SendRequest, SendResponse,
-    LabelRequest, LabelResponse, AddressRequest, AddressResponse,
-    BackupResponse, UTXOList
+    ApiResponse, WalletInfo, BalanceInfo,
+    BackupResponse
 };
 use crate::node::Node;
 use actix_web::{web, HttpResponse, Responder};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
-use std::collections::HashMap;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error};
 use utoipa::{IntoParams, ToSchema};
 use hex;
 use sha2::Digest;

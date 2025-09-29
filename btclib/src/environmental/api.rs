@@ -1,16 +1,15 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
-use thiserror::Error;
 
 use crate::types::block::Block;
 use crate::environmental::{
     emissions::{EmissionsError, EmissionsTracker, VerificationStatus},
-    miner_reporting::{MinerEnvironmentalInfo, MinerVerificationStatus, RECCertificate, CarbonOffset, MinerReportingManager, VerificationInfo},
-    treasury::{EnvironmentalTreasury, TreasuryError, EnvironmentalAssetPurchase, TreasuryAccountType, EnvironmentalAssetType, TreasuryAllocation},
-    types::{HardwareType, EnergySource, Region},
+    miner_reporting::{MinerEnvironmentalInfo, MinerVerificationStatus, MinerReportingManager, VerificationInfo},
+    treasury::{EnvironmentalTreasury, TreasuryError, TreasuryAccountType, EnvironmentalAssetType},
     transparency::TransparencyDashboard,
     dashboard::EnvironmentalDashboard,
+    types::{Region, HardwareType, EnergySource},
 };
 
 /// Main error type for the environmental API
@@ -347,7 +346,7 @@ impl EnvironmentalApi {
             total_energy_mwh: total_energy_kwh / 1000.0, // Convert kWh to MWh
             total_emissions_tons_co2e: total_emissions_tonnes,
             renewable_percentage,
-            emissions_per_tx: if self.miner_info.len() > 0 { 
+            emissions_per_tx: if !self.miner_info.is_empty() { 
                 total_emissions_tonnes / self.miner_info.len() as f64 
             } else { 
                 0.0 
@@ -409,7 +408,7 @@ impl EnvironmentalApi {
         // Calculate allocation for REC vs carbon offsets
         let carbon_allocation_percentage = 100.0 - rec_allocation_percentage;
         
-        if rec_allocation_percentage < 0.0 || rec_allocation_percentage > 100.0 {
+        if !(0.0..=100.0).contains(&rec_allocation_percentage) {
             return Err(EnvironmentalApiError::InvalidRequest("Invalid allocation percentage".to_string()));
         }
         
@@ -608,8 +607,7 @@ impl EnvironmentalApiTrait for crate::environmental::api::EnvironmentalApi {
     }
     
     fn get_miner_by_id(&self, miner_id: &str) -> Result<MinerEnvironmentalInfo, String> {
-        self.get_miner_info(miner_id)
-            .map(|info| info.clone())
+        self.get_miner_info(miner_id).cloned()
             .map_err(|e| e.to_string())
     }
     

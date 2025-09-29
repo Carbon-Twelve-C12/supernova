@@ -142,7 +142,7 @@ impl KeyManager {
                 if let Some(quantum_keys) = &mut self.quantum_keys {
                     // For quantum keys, we need to generate a new key pair
                     // In a real implementation, this would derive from the seed deterministically
-                    let mut rng = thread_rng();
+                    let rng = thread_rng();
                     
                     // Create QuantumParameters with scheme and security level
                     let quantum_params = crate::crypto::quantum::QuantumParameters {
@@ -362,7 +362,7 @@ impl LightningWallet {
         
         // Check if we already have the preimage for this payment hash
         if let Some(existing_preimage) = self.preimages.get(&payment_hash) {
-            return Ok(existing_preimage.clone());
+            return Ok(*existing_preimage);
         }
         
         // In a production Lightning Network implementation, this would:
@@ -390,7 +390,7 @@ impl LightningWallet {
             description: invoice.description().to_string(),
             creation_time: SystemTime::now(),
             status: PaymentStatus::Succeeded,
-            preimage: Some(preimage.clone()),
+            preimage: Some(preimage),
             channel_id: None,
         };
         
@@ -401,7 +401,7 @@ impl LightningWallet {
         self.payments.insert(payment_hash, payment);
         
         // Store the preimage for future reference
-        self.preimages.insert(payment_hash, preimage.clone());
+        self.preimages.insert(payment_hash, preimage);
         
         Ok(preimage)
     }

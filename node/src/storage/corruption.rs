@@ -730,14 +730,12 @@ impl CorruptionHandler {
                             end_height: None,
                         }
                     }
-                } else {
-                    if let Some(checkpoint) = self.get_latest_valid_checkpoint() {
-                        RecoveryStrategy::RevertToCheckpoint {
-                            checkpoint_height: checkpoint.height,
-                        }
-                    } else {
-                        RecoveryStrategy::RestoreFromBackup
+                } else if let Some(checkpoint) = self.get_latest_valid_checkpoint() {
+                    RecoveryStrategy::RevertToCheckpoint {
+                        checkpoint_height: checkpoint.height,
                     }
+                } else {
+                    RecoveryStrategy::RestoreFromBackup
                 }
             },
         }

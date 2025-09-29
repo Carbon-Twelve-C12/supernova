@@ -2,9 +2,8 @@ use thiserror::Error;
 use std::{collections::HashMap, sync::Arc};
 use serde::{Serialize, Deserialize};
 use crate::types::transaction::Transaction;
-use crate::types::block::{Block, BlockHeader};
+use crate::types::block::Block;
 use crate::validation::{ValidationError, SecurityLevel};
-use crate::validation::transaction::ValidationResult;
 
 /// Error types specific to consensus verification
 #[derive(Debug, Error)]
@@ -305,6 +304,12 @@ pub struct VerificationResult {
     pub is_critical: bool,
 }
 
+impl Default for VerificationReport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VerificationReport {
     /// Create a new verification report
     pub fn new() -> Self {
@@ -377,6 +382,12 @@ pub struct PropertyCheckResult {
     
     /// Counterexamples if property failed
     pub counterexamples: Vec<String>,
+}
+
+impl Default for ModelCheckingReport {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ModelCheckingReport {
@@ -463,6 +474,12 @@ pub struct VerificationProof {
     pub verification_tool: String,
 }
 
+impl Default for VerificationProofs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VerificationProofs {
     /// Create a new collection of verification proofs
     pub fn new() -> Self {
@@ -499,6 +516,12 @@ impl VerificationProofs {
 pub struct DifficultyPredicate {
     description: String,
     is_critical: bool,
+}
+
+impl Default for DifficultyPredicate {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DifficultyPredicate {
@@ -545,6 +568,12 @@ pub struct InputVerificationPredicate {
     is_critical: bool,
 }
 
+impl Default for InputVerificationPredicate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InputVerificationPredicate {
     pub fn new() -> Self {
         Self {
@@ -570,7 +599,7 @@ impl VerificationPredicate for InputVerificationPredicate {
         // Check each input references a valid UTXO
         for input in tx.inputs() {
             // Access the input using the correct field names
-            let utxo_key = format!("{}:{}", hex::encode(&input.prev_tx_hash()), input.prev_output_index());
+            let utxo_key = format!("{}:{}", hex::encode(input.prev_tx_hash()), input.prev_output_index());
             
             if !chain_state.utxo_set.contains_key(&utxo_key) {
                 return Ok(false);

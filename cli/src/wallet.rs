@@ -88,7 +88,7 @@ impl WalletManager {
             .context("Failed to create derivation path")?;
         
         // Derive child key directly from seed
-        let child_xprv = XPrv::derive_from_path(&seed, &path)
+        let child_xprv = XPrv::derive_from_path(seed, &path)
             .map_err(|e| anyhow::anyhow!("Failed to derive key: {:?}", e))?;
         
         // Get the signing key and create address
@@ -200,7 +200,7 @@ fn generate_supernova_address(public_key: &[u8], prefix: &str) -> Result<String>
     let sha256 = Sha256::digest(public_key);
     
     // Step 2: RIPEMD160 hash of the SHA256 hash
-    let ripemd160 = Ripemd160::digest(&sha256);
+    let ripemd160 = Ripemd160::digest(sha256);
     
     // Step 3: Add version byte (network prefix)
     let mut versioned = Vec::new();
@@ -208,7 +208,7 @@ fn generate_supernova_address(public_key: &[u8], prefix: &str) -> Result<String>
     versioned.extend_from_slice(&ripemd160);
     
     // Step 4: Double SHA256 for checksum
-    let checksum = Sha256::digest(&Sha256::digest(&versioned));
+    let checksum = Sha256::digest(Sha256::digest(&versioned));
     
     // Step 5: Append first 4 bytes of checksum
     versioned.extend_from_slice(&checksum[..4]);

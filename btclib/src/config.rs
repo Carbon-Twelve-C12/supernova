@@ -8,6 +8,7 @@ use crate::api::ApiConfig;
 
 /// Configuration for advanced cryptographic features
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct CryptoConfig {
     /// Configuration for quantum-resistant cryptography
     pub quantum: QuantumConfig,
@@ -94,14 +95,6 @@ impl Default for EnvironmentalConfig {
     }
 }
 
-impl Default for CryptoConfig {
-    fn default() -> Self {
-        Self {
-            quantum: QuantumConfig::default(),
-            zkp: ZkpConfig::default(),
-        }
-    }
-}
 
 impl Default for QuantumConfig {
     fn default() -> Self {

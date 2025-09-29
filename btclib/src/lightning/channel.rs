@@ -4,16 +4,13 @@
 // It handles channel state management, commitment transactions, and HTLC operations.
 
 use thiserror::Error;
-use tracing::{debug, info, warn, error};
-use rand::{thread_rng, Rng, RngCore};
+use tracing::{info, warn, error};
+use rand::{thread_rng, RngCore};
 use sha2::{Sha256, Digest};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize, Serializer, Deserializer};
+use serde::{Serialize, Deserialize};
 use crate::types::transaction::{Transaction, TransactionInput as TxIn, TransactionOutput as TxOut, OutPoint};
-use crate::crypto::signature::SignatureScheme;
-use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
-use std::sync::{Arc, RwLock, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use crate::crypto::quantum::QuantumScheme;
 
 // Import proper types from existing modules
 use crate::types::script::Script;
@@ -85,7 +82,7 @@ impl ChannelId {
     pub fn from_funding_outpoint(txid: &[u8; 32], output_index: u32) -> Self {
         let mut hasher = Sha256::new();
         hasher.update(txid);
-        hasher.update(&output_index.to_le_bytes());
+        hasher.update(output_index.to_le_bytes());
         
         let result = hasher.finalize();
         let mut id = [0u8; 32];
@@ -106,7 +103,7 @@ impl ChannelId {
     
     /// Convert to hex string
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
     
     /// Create from hex string
@@ -403,17 +400,13 @@ impl Channel {
             vec![
                 TxOut::new(
                     self.capacity_novas,
-                    Script::new_p2wsh(&vec![
-                        // In a real implementation, this would be:
-                        // OP_2 <local_pubkey> <remote_pubkey> OP_2 OP_CHECKMULTISIG
-                        0x52, // OP_2
+                    Script::new_p2wsh(&[0x52, // OP_2
                         0x21, // Push 33 bytes (compressed pubkey length)
                         // Local pubkey would go here
                         0x21, // Push 33 bytes
                         // Remote pubkey would go here
                         0x52, // OP_2
-                        0xae, // OP_CHECKMULTISIG
-                    ]).as_bytes().to_vec(),
+                        0xae]).as_bytes().to_vec(),
                 )
             ],
             0, // lock_time
@@ -587,7 +580,7 @@ impl Channel {
         
         // Verify preimage
         let mut hasher = Sha256::new();
-        hasher.update(&preimage);
+        hasher.update(preimage);
         let hash = hasher.finalize();
         
         if hash.as_slice() != &htlc.payment_hash {
@@ -668,7 +661,7 @@ impl Channel {
         // Update state
         self.state = ChannelState::ClosingNegotiation;
         
-        info!("Initiated cooperative close for channel {}", hex::encode(&self.channel_id));
+        info!("Initiated cooperative close for channel {}", hex::encode(self.channel_id));
         
         Ok(closing_tx)
     }
@@ -730,7 +723,7 @@ impl Channel {
         // Update state
         self.state = ChannelState::Closed;
         
-        info!("Completed cooperative close for channel {}", hex::encode(&self.channel_id));
+        info!("Completed cooperative close for channel {}", hex::encode(self.channel_id));
         
         Ok(())
     }
@@ -752,7 +745,7 @@ impl Channel {
         // Update state
         self.state = ChannelState::ForceClosed;
         
-        warn!("Force closed channel {}", hex::encode(&self.channel_id));
+        warn!("Force closed channel {}", hex::encode(self.channel_id));
         
         Ok(force_close_tx)
     }
@@ -922,7 +915,7 @@ impl ChannelManager {
     ) -> ChannelResult<[u8; 32]> {
         // Create a new channel
         let channel = Channel::new(
-            self.local_node_id.clone(),
+            self.local_node_id,
             remote_node_id,
             capacity_sat,
             true, // We are the initiator

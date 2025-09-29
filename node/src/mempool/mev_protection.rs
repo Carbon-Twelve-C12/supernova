@@ -250,7 +250,7 @@ impl MEVProtection {
         for tx in transactions.drain(..) {
             let fee = tx.calculate_fee(|_tx_hash, _index| None).unwrap_or(0);
             let fee_tier = (fee / 1000) * 1000; // Round to nearest 1000
-            fee_tiers.entry(fee_tier).or_insert_with(Vec::new).push(tx);
+            fee_tiers.entry(fee_tier).or_default().push(tx);
         }
         
         // Sort tiers by fee (descending)

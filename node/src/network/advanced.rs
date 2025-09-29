@@ -1,21 +1,17 @@
 use libp2p::{
     Multiaddr,
     PeerId,
-    ping::{Behaviour as Ping, Config as PingConfig, Event as PingEvent},
-    identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent},
-    swarm::{SwarmEvent, NetworkBehaviour},
+    ping::{Behaviour as Ping, Event as PingEvent},
+    identify::{Behaviour as Identify, Event as IdentifyEvent},
     mdns::{tokio::Behaviour as Mdns, Event as MdnsEvent},
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use serde::{Serialize, Deserialize};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, warn};
 use tokio::sync::mpsc;
 use tokio::task;
-use std::net::Ipv4Addr;
-use geo::prelude::*;
-use geo::Point;
 use maxminddb::geoip2::City;
 
 /// Configuration for advanced networking features

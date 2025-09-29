@@ -6,14 +6,13 @@ use std::collections::HashMap;
 use std::future::{ready, Ready};
 use std::rc::Rc;
 use std::sync::Mutex;
-use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     http::StatusCode,
     HttpResponse, ResponseError,
 };
-use tracing::{debug, warn};
+use tracing::warn;
 use serde_json::json;
 
 /// Rate limit error

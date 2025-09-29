@@ -5,7 +5,6 @@
 
 use clap::{Args, Subcommand};
 use colored::*;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -12,11 +12,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use chrono::Utc;
 
 use crate::{
     hdwallet::{HDWallet, AccountType, HDAddress},
-    history::{TransactionHistory, TransactionDirection, TransactionStatus, TransactionRecord},
+    history::{TransactionHistory, TransactionDirection, TransactionStatus},
 };
 use btclib::storage::utxo_set::UtxoSet;
 
@@ -124,7 +123,7 @@ impl WalletTui {
             .split(f.size());
 
         // Render tabs
-        let titles = vec!["Overview", "Accounts", "Transactions", "Help"];
+        let titles = ["Overview", "Accounts", "Transactions", "Help"];
         let tabs = Tabs::new(titles.iter().map(|t| {
                     let (first, rest) = t.split_at(1);
                     Line::from(vec![

@@ -1,4 +1,4 @@
-use crate::mempool::error::{MempoolError, MempoolResult};
+use crate::mempool::error::MempoolError;
 use crate::api::types::{MempoolInfo, MempoolTransaction, TransactionValidationResult, TransactionFees};
 use btclib::types::transaction::Transaction;
 use dashmap::DashMap;
@@ -513,7 +513,7 @@ impl TransactionPool {
     /// Get fee histogram for the mempool
     pub fn get_fee_histogram(&self) -> Vec<(u64, usize)> {
         // Create buckets for fee rates (in novas/byte)
-        let buckets = vec![1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+        let buckets = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
         let mut histogram = Vec::new();
         
         for (i, &bucket) in buckets.iter().enumerate() {

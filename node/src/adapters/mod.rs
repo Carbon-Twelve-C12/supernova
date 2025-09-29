@@ -21,10 +21,6 @@ pub use trait_implementations::{
 };
 
 use btclib::storage::chain_state::{ChainState, ChainStateError};
-use crate::storage::database::BlockchainDB;
-use std::sync::Arc;
-use tracing::{error, warn};
-use std::error::Error as StdError;
 
 /// Extension trait for ChainState to provide node-compatible methods
 pub trait ChainStateNodeAdapter {
@@ -54,7 +50,7 @@ impl ChainStateNodeAdapter for ChainState {
 
 /// Helper functions for Result type conversions
 pub mod result_adapters {
-    use btclib::storage::chain_state::ChainStateError;
+    
     use tracing::warn;
     
     /// Convert Result<u32, E> to u64, using default on error
@@ -140,7 +136,7 @@ pub mod height_adapters {
 /// Result type conversion utilities
 pub mod result_converters {
     use super::*;
-    use tracing::{error, warn};
+    use tracing::error;
     
     /// Convert Result<u32> to Result<u64> with error handling
     pub fn convert_result_to_u64(result: Result<u32, ChainStateError>) -> Result<u64, ChainStateError> {

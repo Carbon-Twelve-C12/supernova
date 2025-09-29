@@ -1,8 +1,7 @@
 use libp2p::{
-    gossipsub::{self, MessageId, Topic, Event as GossipsubEvent, Behaviour as Gossipsub, MessageAuthenticity, ValidationMode, ConfigBuilder, IdentTopic},
+    gossipsub::{self, MessageId, MessageAuthenticity, ValidationMode, ConfigBuilder, IdentTopic},
     identity::Keypair,
     PeerId,
-    Multiaddr,
 };
 use serde::{Serialize, Deserialize};
 use std::error::Error;
@@ -13,12 +12,9 @@ use std::fmt;
 use std::error::Error as StdError;
 use tracing::debug;
 use std::collections::HashMap;
-use rand::{thread_rng, Rng, RngCore};
+use rand::{thread_rng, RngCore};
 use thiserror::Error;
-use async_trait::async_trait;
 use futures::prelude::*;
-use std::io;
-use tokio::sync::mpsc;
 
 // Topic constants
 const BLOCKS_TOPIC: &str = "blocks";
@@ -304,7 +300,7 @@ impl Protocol {
         
         // Subscribe to each topic with proper error conversion
         for topic in &topics {
-            self.gossipsub.subscribe(topic).map_err(|e| GossipsubError::from(e))?;
+            self.gossipsub.subscribe(topic).map_err(GossipsubError::from)?;
         }
         
         Ok(())
@@ -451,7 +447,7 @@ impl Protocol {
         thread_rng().fill_bytes(&mut nonce);
         
         // Store the challenge
-        self.identity_challenges.insert(peer_id.clone(), nonce.to_vec());
+        self.identity_challenges.insert(*peer_id, nonce.to_vec());
         
         nonce.to_vec()
     }

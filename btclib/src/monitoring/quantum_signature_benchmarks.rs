@@ -6,13 +6,12 @@
 
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
-use prometheus::{Registry, Counter, Histogram, HistogramOpts, HistogramVec};
+use prometheus::{Registry, HistogramOpts, HistogramVec};
 use serde::{Serialize, Deserialize};
 use crate::crypto::quantum::{
     QuantumScheme, QuantumKeyPair, QuantumParameters,
     sign_quantum, verify_quantum_signature
 };
-use crate::crypto::signature::SignatureType;
 
 /// Performance metrics for quantum signatures
 #[derive(Debug, Clone, Serialize, Deserialize)]

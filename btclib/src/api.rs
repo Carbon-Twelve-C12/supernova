@@ -1,11 +1,8 @@
-use std::sync::Arc;
 use crate::config::Config;
 use crate::types::transaction::Transaction;
-use crate::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumError};
-use crate::crypto::zkp::{ZkpParams, Commitment, ZeroKnowledgeProof};
-use crate::types::extended_transaction::{
-    ConfidentialTransactionBuilder, QuantumTransaction
-};
+use crate::crypto::quantum::{QuantumKeyPair, QuantumError};
+use crate::crypto::zkp::ZkpParams;
+use crate::types::extended_transaction::QuantumTransaction;
 use crate::transaction_processor::{TransactionProcessorError};
 use crate::environmental::treasury::{TreasuryError, VerificationStatus};
 use crate::environmental::dashboard::{EmissionsTimePeriod};

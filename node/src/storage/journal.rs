@@ -3,20 +3,17 @@
 //! This module provides journaling functionality for recording all write operations before they hit the
 //! main database, ensuring durability and recoverability.
 
-use std::io::{Write, Read, Seek, SeekFrom};
-use std::fs::{self, File, OpenOptions};
+use std::io::{Write, Read};
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
-use tokio::io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt};
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use serde::{Serialize, Deserialize};
 use bincode;
-use crc32fast::Hasher;
 use thiserror::Error;
-use tracing::{info, warn, error, debug};
-use super::database::StorageError;
+use tracing::{info, error};
 
 /// Maximum size of the WAL file before rotation (100MB)
 const MAX_WAL_SIZE: u64 = 100 * 1024 * 1024;
@@ -327,7 +324,7 @@ impl WriteAheadLog {
         
         // Close current file
         let mut file_guard = self.current_file.write().await;
-        if let Some(mut file) = file_guard.take() {
+        if let Some(file) = file_guard.take() {
             file.sync_all()?;
         }
         

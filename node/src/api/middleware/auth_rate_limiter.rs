@@ -4,11 +4,9 @@
 //! to prevent brute force attacks on API keys.
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use actix_web::{
-    dev::{ServiceRequest, ServiceResponse},
     http::StatusCode,
     HttpResponse, ResponseError,
 };

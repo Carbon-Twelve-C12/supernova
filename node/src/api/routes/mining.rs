@@ -8,7 +8,6 @@ use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use std::sync::Arc;
-use hex::FromHex;
 
 /// Configure mining API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {

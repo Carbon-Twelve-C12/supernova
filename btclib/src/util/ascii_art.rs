@@ -1,10 +1,9 @@
 use std::{thread::sleep, time::Duration, io::{self, Write}};
 use crossterm::{
-    cursor::{self, MoveTo},
+    cursor::{MoveTo},
     terminal::{Clear, ClearType},
     ExecutableCommand,
     style::{Color, SetForegroundColor, ResetColor},
-    queue,
     execute
 };
 
@@ -143,16 +142,14 @@ pub fn testnet_startup_animation() -> io::Result<()> {
     
     // Display testnet info below the logo
     let logo_height = SUPERNOVA_LARGE.lines().count();
-    let progress_steps = vec![
-        "Initializing supernova Testnet...",
+    let progress_steps = ["Initializing supernova Testnet...",
         "Loading network configuration...",
         "Starting blockchain services...", 
         "Initializing P2P connections...",
         "Setting up Lightning Network...",
         "Starting environmental tracking...",
         "Activating quantum-resistant signatures...",
-        "Testnet ready!"
-    ];
+        "Testnet ready!"];
     
     stdout.execute(MoveTo(0, (logo_height + 2) as u16))?;
     stdout.execute(SetForegroundColor(Color::Green))?;

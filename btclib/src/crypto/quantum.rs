@@ -128,20 +128,17 @@ pub struct MLDSAPrivateKey {
 
 /// ML-DSA security levels (matching Dilithium)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum MLDSASecurityLevel {
     /// ML-DSA-44 (NIST Level 2)
     Level2,
     /// ML-DSA-65 (NIST Level 3)
+    #[default]
     Level3,
     /// ML-DSA-87 (NIST Level 5)
     Level5,
 }
 
-impl Default for MLDSASecurityLevel {
-    fn default() -> Self {
-        MLDSASecurityLevel::Level3
-    }
-}
 
 impl Default for MLDSAPublicKey {
     fn default() -> Self {
@@ -980,7 +977,7 @@ impl QuantumKeyPair {
         // Hash the seed to get deterministic randomness
         let mut hasher = Sha512::new();
         hasher.update(seed);
-        hasher.update(&[parameters.security_level]);
+        hasher.update([parameters.security_level]);
         let hash = hasher.finalize();
         
         // Use the hash as entropy for key generation

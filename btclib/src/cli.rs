@@ -1,7 +1,6 @@
 // CLI module - functionality moved to separate cli crate
 // This module is kept for backwards compatibility
 
-use crate::errors::supernovaError;
 
 pub struct CliConfig {
     pub rpc_url: String,

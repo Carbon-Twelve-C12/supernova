@@ -9,13 +9,10 @@ use actix_web::{
     Error,
 };
 use actix_service::{Service, Transform};
-use futures::future::{ok, ready, Ready};
-use std::task::{Context, Poll};
-use std::pin::Pin;
-use std::future::Future;
+use futures::future::{ready, Ready};
 use std::rc::Rc;
 use uuid::Uuid;
-use tracing::{info, warn, error, debug};
+use tracing::{info, error, debug};
 use std::time::Instant;
 
 /// API logger middleware

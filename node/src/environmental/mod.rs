@@ -1,18 +1,14 @@
-use sysinfo::{System, Disks, Networks};
+use sysinfo::{System, Disks};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::time::sleep;
-use tracing::{debug, info, warn, error};
+use std::sync::{RwLock, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::error;
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 use thiserror::Error;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 
 use crate::api::types::environmental::{
-    EnvironmentalImpact, EnergyUsage, CarbonFootprint, ResourceUtilization,
-    EnvironmentalSettings, EnergyUsageHistory, CarbonOffset, EmissionsSource,
+    EnvironmentalImpact, ResourceUtilization,
+    EnvironmentalSettings, EnergyUsageHistory,
     EnergySource as ApiEnergySource,
 };
 
@@ -584,7 +580,7 @@ impl EnvironmentalMonitor {
         // For now, we'll estimate based on node activity
         
         // Get system network stats if available
-        let mut system = match self.system.lock() {
+        let system = match self.system.lock() {
             Ok(s) => s,
             Err(_) => {
                 tracing::warn!("Failed to acquire system lock: using estimated network usage");

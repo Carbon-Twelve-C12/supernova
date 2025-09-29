@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use libp2p::PeerId;
 use libp2p::multiaddr::Protocol;
-use rand::{Rng, thread_rng};
 use tracing::{debug, info, warn};
 
 /// Represents a subnet for diversity tracking
@@ -171,6 +170,12 @@ pub struct PeerBehaviorFlags {
     pub suspicious_connection_pattern: bool,
     /// Aggressively advertises peers
     pub aggressive_advertising: bool,
+}
+
+impl Default for PeerDiversityManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PeerDiversityManager {
@@ -436,7 +441,7 @@ impl PeerDiversityManager {
         // Determine how many peers to rotate (20-30% of connected peers)
         let connected_peers: Vec<_> = self.peer_info.iter()
             .filter(|entry| !self.protected_peers.contains(entry.key()))
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .map(|entry| (*entry.key(), entry.value().clone()))
             .collect();
             
         if connected_peers.is_empty() {
@@ -452,8 +457,8 @@ impl PeerDiversityManager {
         for (peer_id, info) in connected_peers.iter() {
             subnet_counts
                 .entry(info.subnet.clone())
-                .or_insert_with(Vec::new)
-                .push((peer_id.clone(), info.connection_score));
+                .or_default()
+                .push((*peer_id, info.connection_score));
         }
         
         // Sort subnets by count, descending
@@ -480,7 +485,7 @@ impl PeerDiversityManager {
             let excess_count = count - self.eclipse_config.max_connections_per_subnet;
             for i in 0..excess_count {
                 if i < subnet_peers.len() {
-                    let peer_id = subnet_peers[i].0.clone();
+                    let peer_id = subnet_peers[i].0;
                     peers_to_disconnect.push(peer_id);
                     disconnection_count += 1;
                 }
@@ -493,7 +498,7 @@ impl PeerDiversityManager {
             let mut remaining_peers: Vec<_> = connected_peers
                 .iter()
                 .filter(|(peer_id, _)| !peers_to_disconnect.contains(peer_id))
-                .map(|(peer_id, info)| (peer_id.clone(), info.connection_score))
+                .map(|(peer_id, info)| (*peer_id, info.connection_score))
                 .collect();
                 
             // Sort by score, lowest first
@@ -503,7 +508,7 @@ impl PeerDiversityManager {
             let additional_needed = target_rotation_count - disconnection_count;
             for i in 0..additional_needed {
                 if i < remaining_peers.len() {
-                    peers_to_disconnect.push(remaining_peers[i].0.clone());
+                    peers_to_disconnect.push(remaining_peers[i].0);
                     disconnection_count += 1;
                 }
             }
@@ -628,7 +633,7 @@ impl PeerDiversityManager {
             // Find peers in this subnet sorted by score
             let mut subnet_peers: Vec<_> = self.peer_info.iter()
                 .filter(|entry| entry.value().subnet == subnet && !self.protected_peers.contains(entry.key()))
-                .map(|entry| (entry.key().clone(), entry.value().connection_score))
+                .map(|entry| (*entry.key(), entry.value().connection_score))
                 .collect();
                 
             // Sort by score (lowest first)
@@ -637,7 +642,7 @@ impl PeerDiversityManager {
             // Add the worst-scoring peers from this subnet
             let to_take = subnet_count - self.eclipse_config.max_connections_per_subnet;
             for (peer_id, _) in subnet_peers.iter().take(to_take) {
-                result.push(peer_id.clone());
+                result.push(*peer_id);
                 if result.len() >= count {
                     return result;
                 }

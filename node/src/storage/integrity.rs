@@ -1,11 +1,9 @@
 // integrity.rs - Core data integrity verification module
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 
 use crate::storage::BlockchainDB;
 use crate::storage::corruption::CorruptionHandler;

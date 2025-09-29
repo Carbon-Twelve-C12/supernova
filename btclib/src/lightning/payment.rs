@@ -4,13 +4,12 @@
 //! payment routing, and settlement.
 
 use crate::crypto::quantum::QuantumScheme;
-use crate::types::transaction::{Transaction, TransactionOutput};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
-use rand::{Rng, RngCore};
+use rand::RngCore;
 use hex;
 use std::fmt;
 
@@ -39,7 +38,7 @@ impl PaymentHash {
     
     /// Convert to hex string
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
     
     /// Create from hex string
@@ -88,14 +87,14 @@ impl PaymentPreimage {
     pub fn payment_hash(&self) -> PaymentHash {
         use sha2::{Sha256, Digest};
         let mut hasher = Sha256::new();
-        hasher.update(&self.0);
+        hasher.update(self.0);
         let hash = hasher.finalize();
         PaymentHash(hash.into())
     }
     
     /// Convert to hex string
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
     
     /// Create from hex string
@@ -245,7 +244,7 @@ impl PaymentProcessor {
         let payment_hash = preimage.payment_hash();
         
         let payment = Payment {
-            payment_hash: payment_hash.clone(),
+            payment_hash,
             payment_preimage: Some(preimage),
             amount_msat,
             status: PaymentStatus::Pending,
@@ -257,7 +256,7 @@ impl PaymentProcessor {
             carbon_footprint_grams: None,
         };
         
-        self.payments.insert(payment_hash.clone(), payment);
+        self.payments.insert(payment_hash, payment);
         
         info!("Created payment: hash={:x?}, amount={} msat, destination={}", 
               &payment_hash.as_bytes()[0..4], amount_msat, destination);

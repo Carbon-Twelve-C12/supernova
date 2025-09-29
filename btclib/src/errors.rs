@@ -175,13 +175,13 @@ pub fn get_system_time() -> supernovaResult<u64> {
 /// Safe serialization helper
 pub fn safe_serialize<T: serde::Serialize>(value: &T) -> supernovaResult<Vec<u8>> {
     bincode::serialize(value)
-        .map_err(|e| supernovaError::Serialization(e))
+        .map_err(supernovaError::Serialization)
 }
 
 /// Safe deserialization helper  
 pub fn safe_deserialize<'a, T: serde::Deserialize<'a>>(data: &'a [u8]) -> supernovaResult<T> {
     bincode::deserialize(data)
-        .map_err(|e| supernovaError::Serialization(e))
+        .map_err(supernovaError::Serialization)
 }
 
 #[cfg(test)]

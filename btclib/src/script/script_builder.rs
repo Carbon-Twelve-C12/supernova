@@ -12,6 +12,12 @@ pub struct ScriptBuilder {
     script: Vec<u8>,
 }
 
+impl Default for ScriptBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScriptBuilder {
     /// Create a new empty script builder
     pub fn new() -> Self {
@@ -174,7 +180,7 @@ impl ScriptBuilder {
         let sha_result = sha.finalize();
         
         let mut ripemd = Ripemd160::new();
-        ripemd.update(&sha_result);
+        ripemd.update(sha_result);
         ripemd.finalize().to_vec()
     }
 }

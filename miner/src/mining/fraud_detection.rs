@@ -258,7 +258,7 @@ impl FraudDetector {
     
     fn check_impossible_efficiency(&self, audit: &EfficiencyAudit) -> Option<SuspiciousActivity> {
         // Theoretical maximum efficiency for current technology
-        let theoretical_max = match audit.hash_rate_per_watt {
+        match audit.hash_rate_per_watt {
             x if x > 200.0 => return Some(SuspiciousActivity::ImpossibleEfficiency {
                 claimed: x,
                 theoretical_max: 200.0,
@@ -297,8 +297,8 @@ impl FraudDetector {
         
         if let Some(activities) = patterns.get(miner_id) {
             // Simple scoring: more activities = higher risk
-            let score = (activities.len() as f64 / 10.0).min(1.0);
-            score
+            
+            (activities.len() as f64 / 10.0).min(1.0)
         } else {
             0.0
         }

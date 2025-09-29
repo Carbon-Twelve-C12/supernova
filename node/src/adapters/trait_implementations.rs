@@ -5,9 +5,7 @@
 
 use serde::{Serialize, Deserialize};
 use libp2p::PeerId;
-use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::borrow::Borrow;
 use crate::metrics::performance::MetricType;
 
 /// Implement Serialize for PeerId
@@ -29,7 +27,7 @@ impl<'de> Deserialize<'de> for SerializablePeerId {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        PeerId::from_bytes(&s.as_bytes())
+        PeerId::from_bytes(s.as_bytes())
             .map(SerializablePeerId)
             .map_err(serde::de::Error::custom)
     }
@@ -48,7 +46,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    PeerId::from_bytes(&s.as_bytes())
+    PeerId::from_bytes(s.as_bytes())
         .map_err(serde::de::Error::custom)
 }
 

@@ -1,36 +1,29 @@
 use crate::storage::{
-    BackupManager, BlockchainDB, ChainState, 
-    CheckpointManager, CheckpointConfig, CheckpointType,
-    RecoveryManager, StorageError, UtxoSet,
-    DatabaseShutdownHandler, DatabaseStartupHandler, ShutdownConfig,
-    WriteAheadLog, WalError
+    BlockchainDB, ChainState, StorageError,
+    DatabaseShutdownHandler,
+    WriteAheadLog
 };
 use crate::adapters::{
     ChainStateNodeMethods, BlockNodeMethods, TransactionPoolNodeMethods,
-    ResultNodeMethods, CloneableReadGuard, SafeNumericConversion, 
-    IVecConversion, WalletConversion
+    ResultNodeMethods
 };
-use crate::api::{ApiServer, ApiConfig};
-use crate::network::{P2PNetwork, NetworkProxy, NetworkCommand, NetworkEvent};
+use crate::api::ApiConfig;
+use crate::network::{P2PNetwork, NetworkProxy, NetworkCommand};
 use crate::mempool::TransactionPool;
 use crate::config::NodeConfig;
-use crate::environmental::EnvironmentalMonitor;
-use crate::api::types::{NodeInfo, SystemInfo, LogEntry, NodeStatus, VersionInfo, NodeMetrics, FaucetInfo, LoadAverage};
+use crate::api::types::{NodeInfo, SystemInfo, LogEntry, VersionInfo, NodeMetrics, LoadAverage};
 use btclib::crypto::quantum::QuantumScheme;
-use btclib::lightning::{LightningConfig, LightningNetworkError};
-use btclib::lightning::manager::{LightningManager, ManagerError, LightningEvent};
+use btclib::lightning::LightningConfig;
+use btclib::lightning::manager::{LightningManager, LightningEvent};
 use btclib::lightning::wallet::LightningWallet;
-use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
-use std::time::{Instant, Duration};
-use tracing::{info, error, warn, debug};
-use crate::metrics::performance::{PerformanceMonitor, MetricType};
+use std::sync::{Arc, RwLock};
+use std::time::Instant;
+use tracing::{info, error, debug};
+use crate::metrics::performance::PerformanceMonitor;
 use thiserror::Error;
 use libp2p::PeerId;
 use sysinfo::System;
-use chrono::Utc;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
-use std::str::FromStr;
 use serde::{Serialize, Deserialize};
 use crate::testnet::NodeTestnetManager;
 use crate::testnet::TestnetNodeConfig;
@@ -38,7 +31,6 @@ use btclib::types::transaction::Transaction;
 use btclib::types::block::Block;
 use hex;
 use uuid;
-use static_assertions::const_assert_eq;
 
 /// Node status information for internal use
 #[derive(Debug, Serialize, Deserialize)]
@@ -171,7 +163,7 @@ impl Node {
             chain_state.write()
                 .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
                 .initialize_with_genesis(genesis_block)
-                .map_err(|e| NodeError::StorageError(e.into()))?;
+                .map_err(|e| NodeError::StorageError(e))?;
         }
         
         // Initialize mempool
@@ -224,7 +216,7 @@ impl Node {
             
             Some(Arc::new(NodeTestnetManager::new(
                 testnet_node_config,
-            ).map_err(|e| NodeError::TestnetError(e))?))
+            ).map_err(NodeError::TestnetError)?))
         } else {
             None
         };
@@ -324,7 +316,7 @@ impl Node {
         // Start testnet manager if enabled
         if let Some(testnet) = &self.testnet_manager {
             testnet.start().await
-                .map_err(|e| NodeError::TestnetError(e))?;
+                .map_err(NodeError::TestnetError)?;
         }
         
         // Note: API server must be started separately after node creation
@@ -345,7 +337,7 @@ impl Node {
         // Stop testnet manager if enabled
         if let Some(testnet) = &self.testnet_manager {
             testnet.stop()
-                .map_err(|e| NodeError::TestnetError(e))?;
+                .map_err(NodeError::TestnetError)?;
         }
         
         tracing::info!("Node stopped successfully");
@@ -421,7 +413,7 @@ impl Node {
         self.chain_state.write()
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
             .add_block(&block)
-            .map_err(|e| NodeError::StorageError(e.into()))?;
+            .map_err(|e| NodeError::StorageError(e))?;
         
         // Remove transactions from mempool
         for tx in block.transactions() {
@@ -430,7 +422,7 @@ impl Node {
         
         // Store full block in database
         self.db.insert_block(&block)
-            .map_err(|e| NodeError::StorageError(e))?;
+            .map_err(NodeError::StorageError)?;
         
         // Broadcast to network if this is a new block we mined
         self.network.broadcast_block(&block);
@@ -462,7 +454,7 @@ impl Node {
             }
         };
         let chain_height = self.chain_state.read()
-            .map(|cs| cs.get_height() as u64)
+            .map(|cs| cs.get_height())
             .unwrap_or(0);
         let peer_count = self.network.peer_count().await;
         let is_syncing = self.network.is_syncing();
@@ -485,7 +477,7 @@ impl Node {
             .map_err(|_| NodeError::General("Config lock poisoned".to_string()))?;
         let chain_height = self.chain_state.read()
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
-            .get_height() as u64;
+            .get_height();
         let best_block_hash = self.chain_state.read()
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
             .get_best_block_hash();
@@ -507,7 +499,7 @@ impl Node {
 
     /// Get system info
     pub fn get_system_info(&self) -> Result<SystemInfo, NodeError> {
-        let mut sys = System::new_all();
+        let sys = System::new_all();
         
         let load_avg = System::load_average();
         
@@ -565,7 +557,7 @@ impl Node {
             .unwrap_or(0);
         
         // Get mempool size in bytes
-        let mempool_bytes = self.mempool.get_memory_usage() as usize;
+        let mempool_bytes = self.mempool.get_memory_usage();
         
         // Get sync progress
         let sync_progress = if self.network.is_syncing() {
@@ -587,7 +579,7 @@ impl Node {
             peer_count: self.network.peer_count_sync(),
             block_height: self.chain_state.read()
                 .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
-                .get_height() as u64,
+                .get_height(),
             mempool_size: self.mempool.size(),
             mempool_bytes,
             sync_progress,
@@ -643,11 +635,11 @@ impl Node {
         // Create the backup asynchronously
         let backup_path = tokio::runtime::Handle::current().block_on(async {
             backup_manager.create_backup().await
-        }).map_err(|e| NodeError::StorageError(e))?;
+        }).map_err(NodeError::StorageError)?;
         
         // Get file metadata for size
         let metadata = std::fs::metadata(&backup_path)
-            .map_err(|e| NodeError::IoError(e))?;
+            .map_err(NodeError::IoError)?;
         
         Ok(crate::api::types::BackupInfo {
             id: uuid::Uuid::new_v4().to_string(),
@@ -675,7 +667,7 @@ impl Node {
         std::process::Command::new(std::env::current_exe()?)
             .args(std::env::args().skip(1))
             .spawn()
-            .map_err(|e| NodeError::IoError(e))?;
+            .map_err(NodeError::IoError)?;
         
         // Shutdown current instance
         self.shutdown()?;

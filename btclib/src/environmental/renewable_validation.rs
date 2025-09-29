@@ -222,7 +222,7 @@ impl RenewableEnergyValidator {
                 Ok(validated) => {
                     if validated.validation_status == ValidationStatus::Valid {
                         total_renewable_mwh += validated.energy_amount_mwh;
-                        *energy_by_type.entry(validated.energy_type.clone()).or_insert(0.0) += 
+                        *energy_by_type.entry(validated.energy_type).or_insert(0.0) += 
                             validated.energy_amount_mwh;
                         validated_certificates.push(validated);
                     }

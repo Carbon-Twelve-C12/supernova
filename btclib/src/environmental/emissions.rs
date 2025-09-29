@@ -1,16 +1,13 @@
 use std::collections::HashMap;
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc, NaiveDateTime};
+use chrono::{DateTime, Utc};
 use crate::types::transaction::Transaction;
-use crate::config::Config;
-use crate::environmental::types::{EmissionsDataSource, EmissionsFactorType, Region as TypesRegion, EmissionFactor as TypesEmissionFactor};
+use crate::environmental::types::{EmissionsDataSource, EmissionsFactorType};
 use crate::environmental::oracle::EnvironmentalOracle;
 use reqwest::Client;
 use tokio::sync::RwLock;
 use std::sync::Arc;
-use url::Url;
-use std::time::{Duration, SystemTime};
 use crate::types::block::Block;
 
 /// Environmental data announcement for network sharing
@@ -674,7 +671,7 @@ impl EmissionsTracker {
                         if rec_info.verification_status == VerificationStatus::Verified {
                             // Reduce emissions based on verified REC percentage
                             let rec_percentage = (rec_info.amount_mwh * 1000.0 / region_energy).min(1.0);
-                            region_market_emissions *= (1.0 - rec_percentage);
+                            region_market_emissions *= 1.0 - rec_percentage;
                         }
                     }
                 }
@@ -1082,6 +1079,12 @@ pub struct EmissionsCalculator {
     energy_efficiency: f64,
     /// Renewable energy percentage (0-100)
     renewable_percentage: f64,
+}
+
+impl Default for EmissionsCalculator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EmissionsCalculator {
@@ -1495,7 +1498,7 @@ impl EmissionsRegistry {
             // Convert energy source info to our internal format
             let mut energy_sources = HashMap::new();
             for source in &region.energy_sources {
-                energy_sources.insert(source.source_type, source.percentage as f64);
+                energy_sources.insert(source.source_type, source.percentage);
             }
             
             // Calculate carbon intensity for this region
@@ -1670,7 +1673,7 @@ impl EmissionsRegistry {
         (
             *self.global_carbon_intensity.read().await,
             *self.global_renewable_percentage.read().await,
-            self.network_hashrate.read().await.clone()
+            *self.network_hashrate.read().await
         )
     }
 
@@ -1700,7 +1703,7 @@ impl EmissionsRegistry {
                     energy_consumption_mwh: data.hashrate_percentage * network_hashrate.moving_average_24h * ENERGY_PER_HASH * 24.0,
                 }
             }).collect(),
-            network_hashrate: network_hashrate.clone()
+            network_hashrate: *network_hashrate
         };
         
         summary
@@ -1713,7 +1716,7 @@ impl EmissionsRegistry {
             let mut regional_energy_sources = HashMap::new();
             
             for source in &region.energy_sources {
-                regional_energy_sources.insert(source.source_type, source.percentage as f64);
+                regional_energy_sources.insert(source.source_type, source.percentage);
             }
             
             let carbon_intensity = self.calculate_carbon_intensity(&regional_energy_sources);
@@ -1724,7 +1727,7 @@ impl EmissionsRegistry {
                 RegionalEnergyData {
                     region_id: region.region_id.clone(),
                     name: region.name.clone(),
-                    hashrate_percentage: region.hashrate_percentage as f64,
+                    hashrate_percentage: region.hashrate_percentage,
                     energy_sources: regional_energy_sources,
                     carbon_intensity,
                     renewable_percentage,

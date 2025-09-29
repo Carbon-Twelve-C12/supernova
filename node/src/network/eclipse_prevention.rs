@@ -8,7 +8,7 @@
 //! 5. Proof-of-work challenges - make Sybil attacks expensive
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use libp2p::PeerId;
@@ -97,6 +97,7 @@ pub struct PeerConnectionInfo {
 
 /// Behavioral patterns that indicate eclipse attack
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct EclipseAttackIndicators {
     /// Rapid connection attempts from similar IPs
     pub connection_flooding: bool,
@@ -120,19 +121,6 @@ pub struct EclipseAttackIndicators {
     pub detected_at: Option<Instant>,
 }
 
-impl Default for EclipseAttackIndicators {
-    fn default() -> Self {
-        Self {
-            connection_flooding: false,
-            address_convergence: false,
-            transaction_censorship: false,
-            chain_manipulation: false,
-            diversity_collapse: false,
-            coordinated_behavior: false,
-            detected_at: None,
-        }
-    }
-}
 
 /// Eclipse prevention system
 pub struct EclipsePreventionSystem {
@@ -252,10 +240,8 @@ impl EclipsePreventionSystem {
         }
         
         // If PoW is required and this is inbound, check if challenge completed
-        if self.config.require_pow_challenge && is_inbound {
-            if !self.has_completed_pow_challenge(peer_id).await {
-                return Err("PoW challenge not completed".to_string());
-            }
+        if self.config.require_pow_challenge && is_inbound && !self.has_completed_pow_challenge(peer_id).await {
+            return Err("PoW challenge not completed".to_string());
         }
         
         Ok(true)
@@ -274,7 +260,7 @@ impl EclipsePreventionSystem {
         let region = self.lookup_region(&ip_address).await;
         
         let info = PeerConnectionInfo {
-            peer_id: peer_id.clone(),
+            peer_id: peer_id,
             ip_address,
             subnet,
             asn,
@@ -288,11 +274,11 @@ impl EclipsePreventionSystem {
         };
         
         let mut connections = self.connections.write().await;
-        connections.insert(peer_id.clone(), info);
+        connections.insert(peer_id, info);
         
         if is_anchor {
             let mut anchors = self.anchor_peers.write().await;
-            anchors.insert(peer_id.clone());
+            anchors.insert(peer_id);
         }
         
         // Record connection event
@@ -321,7 +307,7 @@ impl EclipsePreventionSystem {
         };
         
         let mut challenges = self.pow_challenges.write().await;
-        challenges.insert(peer_id.clone(), challenge);
+        challenges.insert(*peer_id, challenge);
         
         (nonce.to_vec(), self.config.pow_difficulty)
     }
@@ -343,7 +329,7 @@ impl EclipsePreventionSystem {
             
             // Verify the solution
             let mut hasher = Sha256::new();
-            hasher.update(&challenge.nonce);
+            hasher.update(challenge.nonce);
             hasher.update(solution);
             let hash = hasher.finalize();
             
@@ -351,7 +337,7 @@ impl EclipsePreventionSystem {
                 challenge.completed = true;
                 
                 // Update connection info
-                if let Some(mut connections) = self.connections.write().await.get_mut(peer_id) {
+                if let Some(connections) = self.connections.write().await.get_mut(peer_id) {
                     connections.pow_completed = true;
                 }
                 
@@ -406,7 +392,7 @@ impl EclipsePreventionSystem {
         candidates
             .into_iter()
             .take(rotation_count)
-            .map(|(peer_id, _)| peer_id.clone())
+            .map(|(peer_id, _)| *peer_id)
             .collect()
     }
     
@@ -420,7 +406,7 @@ impl EclipsePreventionSystem {
             if info.behavior_score < 10.0 {
                 drop(connections);
                 self.ban_peer(
-                    peer_id.clone(),
+                    *peer_id,
                     "Low behavior score",
                     self.config.ban_duration,
                 ).await;
@@ -610,7 +596,7 @@ impl EclipsePreventionSystem {
         let mut peer_advertisement_counts: HashMap<PeerId, usize> = HashMap::new();
         for advertised_peers in advertisements.values() {
             for peer in advertised_peers {
-                *peer_advertisement_counts.entry(peer.clone()).or_insert(0) += 1;
+                *peer_advertisement_counts.entry(*peer).or_insert(0) += 1;
             }
         }
         
@@ -663,7 +649,7 @@ impl EclipsePreventionSystem {
     async fn ban_peer(&self, peer_id: PeerId, reason: &str, duration: Duration) {
         let mut banned = self.banned_entities.write().await;
         banned.peers.insert(
-            peer_id.clone(),
+            peer_id,
             BanInfo {
                 reason: reason.to_string(),
                 banned_at: Instant::now(),

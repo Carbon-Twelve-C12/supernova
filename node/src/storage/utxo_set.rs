@@ -1,17 +1,15 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write, Seek, SeekFrom};
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
 
 use memmap2::{MmapMut, MmapOptions};
 use serde::{Serialize, Deserialize};
 use dashmap::DashMap;
-use btclib::types::transaction::{Transaction, TransactionOutput};
-use tracing::{debug, info, warn, error};
+use btclib::types::transaction::Transaction;
+use tracing::{debug, error};
 
 use crate::storage::StorageError;
-use crate::metrics;
 
 /// Represents an unspent transaction output
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -347,9 +345,9 @@ impl UtxoSet {
         for outpoint in &utxo_keys {
             if let Some(utxo) = self.utxos.get(outpoint) {
                 // Add to hash computation
-                hasher.update(&outpoint.txid);
-                hasher.update(&outpoint.vout.to_le_bytes());
-                hasher.update(&utxo.value.to_le_bytes());
+                hasher.update(outpoint.txid);
+                hasher.update(outpoint.vout.to_le_bytes());
+                hasher.update(utxo.value.to_le_bytes());
                 hasher.update(&utxo.script_pubkey);
                 
                 // Sum values

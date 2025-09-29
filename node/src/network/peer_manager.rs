@@ -1,13 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::{Duration, Instant},
 };
 use tokio::sync::RwLock;
 use libp2p::PeerId;
-use tracing::{info, warn, debug};
+use tracing::{info, debug};
 use crate::{
-    network::peer::{PeerInfo, PeerState},
+    network::peer::PeerInfo,
     storage::Storage,
 };
 

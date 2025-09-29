@@ -1,13 +1,9 @@
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time;
-use tracing::{info, warn, error, debug};
-use metrics::{gauge, counter, histogram};
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
+use metrics::gauge;
 
 use crate::metrics::registry::MetricsRegistry;
 use sysinfo::System;
@@ -262,7 +258,7 @@ impl MetricsCollector {
                 
                 // Record to metrics registry
                 let mount_point = disk.mount_point().to_string_lossy().to_string();
-                let mount_point_safe = mount_point.replace('/', "_").replace('\\', "_");
+                let mount_point_safe = mount_point.replace(['/', '\\'], "_");
                 
                 // Calculate used space and usage percentage
                 let used = total_space.saturating_sub(available_space);
@@ -312,7 +308,7 @@ impl MetricsCollector {
         // Network metrics (only when extended collection is due)
         if metrics_types.network && collect_extended {
             use sysinfo::Networks;
-            let mut networks = Networks::new_with_refreshed_list();
+            let networks = Networks::new_with_refreshed_list();
             
             for (interface_name, network) in &networks {
                 let received_bytes = network.total_received();

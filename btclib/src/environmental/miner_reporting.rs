@@ -1,14 +1,8 @@
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::info;
 use chrono::{DateTime, Utc};
-use thiserror::Error;
-use crate::environmental::types::{EnergySource as TypesEnergySource, EmissionFactor, HardwareType as TypesHardwareType, Region, EmissionsDataSource, EmissionsFactorType};
-use crate::environmental::emissions::VerificationStatus;
-use std::sync::{Arc, RwLock};
-use url::Url;
-use std::fmt;
+use crate::environmental::types::{EnergySource as TypesEnergySource, EmissionFactor, HardwareType as TypesHardwareType, Region};
 
 /// Status of miner verification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -234,7 +228,7 @@ impl MinerEnvironmentalInfo {
         if self.has_carbon_offsets {
             // This is a simplified model; a real implementation would track
             // exact offset quantities and verification status
-            final_footprint = final_footprint * 0.9; // Assume 10% reduction from offsets
+            final_footprint *= 0.9; // Assume 10% reduction from offsets
         }
 
         // Update the carbon footprint field
@@ -429,16 +423,16 @@ impl MinerEnvironmentalInfo {
         // Add points for energy efficiency (0-10 points)
         let efficiency_score = if let Some(efficiency) = self.calculate_energy_efficiency() {
             // Lower J/TH is better
-            let score = match efficiency {
+            
+            
+            match efficiency {
                 e if e < 25.0 => 10.0,  // Most efficient ASICs
                 e if e < 35.0 => 8.0,   // Very efficient
                 e if e < 50.0 => 6.0,   // Efficient
                 e if e < 75.0 => 4.0,   // Moderate
                 e if e < 100.0 => 2.0,  // Below average
                 _ => 0.0,               // Inefficient
-            };
-            
-            score
+            }
         } else {
             0.0
         };
@@ -539,6 +533,12 @@ pub struct MinerReportingManager {
     hardware_baselines: HashMap<TypesHardwareType, f64>,
     /// Reports by miner ID
     reports: HashMap<String, MinerEnvironmentalReport>,
+}
+
+impl Default for MinerReportingManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MinerReportingManager {
@@ -1043,6 +1043,7 @@ pub struct MinerEnvironmentalReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_common::*;
     
     #[test]
     fn test_miner_carbon_footprint_calculation() {

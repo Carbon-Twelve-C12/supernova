@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, Mutex};
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write, Seek, SeekFrom};
+use std::io::{Read, Write};
 
 use serde::{Serialize, Deserialize};
-use btclib::types::transaction::{Transaction, TransactionOutput};
-use tracing::{debug, info, warn, error};
+use btclib::types::transaction::Transaction;
+use tracing::info;
 
 use crate::storage::StorageError;
 
@@ -399,7 +399,7 @@ impl AtomicUtxoSet {
     
     /// Clear spent outputs older than a certain height (pruning)
     pub fn prune_spent_outputs(&self, height_limit: u64) -> Result<usize, StorageError> {
-        let mut spent = self.spent_outputs.write()
+        let spent = self.spent_outputs.write()
             .map_err(|e| StorageError::LockPoisoned(format!("Spent outputs write lock poisoned: {}", e)))?;
         let initial_size = spent.len();
         

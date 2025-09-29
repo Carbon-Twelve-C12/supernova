@@ -388,13 +388,13 @@ impl PeerDiversityManager {
     /// Recommend connection targets to improve diversity
     pub fn recommend_connection_targets(&self) -> Vec<String> {
         // Identify under-represented network segments and recommend targets
-        let mut recommendations = Vec::new();
+        
         
         // Implementation depends on the specific peer recommendation system
         // This is a simplified version that would need to be expanded with actual
         // peer discovery mechanisms
         
-        recommendations
+        Vec::new()
     }
     
     /// Remove a peer from the diversity manager
@@ -491,7 +491,7 @@ impl ConnectionRateLimiter {
         
         // Get or create list of connection times for this IP
         let times = self.connection_times.entry(ip_addr.to_string())
-            .or_insert_with(Vec::new);
+            .or_default();
             
         // Add current time
         times.push(now);
@@ -833,7 +833,7 @@ impl SecurityManager {
                     
                     // Get peers to rotate
                     let peers_to_rotate = {
-                        if let Ok(mut prevention) = eclipse_prevention.write() {
+                        if let Ok(prevention) = eclipse_prevention.write() {
                             prevention.get_rotation_candidates()
                         } else {
                             Vec::new()
@@ -845,7 +845,7 @@ impl SecurityManager {
                         log::info!("Rotated {} peers to maintain network diversity", peers_to_rotate.len());
                         
                         // Update diversity metrics
-                        if let Ok(mut diversity) = diversity_manager.write() {
+                        if let Ok(diversity) = diversity_manager.write() {
                             let score = diversity.evaluate_diversity();
                             log::info!("Updated network diversity score: {:.2}", score);
                         }

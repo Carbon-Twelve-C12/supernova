@@ -5,7 +5,7 @@ use thiserror::Error;
 use uuid;
 
 use crate::environmental::treasury::{EnvironmentalTreasury, TreasuryAccountType, TreasuryError};
-use crate::crypto::signature::{Signature, SignatureType};
+use crate::crypto::signature::Signature;
 
 /// Error types for environmental governance operations
 #[derive(Error, Debug)]
@@ -618,7 +618,7 @@ impl EnvironmentalGovernance {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::environmental::treasury::TreasuryConfig;
+    use crate::test_common::*;
     
     fn create_test_governance() -> EnvironmentalGovernance {
         let treasury = EnvironmentalTreasury::new(TreasuryConfig::default());

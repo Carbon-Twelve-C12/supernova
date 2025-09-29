@@ -84,6 +84,12 @@ pub struct TransactionValidator {
     crypto_validator: CryptoValidator,
 }
 
+impl Default for TransactionValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransactionValidator {
     /// Create a new transaction validator with default config
     pub fn new() -> Self {
@@ -375,7 +381,7 @@ impl TransactionValidator {
                 };
                 
                 // Use the transaction's own verification logic
-                if tx.verify_signature(&input.signature_script(), &prev_output.pub_key_script, i) {
+                if tx.verify_signature(input.signature_script(), &prev_output.pub_key_script, i) {
                     valid_inputs += 1;
                 } else {
                     return Ok(ValidationResult::Invalid(

@@ -1,12 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::{info, warn};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
-use rand::{thread_rng, Rng, distributions::{Distribution, Bernoulli}};
-use tokio::time::sleep;
+use tracing::info;
 use thiserror::Error;
-use serde::{Serialize, Deserialize};
-use crate::testnet::config;
 
 /// Error types for network simulation
 #[derive(Debug, Error)]
@@ -26,6 +21,7 @@ pub enum NetworkSimulationError {
 
 /// Represents the condition of a network connection between two nodes
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct NetworkCondition {
     /// Simulated latency in milliseconds
     pub latency_ms: Option<u64>,
@@ -37,16 +33,6 @@ pub struct NetworkCondition {
     pub is_severed: bool,
 }
 
-impl Default for NetworkCondition {
-    fn default() -> Self {
-        Self {
-            latency_ms: None,
-            packet_loss_percent: None,
-            bandwidth_kbps: None,
-            is_severed: false,
-        }
-    }
-}
 
 // Define our own type instead of using a type alias
 #[derive(Debug, Clone)]
@@ -122,7 +108,7 @@ impl NetworkSimulator {
         
         let mut condition = self.conditions
             .entry((from_node, to_node))
-            .or_insert_with(NetworkCondition::default)
+            .or_default()
             .clone();
         
         // Update condition
@@ -201,7 +187,7 @@ impl NetworkSimulator {
     pub fn sever_connection(&mut self, from_node: usize, to_node: usize) -> Result<(), String> {
         let mut condition = self.conditions
             .entry((from_node, to_node))
-            .or_insert_with(NetworkCondition::default)
+            .or_default()
             .clone();
         
         condition.is_severed = true;
@@ -216,7 +202,7 @@ impl NetworkSimulator {
     
     /// Restore connection between two nodes
     pub fn restore_connection(&mut self, from_node: usize, to_node: usize) -> Result<(), String> {
-        if let Some(mut condition) = self.conditions.get_mut(&(from_node, to_node)) {
+        if let Some(condition) = self.conditions.get_mut(&(from_node, to_node)) {
             condition.is_severed = false;
             info!("Restored connection from node {} to {}", from_node, to_node);
         }
@@ -285,8 +271,8 @@ impl NetworkSimulator {
             // If no drift is recorded for this node, generate a deterministic one
             // In a real implementation, this would use a proper random number generator
             let max_drift = self.config.max_clock_drift_ms as i64;
-            let pseudo_random = ((node_id * 13) % (max_drift as usize * 2)) as i64 - max_drift;
-            pseudo_random
+            
+            ((node_id * 13) % (max_drift as usize * 2)) as i64 - max_drift
         });
         
         // Apply drift to timestamp

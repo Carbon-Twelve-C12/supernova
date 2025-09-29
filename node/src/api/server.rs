@@ -18,7 +18,7 @@ use crate::metrics::ApiMetrics;
 use crate::api_facade::ApiFacade;
 use super::routes;
 use super::docs::ApiDoc;
-use super::middleware::{auth, rate_limiting, logging};
+use super::middleware::rate_limiting;
 
 /// Configuration options for the API server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,7 +84,7 @@ impl ApiServer {
     /// Create a new API server instance
     pub fn new(node: Arc<Node>, bind_address: &str, port: u16) -> Self {
         // Create thread-safe facade
-        let node_facade = Arc::new(ApiFacade::new(&*node));
+        let node_facade = Arc::new(ApiFacade::new(&node));
         
         // Warn about default API key usage
         let config = ApiConfig::default();

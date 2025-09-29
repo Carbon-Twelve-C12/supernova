@@ -2,7 +2,6 @@ use metrics::{counter, gauge, histogram};
 use metrics_exporter_prometheus::PrometheusHandle;
 use std::time::Duration;
 use std::time::Instant;
-use std::net::SocketAddr;
 
 /// Central registry for all metrics
 pub struct MetricsRegistry {
@@ -136,24 +135,60 @@ pub struct ConsensusMetrics;
 pub struct MempoolMetrics;
 pub struct LightningMetrics;
 
+impl Default for SystemMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SystemMetrics {
     pub fn new() -> Self { Self }
+}
+
+impl Default for BlockchainMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BlockchainMetrics {
     pub fn new() -> Self { Self }
 }
 
+impl Default for NetworkMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetworkMetrics {
     pub fn new() -> Self { Self }
+}
+
+impl Default for ConsensusMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConsensusMetrics {
     pub fn new() -> Self { Self }
 }
 
+impl Default for MempoolMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MempoolMetrics {
     pub fn new() -> Self { Self }
+}
+
+impl Default for LightningMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LightningMetrics {

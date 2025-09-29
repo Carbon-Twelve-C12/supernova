@@ -1,6 +1,5 @@
-use crate::network::{NetworkCommand, NetworkMessage};
+use crate::network::NetworkCommand;
 use crate::network::protocol::Message;
-use crate::network::protocol::BlockHeader as ProtocolBlockHeader;
 use crate::storage::{BlockchainDB, StorageError, ChainState};
 use btclib::types::block::{Block, BlockHeader};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -14,10 +13,9 @@ use serde;
 use std::clone::Clone;
 use std::error::Error;
 use std::fmt::Debug;
-use tokio::time::timeout;
-use crate::storage::persistence::{ReorganizationEvent, ForkInfo, ForkChoiceReason};
+use crate::storage::persistence::{ReorganizationEvent, ForkInfo};
 use libp2p::PeerId;
-use sha2::{Sha256, Digest};
+use sha2::Digest;
 
 // Constants for sync configuration
 const MAX_HEADERS_PER_REQUEST: u64 = 2000;
@@ -355,7 +353,7 @@ impl ChainSync {
         // Load from DB if available
         if let Some(checkpoint_data) = self.db.get_metadata(b"checkpoints")? {
             let checkpoints: Vec<Checkpoint> = bincode::deserialize(&checkpoint_data)
-                .map_err(|e| StorageError::Serialization(e))?;
+                .map_err(StorageError::Serialization)?;
             
             if !checkpoints.is_empty() {
                 info!("Loaded {} checkpoints from database", checkpoints.len());
@@ -556,7 +554,7 @@ impl ChainSync {
                         let request = NetworkCommand::RequestHeaders {
                             start_height: next_start,
                             end_height: next_end,
-                            preferred_peer: Some(peer_id.clone()),
+                            preferred_peer: Some(peer_id),
                         };
                         
                         let _ = self.command_sender.send(request).await;
@@ -769,7 +767,7 @@ impl ChainSync {
             start_height: actual_start,
             end_height: actual_end,
             request_time: Instant::now(),
-            requesting_peer: best_peer.clone(),
+            requesting_peer: best_peer,
         };
         
         // Send request for headers
@@ -1209,7 +1207,7 @@ impl ChainSync {
         for peer_id in &preferred_peers {
             if let Some(peer_data) = self.peer_data.get(peer_id) {
                 if peer_data.reported_height >= height && peer_data.is_reliable() {
-                    return Some(peer_id.clone());
+                    return Some(*peer_id);
                 }
             }
         }
@@ -1229,7 +1227,7 @@ impl ChainSync {
             
             if peer_data.reported_height >= height && peer_data.score > best_score {
                 best_score = peer_data.score;
-                best_peer = Some(peer_id.clone());
+                best_peer = Some(*peer_id);
             }
         }
         
@@ -1251,7 +1249,7 @@ impl ChainSync {
                     // Calculate an effective score that rewards reliable peers
                     let effective_score = peer_data.score + 
                                          (if peer_data.is_reliable() { 20 } else { 0 });
-                    (entry.key().clone(), effective_score, peer_data.is_reliable())
+                    (*entry.key(), effective_score, peer_data.is_reliable())
                 })
                 .collect();
             
@@ -1269,7 +1267,7 @@ impl ChainSync {
             // Add additional peers up to requested count
             let needed = count - peers.len();
             for (peer_id, _, _) in additional_candidates.iter().take(needed) {
-                peers.push(peer_id.clone());
+                peers.push(*peer_id);
             }
         }
         
@@ -1301,7 +1299,7 @@ impl ChainSync {
                 warn!("Disconnecting peer {} due to low score or excessive timeouts", peer_id);
                 
                 let _ = self.command_sender
-                    .send(NetworkCommand::DisconnectPeer(peer_id.clone()))
+                    .send(NetworkCommand::DisconnectPeer(*peer_id))
                     .await;
             }
         }
@@ -1343,21 +1341,21 @@ impl ChainSync {
     fn get_preferred_peers(&self, min_count: usize) -> Vec<PeerId> {
         let mut preferred_peers: Vec<PeerId> = self.peer_data.iter()
             .filter(|entry| entry.value().is_preferred)
-            .map(|entry| entry.key().clone())
+            .map(|entry| *entry.key())
             .collect();
             
         // If we don't have enough preferred peers, add the highest scoring non-preferred peers
         if preferred_peers.len() < min_count {
             let mut additional_peers: Vec<(PeerId, i32)> = self.peer_data.iter()
                 .filter(|entry| !entry.value().is_preferred)
-                .map(|entry| (entry.key().clone(), entry.value().score))
+                .map(|entry| (*entry.key(), entry.value().score))
                 .collect();
                 
             additional_peers.sort_by(|a, b| b.1.cmp(&a.1));
             
             let needed = min_count - preferred_peers.len();
             for (peer_id, _) in additional_peers.iter().take(needed) {
-                preferred_peers.push(peer_id.clone());
+                preferred_peers.push(*peer_id);
             }
         }
         
@@ -1556,7 +1554,7 @@ impl ChainSync {
                 // Send request to the peer
                 let request = NetworkCommand::RequestBlocks {
                     block_hashes: block_hashes.clone(),
-                    preferred_peer: Some(peer_id.clone()),
+                    preferred_peer: Some(peer_id),
                 };
                 
                 let _ = self.command_sender.send(request).await;
@@ -1598,7 +1596,7 @@ impl ChainSync {
 
         // Update peers that provided blocks on the winning fork
         for mut peer_entry in self.peer_data.iter_mut() {
-            let peer_id = peer_entry.key().clone();
+            let peer_id = *peer_entry.key();
             let peer_data = peer_entry.value_mut();
             
             // Check if this peer was ahead on the winning fork

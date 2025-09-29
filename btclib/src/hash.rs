@@ -3,14 +3,12 @@
 
 use crate::crypto::hash::{
     Hash, 
-    HashAlgorithm, 
     Sha256Hash, 
     DoubleSha256Hash, 
     Blake3Hash, 
     supernovaHash
 };
 use sha2::{Sha256, Digest};
-use std::fmt;
 
 /// 256-bit hash value - fixed size array for blockchain use
 pub type Hash256 = [u8; 32];
@@ -96,7 +94,7 @@ pub fn meets_difficulty(hash: &[u8], target: &[u8]) -> bool {
 /// Compute SHA256(SHA256(data))
 pub fn hash256(data: &[u8]) -> Hash256 {
     let first_hash = Sha256::digest(data);
-    let second_hash = Sha256::digest(&first_hash);
+    let second_hash = Sha256::digest(first_hash);
     
     let mut result = [0u8; 32];
     result.copy_from_slice(&second_hash);
@@ -108,7 +106,7 @@ pub fn hash160(data: &[u8]) -> [u8; 20] {
     use ripemd::{Ripemd160, Digest as RipemdDigest};
     
     let sha256_hash = Sha256::digest(data);
-    let ripemd_hash = Ripemd160::digest(&sha256_hash);
+    let ripemd_hash = Ripemd160::digest(sha256_hash);
     
     let mut result = [0u8; 20];
     result.copy_from_slice(&ripemd_hash);

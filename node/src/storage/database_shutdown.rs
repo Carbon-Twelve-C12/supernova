@@ -262,7 +262,7 @@ impl DatabaseShutdownHandler {
     async fn close_wal(&self) -> Result<(), StorageError> {
         info!("Closing write-ahead log...");
         
-        let mut wal = self.wal.write().await;
+        let wal = self.wal.write().await;
         
         // Ensure all entries are flushed
         wal.flush().await?;
@@ -354,7 +354,7 @@ impl DatabaseStartupHandler {
                     let shutdown_time = chrono::DateTime::from_timestamp(timestamp, 0)
                         .unwrap_or_else(|| {
                             chrono::DateTime::from_timestamp(0, 0)
-                                .unwrap_or_else(|| chrono::DateTime::<chrono::Utc>::MIN_UTC)
+                                .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC)
                         });
                     info!("Last clean shutdown was at {}", shutdown_time);
                     return Ok(true);
@@ -395,7 +395,7 @@ impl DatabaseStartupHandler {
     async fn replay_wal(&self, db: &mut BlockchainDB) -> Result<(), StorageError> {
         info!("Replaying write-ahead log...");
         
-        let mut wal = self.wal.write().await;
+        let wal = self.wal.write().await;
         let entries = wal.get_pending_entries().await?;
         
         if entries.is_empty() {

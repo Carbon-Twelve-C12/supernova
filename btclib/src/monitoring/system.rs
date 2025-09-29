@@ -1,16 +1,13 @@
 use prometheus::{
-    Registry, IntGauge, IntGaugeVec, Gauge, GaugeVec, Opts,
-    core::{AtomicF64, AtomicI64, GenericGauge, GenericGaugeVec}
+    Registry, IntGauge, IntGaugeVec, GaugeVec, Opts
 };
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::thread;
+use std::time::Duration;
 use tokio::time::interval;
 use tokio::task::JoinHandle;
 use crate::monitoring::MetricsError;
-use tracing::{info, warn, error, debug};
+use tracing::debug;
 use sysinfo::{System, SystemExt, CpuExt, DiskExt, NetworkExt, ComponentExt};
-use serde::{Serialize, Deserialize};
 
 /// System metrics collector
 pub struct SystemMetrics {
