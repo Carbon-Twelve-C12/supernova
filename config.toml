@@ -13,7 +13,11 @@ enable_quantum_security = true
 [network]
 listen_addr = "/ip4/0.0.0.0/tcp/8333"
 max_peers = 50
-bootstrap_nodes = []
+bootstrap_nodes = [
+    "/dns4/testnet1.supernovanetwork.xyz/tcp/8333/p2p/12D3KooWQgkrvGpAjWxH4PnVKbT3fYKqGRHjH5dT6AqRLsqGbsQF",
+    "/dns4/testnet2.supernovanetwork.xyz/tcp/8333/p2p/12D3KooWJkPxWqRNYH7JKJZ9H2hKjJAGBYoUfRLTEqE8tWyBGnAQ",
+    "/dns4/testnet3.supernovanetwork.xyz/tcp/8333/p2p/12D3KooWCpBPnRmkHGJcYKKZqGHtFPiBkRHjH5dT6AqRLsqPQrEZ"
+]
 peer_ping_interval = 20
 max_outbound_connections = 32
 max_inbound_connections = 128
@@ -94,13 +98,17 @@ api_keys = []
 
 [testnet]
 enabled = true
-network_id = "testnet"
-enable_faucet = false
-faucet_amount = 1000000000000000000
-faucet_cooldown = 60
-faucet_max_balance = 1000000000000000000
-enable_test_mining = false
-test_mining_difficulty = 1
+network_id = "supernova-testnet"
+enable_faucet = true
+faucet_amount = 100000000000  # 1000 NOVA
+faucet_cooldown = 3600  # 1 hour
+faucet_max_balance = 1000000000000  # 10,000 NOVA max
+enable_test_mining = true
+test_mining_difficulty = 0x1d00ffff  # Initial difficulty
 enable_network_simulation = false
 simulated_latency_ms = 0
+genesis_hash = "00000000e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b"
+genesis_timestamp = 1704067200  # Jan 1, 2024
+target_block_time = 600  # 10 minutes
+initial_supply = 21000000  # 21M NOVA
 simulated_packet_loss = 0.0 

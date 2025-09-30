@@ -1,0 +1,52 @@
+{
+  "network": "supernova-testnet",
+  "bootstrap_nodes": [
+    {
+      "id": "bootstrap-1",
+      "peer_id": "12D3KooWQgkrvGpAjWxH4PnVKbT3fYKqGRHjH5dT6AqRLsqGbsQF",
+      "multiaddr": "/dns4/testnet1.supernovanetwork.xyz/tcp/8333/p2p/12D3KooWQgkrvGpAjWxH4PnVKbT3fYKqGRHjH5dT6AqRLsqGbsQF",
+      "location": "us-east-1",
+      "provider": "AWS"
+    },
+    {
+      "id": "bootstrap-2",
+      "peer_id": "12D3KooWJkPxWqRNYH7JKJZ9H2hKjJAGBYoUfRLTEqE8tWyBGnAQ",
+      "multiaddr": "/dns4/testnet2.supernovanetwork.xyz/tcp/8333/p2p/12D3KooWJkPxWqRNYH7JKJZ9H2hKjJAGBYoUfRLTEqE8tWyBGnAQ",
+      "location": "eu-west-1",
+      "provider": "AWS"
+    },
+    {
+      "id": "bootstrap-3",
+      "peer_id": "12D3KooWCpBPnRmkHGJcYKKZqGHtFPiBkRHjH5dT6AqRLsqPQrEZ",
+      "multiaddr": "/dns4/testnet3.supernovanetwork.xyz/tcp/8333/p2p/12D3KooWCpBPnRmkHGJcYKKZqGHtFPiBkRHjH5dT6AqRLsqPQrEZ",
+      "location": "ap-southeast-1",
+      "provider": "AWS"
+    },
+    {
+      "id": "bootstrap-4",
+      "peer_id": "12D3KooWHjkPxWqRNYH7JKKZqGHtFPJckMNfRLTEqE8tWyBMnBR",
+      "multiaddr": "/ip4/142.251.45.100/tcp/8333/p2p/12D3KooWHjkPxWqRNYH7JKKZqGHtFPJckMNfRLTEqE8tWyBMnBR",
+      "location": "us-west-1",
+      "provider": "GCP"
+    },
+    {
+      "id": "bootstrap-5",
+      "peer_id": "12D3KooWLRqPxWqMKYH7LKKZqGPtFPJYkXNfRLBEqA8sWyBGwQT",
+      "multiaddr": "/ip4/52.47.198.123/tcp/8333/p2p/12D3KooWLRqPxWqMKYH7LKKZqGPtFPJYkXNfRLBEqA8sWyBGwQT",
+      "location": "eu-central-1",
+      "provider": "Azure"
+    }
+  ],
+  "dns_seeds": [
+    "seed.supernovanetwork.xyz",
+    "testnet-seed.supernovanetwork.xyz",
+    "seed1.supernovanetwork.xyz",
+    "seed2.supernovanetwork.xyz"
+  ],
+  "monitoring": {
+    "prometheus_endpoint": "https://metrics.supernovanetwork.xyz/prometheus",
+    "grafana_dashboard": "https://metrics.supernovanetwork.xyz/grafana/d/supernova-testnet",
+    "health_check_interval": 30,
+    "alert_email": "alerts@supernovanetwork.xyz"
+  }
+}
