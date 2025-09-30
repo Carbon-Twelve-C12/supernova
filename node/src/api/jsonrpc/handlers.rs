@@ -44,6 +44,11 @@ pub async fn dispatch(
         "getblocktemplate" => get_block_template(params, node).await,
         "submitblock" => submit_block(params, node).await,
 
+        // Environmental methods
+        "getenvironmentalmetrics" => get_environmental_metrics(params, node).await,
+        "getenvironmentalinfo" => get_environmental_info(params, node).await,
+        "getnetworkstats" => get_network_stats(params, node).await,
+
         // Method not found
         _ => Err(JsonRpcError {
             code: ErrorCode::MethodNotFound as i32,
@@ -732,6 +737,89 @@ async fn get_next_block_hash(
 /// Helper function to calculate network hashrate from difficulty
 fn calculate_network_hashrate(difficulty: f64) -> f64 {
     // Network hashrate = difficulty * 2^32 / block_time_seconds
-    // For 2.5 minute blocks (150 seconds)
-    difficulty * 4_294_967_296.0 / 150.0
+    // For 10 minute blocks (600 seconds) - Supernova target
+    difficulty * 4_294_967_296.0 / 600.0
+}
+
+/// Get environmental metrics
+async fn get_environmental_metrics(
+    _params: Value,
+    node: web::Data<Arc<Node>>,
+) -> Result<Value, JsonRpcError> {
+    // Get environmental data from the node
+    let env_data = node.get_environmental_data().await.unwrap_or_default();
+    
+    Ok(json!({
+        "totalEmissions": env_data.total_emissions,
+        "carbonOffsets": env_data.carbon_offsets,
+        "netCarbon": env_data.net_carbon,
+        "renewablePercentage": env_data.renewable_percentage,
+        "treasuryBalance": env_data.treasury_balance,
+        "isCarbonNegative": env_data.net_carbon <= 0.0,
+        "greenMiners": env_data.green_miners_count,
+        "lastUpdated": env_data.last_updated,
+    }))
+}
+
+/// Get environmental information
+async fn get_environmental_info(
+    _params: Value,
+    node: web::Data<Arc<Node>>,
+) -> Result<Value, JsonRpcError> {
+    // Get environmental tracking info
+    let env_data = node.get_environmental_data().await.unwrap_or_default();
+    
+    Ok(json!({
+        "carbonIntensity": env_data.carbon_intensity,
+        "greenMining": env_data.renewable_percentage,
+        "carbonNegative": env_data.net_carbon <= 0.0,
+        "totalEmissions": env_data.total_emissions,
+        "totalOffsets": env_data.carbon_offsets,
+        "netEmissions": env_data.net_carbon,
+    }))
+}
+
+/// Get comprehensive network statistics
+async fn get_network_stats(
+    _params: Value,
+    node: web::Data<Arc<Node>>,
+) -> Result<Value, JsonRpcError> {
+    let blockchain_info = node.get_blockchain_info().await.map_err(|e| JsonRpcError {
+        code: ErrorCode::BlockchainError as i32,
+        message: format!("Failed to get blockchain info: {}", e),
+        data: None,
+    })?;
+    
+    let network_info = node.get_network_info().await.map_err(|e| JsonRpcError {
+        code: ErrorCode::NetworkError as i32,
+        message: format!("Failed to get network info: {}", e),
+        data: None,
+    })?;
+    
+    let mining_info = node.get_mining_info().await.map_err(|e| JsonRpcError {
+        code: ErrorCode::ServerError as i32,
+        message: format!("Failed to get mining info: {}", e),
+        data: None,
+    })?;
+    
+    let env_data = node.get_environmental_data().await.unwrap_or_default();
+    let mempool_info = node.get_mempool_info().await.unwrap_or_default();
+    
+    Ok(json!({
+        "blockHeight": blockchain_info.height,
+        "hashrate": mining_info.network_hashrate.to_string(),
+        "difficulty": mining_info.difficulty.to_string(),
+        "nodes": network_info.connections,
+        "transactions24h": mempool_info.tx_count, // Placeholder - needs actual 24h count
+        "carbonIntensity": env_data.carbon_intensity,
+        "greenMiningPercentage": env_data.renewable_percentage,
+        "quantumSecurityLevel": "HIGH", // Hardcoded for now
+        "networkId": node.config().read()
+            .map_err(|e| JsonRpcError {
+                code: ErrorCode::InternalError as i32,
+                message: format!("Failed to read config: {}", e),
+                data: None,
+            })?
+            .node.network_name.clone(),
+    }))
 }
