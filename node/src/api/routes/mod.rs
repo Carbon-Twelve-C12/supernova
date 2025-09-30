@@ -21,6 +21,8 @@ pub type NodeData = web::Data<Arc<crate::api_facade::ApiFacade>>;
 /// Configure all API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg
+        // JSON-RPC 2.0 API at root (main endpoint)
+        .configure(crate::api::jsonrpc::configure)
         // Blockchain routes
         .service(web::scope("/api/v1/blockchain").configure(blockchain::configure))
         // Node routes

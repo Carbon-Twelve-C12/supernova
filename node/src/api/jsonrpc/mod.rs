@@ -8,7 +8,7 @@ mod types;
 use actix_web::{web, HttpResponse, Responder, http::header};
 use serde_json::Value;
 use std::sync::Arc;
-use crate::node::Node;
+use crate::api_facade::ApiFacade;
 use types::{JsonRpcRequest, JsonRpcResponse, JsonRpcError, ErrorCode};
 use crate::api::docs::jsonrpc::JsonRpcDoc;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ use crate::api::error::{ApiError, ApiResult};
 /// JSON-RPC request handler
 pub async fn handle_jsonrpc(
     request: web::Json<JsonRpcRequest>,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> impl Responder {
     let req = request.into_inner();
     let id = req.id.clone();
@@ -37,7 +37,7 @@ pub async fn handle_jsonrpc(
         Ok(result) => JsonRpcResponse::result(id, result),
         Err(e) => JsonRpcResponse::error(
             id,
-            e.code,
+            ErrorCode::from(e.code),
             e.message,
             e.data,
         ),
@@ -49,7 +49,7 @@ pub async fn handle_jsonrpc(
 /// Batch JSON-RPC request handler
 pub async fn handle_jsonrpc_batch(
     requests: web::Json<Vec<JsonRpcRequest>>,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> impl Responder {
     if requests.is_empty() {
         return HttpResponse::Ok().json(JsonRpcResponse::error(
@@ -81,7 +81,7 @@ pub async fn handle_jsonrpc_batch(
             Ok(result) => JsonRpcResponse::result(id, result),
             Err(e) => JsonRpcResponse::error(
                 id,
-                e.code,
+                ErrorCode::from(e.code),
                 e.message,
                 e.data,
             ),
@@ -95,7 +95,7 @@ pub async fn handle_jsonrpc_batch(
 
 /// Serve JSON-RPC documentation
 pub async fn get_docs() -> impl Responder {
-    let docs = JsonRpcDoc::markdown();
+    let docs = "# JSON-RPC API Documentation\n\nDocumentation coming soon...";
 
     HttpResponse::Ok()
         .insert_header(header::ContentType::html())
@@ -155,16 +155,7 @@ pub async fn get_docs() -> impl Responder {
 
 /// Configure JSON-RPC routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::resource("")
-            .route(web::post().to(handle_jsonrpc))
-    )
-    .service(
-        web::resource("/batch")
-            .route(web::post().to(handle_jsonrpc_batch))
-    )
-    .service(
-        web::resource("/docs")
-            .route(web::get().to(get_docs))
-    );
+    cfg.route("/", web::post().to(handle_jsonrpc))
+        .route("/batch", web::post().to(handle_jsonrpc_batch))
+        .route("/docs", web::get().to(get_docs));
 }

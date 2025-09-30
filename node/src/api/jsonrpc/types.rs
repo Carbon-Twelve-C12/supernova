@@ -134,3 +134,22 @@ pub enum ErrorCode {
     /// Error in network operations
     NetworkError = -32005,
 }
+
+impl From<i32> for ErrorCode {
+    fn from(code: i32) -> Self {
+        match code {
+            -32700 => ErrorCode::ParseError,
+            -32600 => ErrorCode::InvalidRequest,
+            -32601 => ErrorCode::MethodNotFound,
+            -32602 => ErrorCode::InvalidParams,
+            -32603 => ErrorCode::InternalError,
+            -32000 => ErrorCode::ServerError,
+            -32001 => ErrorCode::NodeSyncing,
+            -32002 => ErrorCode::BlockchainError,
+            -32003 => ErrorCode::TransactionError,
+            -32004 => ErrorCode::WalletError,
+            -32005 => ErrorCode::NetworkError,
+            _ => ErrorCode::InternalError, // Default for unknown codes
+        }
+    }
+}

@@ -5,14 +5,15 @@
 use std::sync::Arc;
 use actix_web::web;
 use serde_json::{Value, json};
-use crate::node::Node;
+use crate::api_facade::ApiFacade;
 use super::types::{JsonRpcError, ErrorCode};
+use btclib::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
 
 /// Dispatch method to appropriate handler
 pub async fn dispatch(
     method: &str,
     params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
     match method {
         // General info method
@@ -61,52 +62,73 @@ pub async fn dispatch(
 /// Get general node information
 async fn get_info(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Get various info from different subsystems
-    let blockchain_info = node.get_blockchain_info().await.map_err(|e| JsonRpcError {
+    // Get blockchain info
+    let storage = node.storage();
+    let height = storage.get_height().map_err(|e| JsonRpcError {
         code: ErrorCode::BlockchainError as i32,
-        message: format!("Failed to get blockchain info: {}", e),
+        message: format!("Failed to get blockchain height: {}", e),
         data: None,
     })?;
 
-    let network_info = node.get_network_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::NetworkError as i32,
-        message: format!("Failed to get network info: {}", e),
-        data: None,
-    })?;
+    let best_block_hash = if height > 0 {
+        storage.get_block_hash_by_height(height).map_err(|e| JsonRpcError {
+            code: ErrorCode::BlockchainError as i32,
+            message: format!("Failed to get best block hash: {}", e),
+            data: None,
+        })?.unwrap_or([0u8; 32])
+    } else {
+        [0u8; 32]
+    };
 
-    let mempool_info = node.get_mempool_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::ServerError as i32,
-        message: format!("Failed to get mempool info: {}", e),
-        data: None,
-    })?;
+    let difficulty = if height > 0 {
+        if let Ok(Some(block)) = storage.get_block(&best_block_hash) {
+            calculate_difficulty_from_bits(block.header().bits())
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+
+    let chain_work = format!("0x{:x}", (difficulty * height as f64) as u128);
+    let verification_progress = 1.0;
+
+    // Get network info
+    let connections = node.network().peer_count_sync() as u32;
+
+    // Get mempool info
+    let mempool_size = node.mempool().size();
+    let mempool_bytes = node.mempool().size_in_bytes();
+    let mempool_usage = node.mempool().get_memory_usage() as u64;
+    let min_fee_rate = 1000u64; // Default min fee rate
 
     // Combine into a single response
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "protocolversion": 70015,
-        "blocks": blockchain_info.height,
-        "headers": blockchain_info.height,
-        "bestblockhash": blockchain_info.best_block_hash,
-        "difficulty": blockchain_info.difficulty,
-        "chainwork": blockchain_info.chain_work,
-        "verificationprogress": blockchain_info.verification_progress,
+        "blocks": height,
+        "headers": height,
+        "bestblockhash": hex::encode(best_block_hash),
+        "difficulty": difficulty,
+        "chainwork": chain_work,
+        "verificationprogress": verification_progress,
         "chain": node.config().read()
             .map_err(|e| JsonRpcError {
                 code: ErrorCode::InternalError as i32,
                 message: format!("Failed to read config: {}", e),
                 data: None,
             })?
-            .node.network_name.clone(),
+            .network.network_id.clone(),
         "warnings": "",
-        "networkhashps": calculate_network_hashrate(blockchain_info.difficulty),
-        "connections": network_info.connections,
+        "networkhashps": calculate_network_hashrate(difficulty),
+        "connections": connections,
         "mempool": {
-            "size": mempool_info.tx_count,
-            "bytes": mempool_info.size,
-            "usage": mempool_info.memory_usage,
-            "minfee": mempool_info.min_fee_rate / 100000000.0, // Convert to NOVA/kB
+            "size": mempool_size,
+            "bytes": mempool_bytes,
+            "usage": mempool_usage,
+            "minfee": min_fee_rate as f64 / 100000000.0, // Convert to NOVA/kB
         },
         "time": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -127,13 +149,38 @@ fn extract_params<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, Js
 /// Get blockchain information
 async fn get_blockchain_info(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let info = node.get_blockchain_info().await.map_err(|e| JsonRpcError {
+    let storage = node.storage();
+    let height = storage.get_height().map_err(|e| JsonRpcError {
         code: ErrorCode::BlockchainError as i32,
-        message: format!("Failed to get blockchain info: {}", e),
+        message: format!("Failed to get height: {}", e),
         data: None,
     })?;
+
+    let best_block_hash = if height > 0 {
+        storage.get_block_hash_by_height(height).map_err(|e| JsonRpcError {
+            code: ErrorCode::BlockchainError as i32,
+            message: format!("Failed to get best block hash: {}", e),
+            data: None,
+        })?.unwrap_or([0u8; 32])
+    } else {
+        [0u8; 32]
+    };
+
+    let (difficulty, median_time) = if height > 0 {
+        if let Ok(Some(block)) = storage.get_block(&best_block_hash) {
+            (calculate_difficulty_from_bits(block.header().bits()), block.timestamp())
+        } else {
+            (1.0, 0)
+        }
+    } else {
+        (1.0, 0)
+    };
+
+    let chain_work = format!("0x{:x}", (difficulty * height as f64) as u128);
+    let verification_progress = 1.0;
+    let size_on_disk = 0u64; // Placeholder
 
     Ok(json!({
         "chain": node.config().read()
@@ -142,23 +189,23 @@ async fn get_blockchain_info(
                 message: format!("Failed to read config: {}", e),
                 data: None,
             })?
-            .node.network_name.clone(),
-        "blocks": info.height,
-        "headers": info.height,
-        "bestblockhash": info.best_block_hash,
-        "difficulty": info.difficulty,
-        "mediantime": info.median_time,
-        "verificationprogress": info.verification_progress,
+            .network.network_id.clone(),
+        "blocks": height,
+        "headers": height,
+        "bestblockhash": hex::encode(best_block_hash),
+        "difficulty": difficulty,
+        "mediantime": median_time,
+        "verificationprogress": verification_progress,
         "pruned": false,
-        "chainwork": info.chain_work,
-        "size_on_disk": info.size_on_disk,
+        "chainwork": chain_work,
+        "size_on_disk": size_on_disk,
     }))
 }
 
 /// Get block by hash
 async fn get_block(
     params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
     // Extract parameters
     #[derive(serde::Deserialize)]
@@ -190,7 +237,8 @@ async fn get_block(
     hash.copy_from_slice(&hash_bytes);
 
     // Get block
-    let block = node.get_block_by_hash(&hash).await.map_err(|e| JsonRpcError {
+    let storage = node.storage();
+    let block = storage.get_block(&hash).map_err(|e| JsonRpcError {
         code: ErrorCode::BlockchainError as i32,
         message: format!("Failed to get block: {}", e),
         data: None,
@@ -219,10 +267,10 @@ async fn get_block(
         },
         1 | 2 => {
             // Format block as JSON
-            let mut txids = Vec::with_capacity(block.transactions.len());
-            let mut txs = Vec::with_capacity(if params.verbosity == 2 { block.transactions.len() } else { 0 });
+            let mut txids = Vec::with_capacity(block.transactions().len());
+            let mut txs = Vec::with_capacity(if params.verbosity == 2 { block.transactions().len() } else { 0 });
 
-            for tx in &block.transactions {
+            for tx in block.transactions() {
                 let txid = tx.hash();
                 txids.push(hex::encode(txid));
 
@@ -232,28 +280,29 @@ async fn get_block(
                 }
             }
 
-            let current_height = node.get_blockchain_info().await
-                .map(|info| info.height)
-                .unwrap_or(0);
-            let confirmations = current_height.saturating_sub(block.height) + 1;
+            let current_height = storage.get_height().unwrap_or(0);
+            let confirmations = current_height.saturating_sub(block.height()) + 1;
+
+            let block_size = bincode::serialize(&block).unwrap_or_default().len();
+            let difficulty = calculate_difficulty_from_bits(block.header().bits());
 
             let mut result = json!({
                 "hash": hex::encode(block.hash()),
                 "confirmations": confirmations,
-                "size": block.size(),
-                "height": block.height,
-                "version": block.version,
-                "merkleroot": hex::encode(block.merkle_root),
+                "size": block_size,
+                "height": block.height(),
+                "version": block.version(),
+                "merkleroot": hex::encode(block.merkle_root()),
                 "tx": if params.verbosity == 2 { Value::Array(txs) } else { Value::Array(txids.into_iter().map(Value::String).collect()) },
-                "time": block.timestamp,
-                "nonce": block.nonce,
-                "bits": format!("{:x}", block.target),
-                "difficulty": calculate_difficulty(block.target),
-                "previousblockhash": hex::encode(block.prev_hash),
+                "time": block.timestamp(),
+                "nonce": block.nonce(),
+                "bits": format!("{:08x}", block.header().bits()),
+                "difficulty": difficulty,
+                "previousblockhash": hex::encode(block.prev_block_hash()),
             });
 
-            if block.height > 0 {
-                if let Some(next_block_hash) = get_next_block_hash(&block.hash(), node.clone()).await? {
+            if block.height() > 0 {
+                if let Some(next_block_hash) = get_next_block_hash(&block.hash(), storage.clone()).await? {
                     result["nextblockhash"] = Value::String(hex::encode(next_block_hash));
                 }
             }
@@ -271,7 +320,7 @@ async fn get_block(
 /// Get block hash by height
 async fn get_block_hash(
     params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
     // Extract height parameter
     let height = match params {
@@ -299,7 +348,8 @@ async fn get_block_hash(
     };
 
     // Get block hash
-    let hash = node.get_block_hash_by_height(height).await.map_err(|e| JsonRpcError {
+    let storage = node.storage();
+    let hash = storage.get_block_hash_by_height(height).map_err(|e| JsonRpcError {
         code: ErrorCode::BlockchainError as i32,
         message: format!("Failed to get block hash: {}", e),
         data: None,
@@ -318,49 +368,76 @@ async fn get_block_hash(
 /// Get the hash of the best (tip) block
 async fn get_best_block_hash(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let info = node.get_blockchain_info().await.map_err(|e| JsonRpcError {
+    let storage = node.storage();
+    let height = storage.get_height().map_err(|e| JsonRpcError {
         code: ErrorCode::BlockchainError as i32,
-        message: format!("Failed to get blockchain info: {}", e),
+        message: format!("Failed to get height: {}", e),
         data: None,
     })?;
 
-    Ok(Value::String(info.best_block_hash))
+    let best_block_hash = if height > 0 {
+        storage.get_block_hash_by_height(height).map_err(|e| JsonRpcError {
+            code: ErrorCode::BlockchainError as i32,
+            message: format!("Failed to get best block hash: {}", e),
+            data: None,
+        })?.unwrap_or([0u8; 32])
+    } else {
+        [0u8; 32]
+    };
+
+    Ok(Value::String(hex::encode(best_block_hash)))
 }
 
 /// Get the current block count
 async fn get_block_count(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let info = node.get_blockchain_info().await.map_err(|e| JsonRpcError {
+    let storage = node.storage();
+    let height = storage.get_height().map_err(|e| JsonRpcError {
         code: ErrorCode::BlockchainError as i32,
-        message: format!("Failed to get blockchain info: {}", e),
+        message: format!("Failed to get height: {}", e),
         data: None,
     })?;
 
-    Ok(Value::Number(serde_json::Number::from(info.height)))
+    Ok(Value::Number(serde_json::Number::from(height)))
 }
 
 /// Get the proof-of-work difficulty
 async fn get_difficulty(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let info = node.get_blockchain_info().await.map_err(|e| JsonRpcError {
+    let storage = node.storage();
+    let height = storage.get_height().map_err(|e| JsonRpcError {
         code: ErrorCode::BlockchainError as i32,
-        message: format!("Failed to get blockchain info: {}", e),
+        message: format!("Failed to get height: {}", e),
         data: None,
     })?;
 
-    Ok(Value::Number(serde_json::Number::from_f64(info.difficulty).unwrap_or_default()))
+    let difficulty = if height > 0 {
+        if let Ok(Some(hash)) = storage.get_block_hash_by_height(height) {
+            if let Ok(Some(block)) = storage.get_block(&hash) {
+                calculate_difficulty_from_bits(block.header().bits())
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+
+    Ok(Value::Number(serde_json::Number::from_f64(difficulty).unwrap_or(serde_json::Number::from(0))))
 }
 
 /// Get transaction information
 async fn get_transaction(
     params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
     // Implement transaction retrieval here
     // This is a placeholder implementation
@@ -374,7 +451,7 @@ async fn get_transaction(
 /// Get raw transaction data
 async fn get_raw_transaction(
     params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
     // Implement raw transaction retrieval here
     // This is a placeholder implementation
@@ -388,7 +465,7 @@ async fn get_raw_transaction(
 /// Send raw transaction
 async fn send_raw_transaction(
     params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
     // Implement send raw transaction here
     // This is a placeholder implementation
@@ -402,34 +479,34 @@ async fn send_raw_transaction(
 /// Get mempool information
 async fn get_mempool_info(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let info = node.get_mempool_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::ServerError as i32,
-        message: format!("Failed to get mempool info: {}", e),
-        data: None,
-    })?;
+    let mempool = node.mempool();
+    let tx_count = mempool.size();
+    let size = mempool.size_in_bytes();
+    let memory_usage = mempool.get_memory_usage() as u64;
+    let min_fee_rate = 1000u64; // Default min fee rate
 
     Ok(json!({
-        "size": info.tx_count,
-        "bytes": info.size,
-        "usage": info.memory_usage,
+        "size": tx_count,
+        "bytes": size,
+        "usage": memory_usage,
         "maxmempool": node.config().read()
             .map_err(|e| JsonRpcError {
                 code: ErrorCode::InternalError as i32,
                 message: format!("Failed to read config: {}", e),
                 data: None,
             })?
-            .mempool.max_mempool_size * 1024 * 1024, // Convert MB to bytes
-        "mempoolminfee": info.min_fee_rate / 100000000.0, // Convert to NOVA/kB
-        "minrelaytxfee": info.min_fee_rate / 100000000.0, // Convert to NOVA/kB
+            .mempool.max_size, // Already in bytes
+        "mempoolminfee": min_fee_rate as f64 / 100000000.0, // Convert to NOVA/kB
+        "minrelaytxfee": min_fee_rate as f64 / 100000000.0, // Convert to NOVA/kB
     }))
 }
 
 /// Get raw mempool transactions
 async fn get_raw_mempool(
     params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
     // Extract verbose parameter
     let verbose = match params {
@@ -442,28 +519,26 @@ async fn get_raw_mempool(
         _ => false,
     };
 
-    let txs = node.get_mempool_transactions().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::ServerError as i32,
-        message: format!("Failed to get mempool transactions: {}", e),
-        data: None,
-    })?;
+    let mempool = node.mempool();
+    let txs = mempool.get_all_transactions();
 
     if verbose {
         let mut result = serde_json::Map::new();
 
         for tx in txs {
             let txid = hex::encode(tx.hash());
+            let tx_size = bincode::serialize(&tx).unwrap_or_default().len();
             let tx_info = json!({
-                "size": tx.size(),
-                "fee": tx.fee().unwrap_or(0) as f64 / 100000000.0, // Convert satoshis to NOVA
-                "time": tx.timestamp(),
+                "size": tx_size,
+                "fee": 1000, // Placeholder fee
+                "time": 0, // Placeholder timestamp
                 "height": 0, // Not yet in a block
                 "descendantcount": 1, // Placeholder
-                "descendantsize": tx.size(),
-                "descendantfees": tx.fee().unwrap_or(0),
+                "descendantsize": tx_size,
+                "descendantfees": 1000,
                 "ancestorcount": 1, // Placeholder
-                "ancestorsize": tx.size(),
-                "ancestorfees": tx.fee().unwrap_or(0),
+                "ancestorsize": tx_size,
+                "ancestorfees": 1000,
             });
 
             result.insert(txid, tx_info);
@@ -482,13 +557,10 @@ async fn get_raw_mempool(
 /// Get network information
 async fn get_network_info(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let info = node.get_network_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::NetworkError as i32,
-        message: format!("Failed to get network info: {}", e),
-        data: None,
-    })?;
+    let network = node.network();
+    let connections = network.peer_count_sync() as u32;
 
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION").replace(".", ""),
@@ -497,7 +569,7 @@ async fn get_network_info(
         "localservices": "000000000000000d",
         "localrelay": true,
         "timeoffset": 0,
-        "connections": info.connections,
+        "connections": connections,
         "networks": [
             {
                 "name": "ipv4",
@@ -516,11 +588,7 @@ async fn get_network_info(
         ],
         "relayfee": 0.00001000, // Minimum relay fee in NOVA/kB
         "incrementalfee": 0.00001000, // Incremental fee in NOVA/kB
-        "localaddresses": info.local_addresses.iter().map(|addr| json!({
-            "address": addr.address,
-            "port": addr.port,
-            "score": addr.score
-        })).collect::<Vec<Value>>(),
+        "localaddresses": [],
         "warnings": ""
     }))
 }
@@ -528,69 +596,54 @@ async fn get_network_info(
 /// Get peer information
 async fn get_peer_info(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let peers = node.get_peer_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::NetworkError as i32,
-        message: format!("Failed to get peer info: {}", e),
-        data: None,
-    })?;
-
-    let peers_json: Vec<Value> = peers.iter().map(|peer| {
-        json!({
-            "id": peer.id,
-            "addr": peer.address,
-            "services": "000000000000000d", // Placeholder
-            "lastsend": peer.last_send,
-            "lastrecv": peer.last_recv,
-            "bytessent": peer.bytes_sent,
-            "bytesrecv": peer.bytes_received,
-            "conntime": peer.connected_time,
-            "pingtime": peer.ping_time.unwrap_or(0.0),
-            "version": peer.version,
-            "subver": peer.user_agent,
-            "inbound": peer.direction == "inbound",
-            "startingheight": peer.height,
-            "banscore": 0, // Placeholder
-            "synced_headers": peer.height,
-            "synced_blocks": peer.height
-        })
-    }).collect();
-
-    Ok(Value::Array(peers_json))
+    // Placeholder - peer info not yet available from ApiFacade
+    Ok(Value::Array(vec![]))
 }
 
 /// Get mining information
 async fn get_mining_info(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let info = node.get_mining_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::ServerError as i32,
-        message: format!("Failed to get mining info: {}", e),
+    let storage = node.storage();
+    let height = storage.get_height().map_err(|e| JsonRpcError {
+        code: ErrorCode::BlockchainError as i32,
+        message: format!("Failed to get height: {}", e),
         data: None,
     })?;
 
-    let blockchain_info = node.get_blockchain_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::BlockchainError as i32,
-        message: format!("Failed to get blockchain info: {}", e),
-        data: None,
-    })?;
+    let difficulty = if height > 0 {
+        if let Ok(Some(hash)) = storage.get_block_hash_by_height(height) {
+            if let Ok(Some(block)) = storage.get_block(&hash) {
+                calculate_difficulty_from_bits(block.header().bits())
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+
+    let network_hashrate = calculate_hashrate(difficulty, 150); // 2.5 minute block time
 
     Ok(json!({
-        "blocks": blockchain_info.height,
+        "blocks": height,
         "currentblockweight": 4000, // Placeholder
         "currentblocktx": 10, // Placeholder
-        "difficulty": info.difficulty,
-        "networkhashps": info.network_hashrate,
-        "pooledtx": 10, // Placeholder
+        "difficulty": difficulty,
+        "networkhashps": network_hashrate,
+        "pooledtx": node.mempool().size(),
         "chain": node.config().read()
             .map_err(|e| JsonRpcError {
                 code: ErrorCode::InternalError as i32,
                 message: format!("Failed to read config: {}", e),
                 data: None,
             })?
-            .node.network_name.clone(),
+            .network.network_id.clone(),
         "warnings": ""
     }))
 }
@@ -598,140 +651,70 @@ async fn get_mining_info(
 /// Get block template for mining
 async fn get_block_template(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let template = node.get_block_template().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::ServerError as i32,
-        message: format!("Failed to get block template: {}", e),
+    // Placeholder - block template generation not yet available
+    Err(JsonRpcError {
+        code: ErrorCode::MethodNotFound as i32,
+        message: "Method not yet implemented".to_string(),
         data: None,
-    })?;
-
-    let txs_json: Vec<Value> = template.transactions.iter().map(|tx| {
-        json!({
-            "data": hex::encode(bincode::serialize(tx).unwrap_or_default()),
-            "txid": hex::encode(tx.hash()),
-            "hash": hex::encode(tx.hash()),
-            "depends": [],
-            "fee": tx.fee().unwrap_or(0),
-            "sigops": 4, // Placeholder
-            "weight": tx.weight()
-        })
-    }).collect();
-
-    Ok(json!({
-        "version": template.version,
-        "previousblockhash": hex::encode(template.prev_hash),
-        "transactions": txs_json,
-        "coinbaseaux": {
-            "flags": ""
-        },
-        "coinbasevalue": 5000000000, // Placeholder
-        "longpollid": format!("{} {}", hex::encode(template.prev_hash), template.height),
-        "target": hex::encode(template.target.to_be_bytes()),
-        "mintime": template.timestamp,
-        "mutable": [
-            "time",
-            "transactions",
-            "prevblock"
-        ],
-        "noncerange": "00000000ffffffff",
-        "sigoplimit": 80000,
-        "sizelimit": 4000000,
-        "curtime": template.timestamp,
-        "bits": format!("{:x}", template.target),
-        "height": template.height
-    }))
+    })
 }
 
 /// Submit a mined block
 async fn submit_block(
     params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Extract block data parameter
-    let block_data = match params {
-        Value::Array(arr) if !arr.is_empty() => {
-            match &arr[0] {
-                Value::String(s) => s.clone(),
-                _ => return Err(JsonRpcError {
-                    code: ErrorCode::InvalidParams as i32,
-                    message: "Invalid block data parameter (must be a hex string)".to_string(),
-                    data: None,
-                }),
-            }
-        },
-        _ => return Err(JsonRpcError {
-            code: ErrorCode::InvalidParams as i32,
-            message: "Missing block data parameter".to_string(),
-            data: None,
-        }),
-    };
-
-    // Decode hex
-    let block_bytes = hex::decode(&block_data).map_err(|_| JsonRpcError {
-        code: ErrorCode::InvalidParams as i32,
-        message: "Invalid block data format".to_string(),
+    // Placeholder - block submission not yet available
+    Err(JsonRpcError {
+        code: ErrorCode::MethodNotFound as i32,
+        message: "Method not yet implemented".to_string(),
         data: None,
-    })?;
-
-    // Deserialize block
-    let block = bincode::deserialize(&block_bytes).map_err(|_| JsonRpcError {
-        code: ErrorCode::InvalidParams as i32,
-        message: "Invalid block data".to_string(),
-        data: None,
-    })?;
-
-    // Submit block
-    let result = node.submit_block(block).await.map_err(|e| JsonRpcError {
-        code: ErrorCode::ServerError as i32,
-        message: format!("Failed to submit block: {}", e),
-        data: None,
-    })?;
-
-    if result.accepted {
-        Ok(Value::Null)
-    } else {
-        Err(JsonRpcError {
-            code: ErrorCode::ServerError as i32,
-            message: result.reason.unwrap_or_else(|| "Block rejected".to_string()),
-            data: None,
-        })
-    }
+    })
 }
 
 // Helper functions
 
 /// Format transaction as JSON
 fn format_transaction(tx: &btclib::types::transaction::Transaction) -> Value {
-    // Placeholder implementation - in a real implementation, this would format the transaction
-    // with all of its details according to the API specification
+    let tx_size = bincode::serialize(tx).unwrap_or_default().len();
+    let weight = tx_size * 4; // Simplified weight calculation
+
     json!({
         "txid": hex::encode(tx.hash()),
         "hash": hex::encode(tx.hash()),
-        "version": tx.version,
-        "size": tx.size(),
-        "weight": tx.weight(),
-        "locktime": tx.locktime,
+        "version": tx.version(),
+        "size": tx_size,
+        "weight": weight,
+        "locktime": tx.lock_time(),
     })
-}
-
-/// Calculate difficulty from target
-fn calculate_difficulty(target: u32) -> f64 {
-    // Placeholder implementation
-    // In a real implementation, this would calculate the actual difficulty
-    // based on the target difficulty bits
-    1.0
 }
 
 /// Get next block hash
 async fn get_next_block_hash(
     block_hash: &[u8; 32],
-    node: web::Data<Arc<Node>>
+    storage: Arc<crate::storage::BlockchainDB>
 ) -> Result<Option<[u8; 32]>, JsonRpcError> {
-    // This is a placeholder implementation
-    // In a real implementation, this would query the blockchain database
-    // to find the next block in the chain
-    Ok(None)
+    // Get current block height
+    let current_height = storage.get_block_height(block_hash)
+        .map_err(|e| JsonRpcError {
+            code: ErrorCode::BlockchainError as i32,
+            message: format!("Failed to get block height: {}", e),
+            data: None,
+        })?;
+
+    if let Some(height) = current_height {
+        // Try to get the next block
+        storage.get_block_hash_by_height(height + 1)
+            .map_err(|e| JsonRpcError {
+                code: ErrorCode::BlockchainError as i32,
+                message: format!("Failed to get next block hash: {}", e),
+                data: None,
+            })
+    } else {
+        Ok(None)
+    }
 }
 
 /// Helper function to calculate network hashrate from difficulty
@@ -744,75 +727,75 @@ fn calculate_network_hashrate(difficulty: f64) -> f64 {
 /// Get environmental metrics
 async fn get_environmental_metrics(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Get environmental data from the node
-    let env_data = node.get_environmental_data().await.unwrap_or_default();
-    
+    // Placeholder - environmental data not yet available from ApiFacade
     Ok(json!({
-        "totalEmissions": env_data.total_emissions,
-        "carbonOffsets": env_data.carbon_offsets,
-        "netCarbon": env_data.net_carbon,
-        "renewablePercentage": env_data.renewable_percentage,
-        "treasuryBalance": env_data.treasury_balance,
-        "isCarbonNegative": env_data.net_carbon <= 0.0,
-        "greenMiners": env_data.green_miners_count,
-        "lastUpdated": env_data.last_updated,
+        "totalEmissions": 0.0,
+        "carbonOffsets": 0.0,
+        "netCarbon": 0.0,
+        "renewablePercentage": 0.0,
+        "treasuryBalance": 0,
+        "isCarbonNegative": false,
+        "greenMiners": 0,
+        "lastUpdated": 0,
     }))
 }
 
 /// Get environmental information
 async fn get_environmental_info(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Get environmental tracking info
-    let env_data = node.get_environmental_data().await.unwrap_or_default();
-    
+    // Placeholder - environmental data not yet available from ApiFacade
     Ok(json!({
-        "carbonIntensity": env_data.carbon_intensity,
-        "greenMining": env_data.renewable_percentage,
-        "carbonNegative": env_data.net_carbon <= 0.0,
-        "totalEmissions": env_data.total_emissions,
-        "totalOffsets": env_data.carbon_offsets,
-        "netEmissions": env_data.net_carbon,
+        "carbonIntensity": 0.0,
+        "greenMining": 0.0,
+        "carbonNegative": false,
+        "totalEmissions": 0.0,
+        "totalOffsets": 0.0,
+        "netEmissions": 0.0,
     }))
 }
 
 /// Get comprehensive network statistics
 async fn get_network_stats(
     _params: Value,
-    node: web::Data<Arc<Node>>,
+    node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    let blockchain_info = node.get_blockchain_info().await.map_err(|e| JsonRpcError {
+    let storage = node.storage();
+    let height = storage.get_height().map_err(|e| JsonRpcError {
         code: ErrorCode::BlockchainError as i32,
-        message: format!("Failed to get blockchain info: {}", e),
+        message: format!("Failed to get height: {}", e),
         data: None,
     })?;
-    
-    let network_info = node.get_network_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::NetworkError as i32,
-        message: format!("Failed to get network info: {}", e),
-        data: None,
-    })?;
-    
-    let mining_info = node.get_mining_info().await.map_err(|e| JsonRpcError {
-        code: ErrorCode::ServerError as i32,
-        message: format!("Failed to get mining info: {}", e),
-        data: None,
-    })?;
-    
-    let env_data = node.get_environmental_data().await.unwrap_or_default();
-    let mempool_info = node.get_mempool_info().await.unwrap_or_default();
-    
+
+    let difficulty = if height > 0 {
+        if let Ok(Some(hash)) = storage.get_block_hash_by_height(height) {
+            if let Ok(Some(block)) = storage.get_block(&hash) {
+                calculate_difficulty_from_bits(block.header().bits())
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+
+    let network_hashrate = calculate_hashrate(difficulty, 150); // 2.5 minute block time
+    let connections = node.network().peer_count_sync() as u32;
+    let mempool_size = node.mempool().size();
+
     Ok(json!({
-        "blockHeight": blockchain_info.height,
-        "hashrate": mining_info.network_hashrate.to_string(),
-        "difficulty": mining_info.difficulty.to_string(),
-        "nodes": network_info.connections,
-        "transactions24h": mempool_info.tx_count, // Placeholder - needs actual 24h count
-        "carbonIntensity": env_data.carbon_intensity,
-        "greenMiningPercentage": env_data.renewable_percentage,
+        "blockHeight": height,
+        "hashrate": network_hashrate.to_string(),
+        "difficulty": difficulty.to_string(),
+        "nodes": connections,
+        "transactions24h": mempool_size, // Placeholder - needs actual 24h count
+        "carbonIntensity": 0.0,
+        "greenMiningPercentage": 0.0,
         "quantumSecurityLevel": "HIGH", // Hardcoded for now
         "networkId": node.config().read()
             .map_err(|e| JsonRpcError {
@@ -820,6 +803,6 @@ async fn get_network_stats(
                 message: format!("Failed to read config: {}", e),
                 data: None,
             })?
-            .node.network_name.clone(),
+            .network.network_id.clone(),
     }))
 }
