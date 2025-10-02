@@ -25,6 +25,8 @@ db_password.txt
 
 # Log files
 *.log
+*.pid
+testnet-data/
 logs/
 /var/log/
 
