@@ -54,6 +54,10 @@ pub async fn dispatch(
         "getnewaddress" => get_new_address(params, node).await,
         "getbalance" => get_balance(params, node).await,
         "listunspent" => list_unspent(params, node).await,
+        "sendtoaddress" => send_to_address(params, node).await,
+        
+        // Test/admin methods
+        "addtestutxo" => add_test_utxo(params, node).await,
 
         // Method not found
         _ => Err(JsonRpcError {
@@ -947,4 +951,272 @@ async fn list_unspent(
     }).collect();
     
     Ok(Value::Array(utxos_json))
+}
+
+/// Send NOVA to an address
+async fn send_to_address(
+    params: Value,
+    node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    // Parse parameters: address, amount, optional comment
+    let (address_str, amount_nova, comment) = match params {
+        Value::Array(ref arr) => {
+            let address = arr.get(0)
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Missing address parameter".to_string(),
+                    data: None,
+                })?;
+            
+            let amount = arr.get(1)
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Missing or invalid amount parameter".to_string(),
+                    data: None,
+                })?;
+            
+            let comment = arr.get(2).and_then(|v| v.as_str()).map(String::from);
+            
+            (address, amount, comment)
+        }
+        _ => {
+            return Err(JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Invalid parameters for sendtoaddress".to_string(),
+                data: None,
+            });
+        }
+    };
+    
+    // Validate address format
+    use wallet::quantum_wallet::Address;
+    let recipient_address = Address::from_str(&address_str)
+        .map_err(|e| JsonRpcError {
+            code: -5, // Invalid address
+            message: format!("Invalid address: {}", e),
+            data: None,
+        })?;
+    
+    // Convert amount to attonovas
+    if amount_nova <= 0.0 {
+        return Err(JsonRpcError {
+            code: -3, // Invalid amount
+            message: "Amount must be positive".to_string(),
+            data: None,
+        });
+    }
+    
+    let amount_attonovas = (amount_nova * 100_000_000.0) as u64;
+    
+    // Get wallet manager
+    let wallet_manager = node.wallet_manager();
+    let wallet = wallet_manager.read()
+        .map_err(|_| JsonRpcError {
+            code: -13,
+            message: "Wallet lock poisoned".to_string(),
+            data: None,
+        })?;
+    
+    // Check balance
+    let balance = wallet.get_balance(1)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to check balance: {}", e),
+            data: None,
+        })?;
+    
+    // Estimate fee for 1 input, 2 outputs (payment + change)
+    use wallet::quantum_wallet::TransactionBuilder;
+    let estimated_fee = TransactionBuilder::estimate_transaction_size(1, 2) as u64 * 1000; // 1000 attonovas/byte
+    
+    let total_needed = amount_attonovas.checked_add(estimated_fee)
+        .ok_or_else(|| JsonRpcError {
+            code: -3,
+            message: "Amount overflow".to_string(),
+            data: None,
+        })?;
+    
+    if balance < total_needed {
+        return Err(JsonRpcError {
+            code: -6, // Insufficient funds
+            message: format!(
+                "Insufficient funds: need {} NOVA (amount + fee), have {} NOVA",
+                total_needed as f64 / 100_000_000.0,
+                balance as f64 / 100_000_000.0
+            ),
+            data: None,
+        });
+    }
+    
+    // Get available UTXOs
+    let utxos = wallet.list_unspent(1, 9999999, None)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to get UTXOs: {}", e),
+            data: None,
+        })?;
+    
+    if utxos.is_empty() {
+        return Err(JsonRpcError {
+            code: -6,
+            message: "No spendable UTXOs available".to_string(),
+            data: None,
+        });
+    }
+    
+    // Build transaction
+    use wallet::quantum_wallet::BuilderConfig;
+    let builder_config = BuilderConfig {
+        fee_rate: 1000, // 1000 attonovas per byte
+        ..Default::default()
+    };
+    
+    let mut builder = TransactionBuilder::new(wallet.keystore(), builder_config);
+    
+    // Add output to recipient
+    builder.add_output(recipient_address, amount_attonovas)
+        .map_err(|e| JsonRpcError {
+            code: -3,
+            message: format!("Failed to add output: {}", e),
+            data: None,
+        })?;
+    
+    // Generate change address
+    let change_address = wallet.generate_new_address(Some("change".to_string()))
+        .map_err(|e| JsonRpcError {
+            code: -13,
+            message: format!("Failed to generate change address: {}", e),
+            data: None,
+        })?;
+    
+    let change_addr = Address::from_str(&change_address)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Invalid change address: {}", e),
+            data: None,
+        })?;
+    
+    builder.set_change_address(change_addr);
+    
+    // Select coins
+    builder.select_coins(&utxos)
+        .map_err(|e| JsonRpcError {
+            code: -6,
+            message: format!("Coin selection failed: {}", e),
+            data: None,
+        })?;
+    
+    // Build and sign transaction
+    let transaction = builder.build_and_sign()
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to build transaction: {}", e),
+            data: None,
+        })?;
+    
+    // Submit to mempool and broadcast
+    let txid = wallet.submit_transaction_to_mempool(transaction)
+        .map_err(|e| JsonRpcError {
+            code: match e {
+                crate::wallet_manager::WalletManagerError::TransactionError(_) => -25,
+                _ => -1,
+            },
+            message: format!("Failed to submit transaction: {}", e),
+            data: None,
+        })?;
+    
+    tracing::info!(
+        "Sent transaction {} ({} NOVA to {}){}",
+        hex::encode(&txid[..8]),
+        amount_nova,
+        address_str,
+        comment.as_ref().map(|c| format!(" - {}", c)).unwrap_or_default()
+    );
+    
+    Ok(Value::String(hex::encode(txid)))
+}
+
+/// Add test UTXO (testnet only)
+#[cfg(feature = "testnet")]
+async fn add_test_utxo(
+    params: Value,
+    node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    // Parse parameters: address, amount
+    let (address_str, amount_nova) = match params {
+        Value::Array(ref arr) => {
+            let address = arr.get(0)
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Missing address parameter".to_string(),
+                    data: None,
+                })?;
+            
+            let amount = arr.get(1)
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Missing or invalid amount parameter".to_string(),
+                    data: None,
+                })?;
+            
+            (address, amount)
+        }
+        _ => {
+            return Err(JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Invalid parameters".to_string(),
+                data: None,
+            });
+        }
+    };
+    
+    // Convert to attonovas
+    let amount_attonovas = (amount_nova * 100_000_000.0) as u64;
+    
+    // Generate fake txid
+    let mut fake_txid = [0u8; 32];
+    use rand::RngCore;
+    rand::thread_rng().fill_bytes(&mut fake_txid);
+    
+    // Get wallet manager
+    let wallet_manager = node.wallet_manager();
+    let wallet = wallet_manager.read()
+        .map_err(|_| JsonRpcError {
+            code: -13,
+            message: "Wallet lock poisoned".to_string(),
+            data: None,
+        })?;
+    
+    // Add test UTXO
+    wallet.add_test_utxo(&address_str, amount_attonovas, fake_txid, 0)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to add test UTXO: {}", e),
+            data: None,
+        })?;
+    
+    Ok(json!({
+        "address": address_str,
+        "amount": amount_nova,
+        "txid": hex::encode(fake_txid),
+        "vout": 0,
+    }))
+}
+
+#[cfg(not(feature = "testnet"))]
+async fn add_test_utxo(
+    _params: Value,
+    _node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    Err(JsonRpcError {
+        code: ErrorCode::MethodNotFound as i32,
+        message: "Method only available in testnet mode".to_string(),
+        data: None,
+    })
 }

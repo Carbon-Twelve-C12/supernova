@@ -43,22 +43,22 @@ pub struct ApiFacade {
 impl ApiFacade {
     /// Create a new API facade from a Node
     pub fn new(node: &Node) -> Self {
-        // Initialize wallet manager
-        let wallet_path = dirs::data_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("supernova")
-            .join("wallet");
-        
-        std::fs::create_dir_all(&wallet_path).ok();
-        
-        let wallet_manager = WalletManager::new(
-            wallet_path,
-            node.db(),
-            node.chain_state(),
-        ).unwrap_or_else(|e| {
-            tracing::error!("Failed to initialize wallet manager: {}", e);
-            panic!("Critical: Cannot initialize wallet manager");
-        });
+        // Use wallet manager from node if available
+        let wallet_manager = node.get_wallet_manager()
+            .unwrap_or_else(|| {
+                tracing::warn!("Node has no wallet manager, creating fallback");
+                // Create fallback wallet manager
+                let wallet_path = std::path::PathBuf::from("./wallet_fallback");
+                let wm = WalletManager::new(
+                    wallet_path,
+                    node.db(),
+                    node.chain_state(),
+                    node.mempool(),
+                ).unwrap_or_else(|e| {
+                    panic!("Critical: Cannot create wallet manager: {}", e);
+                });
+                Arc::new(StdRwLock::new(wm))
+            });
         
         Self {
             config: node.config(),
@@ -69,7 +69,7 @@ impl ApiFacade {
             peer_id: node.peer_id,
             start_time: node.start_time,
             lightning_manager: node.lightning(),
-            wallet_manager: Arc::new(StdRwLock::new(wallet_manager)),
+            wallet_manager,
         }
     }
 

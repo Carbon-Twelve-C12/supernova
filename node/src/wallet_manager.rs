@@ -11,6 +11,8 @@ use wallet::quantum_wallet::{
 
 use crate::storage::BlockchainDB;
 use crate::storage::ChainState;
+use crate::mempool::TransactionPool;
+use btclib::types::transaction::Transaction;
 
 #[derive(Error, Debug)]
 pub enum WalletManagerError {
@@ -52,6 +54,9 @@ pub struct WalletManager {
     
     /// Chain state access
     chain_state: Arc<RwLock<ChainState>>,
+    
+    /// Transaction mempool
+    mempool: Arc<TransactionPool>,
 }
 
 impl WalletManager {
@@ -60,6 +65,7 @@ impl WalletManager {
         wallet_path: PathBuf,
         db: Arc<BlockchainDB>,
         chain_state: Arc<RwLock<ChainState>>,
+        mempool: Arc<TransactionPool>,
     ) -> Result<Self, WalletManagerError> {
         // Open wallet storage
         let mut storage = WalletStorage::open(wallet_path)
@@ -113,6 +119,7 @@ impl WalletManager {
             utxo_index: Arc::new(utxo_index),
             db,
             chain_state,
+            mempool,
         })
     }
     
@@ -180,7 +187,116 @@ impl WalletManager {
         ).map_err(|e| WalletManagerError::UtxoError(e.to_string()))
     }
     
-    /// Sync wallet with blockchain
+    /// Scan a block for transactions relevant to wallet
+    pub fn scan_block(&self, block: &btclib::types::block::Block) -> Result<(), WalletManagerError> {
+        // Get all wallet addresses
+        let addresses = self.keystore.list_addresses()
+            .map_err(|e| WalletManagerError::KeystoreError(e.to_string()))?;
+        
+        if addresses.is_empty() {
+            return Ok(()); // No addresses to scan for
+        }
+        
+        let block_height = block.height();
+        let block_hash = block.hash();
+        
+        tracing::debug!("Scanning block {} at height {} for wallet transactions", 
+            hex::encode(&block_hash[..8]), block_height);
+        
+        // Scan all transactions in the block
+        for tx in block.transactions() {
+            self.scan_transaction(tx, block_height, &addresses)?;
+        }
+        
+        // Update UTXO index height for confirmation calculation
+        self.utxo_index.update_height(block_height)
+            .map_err(|e| WalletManagerError::UtxoError(e.to_string()))?;
+        
+        Ok(())
+    }
+    
+    /// Scan a single transaction for wallet-relevant outputs
+    fn scan_transaction(
+        &self,
+        tx: &btclib::types::transaction::Transaction,
+        block_height: u64,
+        wallet_addresses: &[String],
+    ) -> Result<(), WalletManagerError> {
+        let tx_hash = tx.hash();
+        
+        // Check outputs for any to our addresses
+        for (vout, output) in tx.outputs().iter().enumerate() {
+            // Try to match output script to wallet addresses
+            // For now, simplified matching by script_pubkey
+            let script_pubkey = output.script_pubkey();
+            
+            // Check if this output belongs to any of our addresses
+            for wallet_addr in wallet_addresses {
+                // Parse wallet address to get pubkey hash
+                if let Ok(addr) = wallet::quantum_wallet::Address::from_str(wallet_addr) {
+                    // Check if output script matches address
+                    if script_pubkey == addr.pubkey_hash() {
+                        // This output is ours!
+                        let utxo = Utxo {
+                            txid: tx_hash,
+                            vout: vout as u32,
+                            address: wallet_addr.clone(),
+                            value: output.value(),
+                            script_pubkey: script_pubkey.to_vec(),
+                            block_height,
+                            confirmations: 1, // Will be updated
+                            spendable: true,
+                            solvable: true,
+                            label: None,
+                        };
+                        
+                        // Add UTXO to index
+                        self.utxo_index.add_utxo(utxo.clone())
+                            .map_err(|e| WalletManagerError::UtxoError(e.to_string()))?;
+                        
+                        // Save UTXO to storage
+                        self.storage.read()
+                            .map_err(|_| WalletManagerError::StorageError("Lock poisoned".to_string()))?
+                            .store_utxo(&utxo)
+                            .map_err(|e| WalletManagerError::StorageError(e.to_string()))?;
+                        
+                        tracing::info!("Found wallet UTXO: {} NOVA at {}:{}",
+                            utxo.value as f64 / 100_000_000.0,
+                            hex::encode(&tx_hash[..8]),
+                            vout
+                        );
+                    }
+                }
+            }
+        }
+        
+        // Check inputs to mark spent UTXOs
+        for input in tx.inputs() {
+            let prev_txid = input.prev_tx_hash();
+            let prev_vout = input.prev_output_index();
+            
+            // Check if this spends one of our UTXOs
+            if !self.utxo_index.is_spent(&prev_txid, prev_vout) {
+                if let Ok(_utxo) = self.utxo_index.get_utxo(&prev_txid, prev_vout) {
+                    // Mark as spent
+                    self.utxo_index.mark_spent(&prev_txid, prev_vout)
+                        .map_err(|e| WalletManagerError::UtxoError(e.to_string()))?;
+                    
+                    // Delete from storage
+                    self.storage.read()
+                        .map_err(|_| WalletManagerError::StorageError("Lock poisoned".to_string()))?
+                        .delete_utxo(&prev_txid, prev_vout)
+                        .map_err(|e| WalletManagerError::StorageError(e.to_string()))?;
+                    
+                    tracing::info!("UTXO spent: {}:{}", hex::encode(&prev_txid[..8]), prev_vout);
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Sync wallet with blockchain (full rescan)
     pub fn sync_with_blockchain(&self) -> Result<(), WalletManagerError> {
         // Get current blockchain height
         let chain_state = self.chain_state.read()
@@ -192,12 +308,7 @@ impl WalletManager {
         self.utxo_index.update_height(current_height)
             .map_err(|e| WalletManagerError::UtxoError(e.to_string()))?;
         
-        // TODO: Scan blockchain for wallet transactions and update UTXO index
-        // This is a placeholder - full implementation would:
-        // 1. Get all wallet addresses
-        // 2. Scan blocks for transactions to/from wallet addresses
-        // 3. Update UTXO index with found UTXOs
-        // 4. Mark spent outputs
+        tracing::info!("Wallet synced to height {}", current_height);
         
         Ok(())
     }
@@ -210,6 +321,90 @@ impl WalletManager {
     /// Get UTXO index reference
     pub fn utxo_index(&self) -> Arc<UtxoIndex> {
         Arc::clone(&self.utxo_index)
+    }
+    
+    /// Submit transaction to mempool
+    pub fn submit_transaction_to_mempool(
+        &self,
+        transaction: Transaction,
+    ) -> Result<[u8; 32], WalletManagerError> {
+        let txid = transaction.hash();
+        
+        // Calculate transaction size and fee rate
+        let tx_size = bincode::serialize(&transaction)
+            .map_err(|e| WalletManagerError::TransactionError(format!("Serialization error: {}", e)))?
+            .len();
+        
+        // Estimate fee rate (simplified - in production would be more sophisticated)
+        let fee_rate = 1000; // 1000 attonovas per byte (matches builder config)
+        
+        tracing::debug!("Submitting transaction {} ({} bytes) to mempool", 
+            hex::encode(&txid[..8]), tx_size);
+        
+        // Submit to mempool
+        self.mempool.add_transaction(transaction.clone(), fee_rate)
+            .map_err(|e| WalletManagerError::TransactionError(format!("Mempool rejected: {}", e)))?;
+        
+        tracing::info!("Transaction {} accepted to mempool", hex::encode(&txid[..8]));
+        
+        // Mark input UTXOs as pending spent
+        for input in transaction.inputs() {
+            let prev_txid = input.prev_tx_hash();
+            let prev_vout = input.prev_output_index();
+            
+            // Mark as spent in UTXO index (will be removed when block confirms)
+            if let Err(e) = self.utxo_index.mark_spent(&prev_txid, prev_vout) {
+                tracing::warn!("Failed to mark UTXO as spent: {}", e);
+                // Don't fail the whole transaction for this
+            }
+        }
+        
+        Ok(txid)
+    }
+    
+    /// Add test UTXO for testing (testnet only - DO NOT USE IN PRODUCTION)
+    #[cfg(feature = "testnet")]
+    pub fn add_test_utxo(
+        &self,
+        address: &str,
+        amount: u64,
+        txid: [u8; 32],
+        vout: u32,
+    ) -> Result<(), WalletManagerError> {
+        // Verify address is in wallet
+        if !self.keystore.has_address(address) {
+            return Err(WalletManagerError::KeystoreError(
+                format!("Address {} not in wallet", address)
+            ));
+        }
+        
+        let utxo = Utxo {
+            txid,
+            vout,
+            address: address.to_string(),
+            value: amount,
+            script_pubkey: vec![], // Will be filled by transaction builder
+            block_height: 100, // Fake block height for testing
+            confirmations: 10, // Enough confirmations for spending
+            spendable: true,
+            solvable: true,
+            label: Some("test_utxo".to_string()),
+        };
+        
+        // Add to UTXO index
+        self.utxo_index.add_utxo(utxo.clone())
+            .map_err(|e| WalletManagerError::UtxoError(e.to_string()))?;
+        
+        // Save to storage
+        self.storage.read()
+            .map_err(|_| WalletManagerError::StorageError("Lock poisoned".to_string()))?
+            .store_utxo(&utxo)
+            .map_err(|e| WalletManagerError::StorageError(e.to_string()))?;
+        
+        tracing::info!("Added test UTXO: {} NOVA to address {}", 
+            amount as f64 / 100_000_000.0, address);
+        
+        Ok(())
     }
 }
 

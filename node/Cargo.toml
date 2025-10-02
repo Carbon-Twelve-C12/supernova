@@ -14,9 +14,10 @@ name = "supernova-oracle"
 path = "src/bin/oracle.rs"
 
 [features]
-default = []
+default = ["testnet"]
 lightning = ["btclib/lightning"]
 environmental = []
+testnet = []
 
 [dependencies]
 btclib = { path = "../btclib", features = ["lightning"] }

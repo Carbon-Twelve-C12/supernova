@@ -131,6 +131,8 @@ pub struct Node {
     testnet_manager: Option<Arc<NodeTestnetManager>>,
     /// Lightning Network manager
     lightning_manager: Option<Arc<RwLock<LightningManager>>>,
+    /// Wallet manager (quantum-resistant wallet)
+    wallet_manager: Option<Arc<RwLock<crate::wallet_manager::WalletManager>>>,
     pub api_config: ApiConfig,
     pub peer_id: PeerId,
     pub start_time: Instant,
@@ -287,6 +289,30 @@ impl Node {
             None
         };
 
+        // Initialize wallet manager for testnet
+        let wallet_path = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("supernova")
+            .join("wallet");
+        
+        std::fs::create_dir_all(&wallet_path).ok();
+        
+        let wallet_manager = match crate::wallet_manager::WalletManager::new(
+            wallet_path,
+            Arc::clone(&db),
+            Arc::clone(&chain_state),
+            Arc::clone(&mempool),
+        ) {
+            Ok(wm) => {
+                tracing::info!("Wallet manager initialized successfully");
+                Some(Arc::new(RwLock::new(wm)))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize wallet manager: {}", e);
+                None
+            }
+        };
+
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             db,
@@ -297,6 +323,7 @@ impl Node {
             network_command_tx: command_tx,
             testnet_manager,
             lightning_manager,
+            wallet_manager,
             api_config: ApiConfig::default(),
             peer_id,
             start_time: Instant::now(),
@@ -368,6 +395,17 @@ impl Node {
     pub fn mempool(&self) -> Arc<TransactionPool> {
         Arc::clone(&self.mempool)
     }
+    
+    /// Set wallet manager (called by ApiFacade after Node creation)
+    pub fn set_wallet_manager(&mut self, wallet_manager: Arc<RwLock<crate::wallet_manager::WalletManager>>) {
+        self.wallet_manager = Some(wallet_manager);
+        tracing::info!("Wallet manager integrated with node");
+    }
+    
+    /// Get wallet manager reference
+    pub fn get_wallet_manager(&self) -> Option<Arc<RwLock<crate::wallet_manager::WalletManager>>> {
+        self.wallet_manager.as_ref().map(Arc::clone)
+    }
 
     /// Get network
     pub fn network(&self) -> Arc<P2PNetwork> {
@@ -420,6 +458,18 @@ impl Node {
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
             .add_block(&block)
             .map_err(NodeError::StorageError)?;
+
+        // Scan block for wallet transactions (NEW: Blockchain Integration)
+        if let Some(wallet_manager) = &self.wallet_manager {
+            if let Err(e) = wallet_manager
+                .write()
+                .map_err(|_| NodeError::General("Wallet lock poisoned".to_string()))?
+                .scan_block(&block)
+            {
+                tracing::warn!("Failed to scan block for wallet transactions: {}", e);
+                // Don't fail block processing if wallet scan fails
+            }
+        }
 
         // Remove transactions from mempool
         for tx in block.transactions() {
