@@ -50,6 +50,11 @@ pub async fn dispatch(
         "getenvironmentalinfo" => get_environmental_info(params, node).await,
         "getnetworkstats" => get_network_stats(params, node).await,
 
+        // Wallet methods
+        "getnewaddress" => get_new_address(params, node).await,
+        "getbalance" => get_balance(params, node).await,
+        "listunspent" => list_unspent(params, node).await,
+
         // Method not found
         _ => Err(JsonRpcError {
             code: ErrorCode::MethodNotFound as i32,
@@ -805,4 +810,141 @@ async fn get_network_stats(
             })?
             .network.network_id.clone(),
     }))
+}
+
+// ============================================================================
+// WALLET RPC METHODS
+// ============================================================================
+
+/// Get new quantum-resistant address
+async fn get_new_address(
+    params: Value,
+    node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    // Parse optional label parameter
+    let label = match params {
+        Value::Array(arr) if !arr.is_empty() => {
+            match &arr[0] {
+                Value::String(s) => Some(s.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    
+    // Get wallet manager
+    let wallet_manager = node.wallet_manager();
+    let wallet = wallet_manager.read()
+        .map_err(|_| JsonRpcError {
+            code: -13,
+            message: "Wallet lock poisoned".to_string(),
+            data: None,
+        })?;
+    
+    // Generate new address using actual wallet manager
+    let address = wallet.generate_new_address(label)
+        .map_err(|e| JsonRpcError {
+            code: match e {
+                crate::wallet_manager::WalletManagerError::WalletLocked => -13,
+                _ => -1,
+            },
+            message: format!("Failed to generate address: {}", e),
+            data: None,
+        })?;
+    
+    Ok(Value::String(address))
+}
+
+/// Get wallet balance
+async fn get_balance(
+    params: Value,
+    node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    // Parse parameters
+    let (minconf, _include_watchonly) = match params {
+        Value::Array(arr) => {
+            let minconf = arr.get(0).and_then(|v| v.as_u64()).unwrap_or(1);
+            let watchonly = arr.get(1).and_then(|v| v.as_bool()).unwrap_or(false);
+            (minconf, watchonly)
+        }
+        _ => (1, false),
+    };
+    
+    // Get wallet manager
+    let wallet_manager = node.wallet_manager();
+    let wallet = wallet_manager.read()
+        .map_err(|_| JsonRpcError {
+            code: -13,
+            message: "Wallet lock poisoned".to_string(),
+            data: None,
+        })?;
+    
+    // Get actual balance from UTXO index
+    let balance_attonovas = wallet.get_balance(minconf)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to get balance: {}", e),
+            data: None,
+        })?;
+    
+    let balance_nova = balance_attonovas as f64 / 100_000_000.0;
+    
+    Ok(json!(balance_nova))
+}
+
+/// List unspent transaction outputs
+async fn list_unspent(
+    params: Value,
+    node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    // Parse parameters
+    let (minconf, maxconf, addresses) = match params {
+        Value::Array(arr) => {
+            let minconf = arr.get(0).and_then(|v| v.as_u64()).unwrap_or(1);
+            let maxconf = arr.get(1).and_then(|v| v.as_u64()).unwrap_or(9999999);
+            let addresses: Vec<String> = arr.get(2)
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect())
+                .unwrap_or_default();
+            (minconf, maxconf, addresses)
+        }
+        _ => (1, 9999999, vec![]),
+    };
+    
+    // Get wallet manager
+    let wallet_manager = node.wallet_manager();
+    let wallet = wallet_manager.read()
+        .map_err(|_| JsonRpcError {
+            code: -13,
+            message: "Wallet lock poisoned".to_string(),
+            data: None,
+        })?;
+    
+    // Get UTXOs from wallet
+    let filter_addresses = if addresses.is_empty() { None } else { Some(addresses) };
+    let utxos = wallet.list_unspent(minconf, maxconf, filter_addresses)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to list unspent: {}", e),
+            data: None,
+        })?;
+    
+    // Format UTXOs as JSON
+    let utxos_json: Vec<Value> = utxos.iter().map(|utxo| {
+        json!({
+            "txid": hex::encode(&utxo.txid),
+            "vout": utxo.vout,
+            "address": &utxo.address,
+            "scriptPubKey": hex::encode(&utxo.script_pubkey),
+            "amount": utxo.value as f64 / 100_000_000.0,
+            "confirmations": utxo.confirmations,
+            "spendable": utxo.spendable,
+            "solvable": utxo.solvable,
+            "label": utxo.label.as_ref().unwrap_or(&String::new()),
+        })
+    }).collect();
+    
+    Ok(Value::Array(utxos_json))
 }

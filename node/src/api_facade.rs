@@ -8,6 +8,7 @@ use crate::mempool::TransactionPool;
 use crate::network::NetworkProxy;
 use crate::node::{Node, NodeError};
 use crate::storage::{BlockchainDB, ChainState};
+use crate::wallet_manager::WalletManager;
 use btclib::types::transaction::Transaction;
 use std::sync::Arc;
 use std::sync::RwLock as StdRwLock;
@@ -31,6 +32,8 @@ pub struct ApiFacade {
     start_time: std::time::Instant,
     /// Lightning manager (if enabled)
     lightning_manager: Option<Arc<StdRwLock<btclib::lightning::LightningManager>>>,
+    /// Wallet manager (quantum-resistant wallet)
+    wallet_manager: Arc<StdRwLock<WalletManager>>,
 }
 
 // Ensure ApiFacade is Send + Sync
@@ -40,6 +43,23 @@ pub struct ApiFacade {
 impl ApiFacade {
     /// Create a new API facade from a Node
     pub fn new(node: &Node) -> Self {
+        // Initialize wallet manager
+        let wallet_path = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("supernova")
+            .join("wallet");
+        
+        std::fs::create_dir_all(&wallet_path).ok();
+        
+        let wallet_manager = WalletManager::new(
+            wallet_path,
+            node.db(),
+            node.chain_state(),
+        ).unwrap_or_else(|e| {
+            tracing::error!("Failed to initialize wallet manager: {}", e);
+            panic!("Critical: Cannot initialize wallet manager");
+        });
+        
         Self {
             config: node.config(),
             db: node.db(),
@@ -49,6 +69,7 @@ impl ApiFacade {
             peer_id: node.peer_id,
             start_time: node.start_time,
             lightning_manager: node.lightning(),
+            wallet_manager: Arc::new(StdRwLock::new(wallet_manager)),
         }
     }
 
@@ -75,6 +96,11 @@ impl ApiFacade {
     /// Get network proxy
     pub fn network(&self) -> Arc<NetworkProxy> {
         Arc::clone(&self.network)
+    }
+
+    /// Get wallet manager
+    pub fn wallet_manager(&self) -> Arc<StdRwLock<WalletManager>> {
+        Arc::clone(&self.wallet_manager)
     }
 
     /// Get node info

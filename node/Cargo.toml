@@ -20,6 +20,7 @@ environmental = []
 
 [dependencies]
 btclib = { path = "../btclib", features = ["lightning"] }
+wallet = { path = "../wallet" }
 tokio = { version = "1.28", features = ["full"] }
 clap = { version = "4.3", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
