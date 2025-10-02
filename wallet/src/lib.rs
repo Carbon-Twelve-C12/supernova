@@ -15,10 +15,13 @@
 #![cfg_attr(test, allow(clippy::panic))]
 
 pub mod cli;
-mod core;
+mod core; // Legacy Bitcoin-based wallet (deprecated)
 mod hdwallet;
 mod history;
 mod ui;
+
+// NEW: Quantum-resistant wallet infrastructure
+pub mod quantum_wallet;
 
 use bitcoin::network::Network;
 use btclib::storage::utxo_set::UtxoSet;
