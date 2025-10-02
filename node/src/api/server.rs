@@ -49,7 +49,7 @@ pub struct ApiConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
-            bind_address: "127.0.0.1".to_string(),
+            bind_address: "0.0.0.0".to_string(), // Listen on all interfaces
             port: 8080,
             enable_docs: true,
             cors_allowed_origins: vec!["*".to_string()],
@@ -143,9 +143,9 @@ impl ApiServer {
 
         // Calculate socket address
         let socket_addr = SocketAddr::new(
-            IpAddr::from_str(&self.bind_address).unwrap_or_else(|_| {
-                // Fallback to localhost if bind address is invalid
-                // This is safe as 127.0.0.1 is always a valid IP
+            IpAddr::from_str(&self.bind_address).unwrap_or_else(|e| {
+                warn!("Failed to parse bind_address '{}': {}. Falling back to 127.0.0.1", 
+                    self.bind_address, e);
                 IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
             }),
             self.port,
