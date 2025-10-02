@@ -294,6 +294,31 @@ impl WalletStorage {
         Ok(plaintext)
     }
     
+    /// Store transaction
+    pub fn store_transaction(&self, txid: &[u8; 32], transaction: &btclib::types::transaction::Transaction) -> Result<(), StorageError> {
+        let key = format!("tx_{}", hex::encode(txid));
+        
+        self.db.insert(
+            key.as_bytes(),
+            bincode::serialize(transaction)
+                .map_err(|e| StorageError::SerializationError(e.to_string()))?
+        ).map_err(|e| StorageError::DatabaseError(e.to_string()))?;
+        
+        Ok(())
+    }
+    
+    /// Load transaction
+    pub fn load_transaction(&self, txid: &[u8; 32]) -> Result<btclib::types::transaction::Transaction, StorageError> {
+        let key = format!("tx_{}", hex::encode(txid));
+        
+        let bytes = self.db.get(key.as_bytes())
+            .map_err(|e| StorageError::DatabaseError(e.to_string()))?
+            .ok_or_else(|| StorageError::NotFound(format!("Transaction {}", hex::encode(txid))))?;
+        
+        bincode::deserialize(&bytes)
+            .map_err(|e| StorageError::SerializationError(e.to_string()))
+    }
+    
     /// Flush all pending writes to disk
     pub fn flush(&self) -> Result<(), StorageError> {
         self.db.flush()

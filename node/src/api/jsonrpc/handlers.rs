@@ -28,8 +28,8 @@ pub async fn dispatch(
         "getdifficulty" => get_difficulty(params, node).await,
 
         // Transaction methods
-        "gettransaction" => get_transaction(params, node).await,
-        "getrawtransaction" => get_raw_transaction(params, node).await,
+        "gettransaction" => get_transaction_rpc(params, node).await,
+        "getrawtransaction" => get_raw_transaction_rpc(params, node).await,
         "sendrawtransaction" => send_raw_transaction(params, node).await,
 
         // Mempool methods
@@ -443,32 +443,160 @@ async fn get_difficulty(
     Ok(Value::Number(serde_json::Number::from_f64(difficulty).unwrap_or(serde_json::Number::from(0))))
 }
 
-/// Get transaction information
-async fn get_transaction(
+/// Get transaction information (renamed to avoid conflict)
+async fn get_transaction_rpc(
     params: Value,
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Implement transaction retrieval here
-    // This is a placeholder implementation
-    Err(JsonRpcError {
-        code: ErrorCode::MethodNotFound as i32,
-        message: "Method not yet implemented".to_string(),
-        data: None,
-    })
+    // Parse txid parameter
+    let txid_str = match params {
+        Value::Array(ref arr) if !arr.is_empty() => {
+            arr.get(0)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Missing or invalid txid parameter".to_string(),
+                    data: None,
+                })?
+        }
+        _ => {
+            return Err(JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Missing txid parameter".to_string(),
+                data: None,
+            });
+        }
+    };
+    
+    // Decode txid
+    let txid_bytes = hex::decode(txid_str)
+        .map_err(|_| JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: "Invalid txid format".to_string(),
+            data: None,
+        })?;
+    
+    if txid_bytes.len() != 32 {
+        return Err(JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: "Invalid txid length".to_string(),
+            data: None,
+        });
+    }
+    
+    let mut txid = [0u8; 32];
+    txid.copy_from_slice(&txid_bytes);
+    
+    // Get wallet manager
+    let wallet_manager = node.wallet_manager();
+    let wallet = wallet_manager.read()
+        .map_err(|_| JsonRpcError {
+            code: -1,
+            message: "Wallet lock poisoned".to_string(),
+            data: None,
+        })?;
+    
+    // Get transaction
+    let transaction = wallet.get_transaction(&txid)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to get transaction: {}", e),
+            data: None,
+        })?
+        .ok_or_else(|| JsonRpcError {
+            code: -5,
+            message: format!("Transaction {} not found", txid_str),
+            data: None,
+        })?;
+    
+    // Format transaction as JSON
+    Ok(json!({
+        "txid": hex::encode(txid),
+        "hash": hex::encode(transaction.hash()),
+        "version": transaction.version(),
+        "size": bincode::serialize(&transaction).map(|b| b.len()).unwrap_or(0),
+        "locktime": transaction.lock_time(),
+        "vin": transaction.inputs().len(),
+        "vout": transaction.outputs().len(),
+        "confirmations": 0, // TODO: Calculate from blockchain
+    }))
 }
 
-/// Get raw transaction data
-async fn get_raw_transaction(
+/// Get raw transaction data (renamed to avoid conflict)
+async fn get_raw_transaction_rpc(
     params: Value,
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Implement raw transaction retrieval here
-    // This is a placeholder implementation
-    Err(JsonRpcError {
-        code: ErrorCode::MethodNotFound as i32,
-        message: "Method not yet implemented".to_string(),
-        data: None,
-    })
+    // Parse txid parameter
+    let txid_str = match params {
+        Value::Array(ref arr) if !arr.is_empty() => {
+            arr.get(0)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Missing or invalid txid parameter".to_string(),
+                    data: None,
+                })?
+        }
+        _ => {
+            return Err(JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Missing txid parameter".to_string(),
+                data: None,
+            });
+        }
+    };
+    
+    // Decode txid
+    let txid_bytes = hex::decode(txid_str)
+        .map_err(|_| JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: "Invalid txid format".to_string(),
+            data: None,
+        })?;
+    
+    if txid_bytes.len() != 32 {
+        return Err(JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: "Invalid txid length".to_string(),
+            data: None,
+        });
+    }
+    
+    let mut txid = [0u8; 32];
+    txid.copy_from_slice(&txid_bytes);
+    
+    // Get wallet manager
+    let wallet_manager = node.wallet_manager();
+    let wallet = wallet_manager.read()
+        .map_err(|_| JsonRpcError {
+            code: -1,
+            message: "Wallet lock poisoned".to_string(),
+            data: None,
+        })?;
+    
+    // Get transaction
+    let transaction = wallet.get_transaction(&txid)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to get transaction: {}", e),
+            data: None,
+        })?
+        .ok_or_else(|| JsonRpcError {
+            code: -5,
+            message: format!("Transaction {} not found", txid_str),
+            data: None,
+        })?;
+    
+    // Serialize transaction to hex
+    let tx_bytes = bincode::serialize(&transaction)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to serialize transaction: {}", e),
+            data: None,
+        })?;
+    
+    Ok(Value::String(hex::encode(tx_bytes)))
 }
 
 /// Send raw transaction

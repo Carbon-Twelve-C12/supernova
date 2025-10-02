@@ -347,6 +347,12 @@ impl WalletManager {
         
         tracing::info!("Transaction {} accepted to mempool", hex::encode(&txid[..8]));
         
+        // Store transaction in wallet history
+        self.storage.read()
+            .map_err(|_| WalletManagerError::StorageError("Lock poisoned".to_string()))?
+            .store_transaction(&txid, &transaction)
+            .ok(); // Don't fail if history storage fails
+        
         // Mark input UTXOs as pending spent
         for input in transaction.inputs() {
             let prev_txid = input.prev_tx_hash();
@@ -360,6 +366,27 @@ impl WalletManager {
         }
         
         Ok(txid)
+    }
+    
+    /// Get transaction by txid (from wallet history or blockchain)
+    pub fn get_transaction(&self, txid: &[u8; 32]) -> Result<Option<Transaction>, WalletManagerError> {
+        // First check wallet storage
+        if let Ok(tx) = self.storage.read()
+            .map_err(|_| WalletManagerError::StorageError("Lock poisoned".to_string()))?
+            .load_transaction(txid)
+        {
+            return Ok(Some(tx));
+        }
+        
+        // Then check blockchain database
+        // TODO: Implement blockchain transaction lookup
+        
+        // Check mempool as last resort
+        if let Some(tx) = self.mempool.get_transaction(txid) {
+            return Ok(Some(tx));
+        }
+        
+        Ok(None)
     }
     
     /// Add test UTXO for testing (testnet only - DO NOT USE IN PRODUCTION)
