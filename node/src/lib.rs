@@ -28,6 +28,7 @@ pub mod environmental;
 pub mod logging;
 pub mod mempool;
 pub mod miner;
+pub mod mining; // Mining RPC infrastructure
 pub mod network;
 pub mod node;
 // pub mod rpc; // TODO: Implement

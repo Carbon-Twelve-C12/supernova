@@ -85,7 +85,7 @@ async fn get_info(
         storage.get_block_hash_by_height(height).map_err(|e| JsonRpcError {
             code: ErrorCode::BlockchainError as i32,
             message: format!("Failed to get best block hash: {}", e),
-            data: None,
+        data: None,
         })?.unwrap_or([0u8; 32])
     } else {
         [0u8; 32]
@@ -456,7 +456,7 @@ async fn get_transaction_rpc(
                 .ok_or_else(|| JsonRpcError {
                     code: ErrorCode::InvalidParams as i32,
                     message: "Missing or invalid txid parameter".to_string(),
-                    data: None,
+        data: None,
                 })?
         }
         _ => {
@@ -535,7 +535,7 @@ async fn get_raw_transaction_rpc(
                 .ok_or_else(|| JsonRpcError {
                     code: ErrorCode::InvalidParams as i32,
                     message: "Missing or invalid txid parameter".to_string(),
-                    data: None,
+        data: None,
                 })?
         }
         _ => {
@@ -790,12 +790,83 @@ async fn get_block_template(
     _params: Value,
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Placeholder - block template generation not yet available
-    Err(JsonRpcError {
-        code: ErrorCode::MethodNotFound as i32,
-        message: "Method not yet implemented".to_string(),
+    // Get wallet manager for reward address
+    let wallet_manager = node.wallet_manager();
+    let wallet = wallet_manager.read()
+        .map_err(|_| JsonRpcError {
+            code: -1,
+            message: "Wallet lock poisoned".to_string(),
         data: None,
-    })
+    })?;
+
+    // Generate reward address (or use existing)
+    let reward_address = wallet.generate_new_address(Some("mining_reward".to_string()))
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to generate reward address: {}", e),
+            data: None,
+        })?;
+    
+    let reward_addr = wallet::quantum_wallet::Address::from_str(&reward_address)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Invalid reward address: {}", e),
+            data: None,
+        })?;
+    
+    // Generate treasury address
+    let treasury_address = wallet.generate_new_address(Some("environmental_treasury".to_string()))
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to generate treasury address: {}", e),
+            data: None,
+        })?;
+    
+    let treasury_addr = wallet::quantum_wallet::Address::from_str(&treasury_address)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Invalid treasury address: {}", e),
+            data: None,
+        })?;
+    
+    drop(wallet); // Release wallet lock
+    
+    // Generate block template
+    use crate::mining::template::BlockTemplate;
+    let template = BlockTemplate::generate(
+        node.chain_state(),
+        node.mempool(),
+        &reward_addr,
+        &treasury_addr,
+    ).map_err(|e| JsonRpcError {
+        code: -1,
+        message: format!("Failed to generate template: {}", e),
+        data: None,
+    })?;
+    
+    // Format as JSON-RPC response
+    let transactions_json: Vec<Value> = template.transactions.iter().skip(1) // Skip coinbase
+        .map(|tx| {
+            json!({
+                "data": hex::encode(bincode::serialize(tx).unwrap_or_default()),
+                "txid": hex::encode(tx.hash()),
+                "hash": hex::encode(tx.hash()),
+                "fee": 1000, // Placeholder fee
+            })
+        }).collect();
+
+    Ok(json!({
+        "version": template.version,
+        "previousblockhash": hex::encode(template.previous_block_hash),
+        "transactions": transactions_json,
+        "coinbasevalue": template.coinbase_value,
+        "target": format!("{:08x}", template.bits),
+        "mintime": template.timestamp,
+        "curtime": template.timestamp,
+        "bits": format!("{:08x}", template.bits),
+        "height": template.height,
+        "merkleroot": hex::encode(template.merkle_root),
+    }))
 }
 
 /// Submit a mined block
@@ -803,12 +874,104 @@ async fn submit_block(
     params: Value,
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Placeholder - block submission not yet available
-    Err(JsonRpcError {
-        code: ErrorCode::MethodNotFound as i32,
-        message: "Method not yet implemented".to_string(),
+    // Parse hex-encoded block
+    let block_hex = match params {
+        Value::Array(ref arr) if !arr.is_empty() => {
+            arr.get(0)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Missing or invalid block data".to_string(),
+                    data: None,
+                })?
+            }
+        _ => {
+            return Err(JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: "Missing block data parameter".to_string(),
+            data: None,
+            });
+        }
+    };
+
+    // Decode hex
+    let block_bytes = hex::decode(block_hex)
+        .map_err(|_| JsonRpcError {
+        code: ErrorCode::InvalidParams as i32,
+            message: "Invalid block hex encoding".to_string(),
         data: None,
-    })
+    })?;
+
+    // Deserialize block
+    let block: btclib::types::block::Block = bincode::deserialize(&block_bytes)
+        .map_err(|e| JsonRpcError {
+        code: ErrorCode::InvalidParams as i32,
+            message: format!("Failed to deserialize block: {}", e),
+        data: None,
+    })?;
+
+    // Validate block
+    if !block.validate() {
+        return Err(JsonRpcError {
+            code: -25, // Block validation error
+            message: "Block validation failed".to_string(),
+            data: None,
+        });
+    }
+    
+    // Verify proof-of-work
+    if !block.header().meets_target() {
+        return Err(JsonRpcError {
+            code: -25,
+            message: "Block does not meet difficulty target".to_string(),
+            data: Some(json!({
+                "hash": hex::encode(block.hash()),
+                "target": hex::encode(block.header().target()),
+            })),
+        });
+    }
+    
+    // Get chain state and process block
+    let chain_state = node.chain_state();
+    let mut chain = chain_state.write()
+        .map_err(|_| JsonRpcError {
+            code: -1,
+            message: "Chain state lock poisoned".to_string(),
+        data: None,
+    })?;
+
+    // Add block to chain
+    chain.add_block(&block)
+        .map_err(|e| JsonRpcError {
+            code: -25,
+            message: format!("Failed to add block: {}", e),
+            data: None,
+        })?;
+    
+    drop(chain); // Release lock before wallet scan
+    
+    // Scan block for wallet transactions
+    let wallet_manager = node.wallet_manager();
+    if let Ok(wallet) = wallet_manager.write() {
+        if let Err(e) = wallet.scan_block(&block) {
+            tracing::warn!("Failed to scan block for wallet: {}", e);
+        }
+    }
+    
+    // Store block in database
+    node.storage().insert_block(&block)
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to store block: {}", e),
+            data: None,
+        })?;
+    
+    let block_hash = block.hash();
+    tracing::info!("Accepted block {} at height {}", 
+        hex::encode(&block_hash[..8]), block.height());
+    
+    // Success - return null
+    Ok(Value::Null)
 }
 
 // Helper functions
@@ -850,7 +1013,7 @@ async fn get_next_block_hash(
                 data: None,
             })
     } else {
-        Ok(None)
+    Ok(None)
     }
 }
 
@@ -1093,19 +1256,19 @@ async fn send_to_address(
                 .and_then(|v| v.as_str())
                 .map(String::from)
                 .ok_or_else(|| JsonRpcError {
-                    code: ErrorCode::InvalidParams as i32,
+        code: ErrorCode::InvalidParams as i32,
                     message: "Missing address parameter".to_string(),
-                    data: None,
-                })?;
-            
+        data: None,
+    })?;
+
             let amount = arr.get(1)
                 .and_then(|v| v.as_f64())
                 .ok_or_else(|| JsonRpcError {
-                    code: ErrorCode::InvalidParams as i32,
+        code: ErrorCode::InvalidParams as i32,
                     message: "Missing or invalid amount parameter".to_string(),
-                    data: None,
-                })?;
-            
+        data: None,
+    })?;
+
             let comment = arr.get(2).and_then(|v| v.as_str()).map(String::from);
             
             (address, amount, comment)
@@ -1125,9 +1288,9 @@ async fn send_to_address(
         .map_err(|e| JsonRpcError {
             code: -5, // Invalid address
             message: format!("Invalid address: {}", e),
-            data: None,
-        })?;
-    
+        data: None,
+    })?;
+
     // Convert amount to attonovas
     if amount_nova <= 0.0 {
         return Err(JsonRpcError {
