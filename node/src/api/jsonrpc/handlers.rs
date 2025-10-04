@@ -1001,7 +1001,11 @@ async fn submit_block(
             data: None,
         })?;
     
+    // Broadcast block to P2P network
     let block_hash = block.hash();
+    tracing::info!("Broadcasting block {} to network", hex::encode(&block_hash[..8]));
+    node.network().broadcast_block(&block);
+    
     tracing::info!("Accepted block {} at height {}", 
         hex::encode(&block_hash[..8]), block.height());
     

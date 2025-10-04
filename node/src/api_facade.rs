@@ -54,6 +54,7 @@ impl ApiFacade {
                     node.db(),
                     node.chain_state(),
                     node.mempool(),
+                    node.network_proxy(),
                 ).unwrap_or_else(|e| {
                     panic!("Critical: Cannot create wallet manager: {}", e);
                 });

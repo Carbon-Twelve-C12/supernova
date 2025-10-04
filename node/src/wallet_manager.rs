@@ -12,6 +12,7 @@ use wallet::quantum_wallet::{
 use crate::storage::BlockchainDB;
 use crate::storage::ChainState;
 use crate::mempool::TransactionPool;
+use crate::network::NetworkProxy;
 use btclib::types::transaction::Transaction;
 
 #[derive(Error, Debug)]
@@ -57,6 +58,9 @@ pub struct WalletManager {
     
     /// Transaction mempool
     mempool: Arc<TransactionPool>,
+    
+    /// Network proxy for broadcasting
+    network: Arc<NetworkProxy>,
 }
 
 impl WalletManager {
@@ -66,6 +70,7 @@ impl WalletManager {
         db: Arc<BlockchainDB>,
         chain_state: Arc<RwLock<ChainState>>,
         mempool: Arc<TransactionPool>,
+        network: Arc<NetworkProxy>,
     ) -> Result<Self, WalletManagerError> {
         // Open wallet storage
         let mut storage = WalletStorage::open(wallet_path)
@@ -120,6 +125,7 @@ impl WalletManager {
             db,
             chain_state,
             mempool,
+            network,
         })
     }
     
@@ -346,6 +352,11 @@ impl WalletManager {
             .map_err(|e| WalletManagerError::TransactionError(format!("Mempool rejected: {}", e)))?;
         
         tracing::info!("Transaction {} accepted to mempool", hex::encode(&txid[..8]));
+        
+        // Broadcast transaction to P2P network
+        tracing::debug!("Broadcasting transaction {} to network", hex::encode(&txid[..8]));
+        self.network.broadcast_transaction(&transaction);
+        tracing::info!("Transaction {} broadcast to network", hex::encode(&txid[..8]));
         
         // Store transaction in wallet history
         self.storage.read()

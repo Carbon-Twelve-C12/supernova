@@ -366,6 +366,7 @@ impl Node {
             Arc::clone(&db),
             Arc::clone(&chain_state),
             Arc::clone(&mempool),
+            Arc::clone(&network_proxy),
         ) {
             Ok(wm) => {
                 tracing::info!("Wallet manager initialized successfully");
