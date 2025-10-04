@@ -231,35 +231,43 @@ impl fmt::Display for BlockHeader {
 }
 
 /// Convert difficulty bits to a target hash
+/// Bitcoin's compact representation: target = coefficient * 256^(exponent - 3)
 fn bits_to_target(bits: u32) -> [u8; 32] {
     let mut target = [0u8; 32];
 
-    // Extract the exponent and coefficient from bits
+    // Extract the exponent (size in bytes) and coefficient
     let exponent = ((bits >> 24) & 0xFF) as usize;
     let coefficient = bits & 0x00FFFFFF;
 
-    // Calculate the target based on the formula target = coefficient * 2^(8*(exponent-3))
+    // Calculate the target based on the formula: target = coefficient * 256^(exponent-3)
+    // The target is stored in little-endian (least significant byte first)
+    
     if exponent <= 3 {
         // Handle special case where exponent <= 3
+        // The coefficient itself needs to be shifted right
         let shift = 8 * (3 - exponent);
         let value = coefficient >> shift;
-        target[31] = (value & 0xFF) as u8;
+        target[0] = (value & 0xFF) as u8;
         if value > 0xFF {
-            target[30] = ((value >> 8) & 0xFF) as u8;
+            target[1] = ((value >> 8) & 0xFF) as u8;
         }
         if value > 0xFFFF {
-            target[29] = ((value >> 16) & 0xFF) as u8;
+            target[2] = ((value >> 16) & 0xFF) as u8;
         }
-    } else {
-        // Normal case: place coefficient at the correct position
-        // Target is stored in little-endian, so we need to place bytes from the end
-        if (3..=34).contains(&exponent) {
-            let pos = 32 - (exponent - 3);
-            if pos >= 3 {
-                target[pos - 1] = (coefficient & 0xFF) as u8;
-                target[pos - 2] = ((coefficient >> 8) & 0xFF) as u8;
-                target[pos - 3] = ((coefficient >> 16) & 0xFF) as u8;
-            }
+    } else if exponent <= 32 {
+        // Normal case: place coefficient bytes starting at position (exponent - 3)
+        // in little-endian order (lowest byte first)
+        let start_pos = exponent - 3;
+        
+        // Place the 3 coefficient bytes in little-endian order
+        if start_pos < 32 {
+            target[start_pos] = (coefficient & 0xFF) as u8;
+        }
+        if start_pos + 1 < 32 {
+            target[start_pos + 1] = ((coefficient >> 8) & 0xFF) as u8;
+        }
+        if start_pos + 2 < 32 {
+            target[start_pos + 2] = ((coefficient >> 16) & 0xFF) as u8;
         }
     }
 
