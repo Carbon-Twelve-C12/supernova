@@ -45,6 +45,7 @@ pub async fn dispatch(
         "getmininginfo" => get_mining_info(params, node).await,
         "getblocktemplate" => get_block_template(params, node).await,
         "submitblock" => submit_block(params, node).await,
+        "generate" => generate_blocks(params, node).await,
 
         // Environmental methods
         "getenvironmentalmetrics" => get_environmental_metrics(params, node).await,
@@ -1011,6 +1012,197 @@ async fn submit_block(
     
     // Success - return null
     Ok(Value::Null)
+}
+
+/// Generate blocks using CPU mining (testnet only)
+#[cfg(feature = "testnet")]
+async fn generate_blocks(
+    params: Value,
+    node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    // Parse number of blocks to generate
+    let num_blocks = match params {
+        Value::Array(ref arr) if !arr.is_empty() => {
+            arr.get(0)
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Missing or invalid number of blocks parameter".to_string(),
+                    data: None,
+                })?
+        }
+        Value::Number(n) => n.as_u64().ok_or_else(|| JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: "Invalid number of blocks".to_string(),
+            data: None,
+        })?,
+        _ => {
+            return Err(JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Expected number of blocks as parameter".to_string(),
+                data: None,
+            });
+        }
+    };
+
+    if num_blocks == 0 {
+        return Err(JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: "Number of blocks must be greater than 0".to_string(),
+            data: None,
+        });
+    }
+
+    if num_blocks > 1000 {
+        return Err(JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: "Cannot generate more than 1000 blocks at once".to_string(),
+            data: None,
+        });
+    }
+
+    tracing::info!("Generating {} block(s) using CPU miner", num_blocks);
+
+    let mut block_hashes = Vec::new();
+
+    for i in 0..num_blocks {
+        tracing::debug!("Mining block {} of {}", i + 1, num_blocks);
+
+        // Get wallet manager for addresses
+        let wallet_manager = node.wallet_manager();
+        let wallet = wallet_manager.read()
+            .map_err(|_| JsonRpcError {
+                code: -1,
+                message: "Wallet lock poisoned".to_string(),
+                data: None,
+            })?;
+
+        // Generate reward address
+        let reward_address = wallet.generate_new_address(Some("mining_reward".to_string()))
+            .map_err(|e| JsonRpcError {
+                code: -1,
+                message: format!("Failed to generate reward address: {}", e),
+                data: None,
+            })?;
+        
+        let reward_addr = wallet::quantum_wallet::Address::from_str(&reward_address)
+            .map_err(|e| JsonRpcError {
+                code: -1,
+                message: format!("Invalid reward address: {}", e),
+                data: None,
+            })?;
+        
+        // Generate treasury address
+        let treasury_address = wallet.generate_new_address(Some("environmental_treasury".to_string()))
+            .map_err(|e| JsonRpcError {
+                code: -1,
+                message: format!("Failed to generate treasury address: {}", e),
+                data: None,
+            })?;
+        
+        let treasury_addr = wallet::quantum_wallet::Address::from_str(&treasury_address)
+            .map_err(|e| JsonRpcError {
+                code: -1,
+                message: format!("Invalid treasury address: {}", e),
+                data: None,
+            })?;
+        
+        drop(wallet); // Release wallet lock
+
+        // Generate block template
+        use crate::mining::template::BlockTemplate;
+        let template = BlockTemplate::generate(
+            node.chain_state(),
+            node.mempool(),
+            &reward_addr,
+            &treasury_addr,
+        ).map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to generate template: {}", e),
+            data: None,
+        })?;
+
+        // Build block from template (nonce will be set during mining)
+        let block = template.to_block(0);
+
+        // Mine the block
+        use crate::mining::mine_block_simple;
+        let mined_block = mine_block_simple(block)
+            .map_err(|e| JsonRpcError {
+                code: -1,
+                message: format!("Mining failed: {}", e),
+                data: None,
+            })?;
+
+        // Verify block meets target
+        if !mined_block.header().meets_target() {
+            return Err(JsonRpcError {
+                code: -25,
+                message: "Mined block does not meet difficulty target".to_string(),
+                data: None,
+            });
+        }
+
+        let block_hash = mined_block.hash();
+        tracing::info!(
+            "Successfully mined block {} at height {} with hash {}",
+            i + 1,
+            mined_block.height(),
+            hex::encode(&block_hash[..8])
+        );
+
+        // Add block to chain state
+        let chain_state = node.chain_state();
+        chain_state.write()
+            .map_err(|_| JsonRpcError {
+                code: -1,
+                message: "Chain state lock poisoned".to_string(),
+                data: None,
+            })?
+            .add_block(&mined_block)
+            .map_err(|e| JsonRpcError {
+                code: -25,
+                message: format!("Failed to add block to chain: {}", e),
+                data: None,
+            })?;
+
+        // Scan block for wallet transactions
+        let wallet_manager = node.wallet_manager();
+        if let Ok(wallet) = wallet_manager.write() {
+            if let Err(e) = wallet.scan_block(&mined_block) {
+                tracing::warn!("Failed to scan block for wallet: {}", e);
+            }
+        }
+
+        // Store block in database
+        node.storage().insert_block(&mined_block)
+            .map_err(|e| JsonRpcError {
+                code: -1,
+                message: format!("Failed to store block: {}", e),
+                data: None,
+            })?;
+
+        // Broadcast block to network
+        tracing::debug!("Broadcasting mined block to network");
+        node.network().broadcast_block(&mined_block);
+
+        block_hashes.push(hex::encode(block_hash));
+    }
+
+    tracing::info!("Successfully generated {} blocks", num_blocks);
+    Ok(Value::Array(block_hashes.into_iter().map(Value::String).collect()))
+}
+
+#[cfg(not(feature = "testnet"))]
+async fn generate_blocks(
+    _params: Value,
+    _node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    Err(JsonRpcError {
+        code: ErrorCode::MethodNotFound as i32,
+        message: "generate method is only available in testnet mode".to_string(),
+        data: None,
+    })
 }
 
 // Helper functions
