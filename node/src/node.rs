@@ -184,7 +184,12 @@ impl Node {
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
             .get_genesis_hash();
         let (network, command_tx, _event_rx) =
-            P2PNetwork::new(Some(keypair), genesis_hash, &config.node.chain_id).await?;
+            P2PNetwork::new(
+                Some(keypair), 
+                genesis_hash, 
+                &config.node.chain_id,
+                Some(config.network.listen_addr.clone()), // Pass configured listen address
+            ).await?;
         let network = Arc::new(network);
 
         // Create thread-safe network proxy for API access

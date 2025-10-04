@@ -358,6 +358,8 @@ pub struct P2PNetwork {
     connected_peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
     /// Peer discovery
     discovery: Arc<RwLock<Option<PeerDiscovery>>>,
+    /// Configured listen address (e.g., "0.0.0.0:8333")
+    listen_address: String,
     /// Network task handle
     network_task: Arc<RwLock<Option<JoinHandle<()>>>>,
     /// Bandwidth tracker
@@ -463,6 +465,7 @@ impl P2PNetwork {
         keypair: Option<identity::Keypair>,
         genesis_hash: [u8; 32],
         network_id: &str,
+        listen_addr: Option<String>,
     ) -> Result<
         (
             Self,
@@ -496,6 +499,7 @@ impl P2PNetwork {
                 running: Arc::new(RwLock::new(false)),
                 connected_peers: Arc::new(RwLock::new(HashMap::new())),
                 discovery: Arc::new(RwLock::new(None)),
+                listen_address: listen_addr.unwrap_or_else(|| "0.0.0.0:8333".to_string()),
                 network_task: Arc::new(RwLock::new(None)),
                 bandwidth_tracker: Arc::new(Mutex::new(BandwidthTracker::new())),
                 rate_limiter: Arc::new(RateLimiter::new(RateLimitConfig::default())),
@@ -517,6 +521,21 @@ impl P2PNetwork {
             command_sender,
             event_receiver,
         ))
+    }
+    
+    /// Extract port number from listen address configuration
+    fn extract_port_from_config(&self) -> Option<u16> {
+        // Handle formats: "0.0.0.0:8333", "/ip4/0.0.0.0/tcp/8333", "8333"
+        if let Some(port_str) = self.listen_address.split(':').last() {
+            port_str.parse::<u16>().ok()
+        } else if self.listen_address.contains("/tcp/") {
+            self.listen_address
+                .split("/tcp/")
+                .last()
+                .and_then(|s| s.parse::<u16>().ok())
+        } else {
+            self.listen_address.parse::<u16>().ok()
+        }
     }
 
     /// Get the local peer ID
@@ -625,10 +644,22 @@ impl P2PNetwork {
             *self.swarm.write().await = Some(swarm);
         }
 
-        // Start listening on default address
-        let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?;
+        // Start listening on configured address (NOT random port)
+        // Extract port from config (format: "0.0.0.0:8333" or "/ip4/0.0.0.0/tcp/8333")
+        let listen_port = self.extract_port_from_config()
+            .unwrap_or(8333); // Default to 8333 if parsing fails
+        
+        let listen_addr: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}", listen_port)
+            .parse()
+            .map_err(|e| format!("Failed to parse listen address: {}", e))?;
+        
+        info!("Binding P2P network to {}", listen_addr);
+        
         if let Some(swarm) = self.swarm.write().await.as_mut() {
-            swarm.listen_on(listen_addr)?;
+            swarm.listen_on(listen_addr.clone())
+                .map_err(|e| format!("Failed to listen on {}: {}", listen_addr, e))?;
+        } else {
+            return Err("Swarm not initialized".into());
         }
 
         // Start network event loop in a way that handles non-Send types
@@ -1964,6 +1995,7 @@ impl P2PNetwork {
             running: Arc::new(RwLock::new(false)),
             connected_peers: Arc::new(RwLock::new(HashMap::new())),
             discovery: Arc::new(RwLock::new(None)),
+            listen_address: "0.0.0.0:8333".to_string(),
             network_task: Arc::new(RwLock::new(None)),
             bandwidth_tracker: Arc::new(Mutex::new(BandwidthTracker::new())),
             rate_limiter: Arc::new(RateLimiter::new(RateLimitConfig::default())),
@@ -2176,7 +2208,7 @@ mod tests {
     // A basic test for network creation
     #[tokio::test]
     async fn test_network_creation() {
-        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test")
+        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test", None)
             .await
             .unwrap();
 
@@ -2233,7 +2265,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_management() {
-        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test")
+        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test", None)
             .await
             .unwrap();
 
