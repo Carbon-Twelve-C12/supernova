@@ -613,6 +613,11 @@ impl P2PNetwork {
         self.bootstrap_nodes
             .extend(nodes.into_iter().map(|(_, addr)| addr));
     }
+    
+    /// Get number of configured bootstrap nodes
+    pub fn bootstrap_count(&self) -> usize {
+        self.bootstrap_nodes.len()
+    }
 
     /// Add a trusted peer
     pub async fn add_trusted_peer(&self, peer_id: PeerId) {
@@ -724,6 +729,36 @@ impl P2PNetwork {
         let _ = self.event_sender.send(NetworkEvent::Started).await;
 
         info!("P2P network started");
+        
+        // Dial bootstrap peers
+        self.dial_bootstrap_peers().await?;
+        
+        Ok(())
+    }
+    
+    /// Dial all configured bootstrap peers
+    async fn dial_bootstrap_peers(&self) -> Result<(), Box<dyn Error>> {
+        if self.bootstrap_nodes.is_empty() {
+            info!("No bootstrap nodes configured");
+            return Ok(());
+        }
+        
+        info!("Dialing {} bootstrap peers", self.bootstrap_nodes.len());
+        
+        for multiaddr in &self.bootstrap_nodes {
+            info!("Attempting to dial bootstrap peer: {}", multiaddr);
+            
+            if let Some(tx) = self.swarm_cmd_tx.read().await.as_ref() {
+                if let Err(e) = tx.send(SwarmCommand::Dial(multiaddr.clone())).await {
+                    warn!("Failed to send dial command for {}: {}", multiaddr, e);
+                } else {
+                    info!("Dial command sent for {}", multiaddr);
+                }
+            } else {
+                warn!("Swarm command channel not initialized");
+            }
+        }
+        
         Ok(())
     }
 

@@ -86,12 +86,35 @@ pub async fn initialize_network(
         ).await?;
 
     // Add bootstrap nodes if configured
-    for bootstrap_addr in &config.bootstrap_nodes {
-        if let Ok(addr) = bootstrap_addr.parse::<libp2p::Multiaddr>() {
-            // Extract peer ID from multiaddr if possible, otherwise use a random one
-            let peer_id = PeerId::random(); // In practice, this should be extracted from the multiaddr
-            network.add_bootstrap_node(peer_id, addr);
+    if !config.bootstrap_nodes.is_empty() {
+        info!("Loading {} bootstrap nodes from config: {:?}", 
+            config.bootstrap_nodes.len(), config.bootstrap_nodes);
+        
+        for bootstrap_str in &config.bootstrap_nodes {
+            // Parse using P2PNetwork's parser that handles peer_id@ip:port format
+            match parse_bootstrap_address(bootstrap_str) {
+                Ok(multiaddr) => {
+                    // Extract peer ID from multiaddr if present
+                    let peer_id = multiaddr.iter()
+                        .find_map(|proto| {
+                            if let libp2p::multiaddr::Protocol::P2p(id) = proto {
+                                Some(id)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_else(PeerId::random);
+                    
+                    network.add_bootstrap_node(peer_id, multiaddr.clone());
+                    info!("Added bootstrap node: {} as {}", bootstrap_str, multiaddr);
+                }
+                Err(e) => {
+                    warn!("Failed to parse bootstrap node {}: {}", bootstrap_str, e);
+                }
+            }
         }
+    } else {
+        info!("No bootstrap nodes configured");
     }
 
     info!(
@@ -101,6 +124,58 @@ pub async fn initialize_network(
 
     Ok((network, command_tx, event_rx))
 }
+
+/// Helper function to parse bootstrap address
+/// Supports: "peer_id@ip:port", "/ip4/ip/tcp/port/p2p/peer_id", or "ip:port"
+pub fn parse_bootstrap_address(addr_str: &str) -> Result<libp2p::Multiaddr, String> {
+    use libp2p::Multiaddr;
+    
+    // Try parsing as multiaddr first
+    if let Ok(addr) = addr_str.parse::<Multiaddr>() {
+        return Ok(addr);
+    }
+    
+    // Try parsing as peer_id@ip:port format
+    if addr_str.contains('@') {
+        let parts: Vec<&str> = addr_str.split('@').collect();
+        if parts.len() == 2 {
+            let peer_id_str = parts[0];
+            let socket_addr = parts[1];
+            
+            // Parse peer ID
+            let peer_id = peer_id_str.parse::<PeerId>()
+                .map_err(|e| format!("Invalid peer ID: {}", e))?;
+            
+            // Parse socket address
+            if let Some(colon_pos) = socket_addr.rfind(':') {
+                let ip = &socket_addr[..colon_pos];
+                let port = &socket_addr[colon_pos + 1..];
+                
+                // Build multiaddr
+                let multiaddr = format!("/ip4/{}/tcp/{}/p2p/{}", ip, port, peer_id)
+                    .parse::<Multiaddr>()
+                    .map_err(|e| format!("Failed to build multiaddr: {}", e))?;
+                
+                return Ok(multiaddr);
+            }
+        }
+    }
+    
+    // Legacy format: ip:port without peer ID
+    if let Some(colon_pos) = addr_str.rfind(':') {
+        let ip = &addr_str[..colon_pos];
+        let port = &addr_str[colon_pos + 1..];
+        
+        let multiaddr = format!("/ip4/{}/tcp/{}", ip, port)
+            .parse::<Multiaddr>()
+            .map_err(|e| format!("Failed to build multiaddr: {}", e))?;
+        
+        return Ok(multiaddr);
+    }
+    
+    Err(format!("Invalid bootstrap peer format: {}", addr_str))
+}
+
 
 /// Network manager for handling all network operations
 pub struct NetworkManager {

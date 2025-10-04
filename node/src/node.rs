@@ -26,7 +26,7 @@ use std::time::Instant;
 use sysinfo::System;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid;
 
 /// Node status information for internal use
@@ -183,13 +183,54 @@ impl Node {
             .read()
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
             .get_genesis_hash();
-        let (network, command_tx, _event_rx) =
+        let (mut network, command_tx, _event_rx) =
             P2PNetwork::new(
                 Some(keypair), 
                 genesis_hash, 
                 &config.node.chain_id,
                 Some(config.network.listen_addr.clone()), // Pass configured listen address
             ).await?;
+        
+        // Add bootstrap nodes from config
+        info!("Checking bootstrap_nodes config: {} entries", config.network.bootstrap_nodes.len());
+        
+        if !config.network.bootstrap_nodes.is_empty() {
+            info!("Loading {} bootstrap nodes from config: {:?}", 
+                config.network.bootstrap_nodes.len(), 
+                config.network.bootstrap_nodes);
+            
+            for bootstrap_str in &config.network.bootstrap_nodes {
+                info!("Parsing bootstrap node: {}", bootstrap_str);
+                
+                // Parse multiaddr (supports peer_id@ip:port and full multiaddr formats)
+                match crate::network::parse_bootstrap_address(bootstrap_str) {
+                    Ok(multiaddr) => {
+                        // Extract peer ID if present in multiaddr
+                        let peer_id = multiaddr.iter()
+                            .find_map(|proto| {
+                                if let libp2p::multiaddr::Protocol::P2p(id) = proto {
+                                    Some(id)
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_else(libp2p::PeerId::random);
+                        
+                        network.add_bootstrap_node(peer_id, multiaddr.clone());
+                        info!("✓ Bootstrap node added to network: {}", multiaddr);
+                    }
+                    Err(e) => {
+                        warn!("✗ Failed to parse bootstrap node {}: {}", bootstrap_str, e);
+                    }
+                }
+            }
+            
+            info!("Bootstrap loading complete - {} nodes in network", 
+                network.bootstrap_count());
+        } else {
+            info!("No bootstrap nodes in config");
+        }
+        
         let network = Arc::new(network);
 
         // Create thread-safe network proxy for API access

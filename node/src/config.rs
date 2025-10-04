@@ -327,15 +327,28 @@ impl NodeConfig {
         let mut config = Config::builder();
         config = config.add_source(Config::try_from(&Self::default())?);
 
-        let config_path = PathBuf::from("config/node.toml");
-        if config_path.exists() {
-            config = config.add_source(File::with_name("config/node.toml"));
-        } else {
-            warn!(
-                "Configuration file not found at {:?}, using defaults",
-                config_path
-            );
-            if let Err(e) = Self::create_default_config(&config_path) {
+        // Try multiple config file locations
+        let config_paths = vec![
+            PathBuf::from("config.toml"),           // Root directory
+            PathBuf::from("config/node.toml"),      // Legacy location
+            PathBuf::from(".supernova/node.toml"),  // User directory
+        ];
+        
+        let mut config_loaded = false;
+        for config_path in &config_paths {
+            if config_path.exists() {
+                info!("Loading configuration from: {:?}", config_path);
+                if let Some(config_str) = config_path.to_str() {
+                    config = config.add_source(File::with_name(config_str.trim_end_matches(".toml")));
+                    config_loaded = true;
+                    break;
+                }
+            }
+        }
+        
+        if !config_loaded {
+            warn!("No configuration file found, using defaults");
+            if let Err(e) = Self::create_default_config(&PathBuf::from("config.toml")) {
                 warn!("Failed to create default config file: {}", e);
             }
         }
@@ -348,6 +361,14 @@ impl NodeConfig {
 
         let mut config: NodeConfig = config.build()?.try_deserialize()?;
         Self::ensure_directories(&config)?;
+
+        // Log loaded configuration for debugging
+        info!("Configuration loaded:");
+        info!("  Network listen_addr: {}", config.network.listen_addr);
+        info!("  Bootstrap nodes: {} configured", config.network.bootstrap_nodes.len());
+        for (i, node) in config.network.bootstrap_nodes.iter().enumerate() {
+            info!("    [{}] {}", i, node);
+        }
 
         Ok(config)
     }
