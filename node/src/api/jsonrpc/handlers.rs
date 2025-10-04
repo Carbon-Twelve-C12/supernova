@@ -736,8 +736,31 @@ async fn get_peer_info(
     _params: Value,
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Placeholder - peer info not yet available from ApiFacade
-    Ok(Value::Array(vec![]))
+    // Get connected peers from network
+    let peers = node.network().get_peers().await
+        .map_err(|e| JsonRpcError {
+        code: ErrorCode::NetworkError as i32,
+            message: format!("Failed to get peers: {}", e),
+        data: None,
+    })?;
+
+    // Format peers as JSON
+    let peers_json: Vec<Value> = peers.iter().map(|peer| {
+        json!({
+            "id": peer.id,
+            "addr": peer.address,
+            "conntime": peer.connected_time,
+            "lastsend": peer.last_send,
+            "lastrecv": peer.last_recv,
+            "bytessent": peer.bytes_sent,
+            "bytesrecv": peer.bytes_received,
+            "pingtime": peer.ping_time,
+            "version": peer.version,
+            "direction": peer.direction,
+        })
+    }).collect();
+
+    Ok(Value::Array(peers_json))
 }
 
 /// Get local peer ID for P2P networking

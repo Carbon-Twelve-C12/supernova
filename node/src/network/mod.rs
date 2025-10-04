@@ -1,6 +1,7 @@
 pub mod advanced;
 pub mod behaviour;
 pub mod connection;
+pub mod peer_identity;
 pub mod discovery;
 pub mod eclipse_prevention;
 pub mod identity_verification;
@@ -66,15 +67,10 @@ pub async fn initialize_network(
     ),
     Box<dyn std::error::Error>,
 > {
-    // Load or generate node identity
-    let keypair = if let Some(key_path) = &config.key_path {
-        // Load from file if it exists
-        // For now, generate a new key (would load from file in production)
-        libp2p::identity::Keypair::generate_ed25519()
-    } else {
-        // Generate a new keypair
-        libp2p::identity::Keypair::generate_ed25519()
-    };
+    // Load or generate persistent node identity
+    let data_dir = std::path::PathBuf::from("./data");
+    let keypair = peer_identity::load_or_generate_keypair(&data_dir)
+        .map_err(|e| format!("Failed to load peer identity: {}", e))?;
 
     // Initialize P2P network with the keypair
     let (mut network, command_tx, event_rx) =

@@ -21,6 +21,7 @@ use btclib::types::transaction::Transaction;
 use hex;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use sysinfo::System;
@@ -177,8 +178,14 @@ impl Node {
         let mempool_config = crate::mempool::MempoolConfig::from(config.mempool.clone());
         let mempool = Arc::new(TransactionPool::new(mempool_config));
 
-        // Initialize network
-        let keypair = libp2p::identity::Keypair::generate_ed25519();
+        // Initialize network with persistent peer ID
+        let data_dir = PathBuf::from(&config.storage.db_path).parent()
+            .unwrap_or(&PathBuf::from("./data"))
+            .to_path_buf();
+        
+        let keypair = crate::network::peer_identity::load_or_generate_keypair(&data_dir)
+            .map_err(|e| NodeError::General(format!("Failed to load peer identity: {}", e)))?;
+        
         let genesis_hash = chain_state
             .read()
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
