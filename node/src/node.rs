@@ -179,12 +179,23 @@ impl Node {
         let mempool = Arc::new(TransactionPool::new(mempool_config));
 
         // Initialize network with persistent peer ID
-        let data_dir = PathBuf::from(&config.storage.db_path).parent()
-            .unwrap_or(&PathBuf::from("./data"))
-            .to_path_buf();
+        // Use explicit ./data directory for peer identity storage
+        let data_dir = PathBuf::from("./data");
+        
+        // Ensure data directory exists
+        if let Err(e) = std::fs::create_dir_all(&data_dir) {
+            warn!("Failed to create data directory {:?}: {}", data_dir, e);
+        }
+        
+        info!("Initializing peer identity from directory: {:?}", data_dir);
         
         let keypair = crate::network::peer_identity::load_or_generate_keypair(&data_dir)
-            .map_err(|e| NodeError::General(format!("Failed to load peer identity: {}", e)))?;
+            .map_err(|e| {
+                error!("CRITICAL: Failed to load peer identity: {}", e);
+                NodeError::General(format!("Failed to load peer identity: {}", e))
+            })?;
+        
+        info!("Peer identity loaded successfully");
         
         let genesis_hash = chain_state
             .read()
