@@ -340,6 +340,8 @@ impl SwarmEventWrapper {
 pub struct P2PNetwork {
     /// Local peer ID
     local_peer_id: PeerId,
+    /// Persistent keypair for this node
+    keypair: identity::Keypair,
     /// The libp2p swarm
     swarm: Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
     /// Channel to send commands to the swarm thread
@@ -490,6 +492,7 @@ impl P2PNetwork {
         Ok((
             Self {
                 local_peer_id,
+                keypair: id_keys, // Store persistent keypair
                 swarm: Arc::new(RwLock::new(None)),
                 swarm_cmd_tx: Arc::new(RwLock::new(None)),
                 bootstrap_nodes: Vec::new(),
@@ -659,8 +662,8 @@ impl P2PNetwork {
 
         // Initialize swarm if not already done
         if self.swarm.read().await.is_none() {
-            // Generate a new keypair for the transport
-            let id_keys = identity::Keypair::generate_ed25519();
+            // Use persistent keypair (DO NOT generate new one)
+            let id_keys = self.keypair.clone();
 
             // Build transport
             let transport = build_transport(id_keys.clone())?;
@@ -2078,8 +2081,12 @@ impl P2PNetwork {
         let storage: Arc<dyn crate::storage::Storage> =
             Arc::new(crate::storage::MemoryStorage::new());
 
+        let keypair = identity::Keypair::generate_ed25519();
+        let local_peer_id = PeerId::from(keypair.public());
+        
         Self {
-            local_peer_id: PeerId::random(),
+            local_peer_id,
+            keypair,
             swarm: Arc::new(RwLock::new(None)),
             swarm_cmd_tx: Arc::new(RwLock::new(None)),
             bootstrap_nodes: Vec::new(),
