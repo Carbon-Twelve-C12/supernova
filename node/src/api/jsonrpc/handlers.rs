@@ -39,6 +39,7 @@ pub async fn dispatch(
         // Network methods
         "getnetworkinfo" => get_network_info(params, node).await,
         "getpeerinfo" => get_peer_info(params, node).await,
+        "getlocalpeerid" => get_local_peer_id(params, node).await,
 
         // Mining methods
         "getmininginfo" => get_mining_info(params, node).await,
@@ -739,6 +740,17 @@ async fn get_peer_info(
     Ok(Value::Array(vec![]))
 }
 
+/// Get local peer ID for P2P networking
+async fn get_local_peer_id(
+    _params: Value,
+    node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    // Get peer ID from network proxy
+    let peer_id = node.network().local_peer_id();
+    
+    Ok(Value::String(peer_id.to_string()))
+}
+
 /// Get mining information
 async fn get_mining_info(
     _params: Value,
@@ -847,13 +859,13 @@ async fn get_block_template(
     // Format as JSON-RPC response
     let transactions_json: Vec<Value> = template.transactions.iter().skip(1) // Skip coinbase
         .map(|tx| {
-            json!({
-                "data": hex::encode(bincode::serialize(tx).unwrap_or_default()),
-                "txid": hex::encode(tx.hash()),
-                "hash": hex::encode(tx.hash()),
+        json!({
+            "data": hex::encode(bincode::serialize(tx).unwrap_or_default()),
+            "txid": hex::encode(tx.hash()),
+            "hash": hex::encode(tx.hash()),
                 "fee": 1000, // Placeholder fee
-            })
-        }).collect();
+        })
+    }).collect();
 
     Ok(json!({
         "version": template.version,

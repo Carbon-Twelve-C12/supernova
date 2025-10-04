@@ -420,6 +420,11 @@ impl NetworkProxy {
             rt.block_on(async { self.cached_stats.read().await.peers_connected })
         })
     }
+    
+    /// Get local peer ID
+    pub fn local_peer_id(&self) -> PeerId {
+        self.local_peer_id
+    }
 
     /// Check if syncing
     pub fn is_syncing(&self) -> bool {

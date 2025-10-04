@@ -537,6 +537,61 @@ impl P2PNetwork {
             self.listen_address.parse::<u16>().ok()
         }
     }
+    
+    /// Parse bootstrap peer string to multiaddr
+    /// 
+    /// Supports formats:
+    /// - "12D3KooW...@207.154.213.122:8333" (peer_id@ip:port)
+    /// - "/ip4/207.154.213.122/tcp/8333/p2p/12D3KooW..." (full multiaddr)
+    /// - "207.154.213.122:8333" (legacy format - will use peer discovery)
+    fn parse_bootstrap_peer(peer_str: &str) -> Result<Multiaddr, String> {
+        // Try parsing as multiaddr first
+        if let Ok(addr) = peer_str.parse::<Multiaddr>() {
+            return Ok(addr);
+        }
+        
+        // Try parsing as peer_id@ip:port format
+        if peer_str.contains('@') {
+            let parts: Vec<&str> = peer_str.split('@').collect();
+            if parts.len() == 2 {
+                let peer_id_str = parts[0];
+                let socket_addr = parts[1];
+                
+                // Parse peer ID
+                let peer_id = peer_id_str.parse::<PeerId>()
+                    .map_err(|e| format!("Invalid peer ID: {}", e))?;
+                
+                // Parse socket address
+                if let Some(colon_pos) = socket_addr.rfind(':') {
+                    let ip = &socket_addr[..colon_pos];
+                    let port = &socket_addr[colon_pos + 1..];
+                    
+                    // Build multiaddr
+                    let multiaddr = format!("/ip4/{}/tcp/{}/p2p/{}", ip, port, peer_id)
+                        .parse::<Multiaddr>()
+                        .map_err(|e| format!("Failed to build multiaddr: {}", e))?;
+                    
+                    return Ok(multiaddr);
+                }
+            }
+        }
+        
+        // Legacy format: ip:port without peer ID
+        // Build multiaddr without peer ID (will rely on identify protocol)
+        if let Some(colon_pos) = peer_str.rfind(':') {
+            let ip = &peer_str[..colon_pos];
+            let port = &peer_str[colon_pos + 1..];
+            
+            let multiaddr = format!("/ip4/{}/tcp/{}", ip, port)
+                .parse::<Multiaddr>()
+                .map_err(|e| format!("Failed to build multiaddr: {}", e))?;
+            
+            warn!("Bootstrap peer {} has no peer ID - connection may be unreliable", peer_str);
+            return Ok(multiaddr);
+        }
+        
+        Err(format!("Invalid bootstrap peer format: {}", peer_str))
+    }
 
     /// Get the local peer ID
     pub fn local_peer_id(&self) -> PeerId {
@@ -887,23 +942,27 @@ impl P2PNetwork {
         }
         match cmd {
             NetworkCommand::ConnectToPeer(addr_str) => {
-                // Parse the address and attempt to connect
-                if let Ok(addr) = addr_str.parse::<Multiaddr>() {
-                    let addr_str = addr.to_string();
-                    let swarm_guard = swarm_cmd_tx.send(SwarmCommand::Dial(addr)).await;
-                    if swarm_guard.is_ok() {
-                        debug!("Dialing peer at {}", addr_str);
-                        let mut stats_guard = stats.write().await;
-                        stats_guard.connection_attempts += 1;
+                // Parse bootstrap peer (supports peer_id@ip:port format)
+                match Self::parse_bootstrap_peer(&addr_str) {
+                    Ok(multiaddr) => {
+                        info!("Dialing bootstrap peer: {}", multiaddr);
+                        let swarm_guard = swarm_cmd_tx.send(SwarmCommand::Dial(multiaddr.clone())).await;
+                        if swarm_guard.is_ok() {
+                            let mut stats_guard = stats.write().await;
+                            stats_guard.connection_attempts += 1;
+                        } else {
+                            warn!("Failed to send dial command to swarm for {}", multiaddr);
+                        }
                     }
-                } else {
-                    warn!("Invalid peer address format: {}", addr_str);
-                    let _ = event_sender
-                        .send(NetworkEvent::Error {
-                            peer_id: None,
-                            error: format!("Invalid address format: {}", addr_str),
-                        })
-                        .await;
+                    Err(e) => {
+                        warn!("Invalid peer address format {}: {}", addr_str, e);
+                        let _ = event_sender
+                            .send(NetworkEvent::Error {
+                                peer_id: None,
+                                error: format!("Invalid address format: {}", addr_str),
+                            })
+                            .await;
+                    }
                 }
             }
 
