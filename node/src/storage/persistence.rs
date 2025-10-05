@@ -435,10 +435,19 @@ impl ChainState {
     }
 
     async fn validate_transaction(&self, tx: &Transaction) -> Result<bool, StorageError> {
+        eprintln!("[DEBUG] Validating transaction, is_coinbase: {}", tx.is_coinbase());
+        
+        // Skip UTXO validation for coinbase transactions
+        if tx.is_coinbase() {
+            eprintln!("[DEBUG] Coinbase transaction - skipping input validation");
+            return Ok(true);
+        }
+        
         let mut spent_outputs = HashSet::new();
-        for input in tx.inputs() {
+        for (idx, input) in tx.inputs().iter().enumerate() {
             let outpoint = (input.prev_tx_hash(), input.prev_output_index());
             if !spent_outputs.insert(outpoint) {
+                eprintln!("[DEBUG] Input {} is duplicate spend", idx);
                 return Ok(false);
             }
 
@@ -447,10 +456,13 @@ impl ChainState {
                 .get_utxo(&input.prev_tx_hash(), input.prev_output_index())?
                 .is_none()
             {
+                eprintln!("[DEBUG] Input {} UTXO not found: txid={}, vout={}", 
+                    idx, hex::encode(input.prev_tx_hash()), input.prev_output_index());
                 return Ok(false);
             }
         }
 
+        eprintln!("[DEBUG] Transaction validation passed");
         Ok(true)
     }
 
