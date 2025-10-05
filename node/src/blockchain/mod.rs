@@ -51,15 +51,37 @@ pub fn create_genesis_block(chain_id: &str) -> Block {
     block.header.merkle_root = merkle_root;
 
     // Mine the genesis block (find valid nonce)
+    eprintln!("[DEBUG] Mining genesis block...");
     let target = block.header.target();
+    eprintln!("[DEBUG] Genesis target: {}", hex::encode(&target));
+    
     let mut nonce = 0u32;
+    let mut attempts = 0u64;
     loop {
         block.header.nonce = nonce;
         let hash = block.header.hash();
+        
+        // Debug first few attempts
+        if attempts < 5 {
+            eprintln!("[DEBUG] Attempt {}: nonce={}, hash={}", attempts, nonce, hex::encode(&hash[..8]));
+        }
+        
         if hash <= target {
+            eprintln!("[DEBUG] Found valid genesis nonce: {} after {} attempts", nonce, attempts);
             break;
         }
-        nonce += 1;
+        
+        nonce = nonce.wrapping_add(1);
+        attempts += 1;
+        
+        // Safety limit for testnet genesis (should find nonce in < 1000 attempts)
+        if attempts > 100_000 {
+            eprintln!("[ERROR] Genesis mining failed after {} attempts!", attempts);
+            eprintln!("[ERROR] This indicates a bug in difficulty calculation or hash comparison");
+            eprintln!("[ERROR] Target: {}", hex::encode(&target));
+            eprintln!("[ERROR] Last hash: {}", hex::encode(&hash));
+            panic!("Genesis block mining stuck in infinite loop - this is a critical bug!");
+        }
     }
 
     block
