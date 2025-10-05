@@ -270,18 +270,27 @@ impl ChainState {
         self.last_block_time = SystemTime::now();
 
         if !self.validate_block(&block).await? {
+            eprintln!("[DEBUG] Block validation returned false");
             return Err(StorageError::InvalidBlock);
         }
 
+        eprintln!("[DEBUG] Checking if block already exists...");
         if self.db.get_block(&block_hash)?.is_some() {
+            eprintln!("[DEBUG] Block already exists in DB");
             // Block already exists, but still update fork info
             self.update_fork_info(&block)?;
             return Ok(false);
         }
 
+        eprintln!("[DEBUG] Calculating chain work...");
         let new_chain_work = self.calculate_chain_work(&block)?;
+        eprintln!("[DEBUG] New chain work: {}", new_chain_work);
 
+        eprintln!("[DEBUG] Comparing prev_hash to best_block_hash...");
+        eprintln!("[DEBUG]   Condition: {} != {}", hex::encode(prev_hash), hex::encode(&self.best_block_hash));
+        
         if *prev_hash != self.best_block_hash {
+            eprintln!("[DEBUG] Block is on a fork, handling reorganization...");
             let current_work = match self.chain_work.get(&self.best_block_hash) {
                 Some(work) => *work,
                 None => {
@@ -370,18 +379,26 @@ impl ChainState {
                 }
             }
         } else {
+            eprintln!("[DEBUG] Block extends current chain (prev_hash matches best_block_hash)");
             // Direct extension of current chain
             let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
+            eprintln!("[DEBUG] Block difficulty: {}", block_difficulty);
 
+            eprintln!("[DEBUG] Storing block to database...");
             self.store_block(block.clone())?;
+            eprintln!("[DEBUG] Block stored successfully");
+            
             self.chain_work.insert(block_hash, new_chain_work);
 
             // Update chain state
+            eprintln!("[DEBUG] Updating chain state: height {} -> {}", self.current_height, block.height());
             self.current_height = block.height();
             self.best_block_hash = block_hash;
+            eprintln!("[DEBUG] Chain state updated, new height: {}", self.current_height);
 
             // Update total difficulty
             self.update_total_difficulty(block_difficulty)?;
+            eprintln!("[DEBUG] Total difficulty updated");
 
             // Update fork info for direct extension
             self.update_fork_info(&block)?;
@@ -699,18 +716,33 @@ impl ChainState {
         let mut total_work = 0_u128;
         let mut current = block.clone();
 
+        eprintln!("[DEBUG] calculate_chain_work: Starting from height {}", current.height());
+
         while current.height() > 0 {
             total_work += calculate_block_work(extract_target_from_block(&current));
+            eprintln!("[DEBUG] calculate_chain_work: Added work at height {}, total: {}", current.height(), total_work);
 
             // Get previous block
             let prev_hash = current.prev_block_hash();
+            eprintln!("[DEBUG] calculate_chain_work: Looking for prev block: {}", hex::encode(prev_hash));
+            
             if let Ok(Some(prev_block)) = self.db.get_block(prev_hash) {
                 current = prev_block;
             } else {
+                eprintln!("[DEBUG] calculate_chain_work: Previous block not found in DB at height {}", current.height() - 1);
+                eprintln!("[DEBUG] calculate_chain_work: Prev hash was: {}", hex::encode(prev_hash));
+                
+                // If we're at height 1 and can't find genesis (height 0), just use current work
+                if current.height() == 1 {
+                    eprintln!("[DEBUG] calculate_chain_work: At height 1, genesis not in DB, returning current work");
+                    return Ok(total_work);
+                }
+                
                 return Err("BlockNotFound".into());
             }
         }
 
+        eprintln!("[DEBUG] calculate_chain_work: Completed, total work: {}", total_work);
         Ok(total_work)
     }
 
