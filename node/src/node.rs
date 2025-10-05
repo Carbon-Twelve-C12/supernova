@@ -147,17 +147,25 @@ pub struct Node {
 impl Node {
     /// Create a new node instance
     pub async fn new(config: NodeConfig) -> Result<Self, NodeError> {
+        eprintln!("[DEBUG] Node::new() - Step 1: Validating config");
+        
         // Validate configuration
         config
             .validate()
             .map_err(|e| NodeError::ConfigError(e.to_string()))?;
 
+        eprintln!("[DEBUG] Node::new() - Step 2: Initializing database");
+        
         // Initialize database
         let db = Arc::new(BlockchainDB::new(&config.storage.db_path)?);
 
+        eprintln!("[DEBUG] Node::new() - Step 3: Initializing chain state");
+        
         // Initialize chain state
         let chain_state = Arc::new(RwLock::new(ChainState::new(Arc::clone(&db))?));
 
+        eprintln!("[DEBUG] Node::new() - Step 4: Checking for genesis block");
+        
         // Initialize genesis block if needed
         if chain_state
             .read()
@@ -165,15 +173,24 @@ impl Node {
             .get_height()
             == 0
         {
+            eprintln!("[DEBUG] Node::new() - Step 5: Creating genesis block");
+            
             // Create genesis block
             let genesis_block = crate::blockchain::create_genesis_block(&config.node.chain_id);
+            
+            eprintln!("[DEBUG] Node::new() - Step 6: Initializing with genesis block");
+            
             chain_state
                 .write()
                 .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
                 .initialize_with_genesis(genesis_block)
                 .map_err(NodeError::StorageError)?;
+                
+            eprintln!("[DEBUG] Node::new() - Step 7: Genesis block initialized");
         }
 
+        eprintln!("[DEBUG] Node::new() - Step 8: Initializing mempool");
+        
         // Initialize mempool
         let mempool_config = crate::mempool::MempoolConfig::from(config.mempool.clone());
         let mempool = Arc::new(TransactionPool::new(mempool_config));

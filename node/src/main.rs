@@ -12,8 +12,8 @@
 
 use clap::Parser;
 use node::config::NodeConfig;
-use node::metrics::performance::PerformanceMonitor;
 use node::Node;
+use std::io::Write;
 use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, info, warn};
@@ -77,17 +77,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.testnet.faucet_amount as f64 / 100_000_000.0
             );
         }
+        eprintln!("[DEBUG] 0.1 - After faucet info");
     } else {
         info!("Starting Supernova node...");
         info!("Network: {}", config.node.network_name);
         info!("Chain ID: {}", config.node.chain_id);
+        eprintln!("[DEBUG] 0.2 - In else block");
     }
 
+    eprintln!("[DEBUG] 1. About to call Node::new()");
+    std::io::stderr().flush().ok();
+    
     // Create and start node
-    let node = Arc::new(Node::new(config.clone()).await?);
+    let node = match Node::new(config.clone()).await {
+        Ok(n) => {
+            eprintln!("[DEBUG] 1.1 - Node::new() returned Ok");
+            Arc::new(n)
+        }
+        Err(e) => {
+            eprintln!("[ERROR] Node::new() failed: {}", e);
+            error!("Failed to create node: {}", e);
+            std::io::stderr().flush().ok();
+            return Err(e.into());
+        }
+    };
 
+    eprintln!("[DEBUG] 2. Node::new() completed");
+    std::io::stderr().flush().ok();
+    
     // Start the node
     node.start().await?;
+    
+    eprintln!("[DEBUG] 3. node.start() completed");
 
     // Start API server if configured (check if bind_address and port are set)
     let api_server_handle = if !config.api.bind_address.is_empty() && config.api.port > 0 {
