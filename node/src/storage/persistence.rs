@@ -398,25 +398,39 @@ impl ChainState {
     }
 
     async fn validate_block(&self, block: &Block) -> Result<bool, StorageError> {
+        eprintln!("[DEBUG] Validating block at height {}", block.height());
+        eprintln!("[DEBUG]   Current height: {}", self.current_height);
+        eprintln!("[DEBUG]   Block prev_hash: {}", hex::encode(block.prev_block_hash()));
+        eprintln!("[DEBUG]   Best block hash: {}", hex::encode(&self.best_block_hash));
+        
         if !block.validate() {
+            eprintln!("[DEBUG] Block failed basic validation");
             return Ok(false);
         }
+
+        eprintln!("[DEBUG] Block passed basic validation");
 
         if block.height() != self.current_height + 1
             && *block.prev_block_hash() != self.best_block_hash
         {
+            eprintln!("[DEBUG] Block doesn't connect to tip, checking fork distance");
             let fork_distance = self.calculate_fork_distance(block)?;
+            eprintln!("[DEBUG] Fork distance: {}", fork_distance);
             if fork_distance > MAX_FORK_DISTANCE {
+                eprintln!("[DEBUG] Fork distance exceeds maximum");
                 return Ok(false);
             }
         }
 
-        for tx in block.transactions() {
+        eprintln!("[DEBUG] Validating {} transactions", block.transactions().len());
+        for (i, tx) in block.transactions().iter().enumerate() {
             if !self.validate_transaction(tx).await? {
+                eprintln!("[DEBUG] Transaction {} failed validation", i);
                 return Ok(false);
             }
         }
 
+        eprintln!("[DEBUG] Block validation PASSED");
         Ok(true)
     }
 
