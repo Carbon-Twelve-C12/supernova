@@ -82,19 +82,32 @@ pub enum ForkChoiceReason {
 
 impl ChainState {
     pub fn new(db: Arc<BlockchainDB>) -> Result<Self, StorageError> {
+        // Read height as big-endian bytes (to match how we write it)
         let current_height = match db.get_metadata(b"height")? {
-            Some(height_bytes) => bincode::deserialize(&height_bytes)?,
+            Some(height_bytes) => {
+                if height_bytes.len() >= 8 {
+                    u64::from_be_bytes(height_bytes[..8].try_into()
+                        .map_err(|_| StorageError::DatabaseError("Invalid height bytes".to_string()))?)
+                } else {
+                    0
+                }
+            }
             None => 0,
         };
 
         let best_block_hash = match db.get_metadata(b"best_hash")? {
             Some(hash_bytes) => {
                 let mut hash = [0u8; 32];
-                hash.copy_from_slice(&hash_bytes);
+                if hash_bytes.len() >= 32 {
+                    hash.copy_from_slice(&hash_bytes[..32]);
+                }
                 hash
             }
             None => [0u8; 32],
         };
+
+        eprintln!("[DEBUG] ChainState::new() - Loaded height: {}, best_hash: {}", 
+            current_height, hex::encode(&best_block_hash[..8]));
 
         Ok(Self {
             db,
@@ -147,7 +160,8 @@ impl ChainState {
         self.best_block_hash = genesis_hash;
         self.current_height = 0; // Genesis is height 0
         
-        self.db.set_metadata(b"height", &bincode::serialize(&self.current_height)?)?;
+        // Store height as big-endian bytes (to match get_height() which reads as big-endian)
+        self.db.set_metadata(b"height", &self.current_height.to_be_bytes())?;
         self.db.set_metadata(b"best_hash", &genesis_hash)?;
         self.db.flush()?;
         
@@ -403,9 +417,11 @@ impl ChainState {
             let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
             eprintln!("[DEBUG] Block difficulty: {}", block_difficulty);
 
-            eprintln!("[DEBUG] Storing block to database...");
-            self.store_block(block.clone())?;
-            eprintln!("[DEBUG] Block stored successfully");
+            // Store block to database first
+            eprintln!("[DEBUG] Inserting block to database...");
+            self.db.insert_block(&block)?;
+            self.db.flush()?;
+            eprintln!("[DEBUG] Block inserted and flushed");
             
             self.chain_work.insert(block_hash, new_chain_work);
 
@@ -413,6 +429,11 @@ impl ChainState {
             eprintln!("[DEBUG] Updating chain state: height {} -> {}", self.current_height, block.height());
             self.current_height = block.height();
             self.best_block_hash = block_hash;
+            
+            // Store updated height and best hash as big-endian
+            self.db.set_metadata(b"height", &self.current_height.to_be_bytes())?;
+            self.db.set_metadata(b"best_hash", &block_hash)?;
+            self.db.flush()?;
             eprintln!("[DEBUG] Chain state updated, new height: {}", self.current_height);
 
             // Update total difficulty
@@ -740,8 +761,8 @@ impl ChainState {
         if self.current_height < block.height() {
             self.best_block_hash = block_hash;
             self.current_height = block.height();
-            self.db
-                .set_metadata(b"height", &bincode::serialize(&self.current_height)?)?;
+            // Store height as big-endian bytes (to match get_height() which reads as big-endian)
+            self.db.set_metadata(b"height", &self.current_height.to_be_bytes())?;
             self.db.set_metadata(b"best_hash", &block_hash)?;
             self.db.flush()?; // Flush metadata too
         }
