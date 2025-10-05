@@ -689,7 +689,23 @@ impl ChainState {
     fn store_block(&mut self, block: Block) -> Result<(), StorageError> {
         // Store the block in the database
         let block_hash = block.hash();
+        eprintln!("[DEBUG] store_block: Inserting block {} at height {}", hex::encode(&block_hash[..8]), block.height());
+        
         self.db.insert_block(&block)?;
+        eprintln!("[DEBUG] store_block: insert_block() returned Ok");
+        
+        // CRITICAL: Flush database to ensure block is persisted
+        eprintln!("[DEBUG] store_block: Flushing database to disk...");
+        self.db.flush()?;
+        eprintln!("[DEBUG] store_block: Database flushed");
+        
+        // Verify block was actually written
+        if let Ok(Some(_)) = self.db.get_block(&block_hash) {
+            eprintln!("[DEBUG] store_block: VERIFIED - Block is readable from DB");
+        } else {
+            eprintln!("[ERROR] store_block: CRITICAL - Block not readable after insert+flush!");
+            return Err(StorageError::DatabaseError("Block insert failed verification".to_string()));
+        }
 
         // Calculate block difficulty
         let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
@@ -707,6 +723,7 @@ impl ChainState {
             self.db
                 .set_metadata(b"height", &bincode::serialize(&self.current_height)?)?;
             self.db.set_metadata(b"best_hash", &block_hash)?;
+            self.db.flush()?; // Flush metadata too
         }
 
         Ok(())
