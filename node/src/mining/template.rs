@@ -76,7 +76,10 @@ impl BlockTemplate {
         
         let height = chain.get_height() + 1;
         let prev_hash = chain.get_best_block_hash();
-        let difficulty_bits = 0x1d00ffff; // Initial difficulty (same as Bitcoin genesis)
+        
+        // Use testnet difficulty for rapid block generation
+        // In production, this would use adaptive difficulty adjustment
+        let difficulty_bits = 0x207fffff; // Testnet easy difficulty (same as genesis)
         
         drop(chain); // Release lock
         
