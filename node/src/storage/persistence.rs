@@ -138,11 +138,10 @@ impl ChainState {
     }
 
     /// Add a block to the chain
-    pub fn add_block(&mut self, block: &Block) -> Result<(), StorageError> {
-        // Process the block using existing logic
+    pub async fn add_block(&mut self, block: &Block) -> Result<(), StorageError> {
+        // Process the block using existing async logic
         let block_clone = block.clone();
-        tokio::runtime::Handle::current()
-            .block_on(async { self.process_block(block_clone).await })?;
+        self.process_block(block_clone).await?;
         Ok(())
     }
 

@@ -535,11 +535,14 @@ impl Node {
         }
 
         // Add to chain state
-        self.chain_state
-            .write()
-            .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
-            .add_block(&block)
-            .map_err(NodeError::StorageError)?;
+        {
+            let mut chain = self.chain_state
+                .write()
+                .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?;
+            
+            chain.add_block(&block).await
+                .map_err(NodeError::StorageError)?;
+        }
 
         // Scan block for wallet transactions (NEW: Blockchain Integration)
         if let Some(wallet_manager) = &self.wallet_manager {

@@ -969,22 +969,22 @@ async fn submit_block(
     
     // Get chain state and process block
     let chain_state = node.chain_state();
-    let mut chain = chain_state.write()
-        .map_err(|_| JsonRpcError {
-            code: -1,
-            message: "Chain state lock poisoned".to_string(),
-        data: None,
-    })?;
+    {
+        let mut chain = chain_state.write()
+            .map_err(|_| JsonRpcError {
+                code: -1,
+                message: "Chain state lock poisoned".to_string(),
+                data: None,
+            })?;
 
-    // Add block to chain
-    chain.add_block(&block)
-        .map_err(|e| JsonRpcError {
-            code: -25,
-            message: format!("Failed to add block: {}", e),
-            data: None,
-        })?;
-    
-    drop(chain); // Release lock before wallet scan
+        // Add block to chain
+        chain.add_block(&block).await
+            .map_err(|e| JsonRpcError {
+                code: -25,
+                message: format!("Failed to add block: {}", e),
+                data: None,
+            })?;
+    } // Release lock before wallet scan
     
     // Scan block for wallet transactions
     let wallet_manager = node.wallet_manager();
@@ -1153,18 +1153,21 @@ async fn generate_blocks(
 
         // Add block to chain state
         let chain_state = node.chain_state();
-        chain_state.write()
-            .map_err(|_| JsonRpcError {
-                code: -1,
-                message: "Chain state lock poisoned".to_string(),
-                data: None,
-            })?
-            .add_block(&mined_block)
-            .map_err(|e| JsonRpcError {
-                code: -25,
-                message: format!("Failed to add block to chain: {}", e),
-                data: None,
-            })?;
+        {
+            let mut chain = chain_state.write()
+                .map_err(|_| JsonRpcError {
+                    code: -1,
+                    message: "Chain state lock poisoned".to_string(),
+                    data: None,
+                })?;
+            
+            chain.add_block(&mined_block).await
+                .map_err(|e| JsonRpcError {
+                    code: -25,
+                    message: format!("Failed to add block to chain: {}", e),
+                    data: None,
+                })?;
+        }
 
         // Scan block for wallet transactions
         let wallet_manager = node.wallet_manager();
