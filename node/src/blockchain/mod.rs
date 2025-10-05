@@ -52,21 +52,20 @@ pub fn create_genesis_block(chain_id: &str) -> Block {
 
     // Mine the genesis block (find valid nonce)
     eprintln!("[DEBUG] Mining genesis block...");
-    let target = block.header.target();
-    eprintln!("[DEBUG] Genesis target: {}", hex::encode(&target));
     
     let mut nonce = 0u32;
     let mut attempts = 0u64;
     loop {
         block.header.nonce = nonce;
-        let hash = block.header.hash();
         
         // Debug first few attempts
         if attempts < 5 {
+            let hash = block.header.hash();
             eprintln!("[DEBUG] Attempt {}: nonce={}, hash={}", attempts, nonce, hex::encode(&hash[..8]));
         }
         
-        if hash <= target {
+        // Use BlockHeader::meets_target() which does CORRECT big-endian comparison
+        if block.header.meets_target() {
             eprintln!("[DEBUG] Found valid genesis nonce: {} after {} attempts", nonce, attempts);
             break;
         }
@@ -74,8 +73,10 @@ pub fn create_genesis_block(chain_id: &str) -> Block {
         nonce = nonce.wrapping_add(1);
         attempts += 1;
         
-        // Safety limit for testnet genesis (should find nonce in < 1000 attempts)
+        // Safety limit for testnet genesis (should find nonce in < 1000 attempts with 0x207fffff)
         if attempts > 100_000 {
+            let target = block.header.target();
+            let hash = block.header.hash();
             eprintln!("[ERROR] Genesis mining failed after {} attempts!", attempts);
             eprintln!("[ERROR] This indicates a bug in difficulty calculation or hash comparison");
             eprintln!("[ERROR] Target: {}", hex::encode(&target));
