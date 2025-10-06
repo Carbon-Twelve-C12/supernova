@@ -977,8 +977,8 @@ async fn submit_block(
             .map_err(|_| JsonRpcError {
                 code: -1,
                 message: "Chain state lock poisoned".to_string(),
-                data: None,
-            })?;
+        data: None,
+    })?;
 
         // Add block to chain
         chain.add_block(&block).await
@@ -1014,7 +1014,7 @@ async fn submit_block(
         hex::encode(&block_hash[..8]), block.height());
     
     // Success - return null
-    Ok(Value::Null)
+        Ok(Value::Null)
 }
 
 /// Generate blocks using CPU mining (testnet only)
@@ -1189,8 +1189,9 @@ async fn generate_blocks(
             })?;
 
         // Broadcast block to network
-        tracing::debug!("Broadcasting mined block to network");
+        tracing::info!("Broadcasting mined block {} to network", hex::encode(&block_hash[..8]));
         node.network().broadcast_block(&mined_block);
+        tracing::info!("Block {} broadcast complete", hex::encode(&block_hash[..8]));
 
         block_hashes.push(hex::encode(block_hash));
     }
@@ -1204,11 +1205,11 @@ async fn generate_blocks(
     _params: Value,
     _node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    Err(JsonRpcError {
+        Err(JsonRpcError {
         code: ErrorCode::MethodNotFound as i32,
         message: "generate method is only available in testnet mode".to_string(),
-        data: None,
-    })
+            data: None,
+        })
 }
 
 // Helper functions
