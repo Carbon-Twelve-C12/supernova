@@ -701,8 +701,20 @@ impl P2PNetwork {
                 SupernovaBehaviour::new(self.local_peer_id, gossipsub, kademlia, mdns, identify);
 
             // Create swarm
-            let swarm =
+            let mut swarm =
                 SwarmBuilder::with_tokio_executor(transport, behaviour, self.local_peer_id).build();
+
+            // Subscribe to gossipsub topics
+            info!("Subscribing to gossipsub topics...");
+            let topics = vec!["blocks", "transactions", "status", "headers", "mempool"];
+            for topic_name in &topics {
+                let topic = gossipsub::IdentTopic::new(*topic_name);
+                if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&topic) {
+                    warn!("Failed to subscribe to topic {}: {}", topic_name, e);
+                } else {
+                    info!("Subscribed to topic: {}", topic_name);
+                }
+            }
 
             *self.swarm.write().await = Some(swarm);
         }
