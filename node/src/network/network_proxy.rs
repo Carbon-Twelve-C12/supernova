@@ -474,4 +474,16 @@ impl NetworkProxy {
                 .await;
         });
     }
+    
+    /// Dial a peer manually using multiaddr string
+    pub async fn dial_peer_str(&self, multiaddr_str: &str) -> Result<(), String> {
+        let command_tx = self.command_tx.clone();
+        
+        command_tx
+            .send(NetworkCommand::ConnectToPeer(multiaddr_str.to_string()))
+            .await
+            .map_err(|e| format!("Failed to send connect command: {}", e))?;
+        
+        Ok(())
+    }
 }

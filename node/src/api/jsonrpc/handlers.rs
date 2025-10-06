@@ -58,6 +58,9 @@ pub async fn dispatch(
         "listunspent" => list_unspent(params, node).await,
         "sendtoaddress" => send_to_address(params, node).await,
         
+        // Network admin methods
+        "addnode" => add_node(params, node).await,
+        
         // Test/admin methods
         "addtestutxo" => add_test_utxo(params, node).await,
 
@@ -1744,4 +1747,46 @@ async fn add_test_utxo(
         message: "Method only available in testnet mode".to_string(),
         data: None,
     })
+}
+
+/// Add a peer node manually for P2P network management
+async fn add_node(
+    params: Value,
+    node: web::Data<Arc<ApiFacade>>,
+) -> Result<Value, JsonRpcError> {
+    // Parse multiaddr from params
+    let multiaddr_str = match params {
+        Value::Array(ref arr) if !arr.is_empty() => {
+            arr.get(0)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| JsonRpcError {
+                    code: ErrorCode::InvalidParams as i32,
+                    message: "Multiaddr string required".to_string(),
+                    data: None,
+                })?
+        }
+        Value::String(ref s) => s.as_str(),
+        _ => {
+            return Err(JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Invalid parameters for addnode".to_string(),
+                data: None,
+            });
+        }
+    };
+
+    tracing::info!("Adding peer node via RPC: {}", multiaddr_str);
+    
+    // Use network proxy to broadcast connection command
+    node.network().dial_peer_str(multiaddr_str).await
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Failed to dial peer: {}", e),
+            data: None,
+        })?;
+    
+    Ok(json!({
+        "success": true,
+        "message": format!("Dialing peer: {}", multiaddr_str)
+    }))
 }
