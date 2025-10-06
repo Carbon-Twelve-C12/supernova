@@ -164,6 +164,10 @@ impl ChainState {
         // Store height as big-endian bytes (to match get_height() which reads as big-endian)
         self.db.set_metadata(b"height", &self.current_height.to_be_bytes())?;
         self.db.set_metadata(b"best_hash", &genesis_hash)?;
+        
+        // Process genesis transactions to create initial UTXO set
+        self.process_block_transactions(&genesis_block)?;
+        
         self.db.flush()?;
 
         Ok(())
@@ -431,6 +435,9 @@ impl ChainState {
             self.db.set_metadata(b"best_hash", &block_hash)?;
             self.db.flush()?;
             
+            // Process transactions to update UTXO set
+            self.process_block_transactions(&block)?;
+            
             tracing::info!("Block added to chain: height={}, hash={}", self.current_height, hex::encode(&block_hash[..8]));
 
             // Update total difficulty
@@ -482,6 +489,37 @@ impl ChainState {
         }
 
         Ok(true)
+    }
+
+    /// Process transactions in a block to update UTXO set
+    fn process_block_transactions(&mut self, block: &Block) -> Result<(), StorageError> {
+        for tx in block.transactions() {
+            let tx_hash = tx.hash();
+            
+            // Remove spent UTXOs (skip for coinbase as it has no real inputs)
+            if !tx.is_coinbase() {
+                for input in tx.inputs() {
+                    let prev_tx = input.prev_tx_hash();
+                    let prev_vout = input.prev_output_index();
+                    
+                    // Remove the spent UTXO
+                    if let Err(e) = self.db.remove_utxo(&prev_tx, prev_vout) {
+                        tracing::warn!("Failed to remove spent UTXO: {}", e);
+                    }
+                }
+            }
+            
+            // Add new UTXOs from outputs
+            for (vout, output) in tx.outputs().iter().enumerate() {
+                let output_data = bincode::serialize(output)
+                    .map_err(|e| StorageError::DatabaseError(format!("Output serialization failed: {}", e)))?;
+                
+                self.db.store_utxo(&tx_hash, vout as u32, &output_data)?;
+            }
+        }
+        
+        tracing::debug!("Processed {} transactions, updated UTXO set", block.transactions().len());
+        Ok(())
     }
 
     async fn validate_transaction(&self, tx: &Transaction) -> Result<bool, StorageError> {
