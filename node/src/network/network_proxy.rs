@@ -414,11 +414,12 @@ impl NetworkProxy {
 
     /// Get peer count synchronously (returns cached value)
     pub fn peer_count_sync(&self) -> usize {
-        // Use cached stats for sync access
-        tokio::task::block_in_place(|| {
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(async { self.cached_stats.read().await.peers_connected })
-        })
+        // Try non-blocking read of cached stats
+        // If lock is busy, return 0 as it's just a stat query
+        match self.cached_stats.try_read() {
+            Ok(stats) => stats.peers_connected,
+            Err(_) => 0, // Lock busy, return default
+        }
     }
     
     /// Get local peer ID
@@ -434,10 +435,11 @@ impl NetworkProxy {
 
     /// Get stats synchronously (returns cached value)
     pub fn get_stats_sync(&self) -> NetworkStats {
-        tokio::task::block_in_place(|| {
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(async { self.cached_stats.read().await.clone() })
-        })
+        // Try non-blocking read of cached stats
+        match self.cached_stats.try_read() {
+            Ok(stats) => stats.clone(),
+            Err(_) => NetworkStats::default(), // Lock busy, return default
+        }
     }
 
     /// Broadcast a transaction

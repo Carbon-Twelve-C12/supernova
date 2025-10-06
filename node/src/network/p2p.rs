@@ -36,7 +36,7 @@ use std::{
 };
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 // Constants for network behavior
 const MIN_PEERS: usize = 3;
@@ -1240,11 +1240,58 @@ impl P2PNetwork {
                     peer_info.last_seen = Instant::now();
                 }
 
-                // Deserialize and forward the message
+                // Deserialize and dispatch message by type
                 if let Ok(message) = bincode::deserialize::<Message>(&data) {
-                    let _ = event_sender
-                        .send(NetworkEvent::MessageReceived { peer_id, message })
-                        .await;
+                    match message {
+                        Message::Transaction { transaction } => {
+                            // Deserialize transaction bytes
+                            match bincode::deserialize::<Transaction>(&transaction) {
+                                Ok(tx) => {
+                                    trace!("Dispatching transaction from peer {}", peer_id);
+                                    let _ = event_sender.send(NetworkEvent::NewTransaction {
+                                        transaction: tx,
+                                        fee_rate: 1000, // Default fee rate
+                                        from_peer: Some(peer_id),
+                                    }).await;
+                                }
+                                Err(e) => {
+                                    warn!("Failed to deserialize transaction from peer {}: {}", peer_id, e);
+                                }
+                            }
+                        }
+                        Message::Block(block) => {
+                            trace!("Dispatching block from peer {}", peer_id);
+                            let _ = event_sender.send(NetworkEvent::NewBlock {
+                                block: block.clone(),
+                                height: block.height(),
+                                total_difficulty: 1, // Will be calculated by chain
+                                from_peer: Some(peer_id),
+                            }).await;
+                        }
+                        Message::NewBlock { block_data, height, total_difficulty } => {
+                            // Deserialize block bytes
+                            match bincode::deserialize::<Block>(&block_data) {
+                                Ok(block) => {
+                                    trace!("Dispatching new block announcement from peer {}", peer_id);
+                                    let _ = event_sender.send(NetworkEvent::NewBlock {
+                                        block,
+                                        height,
+                                        total_difficulty,
+                                        from_peer: Some(peer_id),
+                                    }).await;
+                                }
+                                Err(e) => {
+                                    warn!("Failed to deserialize block from peer {}: {}", peer_id, e);
+                                }
+                            }
+                        }
+                        _ => {
+                            // For other message types, use existing handler
+                            let _ = event_sender
+                                .send(NetworkEvent::MessageReceived { peer_id, message })
+                                .await;
+                        }
+                    }
                 }
             }
             SwarmEventWrapper::Discovered { peers } => {

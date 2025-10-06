@@ -207,7 +207,7 @@ impl Node {
             .read()
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
             .get_genesis_hash();
-        let (mut network, command_tx, _event_rx) =
+        let (mut network, command_tx, mut event_rx) =
             P2PNetwork::new(
                 Some(keypair), 
                 genesis_hash, 
@@ -264,6 +264,13 @@ impl Node {
             command_tx.clone(),
         );
         let network_proxy = Arc::new(network_proxy);
+
+        // Spawn network event processing task
+        let mempool_clone = Arc::clone(&mempool);
+        let chain_state_clone = Arc::clone(&chain_state);
+        tokio::spawn(async move {
+            Self::process_network_events(event_rx, mempool_clone, chain_state_clone).await;
+        });
 
         // Note: The proxy request receiver (proxy_request_rx) should be integrated into
         // the main network event loop in P2PNetwork. This requires modifying P2PNetwork
@@ -512,6 +519,93 @@ impl Node {
         // Broadcast to network
         self.network.broadcast_transaction(tx);
         tracing::info!("Broadcasting transaction: {:?}", tx.hash());
+    }
+
+    /// Process network events (transactions and blocks from peers)
+    async fn process_network_events(
+        mut event_rx: mpsc::Receiver<crate::network::NetworkEvent>,
+        mempool: Arc<TransactionPool>,
+        chain_state: Arc<RwLock<ChainState>>,
+    ) {
+        tracing::info!("Network event processing task started");
+        
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                crate::network::NetworkEvent::NewTransaction { transaction, fee_rate, from_peer } => {
+                    let tx_hash = transaction.hash();
+                    tracing::debug!("Processing received transaction {} from peer {:?}", 
+                        hex::encode(&tx_hash[..8]), from_peer);
+                    
+                    // Check if already in mempool
+                    if mempool.get_transaction(&tx_hash).is_some() {
+                        tracing::trace!("Transaction already in mempool, ignoring");
+                        continue;
+                    }
+                    
+                    // Add to mempool
+                    match mempool.add_transaction(transaction, fee_rate) {
+                        Ok(_) => {
+                            tracing::info!("Added received transaction {} to mempool", hex::encode(&tx_hash[..8]));
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to add received transaction to mempool: {}", e);
+                        }
+                    }
+                }
+                crate::network::NetworkEvent::NewBlock { block, from_peer, .. } => {
+                    let block_hash = block.hash();
+                    tracing::info!("Processing received block at height {} (hash: {}) from peer {:?}",
+                        block.height(), hex::encode(&block_hash[..8]), from_peer);
+                    
+                    // Check if already have this block
+                    if let Ok(chain) = chain_state.read() {
+                        if chain.get_block(&block_hash).is_some() {
+                            tracing::trace!("Block already in chain, ignoring");
+                            continue;
+                        }
+                    }
+                    
+                    // Validate block
+                    if !block.validate() {
+                        tracing::warn!("Received invalid block from peer: failed validation");
+                        continue;
+                    }
+                    
+                    // Add to chain using spawn_blocking for thread safety
+                    let chain_clone = Arc::clone(&chain_state);
+                    let block_clone = block.clone();
+                    let block_hash_clone = block_hash;
+                    let block_height = block.height();
+                    
+                    match tokio::task::spawn_blocking(move || {
+                        tokio::runtime::Handle::current().block_on(async move {
+                            match chain_clone.write() {
+                                Ok(mut chain) => chain.add_block(&block_clone).await,
+                                Err(e) => Err(crate::storage::StorageError::DatabaseError(
+                                    format!("Lock poisoned: {}", e)
+                                )),
+                            }
+                        })
+                    }).await {
+                        Ok(Ok(_)) => {
+                            tracing::info!("Successfully added received block {} at height {} to chain",
+                                hex::encode(&block_hash_clone[..8]), block_height);
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!("Failed to add received block to chain: {}", e);
+                        }
+                        Err(e) => {
+                            tracing::error!("Task join error processing block: {}", e);
+                        }
+                    }
+                }
+                _ => {
+                    // Other events handled elsewhere or not needed
+                }
+            }
+        }
+        
+        tracing::info!("Network event processing task stopped");
     }
 
     /// Process a new block

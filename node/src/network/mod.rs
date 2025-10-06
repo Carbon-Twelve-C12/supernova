@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 // Re-export network types for external use
 pub use behaviour::SupernovaBehaviour;
@@ -191,6 +191,10 @@ pub struct NetworkManager {
     is_running: Arc<std::sync::atomic::AtomicBool>,
     /// Event processing task handle
     event_task: Arc<tokio::sync::RwLock<Option<tokio::task::JoinHandle<()>>>>,
+    /// Transaction mempool for processing received transactions
+    mempool: Option<Arc<crate::mempool::TransactionPool>>,
+    /// Chain state for processing received blocks
+    chain_state: Option<Arc<std::sync::RwLock<crate::storage::ChainState>>>,
 }
 
 impl NetworkManager {
@@ -213,7 +217,19 @@ impl NetworkManager {
             config,
             is_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             event_task: Arc::new(tokio::sync::RwLock::new(None)),
+            mempool: None, // Will be set later
+            chain_state: None, // Will be set later
         })
+    }
+    
+    /// Set mempool reference for processing received transactions
+    pub fn set_mempool(&mut self, mempool: Arc<crate::mempool::TransactionPool>) {
+        self.mempool = Some(mempool);
+    }
+    
+    /// Set chain state reference for processing received blocks
+    pub fn set_chain_state(&mut self, chain_state: Arc<std::sync::RwLock<crate::storage::ChainState>>) {
+        self.chain_state = Some(chain_state);
     }
 
     /// Start the network manager
@@ -248,9 +264,11 @@ impl NetworkManager {
         let stats = Arc::clone(&self.stats);
         let peers = Arc::clone(&self.connected_peers);
         let is_running = Arc::clone(&self.is_running);
+        let mempool = self.mempool.clone();
+        let chain_state = self.chain_state.clone();
 
         let task = tokio::spawn(async move {
-            Self::event_processing_loop(event_receiver, stats, peers, is_running).await;
+            Self::event_processing_loop(event_receiver, stats, peers, is_running, mempool, chain_state).await;
         });
 
         *self.event_task.write().await = Some(task);
@@ -499,6 +517,8 @@ impl NetworkManager {
         stats: Arc<tokio::sync::RwLock<NetworkStats>>,
         peers: Arc<tokio::sync::RwLock<HashMap<PeerId, PeerInfo>>>,
         is_running: Arc<std::sync::atomic::AtomicBool>,
+        mempool: Option<Arc<crate::mempool::TransactionPool>>,
+        chain_state: Option<Arc<std::sync::RwLock<crate::storage::ChainState>>>,
     ) {
         info!("Starting network event processing loop");
 
@@ -511,7 +531,7 @@ impl NetworkManager {
             while is_running.load(std::sync::atomic::Ordering::SeqCst) {
                 match rx.recv().await {
                     Some(event) => {
-                        Self::handle_network_event(event, &stats, &peers).await;
+                        Self::handle_network_event(event, &stats, &peers, &mempool, &chain_state).await;
                     }
                     None => {
                         warn!("Network event channel closed");
@@ -529,6 +549,8 @@ impl NetworkManager {
         event: NetworkEvent,
         stats: &Arc<tokio::sync::RwLock<NetworkStats>>,
         peers: &Arc<tokio::sync::RwLock<HashMap<PeerId, PeerInfo>>>,
+        mempool: &Option<Arc<crate::mempool::TransactionPool>>,
+        chain_state: &Option<Arc<std::sync::RwLock<crate::storage::ChainState>>>,
     ) {
         match event {
             NetworkEvent::PeerConnected(peer_info) => {
@@ -585,6 +607,39 @@ impl NetworkManager {
                 // Update stats
                 let mut stats_guard = stats.write().await;
                 stats_guard.blocks_received += 1;
+                drop(stats_guard);
+
+                // Process the block if chain_state is available using spawn_blocking for thread safety
+                if let Some(chain) = chain_state {
+                    let chain_clone = Arc::clone(&chain);
+                    let block_clone = block.clone();
+                    let block_hash_local = block.hash();
+                    let block_height = block.height();
+                    
+                    match tokio::task::spawn_blocking(move || {
+                        tokio::runtime::Handle::current().block_on(async move {
+                            match chain_clone.write() {
+                                Ok(mut chain_guard) => chain_guard.add_block(&block_clone).await,
+                                Err(e) => Err(crate::storage::StorageError::DatabaseError(
+                                    format!("Lock poisoned: {}", e)
+                                )),
+                            }
+                        })
+                    }).await {
+                        Ok(Ok(_)) => {
+                            info!("Successfully added received block {} at height {} to chain", 
+                                hex::encode(&block_hash_local[..8]), block_height);
+                        }
+                        Ok(Err(e)) => {
+                            warn!("Failed to add received block to chain: {}", e);
+                        }
+                        Err(e) => {
+                            error!("Task join error processing block: {}", e);
+                        }
+                    }
+                } else {
+                    debug!("Chain state not available, cannot process received block");
+                }
             }
             NetworkEvent::NewTransaction {
                 transaction,
@@ -596,6 +651,29 @@ impl NetworkManager {
                 // Update stats
                 let mut stats_guard = stats.write().await;
                 stats_guard.transactions_received += 1;
+                drop(stats_guard);
+
+                // Add transaction to mempool if available
+                if let Some(pool) = mempool {
+                    let tx_hash = transaction.hash();
+                    
+                    // Check if already in mempool
+                    if pool.get_transaction(&tx_hash).is_some() {
+                        debug!("Transaction {} already in mempool, ignoring", hex::encode(&tx_hash[..8]));
+                        return;
+                    }
+                    
+                    match pool.add_transaction(transaction, fee_rate) {
+                        Ok(_) => {
+                            info!("Added received transaction {} to mempool", hex::encode(&tx_hash[..8]));
+                        }
+                        Err(e) => {
+                            warn!("Failed to add received transaction to mempool: {}", e);
+                        }
+                    }
+                } else {
+                    debug!("Mempool not available, cannot process received transaction");
+                }
             }
             NetworkEvent::BlockHeaders {
                 headers,
