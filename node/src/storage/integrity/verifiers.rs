@@ -443,36 +443,18 @@ impl<'a> UtxoVerifier<'a> {
         for ((tx_hash, output_idx), expected_output) in sample {
             // Check UTXO exists in database
             match self.db.get_utxo(tx_hash, *output_idx) {
-                Ok(Some(stored_tx)) => {
-                    // Get the specific output from the transaction
-                    if let Some(stored_output) = stored_tx.outputs().get(*output_idx as usize) {
-                        // Verify output matches expected value
-                        if stored_output.value() != expected_output.value() {
-                            issues.push(IntegrityIssue::new(
-                                IssueType::UtxoInconsistency,
-                                IssueSeverity::Error,
-                                format!(
-                                    "UTXO {}:{} value mismatch: expected {}, found {}",
-                                    hex::encode(&tx_hash[..4]),
-                                    output_idx,
-                                    expected_output.value(),
-                                    stored_output.value()
-                                ),
-                                IssueLocation::Utxo {
-                                    tx_hash: *tx_hash,
-                                    output_index: *output_idx,
-                                },
-                                true,
-                            ));
-                        }
-                    } else {
+                Ok(Some(stored_output)) => {
+                    // Verify output matches expected value
+                    if stored_output.value() != expected_output.value() {
                         issues.push(IntegrityIssue::new(
                             IssueType::UtxoInconsistency,
                             IssueSeverity::Error,
                             format!(
-                                "UTXO {}:{} output index out of bounds",
+                                "UTXO {}:{} value mismatch: expected {}, found {}",
                                 hex::encode(&tx_hash[..4]),
-                                output_idx
+                                output_idx,
+                                expected_output.value(),
+                                stored_output.value()
                             ),
                             IssueLocation::Utxo {
                                 tx_hash: *tx_hash,

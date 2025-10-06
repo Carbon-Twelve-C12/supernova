@@ -1266,12 +1266,12 @@ impl BlockchainDB {
         &self,
         tx_hash: &[u8; 32],
         index: u32,
-    ) -> Result<Option<Transaction>, StorageError> {
+    ) -> Result<Option<btclib::types::transaction::TransactionOutput>, StorageError> {
         let key = create_utxo_key(tx_hash, index);
         match self.utxos.get(key)? {
             Some(data) => {
-                let tx = bincode::deserialize(&data)?;
-                Ok(Some(tx))
+                let output = bincode::deserialize(&data)?;
+                Ok(Some(output))
             }
             None => Ok(None),
         }

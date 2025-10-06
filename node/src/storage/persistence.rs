@@ -492,6 +492,17 @@ impl ChainState {
     }
 
     /// Process transactions in a block to update UTXO set
+    /// 
+    /// TODO: Chain Reorganization UTXO Handling
+    /// This function correctly maintains UTXO set for forward chain progression.
+    /// However, during chain reorganization, we need to:
+    /// 1. Implement reverse_block_transactions() to undo disconnected blocks
+    /// 2. Restore spent UTXOs from disconnected blocks
+    /// 3. Remove created UTXOs from disconnected blocks
+    /// 4. Properly sequence UTXO operations during reorg
+    /// 
+    /// See GitHub issue for reorg UTXO handling requirements.
+    /// Priority: BEFORE MAINNET (testnet can proceed without this)
     fn process_block_transactions(&mut self, block: &Block) -> Result<(), StorageError> {
         for tx in block.transactions() {
             let tx_hash = tx.hash();
