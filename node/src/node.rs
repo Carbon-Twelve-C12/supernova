@@ -147,25 +147,17 @@ pub struct Node {
 impl Node {
     /// Create a new node instance
     pub async fn new(config: NodeConfig) -> Result<Self, NodeError> {
-        eprintln!("[DEBUG] Node::new() - Step 1: Validating config");
-        
         // Validate configuration
         config
             .validate()
             .map_err(|e| NodeError::ConfigError(e.to_string()))?;
 
-        eprintln!("[DEBUG] Node::new() - Step 2: Initializing database");
-        
         // Initialize database
         let db = Arc::new(BlockchainDB::new(&config.storage.db_path)?);
 
-        eprintln!("[DEBUG] Node::new() - Step 3: Initializing chain state");
-        
         // Initialize chain state
         let chain_state = Arc::new(RwLock::new(ChainState::new(Arc::clone(&db))?));
 
-        eprintln!("[DEBUG] Node::new() - Step 4: Checking for genesis block");
-        
         // Initialize genesis block if needed
         if chain_state
             .read()
@@ -173,12 +165,11 @@ impl Node {
             .get_height()
             == 0
         {
-            eprintln!("[DEBUG] Node::new() - Step 5: Creating genesis block");
+            tracing::info!("Creating genesis block for chain: {}", config.node.chain_id);
             
             // Create genesis block
-            let genesis_block = crate::blockchain::create_genesis_block(&config.node.chain_id);
-            
-            eprintln!("[DEBUG] Node::new() - Step 6: Initializing with genesis block");
+            let genesis_block = crate::blockchain::create_genesis_block(&config.node.chain_id)
+                .map_err(|e| NodeError::General(format!("Genesis creation failed: {}", e)))?;
             
             chain_state
                 .write()
@@ -186,10 +177,8 @@ impl Node {
                 .initialize_with_genesis(genesis_block)
                 .map_err(NodeError::StorageError)?;
                 
-            eprintln!("[DEBUG] Node::new() - Step 7: Genesis block initialized");
+            tracing::info!("Genesis block initialized successfully");
         }
-
-        eprintln!("[DEBUG] Node::new() - Step 8: Initializing mempool");
         
         // Initialize mempool
         let mempool_config = crate::mempool::MempoolConfig::from(config.mempool.clone());

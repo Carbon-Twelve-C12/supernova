@@ -2,7 +2,7 @@ use btclib::types::{Block, BlockHeader, Transaction, TransactionInput, Transacti
 use chrono::Utc;
 
 /// Create the genesis block for a given chain ID
-pub fn create_genesis_block(chain_id: &str) -> Block {
+pub fn create_genesis_block(chain_id: &str) -> Result<Block, String> {
     // Create coinbase transaction
     let coinbase_script = format!("Genesis block for Supernova {}", chain_id).into_bytes();
     let coinbase_input = TransactionInput::new_coinbase(coinbase_script);
@@ -51,41 +51,36 @@ pub fn create_genesis_block(chain_id: &str) -> Block {
     block.header.merkle_root = merkle_root;
 
     // Mine the genesis block (find valid nonce)
-    eprintln!("[DEBUG] Mining genesis block...");
-    
     let mut nonce = 0u32;
     let mut attempts = 0u64;
+    
     loop {
         block.header.nonce = nonce;
         
-        // Debug first few attempts
-        if attempts < 5 {
-            let hash = block.header.hash();
-            eprintln!("[DEBUG] Attempt {}: nonce={}, hash={}", attempts, nonce, hex::encode(&hash[..8]));
-        }
-        
-        // Use BlockHeader::meets_target() which does CORRECT big-endian comparison
+        // Use BlockHeader::meets_target() which does correct big-endian comparison
         if block.header.meets_target() {
-            eprintln!("[DEBUG] Found valid genesis nonce: {} after {} attempts", nonce, attempts);
+            tracing::info!("Genesis block mined: nonce={}, attempts={}", nonce, attempts);
             break;
         }
         
         nonce = nonce.wrapping_add(1);
         attempts += 1;
         
-        // Safety limit for testnet genesis (should find nonce in < 1000 attempts with 0x207fffff)
+        // Safety limit for testnet genesis (should find nonce quickly with easy difficulty)
         if attempts > 100_000 {
             let target = block.header.target();
             let hash = block.header.hash();
-            eprintln!("[ERROR] Genesis mining failed after {} attempts!", attempts);
-            eprintln!("[ERROR] This indicates a bug in difficulty calculation or hash comparison");
-            eprintln!("[ERROR] Target: {}", hex::encode(&target));
-            eprintln!("[ERROR] Last hash: {}", hex::encode(&hash));
-            panic!("Genesis block mining stuck in infinite loop - this is a critical bug!");
+            tracing::error!(
+                "Genesis mining failed after {} attempts. Target: {}, Last hash: {}",
+                attempts,
+                hex::encode(&target),
+                hex::encode(&hash)
+            );
+            return Err("Genesis block mining exceeded attempt limit".to_string());
         }
     }
 
-    block
+    Ok(block)
 }
 
 #[cfg(test)]
@@ -94,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_create_genesis_block() {
-        let genesis = create_genesis_block("testnet");
+        let genesis = create_genesis_block("testnet").expect("Genesis creation should succeed");
         assert!(genesis.validate());
         assert_eq!(genesis.header.prev_block_hash, [0u8; 32]);
         assert_eq!(genesis.transactions().len(), 1);

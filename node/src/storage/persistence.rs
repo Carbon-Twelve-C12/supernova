@@ -106,8 +106,11 @@ impl ChainState {
             None => [0u8; 32],
         };
 
-        eprintln!("[DEBUG] ChainState::new() - Loaded height: {}, best_hash: {}", 
-            current_height, hex::encode(&best_block_hash[..8]));
+        tracing::debug!(
+            "ChainState initialized: height={}, best_hash={}",
+            current_height,
+            hex::encode(&best_block_hash[..8])
+        );
 
         Ok(Self {
             db,
@@ -133,8 +136,6 @@ impl ChainState {
 
     /// Initialize the chain state with a genesis block
     pub fn initialize_with_genesis(&mut self, genesis_block: Block) -> Result<(), StorageError> {
-        eprintln!("[DEBUG] initialize_with_genesis: Starting");
-        
         // Check if already initialized
         if self.current_height > 0 {
             return Err(StorageError::DatabaseError(
@@ -142,16 +143,16 @@ impl ChainState {
             ));
         }
 
-        // Store genesis block directly without verification
-        // (verification check fails during initialization due to database state)
+        // Store genesis block with bloom filter and cache updates
         let genesis_hash = genesis_block.hash();
-        eprintln!("[DEBUG] initialize_with_genesis: Inserting genesis block {}", hex::encode(&genesis_hash[..8]));
+        tracing::info!("Initializing genesis block {}", hex::encode(&genesis_hash[..8]));
         
-        self.db.insert_block(&genesis_block)?;
-        eprintln!("[DEBUG] initialize_with_genesis: Genesis inserted");
-        
+        let genesis_data = bincode::serialize(&genesis_block)
+            .map_err(|e| StorageError::DatabaseError(format!("Genesis serialization failed: {}", e)))?;
+        self.db.store_block(&genesis_hash, &genesis_data)?;
         self.db.flush()?;
-        eprintln!("[DEBUG] initialize_with_genesis: Database flushed");
+        
+        tracing::info!("Genesis block stored successfully");
         
         // Set genesis hash in metadata
         self.db.store_metadata(b"genesis_hash", &genesis_hash)?;
@@ -164,8 +165,6 @@ impl ChainState {
         self.db.set_metadata(b"height", &self.current_height.to_be_bytes())?;
         self.db.set_metadata(b"best_hash", &genesis_hash)?;
         self.db.flush()?;
-        
-        eprintln!("[DEBUG] initialize_with_genesis: Complete, height set to 0");
 
         Ok(())
     }
@@ -303,27 +302,26 @@ impl ChainState {
         self.last_block_time = SystemTime::now();
 
         if !self.validate_block(&block).await? {
-            eprintln!("[DEBUG] Block validation returned false");
+            tracing::warn!("Block validation failed for block at height {}", block.height());
             return Err(StorageError::InvalidBlock);
         }
 
-        eprintln!("[DEBUG] Checking if block already exists...");
         if self.db.get_block(&block_hash)?.is_some() {
-            eprintln!("[DEBUG] Block already exists in DB");
+            tracing::debug!("Block already exists in database");
             // Block already exists, but still update fork info
             self.update_fork_info(&block)?;
             return Ok(false);
         }
 
-        eprintln!("[DEBUG] Calculating chain work...");
         let new_chain_work = self.calculate_chain_work(&block)?;
-        eprintln!("[DEBUG] New chain work: {}", new_chain_work);
-
-        eprintln!("[DEBUG] Comparing prev_hash to best_block_hash...");
-        eprintln!("[DEBUG]   Condition: {} != {}", hex::encode(prev_hash), hex::encode(&self.best_block_hash));
+        tracing::debug!("Calculated chain work: {}", new_chain_work);
         
         if *prev_hash != self.best_block_hash {
-            eprintln!("[DEBUG] Block is on a fork, handling reorganization...");
+            tracing::info!(
+                "Block on fork detected: prev={}, best={}",
+                hex::encode(prev_hash),
+                hex::encode(&self.best_block_hash)
+            );
             let current_work = match self.chain_work.get(&self.best_block_hash) {
                 Some(work) => *work,
                 None => {
@@ -412,21 +410,19 @@ impl ChainState {
                 }
             }
         } else {
-            eprintln!("[DEBUG] Block extends current chain (prev_hash matches best_block_hash)");
             // Direct extension of current chain
             let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
-            eprintln!("[DEBUG] Block difficulty: {}", block_difficulty);
 
-            // Store block to database first
-            eprintln!("[DEBUG] Inserting block to database...");
-            self.db.insert_block(&block)?;
+            // Store block to database with bloom filter and cache updates
+            tracing::debug!("Storing block {} at height {}", hex::encode(&block_hash[..8]), block.height());
+            let block_data = bincode::serialize(&block)
+                .map_err(|e| StorageError::DatabaseError(format!("Block serialization failed: {}", e)))?;
+            self.db.store_block(&block_hash, &block_data)?;
             self.db.flush()?;
-            eprintln!("[DEBUG] Block inserted and flushed");
             
             self.chain_work.insert(block_hash, new_chain_work);
 
             // Update chain state
-            eprintln!("[DEBUG] Updating chain state: height {} -> {}", self.current_height, block.height());
             self.current_height = block.height();
             self.best_block_hash = block_hash;
             
@@ -434,11 +430,11 @@ impl ChainState {
             self.db.set_metadata(b"height", &self.current_height.to_be_bytes())?;
             self.db.set_metadata(b"best_hash", &block_hash)?;
             self.db.flush()?;
-            eprintln!("[DEBUG] Chain state updated, new height: {}", self.current_height);
+            
+            tracing::info!("Block added to chain: height={}, hash={}", self.current_height, hex::encode(&block_hash[..8]));
 
             // Update total difficulty
             self.update_total_difficulty(block_difficulty)?;
-            eprintln!("[DEBUG] Total difficulty updated");
 
             // Update fork info for direct extension
             self.update_fork_info(&block)?;
@@ -455,48 +451,42 @@ impl ChainState {
     }
 
     async fn validate_block(&self, block: &Block) -> Result<bool, StorageError> {
-        eprintln!("[DEBUG] Validating block at height {}", block.height());
-        eprintln!("[DEBUG]   Current height: {}", self.current_height);
-        eprintln!("[DEBUG]   Block prev_hash: {}", hex::encode(block.prev_block_hash()));
-        eprintln!("[DEBUG]   Best block hash: {}", hex::encode(&self.best_block_hash));
+        tracing::debug!(
+            "Validating block: height={}, prev_hash={}",
+            block.height(),
+            hex::encode(block.prev_block_hash())
+        );
         
         if !block.validate() {
-            eprintln!("[DEBUG] Block failed basic validation");
+            tracing::warn!("Block failed basic validation: height={}", block.height());
             return Ok(false);
         }
-
-        eprintln!("[DEBUG] Block passed basic validation");
 
         if block.height() != self.current_height + 1
             && *block.prev_block_hash() != self.best_block_hash
         {
-            eprintln!("[DEBUG] Block doesn't connect to tip, checking fork distance");
             let fork_distance = self.calculate_fork_distance(block)?;
-            eprintln!("[DEBUG] Fork distance: {}", fork_distance);
+            tracing::debug!("Fork block at height {}, distance={}", block.height(), fork_distance);
+            
             if fork_distance > MAX_FORK_DISTANCE {
-                eprintln!("[DEBUG] Fork distance exceeds maximum");
+                tracing::warn!("Fork distance {} exceeds maximum {}", fork_distance, MAX_FORK_DISTANCE);
                 return Ok(false);
             }
         }
 
-        eprintln!("[DEBUG] Validating {} transactions", block.transactions().len());
         for (i, tx) in block.transactions().iter().enumerate() {
             if !self.validate_transaction(tx).await? {
-                eprintln!("[DEBUG] Transaction {} failed validation", i);
+                tracing::warn!("Transaction {} failed validation in block {}", i, hex::encode(&block.hash()[..8]));
                 return Ok(false);
             }
         }
 
-        eprintln!("[DEBUG] Block validation PASSED");
         Ok(true)
     }
 
     async fn validate_transaction(&self, tx: &Transaction) -> Result<bool, StorageError> {
-        eprintln!("[DEBUG] Validating transaction, is_coinbase: {}", tx.is_coinbase());
-        
         // Skip UTXO validation for coinbase transactions
         if tx.is_coinbase() {
-            eprintln!("[DEBUG] Coinbase transaction - skipping input validation");
             return Ok(true);
         }
         
@@ -504,7 +494,7 @@ impl ChainState {
         for (idx, input) in tx.inputs().iter().enumerate() {
             let outpoint = (input.prev_tx_hash(), input.prev_output_index());
             if !spent_outputs.insert(outpoint) {
-                eprintln!("[DEBUG] Input {} is duplicate spend", idx);
+                tracing::warn!("Double-spend detected in transaction: input {}", idx);
                 return Ok(false);
             }
 
@@ -513,13 +503,16 @@ impl ChainState {
                 .get_utxo(&input.prev_tx_hash(), input.prev_output_index())?
                 .is_none()
             {
-                eprintln!("[DEBUG] Input {} UTXO not found: txid={}, vout={}", 
-                    idx, hex::encode(input.prev_tx_hash()), input.prev_output_index());
+                tracing::warn!(
+                    "UTXO not found for input {}: txid={}, vout={}",
+                    idx,
+                    hex::encode(input.prev_tx_hash()),
+                    input.prev_output_index()
+                );
                 return Ok(false);
             }
         }
 
-        eprintln!("[DEBUG] Transaction validation passed");
         Ok(true)
     }
 
@@ -729,24 +722,12 @@ impl ChainState {
     fn store_block(&mut self, block: Block) -> Result<(), StorageError> {
         // Store the block in the database
         let block_hash = block.hash();
-        eprintln!("[DEBUG] store_block: Inserting block {} at height {}", hex::encode(&block_hash[..8]), block.height());
         
-        self.db.insert_block(&block)?;
-        eprintln!("[DEBUG] store_block: insert_block() returned Ok");
-        
-        // CRITICAL: Flush database to ensure block is persisted
-        eprintln!("[DEBUG] store_block: Flushing database to disk...");
+        // Serialize and store with bloom filter/cache updates
+        let block_data = bincode::serialize(&block)
+            .map_err(|e| StorageError::DatabaseError(format!("Block serialization failed: {}", e)))?;
+        self.db.store_block(&block_hash, &block_data)?;
         self.db.flush()?;
-        eprintln!("[DEBUG] store_block: Database flushed");
-        
-        // Verify block was actually written (warn if fails, but continue)
-        if let Ok(Some(_)) = self.db.get_block(&block_hash) {
-            eprintln!("[DEBUG] store_block: VERIFIED - Block is readable from DB");
-        } else {
-            // Database might not have committed yet in some edge cases
-            // Log warning but don't fail - block will be available after full flush
-            eprintln!("[WARN] store_block: Block not immediately readable after flush (might be caching issue)");
-        }
 
         // Calculate block difficulty
         let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
@@ -774,33 +755,30 @@ impl ChainState {
         let mut total_work = 0_u128;
         let mut current = block.clone();
 
-        eprintln!("[DEBUG] calculate_chain_work: Starting from height {}", current.height());
+        tracing::debug!("Calculating chain work from height {}", current.height());
 
         while current.height() > 0 {
             total_work += calculate_block_work(extract_target_from_block(&current));
-            eprintln!("[DEBUG] calculate_chain_work: Added work at height {}, total: {}", current.height(), total_work);
 
             // Get previous block
             let prev_hash = current.prev_block_hash();
-            eprintln!("[DEBUG] calculate_chain_work: Looking for prev block: {}", hex::encode(prev_hash));
             
             if let Ok(Some(prev_block)) = self.db.get_block(prev_hash) {
                 current = prev_block;
             } else {
-                eprintln!("[DEBUG] calculate_chain_work: Previous block not found in DB at height {}", current.height() - 1);
-                eprintln!("[DEBUG] calculate_chain_work: Prev hash was: {}", hex::encode(prev_hash));
-                
-                // If we're at height 1 and can't find genesis (height 0), just use current work
-                if current.height() == 1 {
-                    eprintln!("[DEBUG] calculate_chain_work: At height 1, genesis not in DB, returning current work");
-                    return Ok(total_work);
-                }
-                
-                return Err("BlockNotFound".into());
+                tracing::error!(
+                    "Chain work calculation failed: block at height {} not found (hash: {})",
+                    current.height() - 1,
+                    hex::encode(prev_hash)
+                );
+                return Err(StorageError::DatabaseError(format!(
+                    "Previous block not found at height {}",
+                    current.height() - 1
+                )));
             }
         }
 
-        eprintln!("[DEBUG] calculate_chain_work: Completed, total work: {}", total_work);
+        tracing::debug!("Chain work calculated: total={}", total_work);
         Ok(total_work)
     }
 
