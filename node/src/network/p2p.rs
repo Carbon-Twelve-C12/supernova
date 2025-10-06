@@ -36,7 +36,7 @@ use std::{
 };
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 // Constants for network behavior
 const MIN_PEERS: usize = 3;
@@ -829,31 +829,57 @@ impl P2PNetwork {
                             if let Some(event) = event {
                                 // Handle the event and create wrapper
                                 match event {
-                                    SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                                    SwarmEvent::ConnectionEstablished { peer_id, endpoint, num_established, .. } => {
+                                        info!("✓ CONNECTION ESTABLISHED: peer={}, endpoint={}, total_connections={}", 
+                                            peer_id, endpoint.get_remote_address(), num_established);
                                         let wrapped = SwarmEventWrapper::ConnectionEstablished {
                                             peer_id,
                                             endpoint: endpoint.get_remote_address().to_string(),
                                         };
                                         let _ = swarm_event_tx.send(wrapped).await;
                                     }
-                                    SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                                    SwarmEvent::ConnectionClosed { peer_id, endpoint, cause, num_established, .. } => {
+                                        warn!("✗ CONNECTION CLOSED: peer={}, endpoint={}, cause={:?}, remaining={}", 
+                                            peer_id, endpoint.get_remote_address(), cause, num_established);
                                         let wrapped = SwarmEventWrapper::ConnectionClosed { peer_id };
                                         let _ = swarm_event_tx.send(wrapped).await;
                                     }
-                                    SwarmEvent::IncomingConnection { local_addr, .. } => {
+                                    SwarmEvent::IncomingConnection { local_addr, send_back_addr, connection_id } => {
+                                        info!("← INCOMING connection from {} to {} (id: {})", send_back_addr, local_addr, connection_id);
                                         let wrapped = SwarmEventWrapper::IncomingConnection { local_addr };
                                         let _ = swarm_event_tx.send(wrapped).await;
+                                    }
+                                    SwarmEvent::OutgoingConnectionError { peer_id, error, connection_id } => {
+                                        error!("✗ OUTGOING connection FAILED: peer={:?}, id={}, error={}", peer_id, connection_id, error);
+                                    }
+                                    SwarmEvent::IncomingConnectionError { local_addr, send_back_addr, error, connection_id } => {
+                                        error!("✗ INCOMING connection FAILED: from {} to {} (id: {}), error={}", 
+                                            send_back_addr, local_addr, connection_id, error);
                                     }
                                     SwarmEvent::Behaviour(behaviour_event) => {
                                         match behaviour_event {
                                             SupernovaBehaviourEvent::Gossipsub(gossipsub_event) => {
-                                                if let gossipsub::Event::Message { propagation_source, message, .. } = gossipsub_event {
-                                                    let wrapped = SwarmEventWrapper::Message {
-                                                        peer_id: propagation_source,
-                                                        topic: message.topic.to_string(),
-                                                        data: message.data,
-                                                    };
-                                                    let _ = swarm_event_tx.send(wrapped).await;
+                                                match gossipsub_event {
+                                                    gossipsub::Event::Message { propagation_source, message, .. } => {
+                                                        let wrapped = SwarmEventWrapper::Message {
+                                                            peer_id: propagation_source,
+                                                            topic: message.topic.to_string(),
+                                                            data: message.data,
+                                                        };
+                                                        let _ = swarm_event_tx.send(wrapped).await;
+                                                    }
+                                                    gossipsub::Event::Subscribed { peer_id, topic } => {
+                                                        info!("✓ Peer {} SUBSCRIBED to topic: {}", peer_id, topic);
+                                                    }
+                                                    gossipsub::Event::Unsubscribed { peer_id, topic } => {
+                                                        warn!("✗ Peer {} UNSUBSCRIBED from topic: {}", peer_id, topic);
+                                                    }
+                                                    gossipsub::Event::GossipsubNotSupported { peer_id } => {
+                                                        warn!("✗ Peer {} does NOT support gossipsub!", peer_id);
+                                                    }
+                                                    _ => {
+                                                        trace!("Other gossipsub event: {:?}", gossipsub_event);
+                                                    }
                                                 }
                                             }
                                             SupernovaBehaviourEvent::Mdns(mdns_event) => {
