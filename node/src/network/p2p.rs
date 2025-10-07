@@ -656,7 +656,10 @@ impl P2PNetwork {
     }
 
     /// Start the network
-    pub async fn start(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn start(
+        &self,
+        proxy_request_rx: Option<mpsc::Receiver<crate::network::network_proxy::ProxyRequest>>,
+    ) -> Result<(), Box<dyn Error>> {
         // Set running flag
         *self.running.write().await = true;
 
@@ -691,6 +694,11 @@ impl P2PNetwork {
 
             let mdns = Mdns::new(mdns::Config::default(), self.local_peer_id)?;
 
+            // Configure Identify protocol with our version info
+            info!("Configuring Identify protocol:");
+            info!("  ├─ Protocol Version: /supernova/1.0.0");
+            info!("  └─ Agent Version: supernova/1.0.0");
+
             let identify = Identify::new(
                 identify::Config::new("/supernova/1.0.0".to_string(), id_keys.public())
                     .with_agent_version("supernova/1.0.0".to_string()),
@@ -712,9 +720,10 @@ impl P2PNetwork {
                 if let Err(e) = swarm.behaviour_mut().gossipsub.subscribe(&topic) {
                     warn!("Failed to subscribe to topic {}: {}", topic_name, e);
                 } else {
-                    info!("Subscribed to topic: {}", topic_name);
+                    info!("✓ Subscribed to topic: {}", topic_name);
                 }
             }
+            info!("All gossipsub topics configured successfully");
 
             *self.swarm.write().await = Some(swarm);
         }
@@ -738,7 +747,7 @@ impl P2PNetwork {
         }
 
         // Start network event loop in a way that handles non-Send types
-        self.start_network_loop_with_channels().await?;
+        self.start_network_loop_with_channels(proxy_request_rx).await?;
 
         // Send started event
         let _ = self.event_sender.send(NetworkEvent::Started).await;
@@ -778,7 +787,10 @@ impl P2PNetwork {
     }
 
     /// Start network loop using channels to avoid Send trait issues
-    async fn start_network_loop_with_channels(&self) -> Result<(), Box<dyn Error>> {
+    async fn start_network_loop_with_channels(
+        &self,
+        mut proxy_request_rx: Option<mpsc::Receiver<crate::network::network_proxy::ProxyRequest>>,
+    ) -> Result<(), Box<dyn Error>> {
         // Create channels for communication between threads
         let (swarm_cmd_tx, mut swarm_cmd_rx) = mpsc::channel::<SwarmCommand>(100);
         let (swarm_event_tx, mut swarm_event_rx) = mpsc::channel::<SwarmEventWrapper>(100);
@@ -829,9 +841,21 @@ impl P2PNetwork {
                             if let Some(event) = event {
                                 // Handle the event and create wrapper
                                 match event {
-                                    SwarmEvent::ConnectionEstablished { peer_id, endpoint, num_established, .. } => {
-                                        info!("✓ CONNECTION ESTABLISHED: peer={}, endpoint={}, total_connections={}", 
-                                            peer_id, endpoint.get_remote_address(), num_established);
+                                    SwarmEvent::ConnectionEstablished { peer_id, endpoint, num_established, concurrent_dial_errors, .. } => {
+                                        info!("✓ CONNECTION ESTABLISHED with peer: {}", peer_id);
+                                        info!("  ├─ Remote Address: {}", endpoint.get_remote_address());
+                                        info!("  ├─ Direction: {:?}", if endpoint.is_dialer() { "Outbound" } else { "Inbound" });
+                                        info!("  ├─ Total connections to this peer: {}", num_established);
+                                        if let Some(errors) = concurrent_dial_errors {
+                                            if !errors.is_empty() {
+                                                info!("  ├─ Concurrent dial errors: {} errors", errors.len());
+                                                for (addr, error) in errors.iter().take(3) {
+                                                    info!("  │  └─ {}: {:?}", addr, error);
+                                                }
+                                            }
+                                        }
+                                        info!("  └─ Waiting for Identify protocol exchange...");
+                                        
                                         let wrapped = SwarmEventWrapper::ConnectionEstablished {
                                             peer_id,
                                             endpoint: endpoint.get_remote_address().to_string(),
@@ -839,22 +863,84 @@ impl P2PNetwork {
                                         let _ = swarm_event_tx.send(wrapped).await;
                                     }
                                     SwarmEvent::ConnectionClosed { peer_id, endpoint, cause, num_established, .. } => {
-                                        warn!("✗ CONNECTION CLOSED: peer={}, endpoint={}, cause={:?}, remaining={}", 
-                                            peer_id, endpoint.get_remote_address(), cause, num_established);
+                                        warn!("✗ CONNECTION CLOSED with peer: {}", peer_id);
+                                        warn!("  ├─ Remote Address: {}", endpoint.get_remote_address());
+                                        warn!("  ├─ Remaining connections to peer: {}", num_established);
+                                        warn!("  ├─ Cause: {:?}", cause);
+                                        
+                                        // Analyze the cause
+                                        match cause {
+                                            Some(libp2p::swarm::ConnectionError::IO(ref io_err)) => {
+                                                warn!("  └─ IO Error Details: {}", io_err);
+                                                if io_err.to_string().contains("Closed") {
+                                                    warn!("     ⚠ Connection closed by remote peer immediately after establishment");
+                                                    warn!("     ⚠ Possible causes: protocol mismatch, authentication failure, or peer rejection");
+                                                }
+                                            }
+                                            Some(libp2p::swarm::ConnectionError::Handler(ref handler_err)) => {
+                                                warn!("  └─ Handler Error: {:?}", handler_err);
+                                            }
+                                            _ => {
+                                                warn!("  └─ Other disconnection cause");
+                                            }
+                                        }
+                                        
                                         let wrapped = SwarmEventWrapper::ConnectionClosed { peer_id };
                                         let _ = swarm_event_tx.send(wrapped).await;
                                     }
                                     SwarmEvent::IncomingConnection { local_addr, send_back_addr, connection_id } => {
-                                        info!("← INCOMING connection from {} to {} (id: {})", send_back_addr, local_addr, connection_id);
+                                        info!("← INCOMING connection attempt");
+                                        info!("  ├─ From: {}", send_back_addr);
+                                        info!("  ├─ To: {}", local_addr);
+                                        info!("  └─ Connection ID: {}", connection_id);
+                                        
                                         let wrapped = SwarmEventWrapper::IncomingConnection { local_addr };
                                         let _ = swarm_event_tx.send(wrapped).await;
                                     }
                                     SwarmEvent::OutgoingConnectionError { peer_id, error, connection_id } => {
-                                        error!("✗ OUTGOING connection FAILED: peer={:?}, id={}, error={}", peer_id, connection_id, error);
+                                        error!("✗ OUTGOING connection FAILED");
+                                        error!("  ├─ Target Peer: {:?}", peer_id);
+                                        error!("  ├─ Connection ID: {}", connection_id);
+                                        error!("  └─ Error: {}", error);
+                                        
+                                        // Detailed error analysis
+                                        match error {
+                                            libp2p::swarm::DialError::Transport(ref errors) => {
+                                                error!("     Transport errors ({} attempts):", errors.len());
+                                                for (addr, transport_error) in errors.iter().take(3) {
+                                                    error!("       └─ {}: {:?}", addr, transport_error);
+                                                }
+                                            }
+                                            libp2p::swarm::DialError::NoAddresses => {
+                                                error!("     ⚠ No addresses available to dial!");
+                                            }
+                                            libp2p::swarm::DialError::DialPeerConditionFalse(_) => {
+                                                error!("     ⚠ Dial condition not met (peer may be banned or limits reached)");
+                                            }
+                                            libp2p::swarm::DialError::WrongPeerId { obtained, endpoint } => {
+                                                error!("     ⚠ Peer ID mismatch!");
+                                                error!("       Expected: {:?}", peer_id);
+                                                error!("       Obtained: {}", obtained);
+                                                error!("       Endpoint: {:?}", endpoint);
+                                            }
+                                            _ => {}
+                                        }
                                     }
                                     SwarmEvent::IncomingConnectionError { local_addr, send_back_addr, error, connection_id } => {
-                                        error!("✗ INCOMING connection FAILED: from {} to {} (id: {}), error={}", 
-                                            send_back_addr, local_addr, connection_id, error);
+                                        error!("✗ INCOMING connection ERROR");
+                                        error!("  ├─ From: {}", send_back_addr);
+                                        error!("  ├─ To: {}", local_addr);
+                                        error!("  ├─ Connection ID: {}", connection_id);
+                                        error!("  └─ Error: {}", error);
+                                        
+                                        // Check for common issues
+                                        if error.to_string().contains("protocol") {
+                                            error!("     ⚠ Protocol negotiation failed - check protocol compatibility");
+                                        } else if error.to_string().contains("timeout") {
+                                            error!("     ⚠ Connection timeout - peer may be unresponsive");
+                                        } else if error.to_string().contains("authentication") {
+                                            error!("     ⚠ Authentication failed - check noise/security configuration");
+                                        }
                                     }
                                     SwarmEvent::Behaviour(behaviour_event) => {
                                         match behaviour_event {
@@ -889,7 +975,85 @@ impl P2PNetwork {
                                                     let _ = swarm_event_tx.send(wrapped).await;
                                                 }
                                             }
-                                            _ => {}
+                                            SupernovaBehaviourEvent::Identify(identify_event) => {
+                                                match identify_event {
+                                                    identify::Event::Received { peer_id, info } => {
+                                                        info!("✓ IDENTIFY RECEIVED from peer: {}", peer_id);
+                                                        info!("  ├─ Protocol Version: {}", info.protocol_version);
+                                                        info!("  ├─ Agent Version: {}", info.agent_version);
+                                                        info!("  ├─ Supported Protocols ({}):", info.protocols.len());
+                                                        
+                                                        // Check for critical protocols
+                                                        let has_gossipsub = info.protocols.iter().any(|p| {
+                                                            let s = p.as_ref();
+                                                            s.contains("gossipsub") || s.contains("meshsub")
+                                                        });
+                                                        let has_identify = info.protocols.iter().any(|p| p.as_ref().contains("identify"));
+                                                        
+                                                        for proto in info.protocols.iter().take(10) {
+                                                            let marker = if proto.as_ref().contains("gossipsub") || proto.as_ref().contains("meshsub") {
+                                                                "✓"
+                                                            } else {
+                                                                " "
+                                                            };
+                                                            info!("  │  {} {}", marker, proto);
+                                                        }
+                                                        
+                                                        if info.protocols.len() > 10 {
+                                                            info!("  │  ... and {} more", info.protocols.len() - 10);
+                                                        }
+                                                        
+                                                        info!("  ├─ Listen Addresses ({}):", info.listen_addrs.len());
+                                                        for addr in info.listen_addrs.iter().take(3) {
+                                                            info!("  │  └─ {}", addr);
+                                                        }
+                                                        
+                                                        // Critical protocol checks
+                                                        if !has_gossipsub {
+                                                            error!("  └─ ⚠️  CRITICAL: Peer does NOT support gossipsub/meshsub!");
+                                                            error!("     This peer cannot participate in message propagation");
+                                                            error!("     Connection will likely be closed");
+                                                        } else if !has_identify {
+                                                            warn!("  └─ ⚠️  WARNING: Peer does not list identify protocol");
+                                                        } else {
+                                                            info!("  └─ ✓ Peer supports all required protocols");
+                                                        }
+                                                    }
+                                                    identify::Event::Sent { peer_id } => {
+                                                        debug!("→ IDENTIFY sent to peer: {}", peer_id);
+                                                        debug!("  └─ Shared our protocol capabilities");
+                                                    }
+                                                    identify::Event::Pushed { peer_id } => {
+                                                        debug!("→ IDENTIFY PUSHED to peer: {}", peer_id);
+                                                        debug!("  └─ Updated peer with our current info");
+                                                    }
+                                                    identify::Event::Error { peer_id, error } => {
+                                                        error!("✗ IDENTIFY ERROR with peer {}", peer_id);
+                                                        error!("  └─ Error: {:?}", error);
+                                                        error!("     This indicates protocol negotiation failure");
+                                                        error!("     Connection will likely be closed");
+                                                    }
+                                                }
+                                            }
+                                            SupernovaBehaviourEvent::Kademlia(kad_event) => {
+                                                match kad_event {
+                                                    libp2p::kad::Event::RoutingUpdated { peer, .. } => {
+                                                        debug!("Kademlia routing updated: added peer {}", peer);
+                                                    }
+                                                    libp2p::kad::Event::RoutablePeer { peer, .. } => {
+                                                        debug!("Kademlia: peer {} is routable", peer);
+                                                    }
+                                                    libp2p::kad::Event::PendingRoutablePeer { peer, .. } => {
+                                                        debug!("Kademlia: peer {} is pending routable", peer);
+                                                    }
+                                                    libp2p::kad::Event::UnroutablePeer { peer } => {
+                                                        debug!("Kademlia: peer {} is unroutable", peer);
+                                                    }
+                                                    _ => {
+                                                        trace!("Other Kademlia event: {:?}", kad_event);
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     _ => {}
@@ -946,6 +1110,21 @@ impl P2PNetwork {
                         Self::handle_wrapped_swarm_event(
                             event,
                             &event_sender,
+                            &stats,
+                            &connected_peers,
+                            &bandwidth_tracker,
+                        ).await;
+                    }
+
+                    // Process proxy requests (if available)
+                    Some(proxy_req) = async {
+                        match &mut proxy_request_rx {
+                            Some(rx) => rx.recv().await,
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        Self::handle_proxy_request(
+                            proxy_req,
                             &stats,
                             &connected_peers,
                             &bandwidth_tracker,
@@ -1336,6 +1515,82 @@ impl P2PNetwork {
                 for peer_id in peers {
                     debug!("Discovered peer: {}", peer_id);
                 }
+            }
+        }
+    }
+
+    /// Handle proxy requests from the API layer
+    async fn handle_proxy_request(
+        request: crate::network::network_proxy::ProxyRequest,
+        stats: &Arc<RwLock<NetworkStats>>,
+        connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
+        bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
+    ) {
+        use crate::network::network_proxy::ProxyRequest;
+        
+        match request {
+            ProxyRequest::GetStats(tx) => {
+                let stats_copy = stats.read().await.clone();
+                let _ = tx.send(stats_copy);
+            }
+            ProxyRequest::PeerCount(tx) => {
+                let count = connected_peers.read().await.len();
+                let _ = tx.send(count);
+            }
+            ProxyRequest::GetPeers(tx) => {
+                let peers: Vec<crate::api::types::PeerInfo> = connected_peers
+                    .read()
+                    .await
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (peer_id, info))| crate::api::types::PeerInfo {
+                        id: idx as u64,
+                        address: peer_id.to_string(),
+                        direction: if info.is_inbound { "inbound".to_string() } else { "outbound".to_string() },
+                        connected_time: info.last_seen.elapsed().as_secs(),
+                        last_send: info.last_sent.map(|t| t.elapsed().as_secs()).unwrap_or(0),
+                        last_recv: info.last_seen.elapsed().as_secs(),
+                        bytes_sent: info.bytes_sent,
+                        bytes_received: info.bytes_received,
+                        ping_time: info.ping_ms.map(|ms| ms as f64),
+                        version: info.protocol_version.unwrap_or(0).to_string(),
+                        user_agent: info.user_agent.clone().unwrap_or_else(|| "unknown".to_string()),
+                        height: info.height.unwrap_or(0),
+                        services: "1".to_string(),
+                        banned: false, // Would check banned_peers if needed
+                        reputation_score: 1.0, // Default good reputation
+                    })
+                    .collect();
+                
+                let _ = tx.send(Ok(peers));
+            }
+            ProxyRequest::GetBandwidthUsage(_period, tx) => {
+                let (upload_rate, download_rate) = bandwidth_tracker
+                    .lock()
+                    .map(|tracker| tracker.get_rates(60))
+                    .unwrap_or((0.0, 0.0));
+                
+                let usage = crate::api::types::BandwidthUsage {
+                    total_sent: stats.read().await.bytes_sent,
+                    total_received: stats.read().await.bytes_received,
+                    upload_rate,
+                    download_rate,
+                    peak_upload_rate: upload_rate, // Simplified: use current as peak
+                    peak_download_rate: download_rate,
+                };
+                
+                let _ = tx.send(Ok(usage));
+            }
+            ProxyRequest::UpdateStats(new_stats) => {
+                *stats.write().await = new_stats;
+            }
+            ProxyRequest::IsSyncing(tx) => {
+                // Simple implementation - could be enhanced with actual sync state
+                let _ = tx.send(false);
+            }
+            _ => {
+                // Other requests not yet fully implemented
+                debug!("Unhandled proxy request variant");
             }
         }
     }
