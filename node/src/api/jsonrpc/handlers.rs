@@ -391,15 +391,25 @@ async fn get_best_block_hash(
         data: None,
     })?;
 
-    let best_block_hash = if height > 0 {
-        storage.get_block_hash_by_height(height).map_err(|e| JsonRpcError {
+    if height == 0 {
+        return Err(JsonRpcError {
+            code: ErrorCode::BlockchainError as i32,
+            message: "No blocks in blockchain yet".to_string(),
+            data: None,
+        });
+    }
+
+    let best_block_hash = storage.get_block_hash_by_height(height)
+        .map_err(|e| JsonRpcError {
             code: ErrorCode::BlockchainError as i32,
             message: format!("Failed to get best block hash: {}", e),
             data: None,
-        })?.unwrap_or([0u8; 32])
-    } else {
-        [0u8; 32]
-    };
+        })?
+        .ok_or_else(|| JsonRpcError {
+            code: ErrorCode::BlockchainError as i32,
+            message: format!("Best block hash not found at height {}", height),
+            data: None,
+        })?;
 
     Ok(Value::String(hex::encode(best_block_hash)))
 }
