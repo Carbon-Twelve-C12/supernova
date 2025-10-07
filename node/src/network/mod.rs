@@ -239,8 +239,8 @@ impl NetworkManager {
         self.is_running
             .store(true, std::sync::atomic::Ordering::SeqCst);
 
-        // Start the P2P network
-        self.p2p_network.start().await?;
+        // Start the P2P network (NetworkManager doesn't use proxy requests)
+        self.p2p_network.start(None).await?;
 
         // Parse the listen address and extract port
         let listen_port = if let Some(port_str) = self.config.listen_addr.split('/').last() {

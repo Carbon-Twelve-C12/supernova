@@ -21,6 +21,7 @@ use btclib::types::transaction::Transaction;
 use hex;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -255,15 +256,22 @@ impl Node {
             info!("No bootstrap nodes in config");
         }
         
-        let network = Arc::new(network);
-
-        // Create thread-safe network proxy for API access
-        let (network_proxy, proxy_request_rx, cached_stats) = NetworkProxy::new(
+        // Create thread-safe network proxy for API access BEFORE wrapping in Arc
+        let (network_proxy, proxy_request_rx, _cached_stats) = NetworkProxy::new(
             network.local_peer_id(),
             network.network_id().to_string(),
             command_tx.clone(),
         );
         let network_proxy = Arc::new(network_proxy);
+
+        // Start network with proxy request processing integrated
+        // This must be done BEFORE wrapping network in Arc since start() takes &self
+        network.start(Some(proxy_request_rx)).await
+            .map_err(|e| NodeError::NetworkError(e.to_string()))?;
+        
+        info!("P2P network started with integrated proxy request processing");
+        
+        let network = Arc::new(network);
 
         // Spawn network event processing task
         let mempool_clone = Arc::clone(&mempool);
@@ -271,13 +279,6 @@ impl Node {
         tokio::spawn(async move {
             Self::process_network_events(event_rx, mempool_clone, chain_state_clone).await;
         });
-
-        // Note: The proxy request receiver (proxy_request_rx) should be integrated into
-        // the main network event loop in P2PNetwork. This requires modifying P2PNetwork
-        // to process proxy requests alongside network events.
-        // For now, we'll store it for later integration.
-        let _proxy_request_rx = proxy_request_rx;
-        let _cached_stats = cached_stats;
 
         // Initialize testnet manager if enabled
         let testnet_manager = if config.testnet.enabled {
@@ -417,11 +418,7 @@ impl Node {
     pub async fn start(&self) -> Result<(), NodeError> {
         tracing::info!("Starting Supernova node...");
 
-        // Start network
-        self.network
-            .start()
-            .await
-            .map_err(|e| NodeError::NetworkError(e.to_string()))?;
+        // Network already started in constructor with proxy request processing
 
         // Start testnet manager if enabled
         if let Some(testnet) = &self.testnet_manager {
