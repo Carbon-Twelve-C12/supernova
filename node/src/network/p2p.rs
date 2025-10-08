@@ -1020,11 +1020,11 @@ impl P2PNetwork {
                                                         
                                                         // Critical protocol checks
                                                         if !has_gossipsub {
-                                                            error!("  └─ ⚠️  CRITICAL: Peer does NOT support gossipsub/meshsub!");
+                                                            error!("  └─ CRITICAL: Peer does NOT support gossipsub/meshsub!");
                                                             error!("     This peer cannot participate in message propagation");
                                                             error!("     Connection will likely be closed");
                                                         } else if !has_identify {
-                                                            warn!("  └─ ⚠️  WARNING: Peer does not list identify protocol");
+                                                            warn!("  └─ WARNING: Peer does not list identify protocol");
                                                         } else {
                                                             info!("  └─ ✓ Peer supports all required protocols");
                                                         }
@@ -1096,6 +1096,8 @@ impl P2PNetwork {
             let mut rate_limit_cleanup_interval = tokio::time::interval(Duration::from_secs(300));
             let mut ban_cleanup_interval = tokio::time::interval(Duration::from_secs(60));
 
+            info!("Network event loop STARTED - ready to process commands");
+
             loop {
                 if !*running.read().await {
                     let _ = swarm_cmd_tx.send(SwarmCommand::Stop).await;
@@ -1105,6 +1107,7 @@ impl P2PNetwork {
                 tokio::select! {
                     // Process network commands
                     Some(cmd) = command_rx.recv() => {
+                        info!("Received NetworkCommand in event loop");
                         Self::handle_command_with_channels(
                             cmd,
                             &swarm_cmd_tx,
