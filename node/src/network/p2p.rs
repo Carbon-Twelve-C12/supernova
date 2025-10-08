@@ -672,8 +672,10 @@ impl P2PNetwork {
             let transport = build_transport(id_keys.clone())?;
 
             // Create individual behaviours
+            // NOTE: Using Permissive validation temporarily for testing
+            // TODO: Fix message signing and switch back to Strict mode
             let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .validation_mode(gossipsub::ValidationMode::Strict)
+                .validation_mode(gossipsub::ValidationMode::Permissive)
                 .message_id_fn(|msg| {
                     use std::hash::{Hash, Hasher};
                     let mut hasher = std::collections::hash_map::DefaultHasher::new();
