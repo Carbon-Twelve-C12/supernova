@@ -830,7 +830,15 @@ impl P2PNetwork {
                                     let _ = swarm.dial(addr);
                                 }
                                 SwarmCommand::Publish(topic, data) => {
-                                    let _ = swarm.behaviour_mut().gossipsub.publish(topic, data);
+                                    info!("Executing SwarmCommand::Publish to topic: {:?}, data len: {}", topic, data.len());
+                                    match swarm.behaviour_mut().gossipsub.publish(topic.clone(), data) {
+                                        Ok(msg_id) => {
+                                            info!("Successfully published message, ID: {:?}", msg_id);
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to publish to gossipsub: {:?}", e);
+                                        }
+                                    }
                                 }
                                 SwarmCommand::Stop => {
                                     break;
@@ -1182,9 +1190,20 @@ impl P2PNetwork {
                 _ => TopicHash::from_raw("general"),
             };
 
+            info!("📨 broadcast_message called for topic: {:?}", topic);
+
             if let Ok(data) = bincode::serialize(&message) {
                 let data_len = data.len();
-                let _ = swarm_cmd_tx.send(SwarmCommand::Publish(topic, data)).await;
+                info!("📦 Serialized message: {} bytes, sending to swarm", data_len);
+                
+                match swarm_cmd_tx.send(SwarmCommand::Publish(topic.clone(), data)).await {
+                    Ok(_) => {
+                        info!("✓ SwarmCommand::Publish sent successfully to topic: {:?}", topic);
+                    }
+                    Err(e) => {
+                        error!("✗ Failed to send SwarmCommand::Publish: {}", e);
+                    }
+                }
 
                 // Update stats
                 let mut stats_guard = stats.write().await;
@@ -1195,6 +1214,8 @@ impl P2PNetwork {
                 if let Ok(mut tracker) = bandwidth_tracker.lock() {
                     tracker.record_sent(data_len as u64);
                 }
+            } else {
+                error!("✗ Failed to serialize message for broadcast");
             }
         }
         match cmd {
@@ -1240,13 +1261,18 @@ impl P2PNetwork {
                 height,
                 total_difficulty,
             } => {
+                info!("📡 Received AnnounceBlock command for height {}, hash: {}", 
+                    height, hex::encode(&block.hash()[..8]));
+                    
                 let message = Message::NewBlock {
                     block_data: bincode::serialize(&block).unwrap_or_default(),
                     height,
                     total_difficulty,
                 };
 
+                info!("📤 Broadcasting NewBlock message to gossipsub network");
                 broadcast_message(&message, swarm_cmd_tx, stats, bandwidth_tracker).await;
+                info!("✓ Broadcast command completed");
 
                 let mut stats_guard = stats.write().await;
                 stats_guard.blocks_announced += 1;
