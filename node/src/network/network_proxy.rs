@@ -462,16 +462,30 @@ impl NetworkProxy {
     pub fn broadcast_block(&self, block: &btclib::types::block::Block) {
         let block = block.clone();
         let command_tx = self.command_tx.clone();
+        let block_hash = block.hash();
+        let height = block.height();
+
+        tracing::info!("NetworkProxy::broadcast_block called for height {}, hash: {}", 
+            height, hex::encode(&block_hash[..8]));
 
         // Fire and forget
         tokio::spawn(async move {
-            let _ = command_tx
+            tracing::info!("Sending NetworkCommand::AnnounceBlock to channel...");
+            match command_tx
                 .send(NetworkCommand::AnnounceBlock {
                     block: block.clone(),
-                    height: block.height(),
-                    total_difficulty: 1, // This should be calculated properly
+                    height,
+                    total_difficulty: 1,
                 })
-                .await;
+                .await
+            {
+                Ok(_) => {
+                    tracing::info!("NetworkCommand::AnnounceBlock sent successfully");
+                }
+                Err(e) => {
+                    tracing::error!("Failed to send NetworkCommand::AnnounceBlock: {}", e);
+                }
+            }
         });
     }
     
