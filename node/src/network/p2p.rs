@@ -1088,11 +1088,16 @@ impl P2PNetwork {
             .ok_or_else(|| Box::<dyn Error>::from("Swarm command sender not initialized"))?;
 
         let task = tokio::spawn(async move {
+            info!("Event loop task spawned, acquiring command_receiver...");
+            
             let mut command_rx = command_receiver
                 .write()
                 .await
                 .take()
                 .expect("Command receiver should be available");
+                
+            info!("Command receiver acquired successfully - event loop ready");
+            
             let mut rate_limit_cleanup_interval = tokio::time::interval(Duration::from_secs(300));
             let mut ban_cleanup_interval = tokio::time::interval(Duration::from_secs(60));
 
