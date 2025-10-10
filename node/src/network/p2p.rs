@@ -1161,7 +1161,7 @@ impl P2PNetwork {
                         ).await;
                     }
 
-                    // Process swarm events in controlled batches to prevent starvation
+                    // Process swarm events with mandatory command checks to prevent starvation
                     Some(event) = swarm_event_rx.recv() => {
                         Self::handle_wrapped_swarm_event(
                             event,
@@ -1171,12 +1171,40 @@ impl P2PNetwork {
                             &bandwidth_tracker,
                         ).await;
                         
-                        // Process up to 10 more swarm events in this batch
-                        // This prevents continuous heartbeats from blocking commands
+                        // CRITICAL: Check for pending commands before processing more swarm events
+                        // This ensures commands are never starved even with continuous heartbeats
+                        while let Ok(cmd) = command_rx.try_recv() {
+                            info!("Received NetworkCommand in event loop (during swarm processing)");
+                            Self::handle_command_with_channels(
+                                cmd,
+                                &swarm_cmd_tx,
+                                &event_sender,
+                                &stats,
+                                &connected_peers,
+                                &bandwidth_tracker,
+                            ).await;
+                        }
+                        
+                        // Process up to 5 more swarm events, checking for commands between each
                         let mut batch_count = 1;
-                        const MAX_SWARM_BATCH: usize = 10;
+                        const MAX_SWARM_BATCH: usize = 5;
                         
                         while batch_count < MAX_SWARM_BATCH {
+                            // Check commands first
+                            if let Ok(cmd) = command_rx.try_recv() {
+                                info!("Received NetworkCommand in event loop (interleaved)");
+                                Self::handle_command_with_channels(
+                                    cmd,
+                                    &swarm_cmd_tx,
+                                    &event_sender,
+                                    &stats,
+                                    &connected_peers,
+                                    &bandwidth_tracker,
+                                ).await;
+                                continue; // Process more commands if available
+                            }
+                            
+                            // Then process one swarm event if available
                             match swarm_event_rx.try_recv() {
                                 Ok(event) => {
                                     Self::handle_wrapped_swarm_event(
@@ -1188,11 +1216,24 @@ impl P2PNetwork {
                                     ).await;
                                     batch_count += 1;
                                 }
-                                Err(_) => break, // No more events ready, yield to other branches
+                                Err(_) => break, // No more swarm events, exit batch
                             }
                         }
                         
-                        // Yield to allow commands and timers to be processed
+                        // Final command check before yielding
+                        while let Ok(cmd) = command_rx.try_recv() {
+                            info!("Received NetworkCommand in event loop (post-batch)");
+                            Self::handle_command_with_channels(
+                                cmd,
+                                &swarm_cmd_tx,
+                                &event_sender,
+                                &stats,
+                                &connected_peers,
+                                &bandwidth_tracker,
+                            ).await;
+                        }
+                        
+                        // Yield to allow timers to be processed
                         tokio::task::yield_now().await;
                     }
 
@@ -2824,3 +2865,4 @@ mod tests {
         assert!(recv_rate > 0.0);
     }
 }
+
