@@ -1117,11 +1117,10 @@ impl P2PNetwork {
                 }
 
                 tokio::select! {
-                    // Use biased to ensure fair polling of all branches
-                    // Without this, swarm_event_rx monopolizes the select due to continuous events
+                    // Use biased to ensure priority ordering
                     biased;
                     
-                    // Process network commands (HIGH PRIORITY)
+                    // HIGHEST PRIORITY: Process network commands immediately
                     Some(cmd) = command_rx.recv() => {
                         info!("Received NetworkCommand in event loop");
                         Self::handle_command_with_channels(
@@ -1132,20 +1131,22 @@ impl P2PNetwork {
                             &connected_peers,
                             &bandwidth_tracker,
                         ).await;
+                        
+                        // Process any additional pending commands before returning to select
+                        while let Ok(cmd) = command_rx.try_recv() {
+                            info!("Received NetworkCommand in event loop (batched)");
+                            Self::handle_command_with_channels(
+                                cmd,
+                                &swarm_cmd_tx,
+                                &event_sender,
+                                &stats,
+                                &connected_peers,
+                                &bandwidth_tracker,
+                            ).await;
+                        }
                     }
 
-                    // Process swarm events
-                    Some(event) = swarm_event_rx.recv() => {
-                        Self::handle_wrapped_swarm_event(
-                            event,
-                            &event_sender,
-                            &stats,
-                            &connected_peers,
-                            &bandwidth_tracker,
-                        ).await;
-                    }
-
-                    // Process proxy requests (if available)
+                    // Process proxy requests with priority
                     Some(proxy_req) = async {
                         match &mut proxy_request_rx {
                             Some(rx) => rx.recv().await,
@@ -1158,6 +1159,41 @@ impl P2PNetwork {
                             &connected_peers,
                             &bandwidth_tracker,
                         ).await;
+                    }
+
+                    // Process swarm events in controlled batches to prevent starvation
+                    Some(event) = swarm_event_rx.recv() => {
+                        Self::handle_wrapped_swarm_event(
+                            event,
+                            &event_sender,
+                            &stats,
+                            &connected_peers,
+                            &bandwidth_tracker,
+                        ).await;
+                        
+                        // Process up to 10 more swarm events in this batch
+                        // This prevents continuous heartbeats from blocking commands
+                        let mut batch_count = 1;
+                        const MAX_SWARM_BATCH: usize = 10;
+                        
+                        while batch_count < MAX_SWARM_BATCH {
+                            match swarm_event_rx.try_recv() {
+                                Ok(event) => {
+                                    Self::handle_wrapped_swarm_event(
+                                        event,
+                                        &event_sender,
+                                        &stats,
+                                        &connected_peers,
+                                        &bandwidth_tracker,
+                                    ).await;
+                                    batch_count += 1;
+                                }
+                                Err(_) => break, // No more events ready, yield to other branches
+                            }
+                        }
+                        
+                        // Yield to allow commands and timers to be processed
+                        tokio::task::yield_now().await;
                     }
 
                     // Periodic cleanups
