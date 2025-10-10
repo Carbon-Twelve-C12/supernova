@@ -677,10 +677,11 @@ impl P2PNetwork {
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .validation_mode(gossipsub::ValidationMode::Permissive)
                 // Mesh parameters optimized for blockchain network scalability
+                // Constraint: mesh_outbound_min <= mesh_n_low <= mesh_n <= mesh_n_high
                 .mesh_n_low(1)      // Minimum 1 peer (allows 2-node testing)
                 .mesh_n(8)          // Target 8 peers (Bitcoin-like redundancy)
                 .mesh_n_high(12)    // Maximum 12 peers per topic
-                .mesh_outbound_min(2) // Maintain 2 outbound connections minimum
+                .mesh_outbound_min(1) // Minimum outbound (must be <= mesh_n_low)
                 .heartbeat_interval(Duration::from_secs(1)) // Fast mesh formation & maintenance
                 .message_id_fn(|msg| {
                     use std::hash::{Hash, Hasher};
