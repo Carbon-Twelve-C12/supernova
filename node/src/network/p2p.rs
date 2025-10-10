@@ -484,6 +484,11 @@ impl P2PNetwork {
         // Create communication channels
         let (command_sender, command_receiver) = mpsc::channel(128);
         let (event_sender, event_receiver) = mpsc::channel(128);
+        
+        // Log channel creation for debugging
+        info!("Created NetworkCommand channel with capacity 128");
+        info!("  command_sender address: {:p}", &command_sender);
+        info!("  command_receiver address: {:p}", &command_receiver);
 
         // Create storage backend
         let storage: Arc<dyn crate::storage::Storage> =
@@ -1104,6 +1109,7 @@ impl P2PNetwork {
                 .expect("Command receiver should be available");
                 
             info!("Command receiver acquired successfully - event loop ready");
+            info!("  Receiver address in event loop: {:p}", &command_rx);
             
             let mut rate_limit_cleanup_interval = tokio::time::interval(Duration::from_secs(300));
             let mut ban_cleanup_interval = tokio::time::interval(Duration::from_secs(60));

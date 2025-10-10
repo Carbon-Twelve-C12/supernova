@@ -70,6 +70,9 @@ impl NetworkProxy {
 
         // Create cached stats
         let cached_stats = Arc::new(RwLock::new(NetworkStats::default()));
+        
+        // Log channel assignment for debugging
+        tracing::info!("NetworkProxy created with command_tx address: {:p}", &command_tx);
 
         let proxy = Self {
             command_tx,
