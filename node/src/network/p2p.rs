@@ -676,6 +676,12 @@ impl P2PNetwork {
             // TODO: Fix message signing and switch back to Strict mode
             let gossipsub_config = gossipsub::ConfigBuilder::default()
                 .validation_mode(gossipsub::ValidationMode::Permissive)
+                // Mesh parameters optimized for blockchain network scalability
+                .mesh_n_low(1)      // Minimum 1 peer (allows 2-node testing)
+                .mesh_n(8)          // Target 8 peers (Bitcoin-like redundancy)
+                .mesh_n_high(12)    // Maximum 12 peers per topic
+                .mesh_outbound_min(2) // Maintain 2 outbound connections minimum
+                .heartbeat_interval(Duration::from_secs(1)) // Fast mesh formation & maintenance
                 .message_id_fn(|msg| {
                     use std::hash::{Hash, Hasher};
                     let mut hasher = std::collections::hash_map::DefaultHasher::new();
