@@ -40,9 +40,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command-line arguments
     let args = Args::parse();
 
-    // Initialize logging
-    let log_level = if args.debug { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
+    // Initialize logging 
+    use tracing_subscriber::EnvFilter;
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            // Fall back to default if RUST_LOG not set
+            let log_level = if args.debug { "debug" } else { "info" };
+            EnvFilter::new(log_level)
+        });
+    
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     // Show animation if requested
     if args.with_animation {
