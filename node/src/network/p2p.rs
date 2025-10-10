@@ -1117,7 +1117,11 @@ impl P2PNetwork {
                 }
 
                 tokio::select! {
-                    // Process network commands
+                    // Use biased to ensure fair polling of all branches
+                    // Without this, swarm_event_rx monopolizes the select due to continuous events
+                    biased;
+                    
+                    // Process network commands (HIGH PRIORITY)
                     Some(cmd) = command_rx.recv() => {
                         info!("Received NetworkCommand in event loop");
                         Self::handle_command_with_channels(
