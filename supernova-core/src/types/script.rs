@@ -1,4 +1,7 @@
 /// Bitcoin-style script implementation
+/// Using Bitcoin's original OP_X naming convention for protocol compatibility
+#![allow(non_camel_case_types)]
+
 use serde::{Deserialize, Serialize};
 
 /// Script type for transaction inputs and outputs
@@ -96,6 +99,7 @@ impl Default for Script {
 /// Script opcodes
 /// Using Bitcoin's original OP_X naming convention for clarity and compatibility
 #[allow(non_camel_case_types)]
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum OpCode {

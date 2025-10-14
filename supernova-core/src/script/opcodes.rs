@@ -5,6 +5,8 @@
 use std::fmt;
 
 /// Script opcodes
+/// Using Bitcoin's OP_X naming convention for protocol compatibility
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Opcode {
