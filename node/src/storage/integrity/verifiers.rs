@@ -12,8 +12,8 @@ use crate::storage::integrity::models::{
 };
 use crate::storage::BlockchainDB;
 use crate::storage::StorageError;
-use btclib::types::block::Block;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::block::Block;
+use supernova_core::types::transaction::Transaction;
 
 /// Database structure verifier
 pub struct DatabaseVerifier {

@@ -134,7 +134,7 @@ impl EnvironmentalMonitor {
     pub fn get_environmental_impact(
         &self,
         period: u64,
-        detail: &str,
+        _detail: &str,
     ) -> Result<EnvironmentalImpact, EnvironmentalError> {
         if period == 0 {
             return Err(EnvironmentalError::InvalidTimePeriod(
@@ -149,20 +149,20 @@ impl EnvironmentalMonitor {
 
         // Calculate additional metrics
         let transaction_count = self.estimate_transaction_count(period);
-        let energy_per_tx = if transaction_count > 0 {
+        let _energy_per_tx = if transaction_count > 0 {
             Some(energy_data.total_energy_kwh / transaction_count as f64)
         } else {
             None
         };
 
-        let carbon_per_tx = if transaction_count > 0 {
+        let _carbon_per_tx = if transaction_count > 0 {
             Some(carbon_data.total_emissions_g / transaction_count as f64)
         } else {
             None
         };
 
         // Calculate efficiency improvements
-        let efficiency_improvement: Option<f64> = None; // Simplified for now
+        let _efficiency_improvement: Option<f64> = None; // Simplified for now
 
         // Calculate renewable percentage
         let renewable_percentage = self.calculate_renewable_percentage();
@@ -231,8 +231,8 @@ impl EnvironmentalMonitor {
         let renewable_percentage = self.calculate_renewable_percentage() / 100.0;
 
         // Calculate renewable and non-renewable consumption
-        let renewable_consumption = total_energy_kwh * renewable_percentage;
-        let non_renewable_consumption = total_energy_kwh * (1.0 - renewable_percentage);
+        let _renewable_consumption = total_energy_kwh * renewable_percentage;
+        let _non_renewable_consumption = total_energy_kwh * (1.0 - renewable_percentage);
 
         // Store this reading in history (internal tracking)
         if let Ok(mut energy_history) = self.energy_history.write() {
@@ -586,7 +586,7 @@ impl EnvironmentalMonitor {
     /// Calculate environmental score
     fn calculate_environmental_score(
         &self,
-        energy_data: &crate::api::types::EnergyUsage,
+        _energy_data: &crate::api::types::EnergyUsage,
         carbon_data: &crate::api::types::CarbonFootprint,
     ) -> f64 {
         // Simple scoring algorithm: higher renewable percentage = better score
@@ -612,7 +612,7 @@ impl EnvironmentalMonitor {
     /// Calculate carbon offsets based on emissions data
     fn calculate_carbon_offsets(&self, carbon_data: &crate::api::types::CarbonFootprint) -> f64 {
         // Convert grams to metric tons
-        let emissions_tons = carbon_data.total_emissions_g / 1_000_000.0;
+        let _emissions_tons = carbon_data.total_emissions_g / 1_000_000.0;
 
         // If carbon offset is enabled and we have offsets, calculate total
         if self

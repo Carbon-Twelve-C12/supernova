@@ -12,7 +12,7 @@ use crate::api::types::{
     BlockInfo, BlockchainInfo, BlockchainStats, SubmitTxRequest, TransactionInfo,
     TransactionSubmissionResponse,
 };
-use btclib::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
+use supernova_core::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
 
 /// Configure blockchain routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -454,7 +454,7 @@ pub async fn submit_transaction(
         .map_err(|_| ApiError::bad_request("Invalid transaction format"))?;
 
     // Deserialize the transaction
-    let tx = bincode::deserialize::<btclib::types::transaction::Transaction>(&tx_data)
+    let tx = bincode::deserialize::<supernova_core::types::transaction::Transaction>(&tx_data)
         .map_err(|_| ApiError::bad_request("Invalid transaction format"))?;
 
     let txid = hex::encode(tx.hash());

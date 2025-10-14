@@ -19,7 +19,7 @@ pub use trait_implementations::{
     SerializableUtxoTransaction, WalletConversion,
 };
 
-use btclib::storage::chain_state::{ChainState, ChainStateError};
+use supernova_core::storage::chain_state::{ChainState, ChainStateError};
 
 /// Extension trait for ChainState to provide node-compatible methods
 pub trait ChainStateNodeAdapter {
@@ -210,7 +210,7 @@ pub mod result_converters {
 pub mod error_adapters {
     use crate::api::ApiError;
     use crate::storage::database::StorageError;
-    use btclib::storage::chain_state::ChainStateError;
+    use supernova_core::storage::chain_state::ChainStateError;
     use std::error::Error as StdError;
     use std::fmt;
     use tracing::error;

@@ -1,5 +1,5 @@
-use btclib::testnet::faucet::{Faucet, FaucetError};
-use btclib::testnet::{TestNetConfig, TestNetManager};
+use supernova_core::testnet::faucet::{Faucet, FaucetError};
+use supernova_core::testnet::{TestNetConfig, TestNetManager};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

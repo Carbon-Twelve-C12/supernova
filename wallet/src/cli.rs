@@ -4,7 +4,7 @@ use crate::{
     ui::tui::WalletTui,
 };
 use bitcoin::network::Network;
-use btclib::storage::utxo_set::UtxoSet;
+use supernova_core::storage::utxo_set::UtxoSet;
 use chrono::Utc;
 use clap::{CommandFactory, Parser, Subcommand};
 use std::path::PathBuf;

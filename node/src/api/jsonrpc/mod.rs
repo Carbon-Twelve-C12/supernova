@@ -9,10 +9,7 @@ use actix_web::{web, HttpResponse, Responder, http::header};
 use serde_json::Value;
 use std::sync::Arc;
 use crate::api_facade::ApiFacade;
-use types::{JsonRpcRequest, JsonRpcResponse, JsonRpcError, ErrorCode};
-use crate::api::docs::jsonrpc::JsonRpcDoc;
-use serde::{Deserialize, Serialize};
-use crate::api::error::{ApiError, ApiResult};
+use types::{JsonRpcRequest, JsonRpcResponse, ErrorCode};
 
 /// JSON-RPC request handler
 pub async fn handle_jsonrpc(

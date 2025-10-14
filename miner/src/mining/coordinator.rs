@@ -1,7 +1,7 @@
 use super::reward::EnvironmentalProfile;
 use super::template::{BlockTemplate, MempoolInterface};
 use super::worker::MiningWorker;
-use btclib::types::block::Block;
+use supernova_core::types::block::Block;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -336,7 +336,7 @@ impl MiningWorker {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use btclib::types::transaction::Transaction;
+    use supernova_core::types::transaction::Transaction;
     use std::sync::Arc;
 
     struct MockMempool;

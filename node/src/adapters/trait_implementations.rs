@@ -161,11 +161,11 @@ impl BorrowHelper<[u8]> for [u8; 32] {
 
 /// Wallet conversion trait placeholder
 pub trait WalletConversion {
-    fn to_lightning_wallet(&self) -> Result<btclib::lightning::wallet::LightningWallet, String>;
+    fn to_lightning_wallet(&self) -> Result<supernova_core::lightning::wallet::LightningWallet, String>;
 }
 
 impl WalletConversion for Arc<()> {
-    fn to_lightning_wallet(&self) -> Result<btclib::lightning::wallet::LightningWallet, String> {
+    fn to_lightning_wallet(&self) -> Result<supernova_core::lightning::wallet::LightningWallet, String> {
         // Placeholder implementation - would need actual wallet conversion
         Err("Wallet conversion not implemented".to_string())
     }

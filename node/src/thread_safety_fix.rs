@@ -196,7 +196,7 @@ impl NodeApiFacade {
 
     /// Get mempool statistics
     pub fn get_mempool_stats(&self) -> serde_json::Value {
-        let info = self.mempool.get_info();
+        let _info = self.mempool.get_info();
         let fee_stats = TransactionPoolNodeMethods::get_fee_stats(&*self.mempool);
 
         serde_json::json!({
@@ -251,9 +251,9 @@ impl NodeApiFacade {
     /// Create invoice
     pub fn create_invoice(
         &self,
-        amount_msat: u64,
-        description: &str,
-        expiry_seconds: u32,
+        _amount_msat: u64,
+        _description: &str,
+        _expiry_seconds: u32,
     ) -> Result<String, String> {
         Err("Lightning Network not initialized".to_string())
     }
@@ -268,9 +268,9 @@ impl NodeApiFacade {
     /// Open payment channel (async)
     pub async fn open_payment_channel(
         &self,
-        peer_id: &str,
-        capacity: u64,
-        push_amount: u64,
+        _peer_id: &str,
+        _capacity: u64,
+        _push_amount: u64,
     ) -> Result<String, String> {
         Err("Lightning Network not initialized".to_string())
     }
@@ -278,14 +278,14 @@ impl NodeApiFacade {
     /// Close payment channel (async)
     pub async fn close_payment_channel(
         &self,
-        channel_id: &str,
-        force_close: bool,
+        _channel_id: &str,
+        _force_close: bool,
     ) -> Result<String, String> {
         Err("Lightning Network not initialized".to_string())
     }
 
     /// Pay invoice (async)
-    pub async fn pay_invoice(&self, invoice_str: &str) -> Result<String, String> {
+    pub async fn pay_invoice(&self, _invoice_str: &str) -> Result<String, String> {
         Err("Lightning Network not initialized".to_string())
     }
 

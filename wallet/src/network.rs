@@ -1,4 +1,4 @@
-use btclib::types::Transaction;
+use supernova_core::types::Transaction;
 use tokio::net::TcpStream;
 use std::error::Error;
 use serde::{Serialize, Deserialize};

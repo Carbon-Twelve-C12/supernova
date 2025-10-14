@@ -1,5 +1,5 @@
 use crate::config;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -231,7 +231,7 @@ impl TransactionPrioritizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use btclib::types::transaction::{TransactionInput, TransactionOutput};
+    use supernova_core::types::transaction::{TransactionInput, TransactionOutput};
 
     fn create_test_transaction(prev_hash: [u8; 32], value: u64) -> Transaction {
         Transaction::new(

@@ -220,7 +220,7 @@ impl CheckpointManager {
                 tokio::select! {
                     _ = interval.tick() => {
                         // Check if it's time for a new checkpoint
-                        let current_height = {
+                        let _current_height = {
                             let state = match chain_state.lock() {
                                 Ok(s) => s,
                                 Err(_) => {

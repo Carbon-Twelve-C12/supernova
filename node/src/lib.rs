@@ -55,4 +55,4 @@ pub use crate::storage::{
 pub use crate::testnet::{
     FaucetDistributionResult, FaucetStatus, NodeTestnetManager, TestnetNodeConfig, TestnetStats,
 };
-pub use btclib::validation::{BlockValidator, TransactionValidator};
+pub use supernova_core::validation::{BlockValidator, TransactionValidator};

@@ -1,5 +1,5 @@
 use crate::adapters::{
-    BlockNodeMethods, ChainStateNodeMethods, ResultNodeMethods, TransactionPoolNodeMethods,
+    TransactionPoolNodeMethods,
 };
 use crate::api::types::{LoadAverage, LogEntry, NodeInfo, NodeMetrics, SystemInfo, VersionInfo};
 use crate::api::ApiConfig;
@@ -12,16 +12,15 @@ use crate::storage::{
 };
 use crate::testnet::NodeTestnetManager;
 use crate::testnet::TestnetNodeConfig;
-use btclib::crypto::quantum::QuantumScheme;
-use btclib::lightning::manager::{LightningEvent, LightningManager};
-use btclib::lightning::wallet::LightningWallet;
-use btclib::lightning::LightningConfig;
-use btclib::types::block::Block;
-use btclib::types::transaction::Transaction;
+use supernova_core::crypto::quantum::QuantumScheme;
+use supernova_core::lightning::manager::{LightningEvent, LightningManager};
+use supernova_core::lightning::wallet::LightningWallet;
+use supernova_core::lightning::LightningConfig;
+use supernova_core::types::block::Block;
+use supernova_core::types::transaction::Transaction;
 use hex;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -71,14 +70,14 @@ impl From<Box<dyn std::error::Error>> for NodeError {
     }
 }
 
-impl From<btclib::lightning::LightningError> for NodeError {
-    fn from(err: btclib::lightning::LightningError) -> Self {
+impl From<supernova_core::lightning::LightningError> for NodeError {
+    fn from(err: supernova_core::lightning::LightningError) -> Self {
         NodeError::General(format!("Lightning error: {:?}", err))
     }
 }
 
-impl From<btclib::lightning::wallet::WalletError> for NodeError {
-    fn from(err: btclib::lightning::wallet::WalletError) -> Self {
+impl From<supernova_core::lightning::wallet::WalletError> for NodeError {
+    fn from(err: supernova_core::lightning::wallet::WalletError) -> Self {
         NodeError::LightningError(err.to_string())
     }
 }
@@ -208,7 +207,7 @@ impl Node {
             .read()
             .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?
             .get_genesis_hash();
-        let (mut network, command_tx, mut event_rx) =
+        let (mut network, command_tx, event_rx) =
             P2PNetwork::new(
                 Some(keypair), 
                 genesis_hash, 
@@ -775,7 +774,7 @@ impl Node {
     }
 
     /// Get metrics
-    pub fn get_metrics(&self, period: u64) -> Result<NodeMetrics, NodeError> {
+    pub fn get_metrics(&self, _period: u64) -> Result<NodeMetrics, NodeError> {
         use sysinfo::{Disks, System};
         let mut sys = System::new_all();
         sys.refresh_all();
@@ -870,7 +869,7 @@ impl Node {
         &self,
         destination: Option<&str>,
         include_wallet: bool,
-        encrypt: bool,
+        _encrypt: bool,
     ) -> Result<crate::api::types::BackupInfo, NodeError> {
         use crate::storage::backup::BackupManager;
         use std::time::Duration;

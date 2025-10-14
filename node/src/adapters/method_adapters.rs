@@ -5,8 +5,8 @@
 
 use crate::mempool::pool::TransactionPool;
 use crate::storage::database::StorageError;
-use btclib::storage::chain_state::ChainState;
-use btclib::types::block::Block;
+use supernova_core::storage::chain_state::ChainState;
+use supernova_core::types::block::Block;
 use std::sync::Arc;
 
 /// Extension trait for ChainState to provide all missing node-compatible methods

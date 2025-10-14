@@ -1,6 +1,6 @@
 use super::database::{BlockchainDB, StorageError};
 use crate::metrics::BackupMetrics;
-use btclib::storage::chain_state::ChainState;
+use supernova_core::storage::chain_state::ChainState;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -715,8 +715,8 @@ impl RecoveryManager {
         // 3. Validate chain from genesis to checkpoint
 
         // For now, we just recreate the chain state with default config
-        let config = btclib::storage::chain_state::ChainStateConfig::default();
-        let utxo_set = Arc::new(btclib::storage::utxo_set::UtxoSet::new_in_memory(10000));
+        let config = supernova_core::storage::chain_state::ChainStateConfig::default();
+        let utxo_set = Arc::new(supernova_core::storage::utxo_set::UtxoSet::new_in_memory(10000));
         self.chain_state = ChainState::new(config, utxo_set);
 
         info!("State rebuilt successfully from checkpoint");
@@ -732,8 +732,8 @@ impl RecoveryManager {
         self.db.clear()?;
 
         // Initialize a fresh chain state
-        let config = btclib::storage::chain_state::ChainStateConfig::default();
-        let utxo_set = Arc::new(btclib::storage::utxo_set::UtxoSet::new_in_memory(10000));
+        let config = supernova_core::storage::chain_state::ChainStateConfig::default();
+        let utxo_set = Arc::new(supernova_core::storage::utxo_set::UtxoSet::new_in_memory(10000));
         self.chain_state = ChainState::new(config, utxo_set);
 
         info!("Database rebuilt from genesis");

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use sha2::Digest;
 use std::sync::Arc;
 use tracing::{debug, error};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::IntoParams;
 
 /// Configure wallet API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -21,7 +21,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 /// Parameters for wallet info request
 #[derive(Debug, Deserialize, IntoParams)]
-struct WalletInfoParams {
+pub struct WalletInfoParams {
     /// Wallet ID to query (if multiple wallets supported)
     wallet_id: Option<String>,
 }
@@ -43,7 +43,7 @@ struct WalletInfoParams {
     )
 )]
 pub async fn get_wallet_info(
-    node: web::Data<Arc<Node>>,
+    _node: web::Data<Arc<Node>>,
     query: web::Query<WalletInfoParams>,
 ) -> ApiResult<impl Responder> {
     debug!("Get wallet info: {:?}", query);
@@ -68,7 +68,7 @@ pub async fn get_wallet_info(
 
 /// Parameters for balance query
 #[derive(Debug, Deserialize, IntoParams)]
-struct BalanceParams {
+pub struct BalanceParams {
     /// Minimum confirmations to include in balance
     min_conf: Option<u32>,
 
@@ -93,13 +93,13 @@ struct BalanceParams {
     )
 )]
 pub async fn get_wallet_balance(
-    node: web::Data<Arc<Node>>,
+    _node: web::Data<Arc<Node>>,
     query: web::Query<BalanceParams>,
 ) -> ApiResult<impl Responder> {
     debug!("Get wallet balance: {:?}", query);
 
-    let min_conf = query.min_conf.unwrap_or(1);
-    let include_watchonly = query.include_watchonly.unwrap_or(false);
+    let _min_conf = query.min_conf.unwrap_or(1);
+    let _include_watchonly = query.include_watchonly.unwrap_or(false);
 
     // Since wallet is not fully integrated, return mock data
     // In production, this would calculate actual balances from UTXOs

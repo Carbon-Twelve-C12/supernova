@@ -1,8 +1,7 @@
-use btclib::types::block::{Block, BlockHeader};
-use btclib::types::transaction::Transaction;
+use supernova_core::types::block::{Block, BlockHeader};
+use supernova_core::types::transaction::Transaction;
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use sled::{self, Db, IVec};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -1266,7 +1265,7 @@ impl BlockchainDB {
         &self,
         tx_hash: &[u8; 32],
         index: u32,
-    ) -> Result<Option<btclib::types::transaction::TransactionOutput>, StorageError> {
+    ) -> Result<Option<supernova_core::types::transaction::TransactionOutput>, StorageError> {
         let key = create_utxo_key(tx_hash, index);
         match self.utxos.get(key)? {
             Some(data) => {
@@ -2108,7 +2107,7 @@ impl BlockchainDB {
         let utxo_budget = (total_budget_bytes as f64 * 0.4) as usize;
         let blocks_budget = (total_budget_bytes as f64 * 0.2) as usize;
         let tx_budget = (total_budget_bytes as f64 * 0.25) as usize;
-        let others_budget = total_budget_bytes - utxo_budget - blocks_budget - tx_budget;
+        let _others_budget = total_budget_bytes - utxo_budget - blocks_budget - tx_budget;
 
         // Update bloom filter capacities based on available memory
         if self.config.use_bloom_filters {

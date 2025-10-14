@@ -5,8 +5,8 @@
 
 use crate::mempool::error::{MempoolError, MempoolResult};
 use bincode;
-use btclib::hash::Hash256;
-use btclib::types::transaction::Transaction;
+use supernova_core::hash::Hash256;
+use supernova_core::types::transaction::Transaction;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -103,7 +103,7 @@ impl MEVProtection {
     /// Submit a transaction commitment (phase 1 of commit-reveal)
     pub async fn submit_commitment(
         &self,
-        tx_hash: Hash256,
+        _tx_hash: Hash256,
         declared_fee: u64,
         commitment: Hash256,
         sender_id: Option<Vec<u8>>,

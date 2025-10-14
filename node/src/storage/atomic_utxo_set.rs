@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 

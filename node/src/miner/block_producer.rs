@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::mempool::TransactionPool;
 use crate::storage::ChainState;
-use btclib::types::{Block, BlockHeader, Transaction};
+use supernova_core::types::{Block, BlockHeader, Transaction};
 use sha2::{Digest, Sha256};
 
 pub struct BlockProducer {

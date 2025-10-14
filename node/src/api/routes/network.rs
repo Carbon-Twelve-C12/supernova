@@ -9,7 +9,7 @@ use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use serde_json;
 use std::sync::Arc;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::IntoParams;
 
 /// Configure network API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -81,7 +81,7 @@ pub async fn get_connection_count(
 ///
 /// Returns information about all peers currently connected to the node.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetPeersParams {
+pub struct GetPeersParams {
     /// Optional connection state filter
     connection_state: Option<String>,
 
@@ -108,7 +108,7 @@ pub async fn get_peers(
 ) -> Result<HttpResponse, actix_web::Error> {
     let network = node.network();
     let connection_state = params.connection_state.clone();
-    let verbose = params.verbose.unwrap_or(false);
+    let _verbose = params.verbose.unwrap_or(false);
 
     match network.get_peers().await {
         Ok(mut peers) => {
@@ -238,7 +238,7 @@ pub async fn remove_peer(
 ///
 /// Returns information about the node's bandwidth usage.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetBandwidthParams {
+pub struct GetBandwidthParams {
     /// Time period in seconds (default: 3600)
     #[param(default = "3600")]
     period: Option<u64>,

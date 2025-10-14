@@ -1,4 +1,4 @@
-use btclib::testnet::faucet::{Faucet as BtclibFaucet, FaucetError};
+use supernova_core::testnet::faucet::{Faucet as BtclibFaucet, FaucetError};
 use chrono::{DateTime, Utc};
 use std::sync::{Arc, Mutex};
 

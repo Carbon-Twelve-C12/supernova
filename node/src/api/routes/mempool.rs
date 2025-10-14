@@ -62,7 +62,7 @@ pub async fn get_mempool_info(
 ///
 /// Returns a list of transactions currently in the mempool.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetMempoolTransactionsParams {
+pub struct GetMempoolTransactionsParams {
     /// Maximum number of transactions to retrieve (default: 100)
     #[param(default = "100")]
     limit: Option<u32>,
@@ -170,7 +170,7 @@ pub async fn submit_transaction(
     };
 
     // Deserialize the transaction
-    let tx = match bincode::deserialize::<btclib::types::transaction::Transaction>(&tx_data) {
+    let tx = match bincode::deserialize::<supernova_core::types::transaction::Transaction>(&tx_data) {
         Ok(tx) => tx,
         Err(_) => {
             return Ok(HttpResponse::BadRequest()
@@ -266,7 +266,7 @@ struct EstimateFeeParams {
 ///
 /// Returns current fee estimates for different confirmation targets.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetFeeEstimatesParams {
+pub struct GetFeeEstimatesParams {
     /// Target number of blocks for confirmation (default: 6)
     #[param(default = "6")]
     target_blocks: Option<u32>,

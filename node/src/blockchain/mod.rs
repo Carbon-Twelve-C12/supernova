@@ -1,4 +1,4 @@
-use btclib::types::{Block, BlockHeader, Transaction, TransactionInput, TransactionOutput};
+use supernova_core::types::{Block, BlockHeader, Transaction, TransactionInput, TransactionOutput};
 use chrono::Utc;
 
 /// Create the genesis block for a given chain ID

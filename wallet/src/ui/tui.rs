@@ -19,7 +19,7 @@ use crate::{
     hdwallet::{AccountType, HDAddress, HDWallet},
     history::{TransactionDirection, TransactionHistory, TransactionStatus},
 };
-use btclib::storage::utxo_set::UtxoSet;
+use supernova_core::storage::utxo_set::UtxoSet;
 
 #[derive(Debug)]
 pub enum InputMode {

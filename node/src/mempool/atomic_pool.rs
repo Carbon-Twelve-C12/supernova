@@ -6,7 +6,7 @@
 use crate::api::types::MempoolInfo;
 use crate::mempool::pool::MempoolConfig;
 use crate::mempool::MempoolError;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 use dashmap::DashMap;
 use hex;
 use parking_lot::Mutex as PMutex;
@@ -446,7 +446,7 @@ impl AtomicTransactionPool {
             0
         };
 
-        let metrics = match self.metrics.read() {
+        let _metrics = match self.metrics.read() {
             Ok(m) => m,
             Err(e) => {
                 tracing::error!("Failed to acquire metrics lock for info: {}", e);
@@ -512,7 +512,7 @@ impl AtomicTransactionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use btclib::types::transaction::{TransactionInput, TransactionOutput};
+    use supernova_core::types::transaction::{TransactionInput, TransactionOutput};
     use std::sync::Arc;
     use std::thread;
 

@@ -4,7 +4,7 @@ use bitcoin::{
     secp256k1::{Secp256k1, SecretKey},
     Address, PrivateKey,
 };
-use btclib::storage::utxo_set::UtxoSet;
+use supernova_core::storage::utxo_set::UtxoSet;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};

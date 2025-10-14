@@ -1,7 +1,7 @@
 use super::reward::{calculate_mining_reward, EnvironmentalProfile};
 use async_trait::async_trait;
-use btclib::types::block::Block;
-use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+use supernova_core::types::block::Block;
+use supernova_core::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 

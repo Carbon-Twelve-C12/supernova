@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Core blockchain dependencies
-btclib = { path = "../btclib", features = ["lightning"] }
+supernova-core = { path = "../supernova-core", features = ["lightning"] }
 
 # Quantum-resistant cryptography
 pqcrypto-dilithium = "0.5"

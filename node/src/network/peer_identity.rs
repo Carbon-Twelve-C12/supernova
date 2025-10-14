@@ -2,7 +2,7 @@
 // Ensures nodes maintain stable peer IDs across restarts
 
 use libp2p::identity::Keypair;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use thiserror::Error;
 use tracing::{info, warn};
 

@@ -1,7 +1,7 @@
 // Simple CPU Miner for Testing
 // Finds valid proof-of-work for block templates
 
-use btclib::types::block::Block;
+use supernova_core::types::block::Block;
 
 /// Mine a block using simple CPU mining
 /// Returns block with valid nonce when proof-of-work is found

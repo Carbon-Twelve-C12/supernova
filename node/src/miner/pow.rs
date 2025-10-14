@@ -3,7 +3,7 @@
 //! This module contains the logic for performing the proof-of-work computation
 //! to find a valid block hash.
 
-use btclib::types::Block;
+use supernova_core::types::Block;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 

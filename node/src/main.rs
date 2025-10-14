@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Show animation if requested
     if args.with_animation {
-        if let Err(e) = btclib::util::ascii_art::testnet_startup_animation() {
+        if let Err(e) = supernova_core::util::ascii_art::testnet_startup_animation() {
             eprintln!("Failed to display startup animation: {}", e);
         }
     }
@@ -72,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if is_testnet {
         info!("Starting Supernova Testnet node...");
         if !args.with_animation {
-            if let Err(e) = btclib::util::ascii_art::display_logo() {
+            if let Err(e) = supernova_core::util::ascii_art::display_logo() {
                 eprintln!("Failed to display logo: {}", e);
             }
         }

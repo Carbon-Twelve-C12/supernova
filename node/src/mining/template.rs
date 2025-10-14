@@ -1,8 +1,8 @@
 // Block Template Generation for Mining
 // Assembles transactions from mempool into minable block template
 
-use btclib::types::block::Block;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::block::Block;
+use supernova_core::types::transaction::Transaction;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;

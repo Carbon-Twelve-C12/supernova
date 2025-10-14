@@ -1,5 +1,4 @@
 use bincode;
-use futures::prelude::*;
 use libp2p::{
     gossipsub::{self, ConfigBuilder, IdentTopic, MessageAuthenticity, MessageId, ValidationMode},
     identity::Keypair,
@@ -80,7 +79,7 @@ pub struct LightningMessage {
 }
 
 // Import types from btclib
-use btclib::types::{block::Block, transaction::Transaction};
+use supernova_core::types::{block::Block, transaction::Transaction};
 
 /// Protocol message wrapper for network communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -321,7 +320,7 @@ impl Protocol {
     pub fn announce_transaction(
         &mut self,
         tx_data: &[u8],
-        fee_rate: u64,
+        _fee_rate: u64,
     ) -> Result<MessageId, PublishError> {
         // First try using the transaction itself
         let message = Message::Transaction {
@@ -516,10 +515,10 @@ impl Protocol {
     /// Handle a message with quantum signature verification
     pub fn handle_message_with_quantum_verification(
         &self,
-        peer_id: &PeerId,
-        message: &Message,
-        signature: &[u8],
-        public_key: &[u8],
+        _peer_id: &PeerId,
+        _message: &Message,
+        _signature: &[u8],
+        _public_key: &[u8],
         signature_type: &str,
     ) -> Result<bool, ProtocolError> {
         // In a full implementation, this would use the btclib quantum signature verification
@@ -531,7 +530,7 @@ impl Protocol {
         match signature_type {
             "Dilithium" => {
                 // Use Dilithium verification
-                // Would use btclib::crypto::quantum::verify_quantum_signature
+                // Would use supernova_core::crypto::quantum::verify_quantum_signature
                 Ok(true)
             }
             "Falcon" => {

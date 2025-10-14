@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 use dashmap::DashMap;
 use memmap2::{MmapMut, MmapOptions};
 use serde::{Deserialize, Serialize};

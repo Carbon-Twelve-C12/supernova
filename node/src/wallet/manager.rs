@@ -8,11 +8,11 @@ use anyhow::Result;
 use rpassword::read_password;
 
 use crate::config::WalletConfig;
-use btclib::wallet::quantum_wallet::{QuantumWallet, QuantumAddress, WalletError};
-use btclib::types::{Transaction, TransactionInput, TransactionOutput};
-use btclib::types::address::Address;
-use btclib::types::utxo::{UtxoSet, UtxoEntry};
-use btclib::types::chain_state::ChainState;
+use supernova_core::wallet::quantum_wallet::{QuantumWallet, QuantumAddress, WalletError};
+use supernova_core::types::{Transaction, TransactionInput, TransactionOutput};
+use supernova_core::types::address::Address;
+use supernova_core::types::utxo::{UtxoSet, UtxoEntry};
+use supernova_core::types::chain_state::ChainState;
 
 pub struct WalletManager {
     wallet: Arc<RwLock<QuantumWallet>>,
@@ -34,7 +34,7 @@ impl WalletManager {
             println!("*** IMPORTANT *** Please write down this mnemonic phrase and keep it safe:");
             println!("\n{}\n", mnemonic);
 
-            let wallet = QuantumWallet::from_mnemonic(&mnemonic, &password, "testnet", btclib::crypto::quantum::QuantumScheme::Dilithium, 3)?;
+            let wallet = QuantumWallet::from_mnemonic(&mnemonic, &password, "testnet", supernova_core::crypto::quantum::QuantumScheme::Dilithium, 3)?;
             let encrypted_wallet = wallet.export_encrypted(&password)?;
             std::fs::write(&wallet_path, encrypted_wallet)?;
             println!("Wallet created and saved to: {:?}", wallet_path);

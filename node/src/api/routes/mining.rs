@@ -4,7 +4,7 @@ use crate::api::types::{
     SubmitBlockResponse,
 };
 use actix_web::{web, HttpResponse};
-use btclib::mining::manager::MiningManager;
+use supernova_core::mining::manager::MiningManager;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
@@ -39,7 +39,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 pub async fn get_mining_info(mining: web::Data<Arc<MiningManager>>) -> ApiResult<MiningInfo> {
     match mining.get_mining_info() {
         Ok(btclib_info) => {
-            // Convert btclib::mining::MiningInfo to api::types::MiningInfo
+            // Convert supernova_core::mining::MiningInfo to api::types::MiningInfo
             let api_info = MiningInfo {
                 is_mining: btclib_info.is_mining,
                 mining_threads: btclib_info.mining_threads,
@@ -118,7 +118,7 @@ pub async fn get_mining_info(mining: web::Data<Arc<MiningManager>>) -> ApiResult
 ///
 /// Returns data needed to construct a block for mining.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetMiningTemplateParams {
+pub struct GetMiningTemplateParams {
     /// Comma-separated list of capabilities (default: "standard")
     #[param(default = "standard")]
     capabilities: Option<String>,
@@ -414,7 +414,7 @@ pub async fn update_mining_config(
     mining: web::Data<Arc<MiningManager>>,
 ) -> ApiResult<MiningConfiguration> {
     // Convert API MiningConfiguration to btclib MiningConfiguration
-    let btclib_config = btclib::mining::manager::MiningConfiguration {
+    let btclib_config = supernova_core::mining::manager::MiningConfiguration {
         threads: request.threads,
         intensity: request.intensity,
         target_temperature: request.target_temperature,

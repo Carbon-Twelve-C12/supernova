@@ -4,7 +4,7 @@ use crate::environmental::EnvironmentalMonitor;
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use std::sync::Arc;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::IntoParams;
 
 /// Configure environmental API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -23,7 +23,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 ///
 /// Returns comprehensive data about the node's environmental impact.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetEnvironmentalImpactParams {
+pub struct GetEnvironmentalImpactParams {
     /// Time period in seconds for which to retrieve data (default: 86400 - 1 day)
     #[param(default = "86400")]
     period: Option<u64>,
@@ -65,7 +65,7 @@ pub async fn get_environmental_impact(
 ///
 /// Returns detailed information about the node's energy consumption.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetEnergyUsageParams {
+pub struct GetEnergyUsageParams {
     /// Time period in seconds for which to retrieve data (default: 3600 - 1 hour)
     #[param(default = "3600")]
     period: Option<u64>,
@@ -107,7 +107,7 @@ pub async fn get_energy_usage(
 ///
 /// Returns information about the node's carbon emissions.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetCarbonFootprintParams {
+pub struct GetCarbonFootprintParams {
     /// Time period in seconds for which to retrieve data (default: 86400 - 1 day)
     #[param(default = "86400")]
     period: Option<u64>,
@@ -149,7 +149,7 @@ pub async fn get_carbon_footprint(
 ///
 /// Returns CPU, memory, and storage utilization data.
 #[derive(Debug, Deserialize, IntoParams)]
-struct ResourceUtilizationParams {
+pub struct ResourceUtilizationParams {
     /// Time period in seconds for which to retrieve data (default: 3600 - 1 hour)
     #[param(default = "3600")]
     period: Option<u64>,

@@ -1,6 +1,6 @@
 use super::database::{BlockchainDB, StorageError};
-use btclib::types::block::Block;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::block::Block;
+use supernova_core::types::transaction::Transaction;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -612,7 +612,7 @@ impl ChainState {
             .duration_since(self.last_reorg_time)
             .map_err(|e| StorageError::DatabaseError(e.to_string()))?;
 
-        let reorg_event = ReorganizationEvent {
+        let _reorg_event = ReorganizationEvent {
             old_tip,
             new_tip: new_tip.hash(),
             fork_point: fork_point.hash(),
@@ -876,7 +876,7 @@ impl ChainState {
     }
 
     // Helper method to get timestamp from block header
-    fn header_timestamp(&self, block: &Block) -> u64 {
+    fn header_timestamp(&self, _block: &Block) -> u64 {
         // In a real implementation, this would access the timestamp directly
         // Here we're using a default value of current time - 1 hour
         SystemTime::now()

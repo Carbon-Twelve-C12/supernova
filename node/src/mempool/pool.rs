@@ -3,7 +3,7 @@ use crate::api::types::{
 };
 use crate::config;
 use crate::mempool::error::MempoolError;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 use dashmap::DashMap;
 use hex;
 use std::time::{Duration, SystemTime};
@@ -236,7 +236,7 @@ impl TransactionPool {
         }
 
         // Calculate the total fee of the conflicting transactions
-        let total_conflicting_size: usize =
+        let _total_conflicting_size: usize =
             conflicting_txs.iter().map(|(_, entry)| entry.size).sum();
         let total_conflicting_fee: u64 = conflicting_txs
             .iter()
@@ -265,7 +265,7 @@ impl TransactionPool {
 
         // Remove all conflicting transactions
         let mut removed_txs = Vec::new();
-        for (hash, entry) in conflicting_txs {
+        for (hash, _entry) in conflicting_txs {
             if let Some((_, entry)) = self.transactions.remove(&hash) {
                 removed_txs.push(entry.transaction);
             }
@@ -459,7 +459,7 @@ impl TransactionPool {
         let tx_hash = transaction.hash();
 
         // Calculate a basic fee rate (this is simplified)
-        let tx_size = raw_tx.len();
+        let _tx_size = raw_tx.len();
         let fee_rate = self.config.min_fee_rate; // Simplified fee calculation
 
         // Check for high fees if not allowed
@@ -590,7 +590,7 @@ impl TransactionPool {
     /// Get all transactions for a given block
     pub fn get_transactions_for_block(
         &self,
-        block: &btclib::types::block::Block,
+        block: &supernova_core::types::block::Block,
     ) -> Vec<Transaction> {
         let mut transactions = Vec::new();
         for tx in block.transactions() {
@@ -635,7 +635,7 @@ impl TransactionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use btclib::types::transaction::{TransactionInput, TransactionOutput};
+    use supernova_core::types::transaction::{TransactionInput, TransactionOutput};
 
     fn create_test_transaction(prev_hash: [u8; 32], value: u64) -> Transaction {
         Transaction::new(

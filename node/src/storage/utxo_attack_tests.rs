@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod tests {
     use crate::storage::{AtomicUtxoSet, OutPoint, UnspentOutput};
-    use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+    use supernova_core::types::transaction::{Transaction, TransactionInput, TransactionOutput};
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;

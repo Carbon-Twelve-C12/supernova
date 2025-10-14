@@ -1,7 +1,7 @@
 // Coinbase Transaction Construction for Supernova Mining
 // Handles block rewards, environmental treasury allocation, and quantum signatures
 
-use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+use supernova_core::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use thiserror::Error;
 use wallet::quantum_wallet::Address;
 

@@ -53,7 +53,7 @@ impl From<IdentifyEvent> for SupernovaBehaviourEvent {
 
 impl SupernovaBehaviour {
     pub fn new(
-        local_peer_id: PeerId,
+        _local_peer_id: PeerId,
         gossipsub: Gossipsub,
         kademlia: Kademlia<MemoryStore>,
         mdns: Mdns,

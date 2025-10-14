@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod mempool_race_tests {
     use crate::mempool::{TransactionPool, SecureTransactionPool, MempoolConfig, MempoolError};
-    use btclib::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+    use supernova_core::types::transaction::{Transaction, TransactionInput, TransactionOutput};
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;

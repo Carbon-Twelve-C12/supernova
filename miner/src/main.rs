@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 use miner::mining::Miner;
 use std::sync::Arc;
 use tracing::info;

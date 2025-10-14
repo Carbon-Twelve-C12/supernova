@@ -1,4 +1,4 @@
-use btclib::util::ascii_art;
+use supernova_core::util::ascii_art;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]

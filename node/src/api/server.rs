@@ -169,10 +169,10 @@ impl ApiServer {
                 .wrap(middleware::Compress::default())
                 .wrap(
                     middleware::DefaultHeaders::new()
-                        .header("X-Version", "1.0")
-                        .header("X-Frame-Options", "DENY")
-                        .header("X-Content-Type-Options", "nosniff")
-                        .header("X-XSS-Protection", "1; mode=block"),
+                        .add(("X-Version", "1.0"))
+                        .add(("X-Frame-Options", "DENY"))
+                        .add(("X-Content-Type-Options", "nosniff"))
+                        .add(("X-XSS-Protection", "1; mode=block")),
                 )
                 .wrap(middleware::NormalizePath::new(
                     middleware::TrailingSlash::Trim,

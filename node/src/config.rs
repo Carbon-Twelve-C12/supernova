@@ -359,7 +359,7 @@ impl NodeConfig {
                 .try_parsing(true),
         );
 
-        let mut config: NodeConfig = config.build()?.try_deserialize()?;
+        let config: NodeConfig = config.build()?.try_deserialize()?;
         Self::ensure_directories(&config)?;
 
         // Log loaded configuration for debugging

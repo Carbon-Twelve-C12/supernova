@@ -94,6 +94,8 @@ impl Default for Script {
 }
 
 /// Script opcodes
+/// Using Bitcoin's original OP_X naming convention for clarity and compatibility
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum OpCode {

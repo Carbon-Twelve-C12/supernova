@@ -5,15 +5,15 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use wallet::quantum_wallet::{
-    Address, Keystore, UtxoIndex, WalletStorage, TransactionBuilder, BuilderConfig,
-    Utxo, CoinSelectionStrategy,
+    Keystore, UtxoIndex, WalletStorage,
+    Utxo,
 };
 
 use crate::storage::BlockchainDB;
 use crate::storage::ChainState;
 use crate::mempool::TransactionPool;
 use crate::network::NetworkProxy;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 
 #[derive(Error, Debug)]
 pub enum WalletManagerError {
@@ -194,7 +194,7 @@ impl WalletManager {
     }
     
     /// Scan a block for transactions relevant to wallet
-    pub fn scan_block(&self, block: &btclib::types::block::Block) -> Result<(), WalletManagerError> {
+    pub fn scan_block(&self, block: &supernova_core::types::block::Block) -> Result<(), WalletManagerError> {
         // Get all wallet addresses
         let addresses = self.keystore.list_addresses()
             .map_err(|e| WalletManagerError::KeystoreError(e.to_string()))?;
@@ -224,7 +224,7 @@ impl WalletManager {
     /// Scan a single transaction for wallet-relevant outputs
     fn scan_transaction(
         &self,
-        tx: &btclib::types::transaction::Transaction,
+        tx: &supernova_core::types::transaction::Transaction,
         block_height: u64,
         wallet_addresses: &[String],
     ) -> Result<(), WalletManagerError> {

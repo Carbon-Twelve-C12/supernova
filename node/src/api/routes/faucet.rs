@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 
 use crate::api::error::ApiError;
 use crate::node::Node;
-use btclib::testnet::faucet::FaucetError;
+use supernova_core::testnet::faucet::FaucetError;
 
 /// Faucet status response
 #[derive(Debug, Serialize, ToSchema)]

@@ -4,7 +4,7 @@ use crate::node::Node;
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use std::sync::Arc;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::IntoParams;
 
 /// Configure lightning API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -66,7 +66,7 @@ pub async fn get_lightning_info(node: web::Data<Arc<Node>>) -> ApiResult<HttpRes
 ///
 /// Returns information about the node's active Lightning Network channels.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetChannelsParams {
+pub struct GetChannelsParams {
     /// Whether to include inactive channels (default: false)
     #[param(default = "false")]
     include_inactive: Option<bool>,
@@ -237,7 +237,7 @@ pub async fn close_channel(
 ///
 /// Returns information about the node's Lightning Network payments.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetPaymentsParams {
+pub struct GetPaymentsParams {
     /// Optional payment index to start from
     index_offset: Option<u64>,
 
@@ -331,7 +331,7 @@ pub async fn send_payment(
 ///
 /// Returns information about the node's Lightning Network invoices.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetInvoicesParams {
+pub struct GetInvoicesParams {
     /// Whether to include pending invoices (default: true)
     #[param(default = "true")]
     pending_only: Option<bool>,
@@ -422,7 +422,7 @@ pub async fn create_invoice(
 ///
 /// Returns information about nodes in the Lightning Network.
 #[derive(Debug, Deserialize, IntoParams)]
-struct GetNetworkNodesParams {
+pub struct GetNetworkNodesParams {
     /// Optional limit for the number of nodes to return (default: 100)
     #[param(default = "100")]
     limit: Option<u32>,
@@ -502,7 +502,7 @@ pub async fn get_node_info(
 ///
 /// Finds a route to send a payment to a destination node.
 #[derive(Debug, Deserialize, IntoParams)]
-struct FindRouteParams {
+pub struct FindRouteParams {
     /// Destination node ID (public key)
     pub_key: String,
 

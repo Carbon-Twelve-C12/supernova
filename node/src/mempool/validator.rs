@@ -1,7 +1,7 @@
 //! Transaction validation for mempool
 
 use crate::mempool::error::{MempoolError, MempoolResult};
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 
 /// Transaction validator for mempool
 pub struct TransactionValidator {

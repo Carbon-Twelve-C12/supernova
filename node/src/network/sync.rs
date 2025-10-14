@@ -3,11 +3,10 @@ use crate::network::NetworkCommand;
 use crate::storage::persistence::{ForkInfo, ReorganizationEvent};
 use crate::storage::{BlockchainDB, ChainState, StorageError};
 use async_trait::async_trait;
-use btclib::types::block::{Block, BlockHeader};
+use supernova_core::types::block::{Block, BlockHeader};
 use dashmap::DashMap;
 use libp2p::PeerId;
 use serde;
-use sha2::Digest;
 use std::clone::Clone;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
@@ -1196,7 +1195,7 @@ impl ChainSync {
     async fn process_single_block(&mut self, block: Block) -> Result<(), String> {
         let block_hash = block.hash();
         let current_height = self.chain_state.get_height();
-        let current_hash = self.chain_state.get_best_block_hash();
+        let _current_hash = self.chain_state.get_best_block_hash();
 
         debug!(
             "Processing single block {} at height {}",
@@ -1797,7 +1796,7 @@ impl ChainSync {
 
         // Update peers that provided blocks on the winning fork
         for mut peer_entry in self.peer_data.iter_mut() {
-            let peer_id = *peer_entry.key();
+            let _peer_id = *peer_entry.key();
             let peer_data = peer_entry.value_mut();
 
             // Check if this peer was ahead on the winning fork

@@ -18,7 +18,7 @@ impl MetricsRegistry {
     }
 
     /// Create a metrics registry with custom configuration
-    pub fn with_config(config: MetricsConfig) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn with_config(_config: MetricsConfig) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             prometheus_handle: None,
         })

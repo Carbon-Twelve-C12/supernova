@@ -446,7 +446,7 @@ impl NetworkProxy {
     }
 
     /// Broadcast a transaction
-    pub fn broadcast_transaction(&self, tx: &btclib::types::transaction::Transaction) {
+    pub fn broadcast_transaction(&self, tx: &supernova_core::types::transaction::Transaction) {
         let tx = tx.clone();
         let command_tx = self.command_tx.clone();
 
@@ -462,7 +462,7 @@ impl NetworkProxy {
     }
 
     /// Broadcast a block
-    pub fn broadcast_block(&self, block: &btclib::types::block::Block) {
+    pub fn broadcast_block(&self, block: &supernova_core::types::block::Block) {
         let block = block.clone();
         let command_tx = self.command_tx.clone();
         let block_hash = block.hash();

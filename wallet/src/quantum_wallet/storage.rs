@@ -295,7 +295,7 @@ impl WalletStorage {
     }
     
     /// Store transaction
-    pub fn store_transaction(&self, txid: &[u8; 32], transaction: &btclib::types::transaction::Transaction) -> Result<(), StorageError> {
+    pub fn store_transaction(&self, txid: &[u8; 32], transaction: &supernova_core::types::transaction::Transaction) -> Result<(), StorageError> {
         let key = format!("tx_{}", hex::encode(txid));
         
         self.db.insert(
@@ -308,7 +308,7 @@ impl WalletStorage {
     }
     
     /// Load transaction
-    pub fn load_transaction(&self, txid: &[u8; 32]) -> Result<btclib::types::transaction::Transaction, StorageError> {
+    pub fn load_transaction(&self, txid: &[u8; 32]) -> Result<supernova_core::types::transaction::Transaction, StorageError> {
         let key = format!("tx_{}", hex::encode(txid));
         
         let bytes = self.db.get(key.as_bytes())

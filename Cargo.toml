@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "btclib",
+    "supernova-core",
     "node",
     "cli",
     "miner",

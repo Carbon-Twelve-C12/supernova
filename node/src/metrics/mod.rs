@@ -235,14 +235,14 @@ impl ApiMetricsManager {
     }
 
     /// Record a successful request
-    pub fn record_success(&self, endpoint: &str, response_time: Duration) {
+    pub fn record_success(&self, _endpoint: &str, response_time: Duration) {
         if let Ok(metrics) = self.metrics.lock() {
             metrics.record_success(response_time);
         }
     }
 
     /// Record a failed request
-    pub fn record_failure(&self, endpoint: &str, response_time: Duration) {
+    pub fn record_failure(&self, _endpoint: &str, response_time: Duration) {
         if let Ok(metrics) = self.metrics.lock() {
             metrics.record_failure(response_time);
         }

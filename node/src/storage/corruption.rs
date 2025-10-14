@@ -1,6 +1,6 @@
 use super::database::{BlockchainDB, StorageError};
-use btclib::types::block::{Block, BlockHeader};
-use btclib::types::transaction::Transaction;
+use supernova_core::types::block::{Block, BlockHeader};
+use supernova_core::types::transaction::Transaction;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sled::{IVec, Tree};

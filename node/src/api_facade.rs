@@ -9,7 +9,7 @@ use crate::network::NetworkProxy;
 use crate::node::{Node, NodeError};
 use crate::storage::{BlockchainDB, ChainState};
 use crate::wallet_manager::WalletManager;
-use btclib::types::transaction::Transaction;
+use supernova_core::types::transaction::Transaction;
 use std::sync::Arc;
 use std::sync::RwLock as StdRwLock;
 use sysinfo::System;
@@ -31,7 +31,7 @@ pub struct ApiFacade {
     /// Start time
     start_time: std::time::Instant,
     /// Lightning manager (if enabled)
-    lightning_manager: Option<Arc<StdRwLock<btclib::lightning::LightningManager>>>,
+    lightning_manager: Option<Arc<StdRwLock<supernova_core::lightning::LightningManager>>>,
     /// Wallet manager (quantum-resistant wallet)
     wallet_manager: Arc<StdRwLock<WalletManager>>,
 }
@@ -145,7 +145,7 @@ impl ApiFacade {
         // Calculate network hashrate from difficulty
         let difficulty = if let Ok(Some(hash)) = self.db.get_block_hash_by_height(chain_height) {
             if let Ok(Some(block)) = self.db.get_block(&hash) {
-                btclib::blockchain::difficulty::calculate_difficulty_from_bits(
+                supernova_core::blockchain::difficulty::calculate_difficulty_from_bits(
                     block.header().bits(),
                 )
             } else {
@@ -398,7 +398,7 @@ impl ApiFacade {
                     // Get info from the manager which includes peer count
                     let info = manager.get_info().unwrap_or_else(|_| {
                         // Return default info if error
-                        btclib::lightning::manager::LightningInfo {
+                        supernova_core::lightning::manager::LightningInfo {
                             node_id: String::new(),
                             num_channels: 0,
                             num_pending_channels: 0,

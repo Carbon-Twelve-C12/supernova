@@ -15,12 +15,12 @@ path = "src/bin/oracle.rs"
 
 [features]
 default = ["testnet"]
-lightning = ["btclib/lightning"]
+lightning = ["supernova-core/lightning"]
 environmental = []
 testnet = []
 
 [dependencies]
-btclib = { path = "../btclib", features = ["lightning"] }
+supernova-core = { path = "../supernova-core", features = ["lightning"] }
 wallet = { path = "../wallet" }
 tokio = { version = "1.28", features = ["full"] }
 clap = { version = "4.3", features = ["derive"] }

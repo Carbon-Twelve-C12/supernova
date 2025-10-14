@@ -10,8 +10,8 @@ use crate::api::types::{
 use crate::mempool::{
     AtomicTransactionPool, MEVProtection, MEVProtectionConfig, MempoolConfig, MempoolError,
 };
-use btclib::hash::Hash256;
-use btclib::types::transaction::Transaction;
+use supernova_core::hash::Hash256;
+use supernova_core::types::transaction::Transaction;
 use dashmap::DashMap;
 use hex;
 use std::sync::Arc;
@@ -223,7 +223,7 @@ impl SecureTransactionPool {
     pub fn submit_transaction(
         &self,
         raw_tx: &[u8],
-        allow_high_fees: bool,
+        _allow_high_fees: bool,
     ) -> Result<String, MempoolError> {
         // Deserialize the transaction
         let transaction: Transaction = bincode::deserialize(raw_tx).map_err(|e| {
@@ -357,7 +357,7 @@ impl SecureTransactionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use btclib::types::transaction::{TransactionInput, TransactionOutput};
+    use supernova_core::types::transaction::{TransactionInput, TransactionOutput};
 
     fn create_test_transaction(prev_hash: [u8; 32], value: u64) -> Transaction {
         Transaction::new(

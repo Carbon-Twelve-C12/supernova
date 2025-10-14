@@ -1,7 +1,7 @@
 use crate::mining::reward::EnvironmentalProfile;
 use crate::mining::template::BlockTemplate;
 use crate::mining::MempoolInterface;
-use btclib::types::block::Block;
+use supernova_core::types::block::Block;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use sha2::{Digest, Sha256};

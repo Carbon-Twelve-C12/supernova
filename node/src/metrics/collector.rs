@@ -177,8 +177,8 @@ impl MetricsCollector {
     /// Private method to collect metrics based on config
     fn collect_metrics(
         sys: &mut System,
-        system_metrics: &SystemMetrics,
-        metrics_registry: &MetricsRegistry,
+        _system_metrics: &SystemMetrics,
+        _metrics_registry: &MetricsRegistry,
         metrics_types: &MetricsTypes,
         collect_extended: bool,
     ) {
@@ -265,10 +265,10 @@ impl MetricsCollector {
             let disks = Disks::new_with_refreshed_list();
 
             for disk in &disks {
-                let name = disk.name().to_string_lossy().to_string();
+                let _name = disk.name().to_string_lossy().to_string();
                 let total_space = disk.total_space();
                 let available_space = disk.available_space();
-                let disk_type = format!("{:?}", disk.kind());
+                let _disk_type = format!("{:?}", disk.kind());
 
                 // Record to metrics registry
                 let mount_point = disk.mount_point().to_string_lossy().to_string();

@@ -365,7 +365,7 @@ impl NetworkManager {
     /// Announce a block to the network
     pub async fn announce_block(
         &self,
-        block: btclib::types::block::Block,
+        block: supernova_core::types::block::Block,
         height: u64,
         total_difficulty: u64,
     ) -> Result<(), String> {
@@ -387,7 +387,7 @@ impl NetworkManager {
     /// Announce a transaction to the network
     pub async fn announce_transaction(
         &self,
-        transaction: btclib::types::transaction::Transaction,
+        transaction: supernova_core::types::transaction::Transaction,
         fee_rate: u64,
     ) -> Result<(), String> {
         debug!("Announcing transaction to network");

@@ -1,8 +1,8 @@
 use crate::storage::persistence::{ChainState, ForkChoiceReason};
 use crate::storage::database::BlockchainDB;
 use crate::network::sync::ChainSync;
-use btclib::types::block::{Block, BlockHeader};
-use btclib::types::transaction::Transaction;
+use supernova_core::types::block::{Block, BlockHeader};
+use supernova_core::types::transaction::Transaction;
 use tempfile::tempdir;
 use std::sync::Arc;
 use std::time::Duration;

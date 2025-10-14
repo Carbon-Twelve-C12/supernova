@@ -24,7 +24,7 @@ mod ui;
 pub mod quantum_wallet;
 
 use bitcoin::network::Network;
-use btclib::storage::utxo_set::UtxoSet;
+use supernova_core::storage::utxo_set::UtxoSet;
 use std::path::PathBuf;
 use thiserror::Error;
 

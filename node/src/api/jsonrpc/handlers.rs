@@ -7,7 +7,7 @@ use actix_web::web;
 use serde_json::{Value, json};
 use crate::api_facade::ApiFacade;
 use super::types::{JsonRpcError, ErrorCode};
-use btclib::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
+use supernova_core::blockchain::{calculate_difficulty_from_bits, calculate_hashrate};
 
 /// Dispatch method to appropriate handler
 pub async fn dispatch(
@@ -952,7 +952,7 @@ async fn submit_block(
     })?;
 
     // Deserialize block
-    let block: btclib::types::block::Block = bincode::deserialize(&block_bytes)
+    let block: supernova_core::types::block::Block = bincode::deserialize(&block_bytes)
         .map_err(|e| JsonRpcError {
         code: ErrorCode::InvalidParams as i32,
             message: format!("Failed to deserialize block: {}", e),
@@ -1225,7 +1225,7 @@ async fn generate_blocks(
 // Helper functions
 
 /// Format transaction as JSON
-fn format_transaction(tx: &btclib::types::transaction::Transaction) -> Value {
+fn format_transaction(tx: &supernova_core::types::transaction::Transaction) -> Value {
     let tx_size = bincode::serialize(tx).unwrap_or_default().len();
     let weight = tx_size * 4; // Simplified weight calculation
 

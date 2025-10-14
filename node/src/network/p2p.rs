@@ -13,7 +13,7 @@ use crate::{
         rate_limiter::{NetworkRateLimiter as RateLimiter, RateLimitConfig, RateLimitMetrics},
     },
 };
-use btclib::{Block, BlockHeader, Transaction};
+use supernova_core::{Block, BlockHeader, Transaction};
 use futures::StreamExt;
 use libp2p::{
     core::transport::Transport as CoreTransport,
@@ -24,7 +24,7 @@ use libp2p::{
     mdns::{self, tokio::Behaviour as Mdns},
     noise,
     swarm::{Swarm, SwarmBuilder, SwarmEvent},
-    tcp, yamux, Multiaddr, PeerId, Transport,
+    tcp, yamux, Multiaddr, PeerId,
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -465,7 +465,7 @@ impl P2PNetwork {
     /// Create a new P2P network instance
     pub async fn new(
         keypair: Option<identity::Keypair>,
-        genesis_hash: [u8; 32],
+        _genesis_hash: [u8; 32],
         network_id: &str,
         listen_addr: Option<String>,
     ) -> Result<
@@ -612,7 +612,7 @@ impl P2PNetwork {
     }
 
     /// Add a bootstrap node
-    pub fn add_bootstrap_node(&mut self, peer_id: PeerId, addr: Multiaddr) {
+    pub fn add_bootstrap_node(&mut self, _peer_id: PeerId, addr: Multiaddr) {
         self.bootstrap_nodes.push(addr);
     }
 
@@ -987,6 +987,8 @@ impl P2PNetwork {
                                                     gossipsub::Event::GossipsubNotSupported { peer_id } => {
                                                         warn!("✗ Peer {} does NOT support gossipsub!", peer_id);
                                                     }
+                                                    // All other gossipsub events are already handled above
+                                                    #[allow(unreachable_patterns)]
                                                     _ => {
                                                         trace!("Other gossipsub event: {:?}", gossipsub_event);
                                                     }
@@ -1143,14 +1145,14 @@ impl P2PNetwork {
                         // Process any additional pending commands before returning to select
                         while let Ok(cmd) = command_rx.try_recv() {
                             info!("Received NetworkCommand in event loop (batched)");
-                            Self::handle_command_with_channels(
-                                cmd,
-                                &swarm_cmd_tx,
-                                &event_sender,
-                                &stats,
-                                &connected_peers,
-                                &bandwidth_tracker,
-                            ).await;
+                        Self::handle_command_with_channels(
+                            cmd,
+                            &swarm_cmd_tx,
+                            &event_sender,
+                            &stats,
+                            &connected_peers,
+                            &bandwidth_tracker,
+                        ).await;
                         }
                     }
 
@@ -1186,11 +1188,11 @@ impl P2PNetwork {
                             Self::handle_command_with_channels(
                                 cmd,
                                 &swarm_cmd_tx,
-                                &event_sender,
-                                &stats,
-                                &connected_peers,
-                                &bandwidth_tracker,
-                            ).await;
+                            &event_sender,
+                            &stats,
+                            &connected_peers,
+                            &bandwidth_tracker,
+                        ).await;
                         }
                         
                         // Process up to 5 more swarm events, checking for commands between each
@@ -1384,7 +1386,7 @@ impl P2PNetwork {
 
             NetworkCommand::AnnounceTransaction {
                 transaction,
-                fee_rate,
+                fee_rate: _,
             } => {
                 let message = Message::Transaction {
                     transaction: bincode::serialize(&transaction).unwrap_or_default(),
@@ -1477,8 +1479,8 @@ impl P2PNetwork {
 
             NetworkCommand::BanPeer {
                 peer_id,
-                reason,
-                duration,
+                reason: _,
+                duration: _,
             } => {
                 connected_peers.write().await.remove(&peer_id);
                 let _ = event_sender.send(NetworkEvent::PeerBanned(peer_id)).await;
@@ -1571,7 +1573,7 @@ impl P2PNetwork {
             }
             SwarmEventWrapper::Message {
                 peer_id,
-                topic,
+                topic: _,
                 data,
             } => {
                 // Update stats
@@ -2075,7 +2077,7 @@ impl P2PNetwork {
     pub async fn add_peer(
         &self,
         address: &str,
-        permanent: bool,
+        _permanent: bool,
     ) -> Result<PeerAddResponse, Box<dyn Error>> {
         // Parse the multiaddress
         let addr: Multiaddr = address
@@ -2130,7 +2132,7 @@ impl P2PNetwork {
         if peer_exists {
             // Disconnect from the peer
             let mut swarm_guard = self.swarm.write().await;
-            if let Some(swarm) = swarm_guard.as_mut() {
+            if let Some(_swarm) = swarm_guard.as_mut() {
                 // In a full implementation, we would have a way to disconnect specific peers
                 // For now, we'll just remove them from our tracking
                 debug!("Disconnecting from peer {}", peer_id);
@@ -2263,7 +2265,7 @@ impl P2PNetwork {
     /// Static method to broadcast a message
     async fn broadcast_message_static(
         message: Message,
-        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
+        _swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
         stats: &Arc<RwLock<NetworkStats>>,
         bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
     ) {
@@ -2285,7 +2287,7 @@ impl P2PNetwork {
     async fn send_to_peer_static(
         peer_id: PeerId,
         message: Message,
-        swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
+        _swarm: &Arc<RwLock<Option<Swarm<SupernovaBehaviour>>>>,
         stats: &Arc<RwLock<NetworkStats>>,
         bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
     ) {

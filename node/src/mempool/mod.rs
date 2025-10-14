@@ -17,4 +17,4 @@ pub use secure_pool::SecureTransactionPool;
 pub use validator::TransactionValidator;
 
 // Re-export commonly used types
-pub use btclib::types::transaction::Transaction;
+pub use supernova_core::types::transaction::Transaction;

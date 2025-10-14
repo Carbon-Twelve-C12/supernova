@@ -1,7 +1,7 @@
 // Transaction Builder for Quantum-Resistant Transactions
 // PRODUCTION-GRADE implementation with complete coin selection and signing
 
-use btclib::types::transaction::{
+use supernova_core::types::transaction::{
     Transaction, TransactionInput, TransactionOutput, TransactionSignatureData, SignatureSchemeType
 };
 use sha2::{Digest, Sha256};
