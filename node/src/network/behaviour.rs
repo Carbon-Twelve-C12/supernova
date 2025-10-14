@@ -24,6 +24,7 @@ pub enum SupernovaBehaviourEvent {
     Kademlia(KademliaEvent),
     Mdns(MdnsEvent),
     Identify(IdentifyEvent),
+    // Note: keep_alive has no events
 }
 
 impl From<GossipsubEvent> for SupernovaBehaviourEvent {

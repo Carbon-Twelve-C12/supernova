@@ -722,9 +722,11 @@ impl P2PNetwork {
             let behaviour =
                 SupernovaBehaviour::new(self.local_peer_id, gossipsub, kademlia, mdns, identify);
 
-            // Create swarm
-            let mut swarm =
-                SwarmBuilder::with_tokio_executor(transport, behaviour, self.local_peer_id).build();
+            // Create swarm with extended idle timeout to prevent premature connection drops
+            info!("Configuring swarm with 60-second idle connection timeout");
+            let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, self.local_peer_id)
+                .idle_connection_timeout(Duration::from_secs(60))
+                .build();
 
             // Subscribe to gossipsub topics
             info!("Subscribing to gossipsub topics...");
