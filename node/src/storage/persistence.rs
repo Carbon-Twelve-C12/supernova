@@ -1,6 +1,6 @@
 use super::database::{BlockchainDB, StorageError};
 use supernova_core::types::block::Block;
-use supernova_core::types::transaction::Transaction;
+use supernova_core::types::transaction::{Transaction, TransactionOutput};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -492,17 +492,6 @@ impl ChainState {
     }
 
     /// Process transactions in a block to update UTXO set
-    /// 
-    /// TODO: Chain Reorganization UTXO Handling
-    /// This function correctly maintains UTXO set for forward chain progression.
-    /// However, during chain reorganization, we need to:
-    /// 1. Implement reverse_block_transactions() to undo disconnected blocks
-    /// 2. Restore spent UTXOs from disconnected blocks
-    /// 3. Remove created UTXOs from disconnected blocks
-    /// 4. Properly sequence UTXO operations during reorg
-    /// 
-    /// See GitHub issue for reorg UTXO handling requirements.
-    /// Priority: BEFORE MAINNET (testnet can proceed without this)
     fn process_block_transactions(&mut self, block: &Block) -> Result<(), StorageError> {
         for tx in block.transactions() {
             let tx_hash = tx.hash();
@@ -563,6 +552,105 @@ impl ChainState {
         }
 
         Ok(true)
+    }
+
+    /// Retrieve a specific output from a block by transaction hash and output index
+    /// Used during chain reorganization to restore spent UTXOs
+    fn get_output_from_disconnected_block(
+        &self,
+        tx_hash: &[u8; 32],
+        vout: u32,
+    ) -> Result<TransactionOutput, StorageError> {
+        let tip_height = self.get_height();
+        
+        // Search last 1000 blocks (should cover any reasonable reorg depth)
+        for height in (tip_height.saturating_sub(1000)..=tip_height).rev() {
+            // Get block hash for this height
+            if let Ok(Some(block_hash)) = self.db.get_block_hash_by_height(height) {
+                // Get the full block
+                if let Some(block) = self.get_block(&block_hash) {
+                    for tx in block.transactions() {
+                        if tx.hash() == *tx_hash {
+                            return tx.outputs()
+                                .get(vout as usize)
+                                .cloned()
+                                .ok_or_else(|| {
+                                    StorageError::DatabaseError(format!(
+                                        "Output index {} not found in transaction {}",
+                                        vout,
+                                        hex::encode(tx_hash)
+                                    ))
+                                });
+                        }
+                    }
+                }
+            }
+        }
+        
+        Err(StorageError::DatabaseError(format!(
+            "Transaction {} not found in recent blocks (searched last 1000 blocks)",
+            hex::encode(tx_hash)
+        )))
+    }
+
+    /// Reverse transactions from a disconnected block during chain reorganization
+    /// This restores the UTXO set to the state before the block was added
+    fn reverse_block_transactions(&mut self, block: &Block) -> Result<(), StorageError> {
+        tracing::info!(
+            "Reversing transactions from disconnected block at height {}",
+            block.height()
+        );
+
+        // Process transactions in reverse order to properly unwind state
+        for tx in block.transactions().iter().rev() {
+            let tx_hash = tx.hash();
+
+            if !tx.is_coinbase() {
+                // Restore spent UTXOs from inputs
+                for input in tx.inputs() {
+                    let prev_tx = input.prev_tx_hash();
+                    let prev_vout = input.prev_output_index();
+
+                    // Retrieve the original output that was spent
+                    let prev_output = self.get_output_from_disconnected_block(&prev_tx, prev_vout)?;
+
+                    // Restore to UTXO set
+                    let output_data = bincode::serialize(&prev_output).map_err(|e| {
+                        StorageError::DatabaseError(format!(
+                            "Failed to serialize output for restoration: {}",
+                            e
+                        ))
+                    })?;
+
+                    self.db.store_utxo(&prev_tx, prev_vout, &output_data)?;
+
+                    tracing::debug!(
+                        "Restored UTXO: {}:{} (amount: {} satoshis)",
+                        hex::encode(&prev_tx[..8]),
+                        prev_vout,
+                        prev_output.value()
+                    );
+                }
+            }
+
+            // Remove created UTXOs from this transaction's outputs
+            for (vout, output) in tx.outputs().iter().enumerate() {
+                self.db.remove_utxo(&tx_hash, vout as u32)?;
+                tracing::debug!(
+                    "Removed UTXO: {}:{} (amount: {} satoshis)",
+                    hex::encode(&tx_hash[..8]),
+                    vout,
+                    output.value()
+                );
+            }
+        }
+
+        tracing::info!(
+            "Successfully reversed {} transactions from block at height {}",
+            block.transactions().len(),
+            block.height()
+        );
+        Ok(())
     }
 
     fn find_fork_point(
@@ -713,22 +801,8 @@ impl ChainState {
     }
 
     fn disconnect_block(&mut self, block: &Block) -> Result<(), StorageError> {
-        for tx in block.transactions() {
-            for (index, _) in tx.outputs().iter().enumerate() {
-                self.db.remove_utxo(&tx.hash(), index as u32)?;
-            }
-
-            for input in tx.inputs() {
-                if let Some(prev_tx) = self.db.get_transaction(&input.prev_tx_hash())? {
-                    let output = prev_tx.outputs()[input.prev_output_index() as usize].clone();
-                    self.db.store_utxo(
-                        &input.prev_tx_hash(),
-                        input.prev_output_index(),
-                        &bincode::serialize(&output)?,
-                    )?;
-                }
-            }
-        }
+        // Use reverse_block_transactions for proper UTXO unwinding
+        self.reverse_block_transactions(block)?;
 
         // Adjust total difficulty when disconnecting a block
         let block_difficulty = calculate_block_work(extract_target_from_block(block)) as u64;

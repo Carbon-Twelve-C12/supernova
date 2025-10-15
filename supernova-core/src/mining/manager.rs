@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{
@@ -1444,4 +1445,3 @@ impl Default for MiningStats {
 // Mock mempool for template creation
 struct MockMempool;
 
-use sha2::Digest;
