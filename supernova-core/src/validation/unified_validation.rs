@@ -7,7 +7,6 @@ use crate::consensus::difficulty::DifficultyAdjustment;
 use crate::consensus::time_warp_prevention::{TimeWarpConfig, TimeWarpPrevention};
 use crate::types::block::{Block, BlockHeader};
 use crate::types::transaction::{Transaction, TransactionOutput};
-use sha2::Digest;
 use std::collections::HashMap;
 use thiserror::Error;
 

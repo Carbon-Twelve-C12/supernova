@@ -11,7 +11,6 @@ use crate::types::transaction::{SignatureSchemeType, Transaction, TransactionSig
 use bip39::{Language, Mnemonic};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use sha3::Digest as Sha3Digest;
 use std::collections::HashMap;
 

@@ -111,3 +111,6 @@ PRODUCTION_READINESS_CHECKLIST.md
 *_CHECKLIST.md
 *_AUDIT.md
 SECURITY_AUDIT*.md
+core-warnings.txt
+env-warnings.txt
+*-build.txt

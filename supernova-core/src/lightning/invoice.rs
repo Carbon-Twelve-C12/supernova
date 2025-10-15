@@ -4,7 +4,6 @@
 // including invoice generation, parsing, and verification.
 
 use rand::{thread_rng, RngCore};
-use sha2::Digest;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

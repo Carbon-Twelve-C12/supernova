@@ -1,7 +1,4 @@
 /// Bitcoin-style script implementation
-/// Using Bitcoin's original OP_X naming convention for protocol compatibility
-#![allow(non_camel_case_types)]
-
 use serde::{Deserialize, Serialize};
 
 /// Script type for transaction inputs and outputs

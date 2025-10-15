@@ -4,7 +4,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -323,7 +322,7 @@ impl CarbonTracker {
     /// Verify environmental data integrity
     pub fn verify_environmental_data_integrity(
         &self,
-        data: &EnvironmentalData,
+        _data: &EnvironmentalData,
         proofs: &[VerificationProof],
     ) -> Result<bool, OracleError> {
 

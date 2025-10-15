@@ -3,7 +3,6 @@
 //! This module provides secure fork resolution that prevents permanent network splits
 //! by implementing objective chain selection criteria based on accumulated work.
 
-use sha2::Digest;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;

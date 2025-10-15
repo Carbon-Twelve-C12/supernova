@@ -7,7 +7,6 @@ use crate::crypto::quantum::QuantumScheme;
 use crate::lightning::channel::ChannelId;
 use crate::types::transaction::Transaction;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;

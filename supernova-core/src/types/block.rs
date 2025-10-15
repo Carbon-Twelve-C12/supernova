@@ -2,7 +2,6 @@ use crate::hash::{hash256, Hash256};
 use crate::types::transaction::Transaction;
 use crate::util::merkle::MerkleTree;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
