@@ -868,7 +868,7 @@ impl Router {
         &mut self,
         path: &PaymentPath,
         failure_point: usize,
-        failure_reason: &str,
+        _failure_reason: &str,
     ) -> Result<PaymentPath, RoutingError> {
         // In a real implementation, this would:
         // 1. Update the success probability for failed channels
@@ -1164,11 +1164,11 @@ impl Router {
         }
 
         // Create a new path with the same endpoints
-        let optimized = PaymentPath::new();
+        let _optimized = PaymentPath::new();
         let amount_msat = path.total_amount_msat;
 
         // Get start and end nodes
-        let source = &path.hops.first().unwrap().node_id;
+        let _source = &path.hops.first().unwrap().node_id;
         let destination = &path.hops.last().unwrap().node_id;
 
         // Create modified preferences that optimize for fees

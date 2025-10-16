@@ -153,7 +153,7 @@ impl Watchtower {
         &mut self,
         channel_id: [u8; 32],
         client_id: &str,
-        encrypted_state: EncryptedChannelState,
+        _encrypted_state: EncryptedChannelState,
     ) -> Result<(), WatchError> {
         // Convert [u8; 32] to ChannelId using the from_bytes method
         let channel_id = ChannelId::from_bytes(channel_id);
@@ -511,7 +511,7 @@ impl ChannelMonitor {
         &mut self,
         channel_id: [u8; 32],
         client_id: &str,
-        encrypted_state: EncryptedChannelState,
+        _encrypted_state: EncryptedChannelState,
     ) -> Result<(), WatchError> {
         // Convert [u8; 32] to ChannelId
         let channel_id = ChannelId::from_bytes(channel_id);

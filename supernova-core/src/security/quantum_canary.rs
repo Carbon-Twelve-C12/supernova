@@ -355,7 +355,7 @@ impl QuantumCanarySystem {
     }
 
     /// Check on-chain canary transaction
-    async fn check_on_chain_canary(&self, tx_id: [u8; 32]) -> Result<CanaryStatus, CanaryError> {
+    async fn check_on_chain_canary(&self, _tx_id: [u8; 32]) -> Result<CanaryStatus, CanaryError> {
         // In production, this would check if the canary UTXO has been spent
         // For now, return healthy
         Ok(CanaryStatus::Healthy)
@@ -364,7 +364,7 @@ impl QuantumCanarySystem {
     /// Detect suspicious activity around canary
     async fn detect_suspicious_activity(
         &self,
-        canary: &QuantumCanary,
+        _canary: &QuantumCanary,
     ) -> Result<bool, CanaryError> {
         // Check for:
         // 1. Unusual number of signature verification attempts
@@ -394,7 +394,7 @@ impl QuantumCanarySystem {
 
     /// Send alerts about compromised canary
     async fn send_alerts(&self, canary: &QuantumCanary) -> Result<(), CanaryError> {
-        let alert_message = format!(
+        let _alert_message = format!(
             "QUANTUM CANARY COMPROMISED!\n\
             Canary ID: {}\n\
             Security Level: {}\n\
@@ -408,7 +408,7 @@ impl QuantumCanarySystem {
         );
 
         // Send to all configured endpoints
-        for endpoint in &self.alert_endpoints {
+        for _endpoint in &self.alert_endpoints {
             // In production, send actual alerts (email, SMS, webhook, etc.)
         }
 

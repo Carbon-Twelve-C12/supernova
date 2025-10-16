@@ -320,10 +320,10 @@ impl QuantumLightningManager {
         self.validate_quantum_htlc_security(&htlc)?;
 
         // Test payment routing
-        let test_route = self.test_quantum_payment_routing(test_amount).await?;
+        let _test_route = self.test_quantum_payment_routing(test_amount).await?;
 
         // Benchmark performance
-        let perf_results = self.benchmark_quantum_lightning_performance().await?;
+        let _perf_results = self.benchmark_quantum_lightning_performance().await?;
 
 
         Ok(())
@@ -517,7 +517,7 @@ impl QuantumLightningManager {
         route: &GreenLightningRoute,
     ) -> Result<bool, LightningError> {
         // Calculate payment carbon footprint
-        let payment_carbon = self.calculate_lightning_carbon_footprint(payment_amount_sats);
+        let _payment_carbon = self.calculate_lightning_carbon_footprint(payment_amount_sats);
 
         // Check if route is carbon negative
         let carbon_negative = route.total_carbon_footprint < 0.0
@@ -534,8 +534,8 @@ impl QuantumLightningManager {
     pub async fn find_green_payment_route(
         &self,
         amount_sats: u64,
-        source: &[u8],
-        destination: &[u8],
+        _source: &[u8],
+        _destination: &[u8],
     ) -> Result<GreenLightningRoute, LightningError> {
         // Simulate route finding with environmental optimization
         // In production, this would integrate with actual Lightning routing

@@ -59,7 +59,7 @@ impl<'de> Deserialize<'de> for OnionPacket {
     where
         D: serde::Deserializer<'de>,
     {
-        use serde::de::{self, Deserializer, MapAccess, Visitor};
+        use serde::de::{self, MapAccess, Visitor};
         use std::fmt;
 
         #[derive(Deserialize)]
@@ -224,7 +224,7 @@ impl OnionRouter {
     pub fn construct_onion(
         &self,
         route: &[RouteHop],
-        payment_hash: &[u8; 32],
+        _payment_hash: &[u8; 32],
         associated_data: &[u8],
     ) -> Result<OnionPacket, OnionError> {
         if route.is_empty() {

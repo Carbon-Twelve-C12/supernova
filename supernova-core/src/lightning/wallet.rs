@@ -130,7 +130,7 @@ impl KeyManager {
 
         // Derive new key
         match &self.derivation_scheme {
-            KeyDerivation::Bip32(path) => {
+            KeyDerivation::Bip32(_path) => {
                 // In a real implementation, this would use BIP32 derivation
                 // For now, we'll just hash the seed with the purpose
                 let mut hasher = Sha256::new();
@@ -147,11 +147,11 @@ impl KeyManager {
 
                 Ok(derived_key)
             }
-            KeyDerivation::Quantum { scheme, seed } => {
+            KeyDerivation::Quantum { scheme, seed: _ } => {
                 if let Some(quantum_keys) = &mut self.quantum_keys {
                     // For quantum keys, we need to generate a new key pair
                     // In a real implementation, this would derive from the seed deterministically
-                    let rng = thread_rng();
+                    let _rng = thread_rng();
 
                     // Create QuantumParameters with scheme and security level
                     let quantum_params = crate::crypto::quantum::QuantumParameters {
@@ -494,7 +494,7 @@ impl LightningWallet {
     pub fn create_funding_transaction(
         &self,
         amount: u64,
-        channel_id: &ChannelId,
+        _channel_id: &ChannelId,
     ) -> Result<crate::types::transaction::Transaction, WalletError> {
         // In a real implementation, this would create a proper funding transaction
         // For now, we'll create a placeholder transaction

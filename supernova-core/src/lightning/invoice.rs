@@ -106,7 +106,7 @@ impl Invoice {
         amount_msat: u64,
         description: String,
         expiry: u32,
-        is_private: bool,
+        _is_private: bool,
         node_id: String,
         payment_preimage: PaymentPreimage,
     ) -> Self {
@@ -251,7 +251,7 @@ impl Invoice {
     }
 
     /// Parse an invoice from a string
-    pub fn from_str(invoice_str: &str) -> Result<Self, InvoiceError> {
+    pub fn from_str(_invoice_str: &str) -> Result<Self, InvoiceError> {
         // In a real implementation, this would parse a BOLT-11 invoice
         // For simplicity, we'll just return an error
         Err(InvoiceError::InvalidFormat(
@@ -822,7 +822,7 @@ impl InvoiceDatabase {
 
         // Remove from all collections
         for payment_hash in &to_remove {
-            if let Some(invoice) = self.invoices.remove(payment_hash) {
+            if let Some(_invoice) = self.invoices.remove(payment_hash) {
                 self.invoices_by_description
                     .retain(|_, ph| ph != payment_hash);
                 self.paid_invoices.remove(payment_hash);

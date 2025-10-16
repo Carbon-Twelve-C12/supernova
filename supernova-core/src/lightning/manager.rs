@@ -809,7 +809,7 @@ impl LightningManager {
         &self,
         payment_request: &str,
         amount_msat: Option<u64>,
-        timeout_seconds: u32,
+        _timeout_seconds: u32,
         fee_limit_msat: Option<u64>,
     ) -> Result<PaymentResponse, ManagerError> {
         info!("Sending payment: {}", payment_request);
@@ -949,14 +949,14 @@ impl LightningManager {
         value_msat: u64,
         memo: &str,
         expiry: u32,
-        private: bool,
+        _private: bool,
     ) -> Result<InvoiceResponse, ManagerError> {
         info!("Creating invoice for {} millinovas", value_msat);
 
         // Generate payment hash and preimage using payment module types
         let preimage = crate::lightning::payment::PaymentPreimage::new_random();
         let payment_hash = preimage.payment_hash();
-        let invoice_index = self
+        let _invoice_index = self
             .invoice_index
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
@@ -971,13 +971,13 @@ impl LightningManager {
         }
 
         // Convert HTLCs from invoice (if any pending)
-        let htlcs = {
+        let _htlcs = {
             let channels = self.channels.read().unwrap();
             let mut invoice_htlcs = vec![];
 
             for atomic_channel in channels.values() {
                 // Get channel info safely
-                if let Ok(channel_info) = atomic_channel.get_channel_info() {
+                if let Ok(_channel_info) = atomic_channel.get_channel_info() {
                     // Access the underlying channel for HTLCs
                     if let Ok(channel) = atomic_channel.channel.lock() {
                         for htlc in &channel.pending_htlcs {
@@ -1315,7 +1315,7 @@ impl LightningManager {
         Ok(())
     }
 
-    fn parse_payment_request(&self, payment_request: &str) -> Result<ParsedInvoice, ManagerError> {
+    fn parse_payment_request(&self, _payment_request: &str) -> Result<ParsedInvoice, ManagerError> {
         // Simplified BOLT11 parsing - in production would use proper parser
         Ok(ParsedInvoice {
             payment_hash: crate::lightning::payment::PaymentHash::new([0u8; 32]), // Placeholder
@@ -1330,7 +1330,7 @@ impl LightningManager {
         // BOLT11 payment request encoding
         // Format: ln[prefix][amount][separator][data][checksum]
 
-        let network_prefix = "bc"; // mainnet
+        let _network_prefix = "bc"; // mainnet
         let amount_part = if invoice.amount_msat() > 0 {
             // Convert millinovas to the appropriate unit
             let amount_novas = invoice.amount_msat() / 1000;
@@ -1366,7 +1366,7 @@ impl LightningManager {
     async fn send_payment_through_route(
         &self,
         route: &crate::lightning::router::PaymentPath,
-        invoice: &ParsedInvoice,
+        _invoice: &ParsedInvoice,
     ) -> Result<crate::lightning::payment::PaymentPreimage, ManagerError> {
         // Simplified payment sending - in production would handle onion routing
         info!(
@@ -1379,13 +1379,13 @@ impl LightningManager {
     }
 
     /// Get network nodes
-    pub fn get_network_nodes(&self, limit: u32) -> Result<Vec<NodeInfo>, ManagerError> {
+    pub fn get_network_nodes(&self, _limit: u32) -> Result<Vec<NodeInfo>, ManagerError> {
         // In a real implementation, this would query the network graph
         Ok(vec![])
     }
 
     /// Get node information
-    pub fn get_node_info(&self, node_id: &str) -> Result<Option<NodeInfo>, ManagerError> {
+    pub fn get_node_info(&self, _node_id: &str) -> Result<Option<NodeInfo>, ManagerError> {
         // In a real implementation, this would query the network graph
         Ok(None)
     }
@@ -1486,7 +1486,7 @@ impl LightningManager {
             .ok_or_else(|| ManagerError::PaymentNotFound("Payment not found".to_string()))?;
 
         // Convert HTLCs from payment route
-        let htlcs = if let Some(route) = &payment.route {
+        let _htlcs = if let Some(route) = &payment.route {
             route
                 .iter()
                 .enumerate()

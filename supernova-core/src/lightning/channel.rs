@@ -388,7 +388,7 @@ impl Channel {
         &mut self,
         funding_inputs: Vec<TxIn>,
         change_address: Option<Script>,
-        fee_rate: u64,
+        _fee_rate: u64,
     ) -> ChannelResult<Transaction> {
         if self.state != ChannelState::Initializing {
             return Err(ChannelError::InvalidState(
@@ -427,7 +427,7 @@ impl Channel {
 
             // Only add change output if there's a positive amount
             if change_amount > 0 {
-                let change_output = TxOut::new(change_amount, change_script.as_bytes().to_vec());
+                let _change_output = TxOut::new(change_amount, change_script.as_bytes().to_vec());
 
                 // Add change output to transaction
                 // Note: In the real implementation, this would actually modify the funding_tx
@@ -723,7 +723,7 @@ impl Channel {
     }
 
     /// Complete cooperative channel close
-    pub fn complete_close(&mut self, closing_tx: Transaction) -> ChannelResult<()> {
+    pub fn complete_close(&mut self, _closing_tx: Transaction) -> ChannelResult<()> {
         if self.state != ChannelState::ClosingNegotiation {
             return Err(ChannelError::InvalidState(
                 "Channel must be in closing negotiation state".to_string(),
@@ -769,11 +769,11 @@ impl Channel {
 
     /// Open a new channel
     pub fn open(
-        peer_id: String,
+        _peer_id: String,
         capacity: u64,
         push_amount: u64,
         config: ChannelConfig,
-        quantum_scheme: Option<QuantumScheme>,
+        _quantum_scheme: Option<QuantumScheme>,
     ) -> ChannelResult<Self> {
         // Generate temporary keys for this example
         let secp = secp256k1::Secp256k1::new();
@@ -962,9 +962,9 @@ impl ChannelManager {
     /// Handle channel update from peer
     pub fn handle_channel_update(
         &mut self,
-        channel_id: &[u8; 32],
-        update_type: &str,
-        payload: &[u8],
+        _channel_id: &[u8; 32],
+        _update_type: &str,
+        _payload: &[u8],
     ) -> ChannelResult<()> {
         // In a real implementation, this would parse and process various update types
         // like funding_created, funding_signed, commitment_signed, etc.

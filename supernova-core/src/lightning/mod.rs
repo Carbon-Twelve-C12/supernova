@@ -368,10 +368,10 @@ impl LightningNetwork {
         // First, create a payment hash and shared secret for each hop
         let payment_hash = invoice.payment_hash();
         let payment_hash_bytes = payment_hash.into_inner(); // Store the bytes once
-        let next_hop_shared_secret = [0u8; 32]; // Would be derived in a real implementation
+        let _next_hop_shared_secret = [0u8; 32]; // Would be derived in a real implementation
 
         // Generate random payment preimages for testing
-        let rng = rand::thread_rng();
+        let _rng = rand::thread_rng();
         let payment_preimage = payment::PaymentPreimage::new_random();
         let payment_preimage_bytes = payment_preimage.into_inner(); // Store the bytes once
 
@@ -381,7 +381,7 @@ impl LightningNetwork {
 
         // Process the route in reverse (from destination to source)
         for i in (0..route.hops.len()).rev() {
-            let hop = &route.hops[i];
+            let _hop = &route.hops[i];
 
             // For real implementation, we would:
             // 1. Generate shared secret for this hop
@@ -524,7 +524,7 @@ impl LightningNetwork {
         payment_hash: [u8; 32],
         amount_msat: u64,
         cltv_expiry: u32,
-        onion_packet: &[u8],
+        _onion_packet: &[u8],
     ) -> Result<Option<payment::PaymentPreimage>, LightningNetworkError> {
         info!(
             "Received incoming HTLC on channel {}: amount={} msat, payment_hash={:x?}",
