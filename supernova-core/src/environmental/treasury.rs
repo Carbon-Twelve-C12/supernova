@@ -414,7 +414,7 @@ impl EnvironmentalTreasury {
                     purchases.push(purchase);
                     total_spent += rec_amount;
                 }
-                Err(e) => {
+                Err(_e) => {
                     // Log error but continue with other purchases
                 }
             }
@@ -441,7 +441,7 @@ impl EnvironmentalTreasury {
                     purchases.push(purchase);
                     total_spent += offset_amount;
                 }
-                Err(e) => {
+                Err(_e) => {
                 }
             }
         }
@@ -464,7 +464,7 @@ impl EnvironmentalTreasury {
                     purchases.push(purchase);
                     total_spent += investment_amount;
                 }
-                Err(e) => {
+                Err(_e) => {
                 }
             }
         }
@@ -490,7 +490,7 @@ impl EnvironmentalTreasury {
                     purchases.push(purchase);
                     total_spent += research_amount;
                 }
-                Err(e) => {
+                Err(_e) => {
                 }
             }
         }

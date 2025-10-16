@@ -803,7 +803,7 @@ impl MinerReportingManager {
 
     /// Verify a report
     pub fn verify_report(&mut self, miner_id: &str, verification: VerificationInfo) -> bool {
-        if let Some(report) = self.reports.get_mut(miner_id) {
+        if let Some(_report) = self.reports.get_mut(miner_id) {
             // Access original MinerEnvironmentalInfo methods that exist
             if let Some(miner_info) = self.miners.get_mut(miner_id) {
                 miner_info.add_verification(

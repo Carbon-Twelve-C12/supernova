@@ -230,7 +230,7 @@ impl VerificationProvider for VerificationService {
         // Prepare data for the API request
         let api_url;
         let api_key;
-        let accept_self_reported;
+        let _accept_self_reported;
 
         // Get config but drop it before the await
         {
@@ -253,7 +253,7 @@ impl VerificationProvider for VerificationService {
             // Copy necessary data from config
             api_url = config.api_endpoint.as_ref().unwrap().clone();
             api_key = config.api_key.clone();
-            accept_self_reported = config.accept_self_reported;
+            _accept_self_reported = config.accept_self_reported;
         }
 
         // Make API request for verification
@@ -326,7 +326,7 @@ impl VerificationProvider for VerificationService {
         // Prepare data for the API request
         let api_url;
         let api_key;
-        let accept_self_reported;
+        let _accept_self_reported;
 
         // Get config but drop it before the await
         {
@@ -349,7 +349,7 @@ impl VerificationProvider for VerificationService {
             // Copy necessary data from config
             api_url = config.api_endpoint.as_ref().unwrap().clone();
             api_key = config.api_key.clone();
-            accept_self_reported = config.accept_self_reported;
+            _accept_self_reported = config.accept_self_reported;
         }
 
         // Make API request for verification

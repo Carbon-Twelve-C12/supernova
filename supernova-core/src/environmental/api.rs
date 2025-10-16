@@ -5,10 +5,9 @@ use std::collections::HashMap;
 use crate::environmental::{
     dashboard::EnvironmentalDashboard,
     emissions::{EmissionsError, EmissionsTracker, VerificationStatus},
-    miner_reporting::{MinerEnvironmentalInfo, MinerReportingManager, MinerVerificationStatus, VerificationInfo},
+    miner_reporting::{MinerEnvironmentalInfo, MinerReportingManager, MinerVerificationStatus},
     transparency::TransparencyDashboard,
     treasury::{EnvironmentalAssetType, EnvironmentalTreasury, TreasuryAccountType, TreasuryError},
-    types::{Region, HardwareType, EnergySource},
 };
 use crate::types::block::Block;
 
@@ -343,19 +342,19 @@ impl EnvironmentalApi {
             0.0
         };
 
-        let reduction_percentage = if total_emissions_tonnes > 0.0 {
+        let _reduction_percentage = if total_emissions_tonnes > 0.0 {
             ((total_emissions_tonnes - total_offset_tonnes) / total_emissions_tonnes) * 100.0
         } else {
             0.0
         };
 
-        let average_net_carbon_impact = if included_miners > 0 {
+        let _average_net_carbon_impact = if included_miners > 0 {
             total_net_carbon_impact / included_miners as f64
         } else {
             0.0
         };
 
-        let carbon_intensity = if total_energy_kwh > 0.0 {
+        let _carbon_intensity = if total_energy_kwh > 0.0 {
             total_emissions_tonnes * 1000.0 / total_energy_kwh
         } else {
             0.0
@@ -424,7 +423,7 @@ impl EnvironmentalApi {
         }
 
         // Calculate allocation for REC vs carbon offsets
-        let carbon_allocation_percentage = 100.0 - rec_allocation_percentage;
+        let _carbon_allocation_percentage = 100.0 - rec_allocation_percentage;
 
         if !(0.0..=100.0).contains(&rec_allocation_percentage) {
             return Err(EnvironmentalApiError::InvalidRequest(
@@ -531,7 +530,7 @@ impl EnvironmentalApi {
     pub fn get_miners_by_classification(&self, _classification: &str) -> Vec<String> {
         let mut result = Vec::new();
 
-        for (id, miner) in &self.miner_info {
+        for (id, _miner) in &self.miner_info {
             if let Ok(emissions_data) = self.calculate_miner_emissions(id) {
                 if emissions_data.is_verified {
                     result.push(id.clone());

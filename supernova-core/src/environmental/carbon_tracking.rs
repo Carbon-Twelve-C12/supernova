@@ -385,7 +385,7 @@ impl CarbonTracker {
 
     async fn request_oracle_verification(
         &self,
-        entity_id: &str,
+        _entity_id: &str,
         energy_consumption_mwh: f64,
         energy_sources: &HashMap<EnergySourceType, f64>,
         region: &Region,
@@ -434,7 +434,7 @@ impl CarbonTracker {
     fn process_oracle_consensus(
         &self,
         submissions: &[OracleDataPoint],
-        local_value: f64,
+        _local_value: f64,
     ) -> Result<OracleConsensusResult, OracleError> {
         let total_oracles = submissions.len();
 
@@ -466,7 +466,7 @@ impl CarbonTracker {
 
     fn verify_renewable_percentage(
         &self,
-        entity_id: &str,
+        _entity_id: &str,
         energy_sources: &HashMap<EnergySourceType, f64>,
     ) -> Result<f64, OracleError> {
         let renewable_types = [
@@ -611,7 +611,7 @@ impl CarbonTracker {
     fn get_emission_factor(
         &self,
         source_type: &EnergySourceType,
-        region: &Region,
+        _region: &Region,
     ) -> Result<f64, OracleError> {
         // Emission factors in tonnes CO2e per MWh
         let emission_factor = match source_type {
@@ -632,19 +632,19 @@ impl CarbonTracker {
         Ok(emission_factor)
     }
 
-    fn verify_rec_proof(&self, proof: &VerificationProof) -> Result<bool, OracleError> {
+    fn verify_rec_proof(&self, _proof: &VerificationProof) -> Result<bool, OracleError> {
         // Verify REC certificate hash and validity
         // In production, this would check against registry APIs
         Ok(true)
     }
 
-    fn verify_offset_proof(&self, proof: &VerificationProof) -> Result<bool, OracleError> {
+    fn verify_offset_proof(&self, _proof: &VerificationProof) -> Result<bool, OracleError> {
         // Verify carbon offset certificate
         // In production, this would check against carbon registries
         Ok(true)
     }
 
-    fn verify_meter_proof(&self, proof: &VerificationProof) -> Result<bool, OracleError> {
+    fn verify_meter_proof(&self, _proof: &VerificationProof) -> Result<bool, OracleError> {
         // Verify smart meter reading attestation
         // In production, this would validate cryptographic signatures
         Ok(true)

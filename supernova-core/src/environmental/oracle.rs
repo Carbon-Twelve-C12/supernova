@@ -534,7 +534,7 @@ impl EnvironmentalOracle {
 
         // Create verification result
         let pending = self.pending_verifications.read().unwrap();
-        let request = pending
+        let _request = pending
             .get(request_id)
             .ok_or_else(|| OracleError::ConsensusNotReached("Request not found".to_string()))?;
 
@@ -602,7 +602,7 @@ impl EnvironmentalOracle {
             registry_url: certificate.certificate_url.clone().unwrap_or_default(),
         };
 
-        let request_id = self.request_verification(
+        let _request_id = self.request_verification(
             data,
             "system".to_string(),
             100, // 100 NOVA bounty
@@ -639,7 +639,7 @@ impl EnvironmentalOracle {
             registry_url: offset.certificate_url.clone().unwrap_or_default(),
         };
 
-        let request_id = self.request_verification(
+        let _request_id = self.request_verification(
             data,
             "system".to_string(),
             100, // 100 NOVA bounty

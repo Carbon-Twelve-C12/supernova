@@ -206,7 +206,7 @@ impl RenewableEnergyValidator {
     /// Validate renewable energy certificates
     pub async fn validate_renewable_energy_certificates(
         &self,
-        miner_id: &str,
+        _miner_id: &str,
         certificates: Vec<RenewableCertificate>,
         energy_consumption_mwh: f64,
     ) -> Result<RenewableValidationResult, OracleError> {
@@ -226,7 +226,7 @@ impl RenewableEnergyValidator {
                         validated_certificates.push(validated);
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                 }
             }
         }
@@ -292,7 +292,7 @@ impl RenewableEnergyValidator {
     /// Verify carbon-negative operations
     pub async fn verify_carbon_negative_operations(
         &self,
-        miner_id: &str,
+        _miner_id: &str,
         renewable_mwh: f64,
         total_consumption_mwh: f64,
         carbon_offsets: Vec<CarbonOffset>,

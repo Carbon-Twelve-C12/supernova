@@ -509,7 +509,7 @@ impl ManualVerificationSystem {
 
     /// Generate quarterly report
     pub fn generate_quarterly_report(&self, quarter_id: &str) -> QuarterlyReport {
-        let batch = self
+        let _batch = self
             .quarterly_batches
             .read()
             .unwrap()

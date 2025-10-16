@@ -942,7 +942,7 @@ impl EmissionsTracker {
         let mut total_renewable = 0.0;
         let mut total_hashrate = 0.0;
 
-        for (pool_id, info) in &self.pool_energy_info {
+        for (_pool_id, info) in &self.pool_energy_info {
             // Calculate weighted average based on regions and their hashrates
             let mut pool_hashrate = 0.0;
 
