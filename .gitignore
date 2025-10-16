@@ -115,3 +115,4 @@ core-warnings.txt
 env-warnings.txt
 *-build.txt
 IMPLEMENTATION_AUDIT.md
+docs/FEATURE_STATUS.md
