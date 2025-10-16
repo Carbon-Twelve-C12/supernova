@@ -116,3 +116,22 @@ env-warnings.txt
 *-build.txt
 IMPLEMENTATION_AUDIT.md
 docs/FEATURE_STATUS.md
+
+# Build and test artifacts
+*.log
+*_test.log
+*_output.txt
+build*.log
+build*.txt
+test_*
+*warnings.txt
+*-warnings.txt
+core-*.txt
+env-*.txt
+supernova-core-*.txt
+
+# Session and audit docs (local only)
+docs/SESSION_SUMMARY*.md
+docs/VPS_P2P_TESTING.md
+docs/IMPLEMENTATION_AUDIT.md
+docs/FEATURE_STATUS.md
