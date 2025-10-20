@@ -8,10 +8,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
 use supernova_core::types::transaction::Transaction;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, debug, warn};
+use dashmap::DashMap;
+use parking_lot::Mutex as ParkingLotMutex;
 
 use crate::storage::StorageError;
 
@@ -48,6 +51,155 @@ impl OutPoint {
     }
 }
 
+impl Ord for OutPoint {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // First compare by txid, then by vout for total ordering
+        match self.txid.cmp(&other.txid) {
+            std::cmp::Ordering::Equal => self.vout.cmp(&other.vout),
+            other => other,
+        }
+    }
+}
+
+impl PartialOrd for OutPoint {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// UTXO Lock Manager - SECURITY FIX (P0-002)
+/// 
+/// Prevents double-spending by ensuring exclusive access to UTXOs during validation.
+/// Uses DashMap for lock-free, atomic UTXO locking without complex lifetime management.
+/// 
+/// The presence of an entry in the DashMap indicates a UTXO is locked.
+/// This approach provides strong atomicity guarantees while remaining simple and safe.
+pub struct UtxoLockManager {
+    /// Locked UTXOs - if present in map, UTXO is locked
+    /// Using DashMap for lock-free concurrent access
+    locked_utxos: Arc<DashMap<OutPoint, ()>>,
+}
+
+impl UtxoLockManager {
+    /// Create a new UTXO lock manager
+    pub fn new() -> Self {
+        Self {
+            locked_utxos: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Try to acquire exclusive locks on a set of UTXOs atomically
+    /// 
+    /// SECURITY: Locks are acquired in sorted order to prevent deadlocks.
+    /// Uses atomic DashMap operations for lock-free concurrent access.
+    /// Returns a guard that automatically releases locks when dropped.
+    ///
+    /// # Arguments
+    /// * `outpoints` - UTXOs to lock
+    ///
+    /// # Returns
+    /// * `Ok(UtxoLockGuard)` - Guard holding all locks
+    /// * `Err(StorageError)` - If any UTXO is already locked
+    ///
+    /// # Algorithm
+    /// 1. Sort outpoints to ensure consistent lock ordering (prevents deadlocks)
+    /// 2. Try to insert all outpoints into DashMap atomically
+    /// 3. If any insertion fails, rollback all and return error
+    /// 4. Return guard that will remove all entries on drop
+    pub fn try_acquire_locks(
+        &self,
+        outpoints: &[OutPoint],
+    ) -> Result<UtxoLockGuard, StorageError> {
+        if outpoints.is_empty() {
+            return Ok(UtxoLockGuard::empty());
+        }
+
+        // CRITICAL: Sort to prevent deadlocks
+        // Example: Thread A wants [UTXO2, UTXO1], Thread B wants [UTXO1, UTXO2]
+        // Without sorting: A locks UTXO2, B locks UTXO1, both wait for each other = DEADLOCK
+        // With sorting: Both try UTXO1 first - one succeeds, one fails = NO DEADLOCK
+        let mut sorted = outpoints.to_vec();
+        sorted.sort();
+        sorted.dedup(); // Remove duplicates to avoid locking same UTXO twice
+
+        // Try to lock all UTXOs atomically
+        let mut acquired = Vec::new();
+        
+        for outpoint in &sorted {
+            // Atomic insert - if entry already exists, UTXO is locked
+            if self.locked_utxos.insert(*outpoint, ()).is_some() {
+                // Already locked by another thread - rollback all acquired locks
+                for already_locked in &acquired {
+                    self.locked_utxos.remove(already_locked);
+                }
+
+                debug!(
+                    "UTXO lock conflict: {:02x}{:02x}...:{} already locked by another transaction",
+                    outpoint.txid[0],
+                    outpoint.txid[1],
+                    outpoint.vout
+                );
+
+                return Err(StorageError::UtxoLocked(format!(
+                    "UTXO already locked: {:02x}{:02x}...:{}", 
+                    outpoint.txid[0],
+                    outpoint.txid[1],
+                    outpoint.vout
+                )));
+            }
+
+            acquired.push(*outpoint);
+        }
+
+        debug!("Successfully acquired {} UTXO locks atomically", acquired.len());
+
+        Ok(UtxoLockGuard::new(
+            Arc::clone(&self.locked_utxos),
+            acquired,
+        ))
+    }
+}
+
+/// RAII guard for UTXO locks
+/// 
+/// Automatically releases locked UTXOs when dropped.
+/// Uses DashMap for lock-free concurrent access without complex lifetimes.
+pub struct UtxoLockGuard {
+    /// Reference to the DashMap tracking locked UTXOs
+    locked_map: Arc<DashMap<OutPoint, ()>>,
+    /// Outpoints locked by this guard
+    outpoints: Vec<OutPoint>,
+}
+
+impl UtxoLockGuard {
+    fn empty() -> Self {
+        Self {
+            locked_map: Arc::new(DashMap::new()),
+            outpoints: Vec::new(),
+        }
+    }
+
+    fn new(
+        locked_map: Arc<DashMap<OutPoint, ()>>,
+        outpoints: Vec<OutPoint>,
+    ) -> Self {
+        Self {
+            locked_map,
+            outpoints,
+        }
+    }
+}
+
+impl Drop for UtxoLockGuard {
+    fn drop(&mut self) {
+        // Release all locked UTXOs
+        for outpoint in &self.outpoints {
+            self.locked_map.remove(outpoint);
+        }
+        debug!("Released {} UTXO locks", self.outpoints.len());
+    }
+}
+
 /// Atomic transaction for UTXO operations
 #[derive(Serialize, Deserialize)]
 pub struct UtxoTransaction {
@@ -71,6 +223,8 @@ pub struct AtomicUtxoSet {
     db_path: PathBuf,
     /// Write-ahead log for crash recovery
     wal_path: PathBuf,
+    /// UTXO lock manager to prevent double-spending (SECURITY FIX P0-002)
+    lock_manager: UtxoLockManager,
 }
 
 impl AtomicUtxoSet {
@@ -91,6 +245,7 @@ impl AtomicUtxoSet {
             pending_txs: Arc::new(Mutex::new(HashMap::new())),
             db_path,
             wal_path,
+            lock_manager: UtxoLockManager::new(),
         };
 
         // Load existing UTXO set if present
@@ -201,17 +356,47 @@ impl AtomicUtxoSet {
     }
 
     /// Apply a UTXO transaction atomically
+    /// 
+    /// SECURITY FIX (P0-002): Acquires exclusive locks on all input UTXOs BEFORE validation
+    /// to prevent double-spending race conditions. This ensures that between the time we
+    /// validate a UTXO exists and the time we spend it, no other thread can spend it.
+    ///
+    /// # Security Guarantee
+    /// The lock manager ensures that for any UTXO X:
+    /// - Only ONE transaction can hold a lock on X at any given time
+    /// - Locks are acquired in sorted order to prevent deadlocks
+    /// - Locks are automatically released on error or completion
+    ///
+    /// # Arguments
+    /// * `tx` - The UTXO transaction to apply
+    ///
+    /// # Returns
+    /// * `Ok(())` - Transaction applied successfully
+    /// * `Err(StorageError)` - If validation fails or UTXO is locked
     pub fn apply_transaction(&self, tx: UtxoTransaction) -> Result<(), StorageError> {
-        // Acquire transaction lock for atomicity
+        // CRITICAL SECURITY FIX: Acquire locks on all inputs FIRST
+        // This prevents the race condition where:
+        // 1. Thread A validates UTXO X exists
+        // 2. Thread B validates UTXO X exists (race!)
+        // 3. Thread A spends UTXO X
+        // 4. Thread B spends UTXO X again (double-spend!)
+        //
+        // With locks: Thread B's lock acquisition fails because A holds the lock
+        let _utxo_locks = self.lock_manager.try_acquire_locks(&tx.inputs)?;
+
+        // Now that we hold exclusive locks, proceed with transaction processing
+        
+        // Acquire global transaction lock for atomicity
         let _tx_guard = self
             .tx_lock
             .lock()
             .map_err(|e| StorageError::LockPoisoned(format!("Transaction lock poisoned: {}", e)))?;
 
-        // First, write to WAL for crash recovery
+        // Write to WAL for crash recovery
         self.write_to_wal(&tx)?;
 
         // Validate all inputs exist and aren't already spent
+        // With locks held, we have exclusive access - no other thread can modify these UTXOs
         {
             let utxos = self.utxos.read().map_err(|e| {
                 StorageError::LockPoisoned(format!("UTXO read lock poisoned: {}", e))
@@ -224,16 +409,20 @@ impl AtomicUtxoSet {
                 // Check if UTXO exists
                 if !utxos.contains_key(input) {
                     return Err(StorageError::DatabaseError(format!(
-                        "UTXO not found: {:?}",
-                        input
+                        "UTXO not found: {:02x}{:02x}...:{}", 
+                        input.txid[0],
+                        input.txid[1],
+                        input.vout
                     )));
                 }
 
                 // Check if already spent
                 if spent.contains(input) {
                     return Err(StorageError::DatabaseError(format!(
-                        "UTXO already spent: {:?}",
-                        input
+                        "UTXO already spent: {:02x}{:02x}...:{}", 
+                        input.txid[0],
+                        input.txid[1],
+                        input.vout
                     )));
                 }
             }
@@ -244,6 +433,10 @@ impl AtomicUtxoSet {
 
         // Clear WAL entry after successful application
         self.clear_wal()?;
+
+        // Locks automatically released here when _utxo_locks and _tx_guard drop
+        debug!("Transaction applied successfully with {} inputs, {} outputs", 
+               tx.inputs.len(), tx.outputs.len());
 
         Ok(())
     }

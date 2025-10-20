@@ -21,7 +21,7 @@ pub mod database_shutdown_tests;
 #[cfg(test)]
 mod utxo_attack_tests;
 
-pub use atomic_utxo_set::{AtomicUtxoSet, OutPoint, UnspentOutput};
+pub use atomic_utxo_set::{AtomicUtxoSet, OutPoint, UnspentOutput, UtxoLockManager, UtxoTransaction};
 pub use backup::{
     BackupError, BackupManager, BackupMode, BackupOperation, BackupState, RecoveryManager,
 };

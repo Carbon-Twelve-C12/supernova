@@ -2650,6 +2650,8 @@ pub enum StorageError {
     PendingBlockInvalid,
     #[error("Lock poisoned: {0}")]
     LockPoisoned(String),
+    #[error("UTXO locked: {0}")]
+    UtxoLocked(String),
 }
 
 // Add these implementations after the enum definition
