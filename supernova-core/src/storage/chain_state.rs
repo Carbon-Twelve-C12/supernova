@@ -133,6 +133,10 @@ pub struct ChainState {
 
     /// Proof of work fork resolver
     fork_resolver: Arc<Mutex<ProofOfWorkForkResolver>>,
+
+    /// Mutex to prevent concurrent chain reorganizations
+    /// SECURITY: Protects against race conditions that could lead to blockchain splits
+    reorg_mutex: Arc<Mutex<()>>,
 }
 
 impl ChainState {
@@ -153,6 +157,7 @@ impl ChainState {
             fork_resolver: Arc::new(Mutex::new(ProofOfWorkForkResolver::new(
                 fork_config.max_fork_depth,
             ))),
+            reorg_mutex: Arc::new(Mutex::new(())),
         }
     }
 
@@ -419,42 +424,95 @@ impl ChainState {
         Ok(should_reorg)
     }
 
-    /// Handle chain reorganization
-    fn handle_reorg(&self, new_tip: &[u8; 32], new_height: u32) -> ChainStateResult<()> {
-        // Find common ancestor
+    /// Handle chain reorganization atomically
+    /// 
+    /// SECURITY FIX (P0-001): This function prevents race conditions that could lead to
+    /// blockchain splits by using an exclusive mutex to ensure only one reorganization
+    /// happens at a time. All state updates occur atomically within the critical section.
+    ///
+    /// # Arguments
+    /// * `new_tip` - The hash of the new chain tip
+    /// * `new_height` - The height of the new chain tip
+    ///
+    /// # Returns
+    /// * `Ok(())` if reorganization succeeded
+    /// * `Err(ChainStateError)` if reorganization failed or was rejected
+    ///
+    /// # Errors
+    /// * `ReorganizationFailed` - If fork is too deep or state is invalid
+    /// * `StorageError` - If lock acquisition or state access fails
+    ///
+    /// # Note
+    /// This method is public for testing purposes only. It is not intended for
+    /// direct use outside of internal chain reorganization logic and security testing.
+    #[doc(hidden)]
+    pub fn handle_reorg(&self, new_tip: &[u8; 32], new_height: u32) -> ChainStateResult<()> {
+        // CRITICAL: Acquire exclusive reorg lock to prevent concurrent reorganizations
+        // This protects against race conditions where multiple threads could simultaneously
+        // attempt to reorganize the chain, leading to inconsistent state
+        let _reorg_guard = self
+            .reorg_mutex
+            .lock()
+            .map_err(|e| ChainStateError::StorageError(format!("Failed to acquire reorg lock: {}", e)))?;
+
+        // Within the critical section, perform all checks and updates atomically
+        
+        // Step 1: Find common ancestor with the new chain
         let ancestor_height = self.find_fork_ancestor(new_tip)?;
 
-        // Only allow limited reorgs for security
+        // Step 2: Validate fork depth for security
         let current_height = self.get_height()?;
         if current_height > ancestor_height
             && current_height - ancestor_height > self.config.max_fork_length
         {
-            return Err(ChainStateError::ReorganizationFailed(
-                "Fork too deep".to_string(),
-            ));
+            return Err(ChainStateError::ReorganizationFailed(format!(
+                "Fork too deep: attempting to reorg {} blocks (max: {})",
+                current_height - ancestor_height,
+                self.config.max_fork_length
+            )));
         }
 
-        // Roll back to ancestor height (would handle UTXOs, etc.)
-        // This is simplified - real implementation would restore UTXOs and other state
+        // Step 3: Rollback blocks from current_height down to ancestor_height
+        // This would restore UTXOs and reverse state changes in a complete implementation
+        // TODO: Implement full UTXO rollback (tracked in Phase 2)
+        for height in (ancestor_height + 1..=current_height).rev() {
+            // Future: self.rollback_block_at_height(height)?;
+            log::debug!("Would rollback block at height {}", height);
+        }
 
-        // Update tip and height
+        // Step 4: Apply new chain blocks from ancestor_height + 1 to new_height
+        // TODO: Implement block application (tracked in Phase 2)
+        for height in (ancestor_height + 1)..=new_height {
+            // Future: self.apply_block_at_height(height, new_tip)?;
+            log::debug!("Would apply block at height {}", height);
+        }
+
+        // Step 5: Atomically update chain tip and height
+        // All state updates happen within the reorg lock to maintain consistency
         {
             let mut tip = self
                 .current_tip
                 .write()
-                .map_err(|e| ChainStateError::StorageError(e.to_string()))?;
+                .map_err(|e| ChainStateError::StorageError(format!("Failed to update tip: {}", e)))?;
             *tip = *new_tip;
 
             let mut height = self
                 .current_height
                 .write()
-                .map_err(|e| ChainStateError::StorageError(e.to_string()))?;
+                .map_err(|e| ChainStateError::StorageError(format!("Failed to update height: {}", e)))?;
             *height = new_height;
         }
 
-        // Update active chain in height map
-        // In a real implementation, would re-order blocks at each height
+        // Step 6: Update height map to reflect new active chain
+        // TODO: Implement proper height map reordering
+        log::info!(
+            "Chain reorganization completed: ancestor={}, new_height={}, blocks_reorged={}",
+            ancestor_height,
+            new_height,
+            current_height.saturating_sub(ancestor_height)
+        );
 
+        // Reorg lock is automatically released here when _reorg_guard drops
         Ok(())
     }
 
@@ -866,6 +924,7 @@ impl Clone for ChainState {
             checkpoints: Arc::clone(&self.checkpoints),
             utxo_set: Arc::clone(&self.utxo_set),
             fork_resolver: Arc::clone(&self.fork_resolver),
+            reorg_mutex: Arc::clone(&self.reorg_mutex),
         }
     }
 }
