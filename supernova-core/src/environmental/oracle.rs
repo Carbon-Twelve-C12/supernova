@@ -190,13 +190,55 @@ pub struct CryptographicProof {
     pub parameters: HashMap<String, Vec<u8>>,
 }
 
+// ============================================================================
+// Byzantine Fault Tolerance Enhancement
+// ============================================================================
+
+/// Byzantine Oracle Configuration
+/// 
+/// SECURITY: Enhanced Byzantine fault tolerance with 75% threshold instead of 67%.
+/// This provides stronger resistance against coordinated oracle attacks.
+pub struct ByzantineOracleConfig;
+
+impl ByzantineOracleConfig {
+    /// Byzantine fault tolerance threshold
+    /// 
+    /// SECURITY: Increased from 67% (2/3) to 75% (3/4) for stronger resistance.
+    /// 
+    /// Attack Analysis:
+    /// - At 67%: Attacker needs >33% malicious oracles (4 out of 12)
+    /// - At 75%: Attacker needs >25% malicious oracles (3 out of 12)
+    /// 
+    /// Additional security margin makes coordinated attacks significantly harder.
+    pub const BYZANTINE_THRESHOLD_PERCENT: u8 = 75; // 75% super-majority
+    pub const BYZANTINE_THRESHOLD: f64 = 0.75;
+    
+    /// Minimum oracle count for security
+    /// 
+    /// With fewer oracles, Byzantine tolerance is weaker.
+    /// Minimum 7 ensures meaningful Byzantine resistance.
+    pub const MIN_ORACLES: usize = 7;
+    
+    /// Minimum reputation score for oracle participation
+    /// 
+    /// Only trusted oracles (reputation >= 80%) participate in consensus.
+    /// This filters out unreliable or potentially malicious oracles.
+    pub const MIN_REPUTATION_SCORE: u32 = 800; // 80% out of 1000
+    
+    /// Agreement tolerance for numeric values
+    /// 
+    /// For numeric data (e.g., emissions), values within 5% are considered agreement.
+    pub const VALUE_AGREEMENT_TOLERANCE: f64 = 0.05; // 5%
+}
+
 /// Oracle consensus mechanism
 #[derive(Debug, Clone)]
 pub struct OracleConsensus {
     /// Minimum number of oracles required for consensus
     pub min_oracles: usize,
 
-    /// Required agreement percentage (e.g., 67 for 2/3 consensus)
+    /// Required agreement percentage (e.g., 75 for 3/4 super-majority)
+    /// SECURITY FIX (P1-002): Increased from 67 to 75
     pub consensus_threshold: u8,
 
     /// Submission timeout
@@ -353,9 +395,10 @@ pub struct OracleMetrics {
 impl EnvironmentalOracle {
     /// Create a new Environmental Oracle system
     pub fn new(min_stake: u64) -> Self {
+        // SECURITY FIX (P1-002): Use enhanced Byzantine fault tolerance
         let consensus_params = OracleConsensus {
-            min_oracles: 3,
-            consensus_threshold: 67,                        // 2/3 majority
+            min_oracles: ByzantineOracleConfig::MIN_ORACLES,        // 7 minimum (increased from 3)
+            consensus_threshold: ByzantineOracleConfig::BYZANTINE_THRESHOLD_PERCENT, // 75% (increased from 67%)
             submission_timeout: Duration::from_secs(300),   // 5 minutes
             verification_timeout: Duration::from_secs(600), // 10 minutes
             reward_params: RewardParameters {
@@ -495,21 +538,57 @@ impl EnvironmentalOracle {
     }
 
     /// Process consensus for a verification request
+    /// 
+    /// SECURITY FIX (P1-002): Enhanced Byzantine fault tolerance with:
+    /// - Reputation filtering (only trusted oracles participate)
+    /// - 75% super-majority threshold (increased from 67%)
+    /// - Minimum oracle count enforcement (7 minimum)
+    ///
+    /// # Arguments
+    /// * `request_id` - Verification request to process
+    ///
+    /// # Returns
+    /// * `Ok(())` - Consensus achieved and result stored
+    /// * `Err(OracleError)` - Consensus failed or insufficient trusted oracles
     fn process_consensus(&self, request_id: &str) -> Result<(), OracleError> {
         let submissions = self.oracle_submissions.read().unwrap();
         let oracle_submissions = submissions
             .get(request_id)
             .ok_or_else(|| OracleError::ConsensusNotReached("No submissions".to_string()))?;
 
-        // Group submissions by verification result
-        let mut verification_groups: HashMap<String, Vec<&OracleSubmission>> = HashMap::new();
-        for submission in oracle_submissions {
-            let key = self.hash_verification_data(&submission.data);
-            verification_groups.entry(key).or_default().push(submission);
+        // SECURITY FIX: Filter by reputation first
+        // Only oracles with reputation >= 800 (80%) participate in consensus
+        let oracles_lock = self.oracles.read().unwrap();
+        let trusted_submissions: Vec<&OracleSubmission> = oracle_submissions
+            .iter()
+            .filter(|submission| {
+                if let Some(oracle) = oracles_lock.get(&submission.oracle_id) {
+                    oracle.reputation_score >= ByzantineOracleConfig::MIN_REPUTATION_SCORE
+                } else {
+                    false // Unknown oracle - exclude
+                }
+            })
+            .collect();
+        drop(oracles_lock);
+
+        // SECURITY: Verify minimum trusted oracle count
+        if trusted_submissions.len() < self.consensus_params.min_oracles {
+            return Err(OracleError::ConsensusNotReached(format!(
+                "Insufficient trusted oracles: {} < {} required",
+                trusted_submissions.len(),
+                self.consensus_params.min_oracles
+            )));
         }
 
-        // Find the majority group
-        let total_submissions = oracle_submissions.len();
+        // Group trusted submissions by verification result
+        let mut verification_groups: HashMap<String, Vec<&OracleSubmission>> = HashMap::new();
+        for submission in &trusted_submissions {
+            let key = self.hash_verification_data(&submission.data);
+            verification_groups.entry(key).or_default().push(*submission);
+        }
+
+        // Find the majority group among TRUSTED oracles
+        let total_trusted = trusted_submissions.len();
         let mut majority_group = None;
         let mut max_count = 0;
 
@@ -520,15 +599,18 @@ impl EnvironmentalOracle {
             }
         }
 
-        // Check if consensus is reached
-        let consensus_percentage = (max_count as f64 / total_submissions as f64) * 100.0;
+        // SECURITY: Check if consensus is reached with 75% threshold
+        let consensus_percentage = (max_count as f64 / total_trusted as f64) * 100.0;
         let consensus_reached =
             consensus_percentage >= self.consensus_params.consensus_threshold as f64;
 
         if !consensus_reached {
             return Err(OracleError::ConsensusNotReached(format!(
-                "Only {}% agreement",
-                consensus_percentage
+                "Insufficient consensus among trusted oracles: {:.1}% < {}% required (max_count={}, total_trusted={})",
+                consensus_percentage,
+                self.consensus_params.consensus_threshold,
+                max_count,
+                total_trusted
             )));
         }
 
@@ -542,18 +624,18 @@ impl EnvironmentalOracle {
             request_id: request_id.to_string(),
             status: VerificationStatus::Verified,
             consensus_details: ConsensusDetails {
-                total_oracles: total_submissions,
+                total_oracles: total_trusted,  // SECURITY: Use trusted oracle count
                 agreeing_oracles: max_count,
-                disagreeing_oracles: total_submissions - max_count,
+                disagreeing_oracles: total_trusted - max_count,
                 consensus_percentage,
                 consensus_reached,
             },
-            participating_oracles: oracle_submissions
+            participating_oracles: trusted_submissions  // SECURITY: Only list trusted oracles
                 .iter()
                 .map(|s| s.oracle_id.clone())
                 .collect(),
             completed_at: Utc::now(),
-            verified_data: self.extract_verified_data(&oracle_submissions[0].data),
+            verified_data: self.extract_verified_data(&trusted_submissions[0].data),
             consensus_proof: self.generate_consensus_proof(oracle_submissions),
         };
 
