@@ -87,6 +87,48 @@ pub struct QuantumChannelParams {
     pub quantum_htlc_enabled: bool,
 }
 
+// ============================================================================
+// SECURITY FIX (P1-001): Quantum HTLC Timeout Constants
+// ============================================================================
+
+/// Quantum HTLC timeout configuration
+/// 
+/// SECURITY: Quantum signatures take approximately 10ms to verify compared to
+/// 1ms for ECDSA signatures. This 10x overhead requires additional safety buffers
+/// to prevent HTLCs from timing out during verification, which could lead to
+/// fund loss or griefing attacks.
+pub struct QuantumHTLCConfig;
+
+impl QuantumHTLCConfig {
+    /// Quantum signature verification overhead in blocks
+    /// 
+    /// Assumptions:
+    /// - Block time: ~10 minutes (600 seconds)
+    /// - Quantum signature verification: ~10ms
+    /// - Network propagation time: ~5 seconds
+    /// - Safety margin: 100x (to account for network delays, node processing queues)
+    /// 
+    /// Result: 144 blocks (~24 hours) provides ample buffer
+    pub const QUANTUM_SIG_VERIFICATION_BLOCKS: u32 = 144;
+    
+    /// Additional network propagation buffer for quantum signatures
+    /// Quantum signatures are larger (~2.5KB vs ~71 bytes for ECDSA), requiring
+    /// more time to propagate through the network
+    pub const NETWORK_PROPAGATION_BUFFER: u32 = 72; // ~12 hours
+    
+    /// Total safety margin for quantum HTLCs
+    pub const TOTAL_SAFETY_MARGIN: u32 = Self::QUANTUM_SIG_VERIFICATION_BLOCKS 
+                                        + Self::NETWORK_PROPAGATION_BUFFER; // 216 blocks (~36 hours)
+    
+    /// Minimum HTLC timeout for quantum-secured channels
+    /// BOLT-11 standard uses 40 blocks minimum for ECDSA
+    /// For quantum, we require 288 blocks (~48 hours) minimum
+    pub const MIN_HTLC_TIMEOUT_BLOCKS: u32 = 288; // 48 hours minimum
+    
+    /// Maximum HTLC timeout (prevents indefinite lock)
+    pub const MAX_HTLC_TIMEOUT_BLOCKS: u32 = 2016; // ~2 weeks
+}
+
 /// Quantum Hash Time-Locked Contract (Q-HTLC)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuantumHTLC {
@@ -110,6 +152,79 @@ pub struct QuantumHTLC {
 
     /// Environmental impact
     pub carbon_footprint: f64,
+}
+
+impl QuantumHTLC {
+    /// Calculate safe timeout for quantum HTLCs
+    /// 
+    /// SECURITY FIX (P1-001): Adds quantum signature verification buffer to prevent
+    /// HTLCs from timing out during signature verification.
+    ///
+    /// # Arguments
+    /// * `base_timeout` - Base timeout in blocks
+    ///
+    /// # Returns
+    /// Safe timeout that accounts for quantum signature overhead
+    pub fn calculate_safe_timeout(base_timeout: u32) -> u32 {
+        base_timeout.saturating_add(QuantumHTLCConfig::TOTAL_SAFETY_MARGIN)
+    }
+    
+    /// Validate HTLC timeout meets minimum quantum requirements
+    /// 
+    /// # Arguments
+    /// * `timeout` - Proposed timeout in blocks
+    ///
+    /// # Returns
+    /// * `Ok(())` - Timeout is safe
+    /// * `Err(String)` - Timeout is too short or too long
+    pub fn validate_timeout(timeout: u32) -> Result<(), String> {
+        if timeout < QuantumHTLCConfig::MIN_HTLC_TIMEOUT_BLOCKS {
+            return Err(format!(
+                "HTLC timeout too short for quantum signatures: {} < {} (minimum)",
+                timeout,
+                QuantumHTLCConfig::MIN_HTLC_TIMEOUT_BLOCKS
+            ));
+        }
+        
+        if timeout > QuantumHTLCConfig::MAX_HTLC_TIMEOUT_BLOCKS {
+            return Err(format!(
+                "HTLC timeout too long: {} > {} (maximum)",
+                timeout,
+                QuantumHTLCConfig::MAX_HTLC_TIMEOUT_BLOCKS
+            ));
+        }
+        
+        Ok(())
+    }
+    
+    /// Create a new quantum HTLC with validated timeout
+    /// 
+    /// SECURITY: Ensures timeout meets quantum signature requirements
+    pub fn new(
+        htlc_id: [u8; 32],
+        amount_sats: u64,
+        payment_hash: [u8; 32],
+        quantum_preimage_commitment: Vec<u8>,
+        base_expiry_height: u32,
+        quantum_signature: Vec<u8>,
+        carbon_footprint: f64,
+    ) -> Result<Self, String> {
+        // Calculate safe expiry with quantum buffer
+        let safe_expiry = Self::calculate_safe_timeout(base_expiry_height);
+        
+        // Validate timeout
+        Self::validate_timeout(safe_expiry)?;
+        
+        Ok(Self {
+            htlc_id,
+            amount_sats,
+            payment_hash,
+            quantum_preimage_commitment,
+            expiry_height: safe_expiry,
+            quantum_signature,
+            carbon_footprint,
+        })
+    }
 }
 
 /// Green Lightning route for carbon-conscious payments

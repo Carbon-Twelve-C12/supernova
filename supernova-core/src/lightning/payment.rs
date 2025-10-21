@@ -146,6 +146,49 @@ pub struct Htlc {
     pub quantum_signature: Option<Vec<u8>>,
 }
 
+impl Htlc {
+    /// Check if this HTLC uses quantum signatures
+    pub fn is_quantum_secured(&self) -> bool {
+        self.quantum_signature.is_some()
+    }
+    
+    /// Get effective expiry height accounting for quantum signature overhead
+    /// 
+    /// SECURITY FIX (P1-001): If HTLC uses quantum signatures, we add additional
+    /// buffer time to account for slower verification.
+    ///
+    /// # Arguments
+    /// * `current_height` - Current blockchain height
+    ///
+    /// # Returns
+    /// Effective expiry height with quantum buffer if applicable
+    pub fn get_effective_expiry(&self) -> u32 {
+        if self.is_quantum_secured() {
+            // Import from quantum_lightning module
+            use crate::lightning::quantum_lightning::QuantumHTLCConfig;
+            
+            // Add quantum buffer to expiry
+            self.cltv_expiry.saturating_add(QuantumHTLCConfig::TOTAL_SAFETY_MARGIN)
+        } else {
+            // Classical HTLC - use original expiry
+            self.cltv_expiry
+        }
+    }
+    
+    /// Check if HTLC has expired accounting for quantum signature buffer
+    /// 
+    /// SECURITY: Uses get_effective_expiry() to prevent premature timeouts
+    ///
+    /// # Arguments
+    /// * `current_height` - Current blockchain height
+    ///
+    /// # Returns
+    /// `true` if HTLC has truly expired, `false` otherwise
+    pub fn is_expired(&self, current_height: u32) -> bool {
+        current_height >= self.get_effective_expiry()
+    }
+}
+
 /// HTLC state
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HtlcState {
@@ -403,11 +446,28 @@ impl PaymentProcessor {
     }
 
     /// Process expired HTLCs
+    /// 
+    /// SECURITY FIX (P1-001): Uses Htlc::is_expired() which accounts for quantum
+    /// signature verification overhead. This prevents HTLCs from timing out during
+    /// verification, which could lead to fund loss or griefing attacks.
+    ///
+    /// # Arguments
+    /// * `current_height` - Current blockchain height
+    ///
+    /// # Returns
+    /// Vector of expired HTLC IDs
     pub fn process_expired_htlcs(&mut self, current_height: u32) -> Vec<u64> {
         let mut expired_htlcs = Vec::new();
 
         for (htlc_id, htlc) in self.htlcs.iter_mut() {
-            if htlc.state == HtlcState::Pending && current_height >= htlc.cltv_expiry {
+            // CRITICAL SECURITY FIX: Use is_expired() instead of direct comparison
+            // This method accounts for quantum signature verification overhead
+            // 
+            // BEFORE: if current_height >= htlc.cltv_expiry
+            // AFTER:  if htlc.is_expired(current_height)
+            //
+            // For quantum HTLCs, this adds 216 blocks (~36 hours) buffer
+            if htlc.state == HtlcState::Pending && htlc.is_expired(current_height) {
                 htlc.state = HtlcState::TimedOut;
                 expired_htlcs.push(*htlc_id);
 
@@ -418,16 +478,26 @@ impl PaymentProcessor {
                     payment.completed_at = Some(
                         SystemTime::now()
                             .duration_since(UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_secs(),
                     );
-                    payment.failure_reason = Some("HTLC expired".to_string());
+                    payment.failure_reason = Some(format!(
+                        "HTLC expired at height {} (quantum-adjusted timeout)",
+                        current_height
+                    ));
                 }
+                
+                debug!(
+                    "HTLC {} expired at height {} (quantum: {})",
+                    htlc_id,
+                    current_height,
+                    htlc.is_quantum_secured()
+                );
             }
         }
 
         if !expired_htlcs.is_empty() {
-            info!("Processed {} expired HTLCs", expired_htlcs.len());
+            info!("Processed {} expired HTLCs at height {}", expired_htlcs.len(), current_height);
         }
 
         expired_htlcs
