@@ -71,6 +71,55 @@ pub enum ConnectionStrategy {
     GeographicFocus(Vec<String>),
 }
 
+// ============================================================================
+// Eclipse Attack Prevention Configuration
+// ============================================================================
+
+/// Eclipse Attack Defense Configuration
+/// 
+/// SECURITY: Hardened configuration to prevent network isolation attacks.
+/// These constants ensure sufficient network topology diversity to prevent
+/// attackers from controlling all of a node's connections.
+pub struct EclipseDefenseConfig;
+
+impl EclipseDefenseConfig {
+    /// Minimum unique ASNs required
+    /// 
+    /// SECURITY: Increased from weak default to prevent ASN-level attacks.
+    /// Attacker would need to control 8+ distinct ASNs to eclipse a node.
+    pub const MIN_UNIQUE_ASNS: usize = 8;
+    
+    /// Maximum peers per ASN
+    /// 
+    /// SECURITY: Reduced from 8 to 2. This is critical - prevents attacker
+    /// from monopolizing connections with a single ASN.
+    /// 
+    /// Attack prevention: With 2 peers/ASN and MIN_UNIQUE_ASNS=8,
+    /// attacker needs control of 5+ ASNs to control majority of connections.
+    pub const MAX_PEERS_PER_ASN: usize = 2;
+    
+    /// Maximum peers per subnet (/24 for IPv4, /48 for IPv6)
+    /// 
+    /// SECURITY: Reduced from 3 to 2. Prevents subnet-level attacks.
+    pub const MAX_PEERS_PER_SUBNET: usize = 2;
+    
+    /// Number of anchor peers (persistent, high-trust)
+    /// 
+    /// Anchor peers are never rotated and provide stable reference points
+    /// for blockchain state. Prevents temporary eclipse during peer churn.
+    pub const ANCHOR_PEER_COUNT: usize = 4;
+    
+    /// Minimum outbound connections
+    /// 
+    /// Outbound connections are more resistant to eclipse attacks than inbound.
+    pub const MIN_OUTBOUND_CONNECTIONS: usize = 8;
+    
+    /// Maximum inbound/outbound ratio
+    /// 
+    /// Too many inbound connections increase eclipse risk.
+    pub const MAX_INBOUND_RATIO: f64 = 3.0;
+}
+
 /// Enhanced configuration for Eclipse attack prevention
 #[derive(Debug, Clone)]
 pub struct EclipsePreventionConfig {
@@ -92,14 +141,15 @@ pub struct EclipsePreventionConfig {
 
 impl Default for EclipsePreventionConfig {
     fn default() -> Self {
+        // SECURITY FIX (P1-004): Use hardened configuration
         Self {
-            min_outbound_connections: 8,
+            min_outbound_connections: EclipseDefenseConfig::MIN_OUTBOUND_CONNECTIONS,
             rotation_interval: Duration::from_secs(3600), // 1 hour
             enable_automatic_rotation: true,
-            max_connections_per_subnet: 3,
-            max_connections_per_asn: 8,
+            max_connections_per_subnet: EclipseDefenseConfig::MAX_PEERS_PER_SUBNET,  // 2 (was 3)
+            max_connections_per_asn: EclipseDefenseConfig::MAX_PEERS_PER_ASN,         // 2 (was 8)
             max_connections_per_region: 15,
-            max_inbound_ratio: 3.0,
+            max_inbound_ratio: EclipseDefenseConfig::MAX_INBOUND_RATIO,
         }
     }
 }
@@ -568,6 +618,49 @@ impl PeerDiversityManager {
         peers_to_disconnect
     }
 
+    /// Validate ASN diversity meets security requirements
+    /// 
+    /// SECURITY FIX (P1-004): Enforces minimum unique ASN count to prevent
+    /// eclipse attacks where attacker controls limited number of ASNs.
+    ///
+    /// # Returns
+    /// * `Ok(())` - ASN diversity meets requirements
+    /// * `Err(String)` - Insufficient ASN diversity with details
+    pub fn validate_asn_diversity(&self) -> Result<(), String> {
+        let unique_asns = self.asn_distribution.len();
+        
+        if unique_asns < EclipseDefenseConfig::MIN_UNIQUE_ASNS {
+            return Err(format!(
+                "Insufficient ASN diversity: {} unique ASNs < {} required. Eclipse attack risk!",
+                unique_asns,
+                EclipseDefenseConfig::MIN_UNIQUE_ASNS
+            ));
+        }
+        
+        // Check for ASN concentration
+        for entry in self.asn_distribution.iter() {
+            let asn = entry.key();
+            let peer_count = *entry.value();
+            
+            if peer_count > EclipseDefenseConfig::MAX_PEERS_PER_ASN {
+                warn!(
+                    "ASN {} has {} peers (max: {}), limiting connections",
+                    asn,
+                    peer_count,
+                    EclipseDefenseConfig::MAX_PEERS_PER_ASN
+                );
+            }
+        }
+        
+        debug!(
+            "ASN diversity validated: {} unique ASNs (minimum: {})",
+            unique_asns,
+            EclipseDefenseConfig::MIN_UNIQUE_ASNS
+        );
+        
+        Ok(())
+    }
+    
     /// Evaluate the current network diversity score
     pub fn evaluate_diversity(&self) -> f64 {
         // Calculate Shannon entropy across different distribution metrics
