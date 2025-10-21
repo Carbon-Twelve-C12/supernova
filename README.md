@@ -1,6 +1,6 @@
 # Supernova: A Quantum-Resistant, Carbon-Negative Blockchain
 
-**Last Updated**: October 8th, 2025
+**Last Updated**: October 21st, 2025
 
 <div align="center">
   <p>
