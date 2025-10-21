@@ -95,6 +95,40 @@ pub enum BlockValidationError {
 /// Type for validation results
 pub type BlockValidationResult = Result<(), BlockValidationError>;
 
+// ============================================================================
+// Block Validation Complexity Limits
+// ============================================================================
+
+/// Validation complexity limits to prevent DoS attacks
+///
+/// SECURITY: Prevents attackers from crafting blocks that take excessive time
+/// to validate by limiting the computational complexity.
+pub struct ValidationComplexityLimits;
+
+impl ValidationComplexityLimits {
+    /// Maximum validation operations allowed
+    /// 
+    /// SECURITY: Limits total validation work to prevent DoS.
+    /// With 1M operations at ~1μs each = ~1 second validation time maximum.
+    pub const MAX_VALIDATION_OPS: u64 = 1_000_000;
+    
+    /// Maximum script operations per block
+    /// 
+    /// Script execution can be expensive - limit total ops across all scripts.
+    pub const MAX_SCRIPT_OPS: u64 = 80_000;
+    
+    /// Maximum signature checks per block
+    /// 
+    /// Signature verification is expensive (~1ms for quantum).
+    /// Limit to prevent signature verification DoS.
+    pub const MAX_SIGNATURE_CHECKS: u64 = 20_000;
+    
+    /// Maximum transaction dependency depth
+    /// 
+    /// Prevents long chains of dependent transactions within a block.
+    pub const MAX_DEPENDENCY_DEPTH: usize = 100;
+}
+
 /// Configuration for block validation
 #[derive(Debug, Clone)]
 pub struct BlockValidationConfig {
@@ -121,6 +155,9 @@ pub struct BlockValidationConfig {
 
     /// Whether to check proof-of-work
     pub validate_pow: bool,
+
+    /// Maximum validation complexity (SECURITY FIX P1-005)
+    pub max_validation_complexity: u64,
 }
 
 impl Default for BlockValidationConfig {
@@ -134,6 +171,7 @@ impl Default for BlockValidationConfig {
             validate_scripts: true,
             validate_witness: true,
             validate_pow: true,
+            max_validation_complexity: ValidationComplexityLimits::MAX_VALIDATION_OPS,
         }
     }
 }
@@ -186,6 +224,46 @@ impl BlockValidator {
         }
     }
 
+    /// Calculate validation complexity for a block
+    /// 
+    /// SECURITY FIX (P1-005): Pre-calculates validation complexity to detect
+    /// maliciously crafted blocks before spending resources validating them.
+    ///
+    /// # Complexity Factors
+    /// - Transaction count (linear)
+    /// - Input count (linear per transaction)
+    /// - Output count (linear per transaction)
+    /// - Input × Output product (quadratic - the vulnerability!)
+    /// - Script size (proportional to execution cost)
+    ///
+    /// # Returns
+    /// Estimated complexity score (higher = more expensive to validate)
+    pub fn calculate_validation_complexity(&self, block: &Block) -> u64 {
+        let mut complexity = 0u64;
+        
+        for tx in block.transactions() {
+            let input_count = tx.inputs().len() as u64;
+            let output_count = tx.outputs().len() as u64;
+            
+            // Linear factors
+            complexity = complexity.saturating_add(input_count);
+            complexity = complexity.saturating_add(output_count);
+            
+            // CRITICAL: Quadratic factor - this is where O(n²) attacks occur
+            // When validating dependencies, we potentially check each input against each output
+            let quadratic_factor = input_count.saturating_mul(output_count);
+            complexity = complexity.saturating_add(quadratic_factor);
+            
+            // Script complexity estimation
+            let script_complexity: u64 = tx.inputs().iter()
+                .map(|input| input.signature_script().len() as u64)
+                .sum();
+            complexity = complexity.saturating_add(script_complexity / 10); // Divide by 10 to weight appropriately
+        }
+        
+        complexity
+    }
+    
     /// Validate a block with full context
     pub fn validate_block_with_context(
         &self,
@@ -193,6 +271,18 @@ impl BlockValidator {
         context: &ValidationContext,
     ) -> BlockValidationResult {
         debug!("Validating block at height {}", block.height());
+
+        // SECURITY CHECK: Pre-validate complexity BEFORE expensive operations
+        let complexity = self.calculate_validation_complexity(block);
+        if complexity > self.config.max_validation_complexity {
+            return Err(BlockValidationError::InvalidHeader(format!(
+                "Block validation complexity too high: {} > {} (max). Possible DoS attack!",
+                complexity,
+                self.config.max_validation_complexity
+            )));
+        }
+        
+        debug!("Block complexity: {} operations", complexity);
 
         // Phase 1: Structure validation
         self.validate_structure(block)?;
@@ -206,7 +296,7 @@ impl BlockValidator {
         // Phase 4: Consensus rules
         self.validate_consensus_rules(block, context)?;
 
-        debug!("Block validation successful");
+        debug!("Block validation successful (complexity: {})", complexity);
         Ok(())
     }
 
@@ -214,6 +304,16 @@ impl BlockValidator {
     pub fn validate_block(&self, block: &Block) -> BlockValidationResult {
         // Basic validation without chain context
         debug!("Performing basic block validation");
+
+        // SECURITY CHECK: Pre-validate complexity before expensive operations
+        let complexity = self.calculate_validation_complexity(block);
+        if complexity > self.config.max_validation_complexity {
+            return Err(BlockValidationError::InvalidHeader(format!(
+                "Block validation complexity too high: {} > {} (max). Rejecting potentially malicious block.",
+                complexity,
+                self.config.max_validation_complexity
+            )));
+        }
 
         // Structure validation
         self.validate_structure(block)?;
@@ -227,6 +327,7 @@ impl BlockValidator {
         // Validate merkle root - CRITICAL: Must verify transaction integrity
         self.validate_merkle_root(block)?;
 
+        debug!("Basic block validation successful (complexity: {})", complexity);
         Ok(())
     }
 
