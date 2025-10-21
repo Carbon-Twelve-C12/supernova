@@ -3,10 +3,13 @@ use crate::api::types::{
 };
 use crate::config;
 use crate::mempool::error::MempoolError;
+use crate::mempool::rate_limiter::MempoolRateLimiter;
 use supernova_core::types::transaction::Transaction;
 use dashmap::DashMap;
 use hex;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use tracing::debug;
 
 /// Configuration for the transaction memory pool
 #[derive(Debug, Clone)]
@@ -62,6 +65,8 @@ pub struct TransactionPool {
     transactions: DashMap<[u8; 32], MempoolEntry>,
     /// Configuration settings
     config: MempoolConfig,
+    /// DoS protection rate limiter (SECURITY FIX P1-003)
+    rate_limiter: Arc<MempoolRateLimiter>,
 }
 
 impl TransactionPool {
@@ -70,6 +75,7 @@ impl TransactionPool {
         Self {
             transactions: DashMap::new(),
             config,
+            rate_limiter: Arc::new(MempoolRateLimiter::new()),
         }
     }
 
@@ -79,6 +85,29 @@ impl TransactionPool {
         transaction: Transaction,
         fee_rate: u64,
     ) -> Result<(), MempoolError> {
+        // Call the extended version with no peer tracking
+        self.add_transaction_from_peer(transaction, fee_rate, None)
+    }
+    
+    /// Add a transaction to the pool with DoS protection
+    /// 
+    /// SECURITY FIX (P1-003): Enhanced with per-peer rate limiting, memory caps,
+    /// and eviction policy to prevent denial-of-service attacks.
+    ///
+    /// # Arguments
+    /// * `transaction` - Transaction to add
+    /// * `fee_rate` - Fee rate in novas per byte
+    /// * `peer_id` - Optional peer identifier for rate limiting
+    ///
+    /// # Returns
+    /// * `Ok(())` - Transaction added successfully
+    /// * `Err(MempoolError)` - Transaction rejected due to validation or DoS protection
+    pub fn add_transaction_from_peer(
+        &self,
+        transaction: Transaction,
+        fee_rate: u64,
+        peer_id: Option<&str>,
+    ) -> Result<(), MempoolError> {
         let tx_hash = transaction.hash();
 
         // Check if transaction already exists
@@ -86,15 +115,15 @@ impl TransactionPool {
             return Err(MempoolError::TransactionExists(hex::encode(tx_hash)));
         }
 
-        // Check pool size limit
-        if self.transactions.len() >= self.config.max_size {
-            return Err(MempoolError::MempoolFull {
-                current: self.transactions.len(),
-                max: self.config.max_size,
-            });
-        }
+        // Calculate transaction size FIRST (needed for rate limiting)
+        let tx_size = bincode::serialize(&transaction)
+            .map_err(|e| MempoolError::SerializationError(e.to_string()))?
+            .len();
 
-        // Check minimum fee rate
+        // CRITICAL SECURITY CHECK: Rate limiting and memory validation
+        self.rate_limiter.check_rate_limit(peer_id, tx_size, fee_rate)?;
+
+        // Check minimum fee rate (redundant but explicit)
         if fee_rate < self.config.min_fee_rate {
             return Err(MempoolError::FeeTooLow {
                 required: self.config.min_fee_rate,
@@ -102,10 +131,16 @@ impl TransactionPool {
             });
         }
 
-        // Calculate transaction size
-        let tx_size = bincode::serialize(&transaction)
-            .map_err(|e| MempoolError::SerializationError(e.to_string()))?
-            .len();
+        // Check pool size limit
+        if self.transactions.len() >= self.config.max_size {
+            // Try to evict lower-fee transaction if this one pays more
+            if !self.try_evict_for_better_fee(fee_rate, tx_size)? {
+                return Err(MempoolError::MempoolFull {
+                    current: self.transactions.len(),
+                    max: self.config.max_size,
+                });
+            }
+        }
 
         // Create and insert new entry
         let entry = MempoolEntry {
@@ -116,13 +151,70 @@ impl TransactionPool {
         };
 
         self.transactions.insert(tx_hash, entry);
+        
+        // Record addition for memory tracking
+        self.rate_limiter.record_addition(tx_size);
+        
         Ok(())
+    }
+    
+    /// Try to evict a lower-fee transaction to make room
+    /// 
+    /// SECURITY: Implements fee-based eviction policy to prevent low-fee spam
+    /// from blocking high-fee legitimate transactions.
+    ///
+    /// # Returns
+    /// * `Ok(true)` - Evicted a transaction, room available
+    /// * `Ok(false)` - No suitable transaction to evict
+    /// * `Err(MempoolError)` - Error during eviction
+    fn try_evict_for_better_fee(&self, new_fee_rate: u64, new_size: usize) -> Result<bool, MempoolError> {
+        // Find lowest fee transaction
+        let mut lowest_fee_entry: Option<([u8; 32], u64, usize)> = None;
+        
+        for entry in self.transactions.iter() {
+            let (hash, mempool_entry) = entry.pair();
+            
+            match &lowest_fee_entry {
+                None => {
+                    lowest_fee_entry = Some((*hash, mempool_entry.fee_rate, mempool_entry.size));
+                }
+                Some((_, current_lowest_fee, _)) => {
+                    if mempool_entry.fee_rate < *current_lowest_fee {
+                        lowest_fee_entry = Some((*hash, mempool_entry.fee_rate, mempool_entry.size));
+                    }
+                }
+            }
+        }
+        
+        // Evict if new transaction pays significantly more
+        if let Some((evict_hash, evict_fee, evict_size)) = lowest_fee_entry {
+            // Require new fee to be at least 2x the lowest fee
+            if new_fee_rate >= evict_fee * 2 {
+                self.transactions.remove(&evict_hash);
+                self.rate_limiter.record_removal(evict_size);
+                
+                debug!(
+                    "Evicted low-fee tx {:02x}... (fee: {}) for higher-fee tx (fee: {})",
+                    evict_hash[0],
+                    evict_fee,
+                    new_fee_rate
+                );
+                
+                return Ok(true);
+            }
+        }
+        
+        Ok(false)
     }
 
     /// Remove a transaction from the pool
     pub fn remove_transaction(&self, tx_hash: &[u8; 32]) -> Option<Transaction> {
         match self.transactions.remove(tx_hash) {
-            Some((_, entry)) => Some(entry.transaction),
+            Some((_, entry)) => {
+                // Update memory tracking
+                self.rate_limiter.record_removal(entry.size);
+                Some(entry.transaction)
+            }
             None => None,
         }
     }

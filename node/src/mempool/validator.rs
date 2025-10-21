@@ -26,7 +26,10 @@ impl TransactionValidator {
 
         // Check transaction size
         if tx_size > self.max_tx_size {
-            return Err(MempoolError::TransactionTooLarge);
+            return Err(MempoolError::TransactionTooLarge {
+                size: tx_size,
+                max: self.max_tx_size,
+            });
         }
 
         // Calculate fee (requires access to previous outputs)

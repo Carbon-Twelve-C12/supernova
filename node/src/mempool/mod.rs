@@ -4,6 +4,7 @@ pub mod mev_protection;
 pub mod pool;
 pub mod prioritization;
 pub mod priority;
+pub mod rate_limiter;
 pub mod secure_pool;
 pub mod validator;
 
@@ -13,6 +14,7 @@ pub use mev_protection::{MEVProtection, MEVProtectionConfig, MEVProtectionStats}
 pub use pool::{MempoolConfig, TransactionPool};
 pub use prioritization::{PrioritizationConfig, PrioritizedTransaction, TransactionPrioritizer};
 pub use priority::TransactionPriority;
+pub use rate_limiter::{MempoolRateLimiter, MempoolDoSConfig, MempoolDoSStats};
 pub use secure_pool::SecureTransactionPool;
 pub use validator::TransactionValidator;
 

@@ -35,8 +35,8 @@ pub enum MempoolError {
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(String),
 
-    #[error("Transaction too large")]
-    TransactionTooLarge,
+    #[error("Transaction too large: {size} bytes exceeds max {max} bytes")]
+    TransactionTooLarge { size: usize, max: usize },
 
     #[error("Storage error: {0}")]
     StorageError(String),
@@ -49,6 +49,17 @@ pub enum MempoolError {
 
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    // SECURITY (P1-003): DoS protection errors
+    #[error("Rate limit exceeded for peer {peer}: {limit} txs/minute maximum")]
+    RateLimitExceeded { peer: String, limit: usize },
+
+    #[error("Memory limit exceeded: current {current} bytes + tx {tx_size} bytes > max {max} bytes")]
+    MemoryLimitExceeded {
+        current: usize,
+        max: usize,
+        tx_size: usize,
+    },
 }
 
 impl From<bincode::Error> for MempoolError {
