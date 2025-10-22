@@ -248,13 +248,31 @@ impl DifficultyAdjustment {
             return self.calculate_weighted_timespan(timestamps);
         }
 
-        // Apply bounds to prevent extreme manipulation
-        // Minimum timespan is 1/4 of target
-        let min_timespan = self.config.target_block_time * (timestamps.len() as u64 - 1) / 4;
-        // Maximum timespan is 4x target
-        let max_timespan = self.config.target_block_time * (timestamps.len() as u64 - 1) * 4;
+        // SECURITY: Apply bounds to prevent timestamp manipulation attacks
+        // These bounds limit how much an attacker can influence difficulty
+        // by manipulating block timestamps
+        
+        let expected_timespan = self.config.target_block_time * (timestamps.len() as u64 - 1);
+        
+        // Minimum timespan is 1/4 of target (prevents "time warp" attacks)
+        // If blocks claim to be mined 4x faster than target, clamp to 4x
+        let min_timespan = expected_timespan / 4;
+        
+        // Maximum timespan is 4x target (prevents artificial difficulty drops)
+        // If blocks claim to be mined 4x slower than target, clamp to 4x
+        let max_timespan = expected_timespan * 4;
+        
+        let clamped_timespan = timespan.clamp(min_timespan, max_timespan);
+        
+        // Log if clamping occurred (timestamp manipulation attempt)
+        if clamped_timespan != timespan {
+            tracing::warn!(
+                "Timespan clamped from {} to {} (min: {}, max: {}). Possible timestamp manipulation.",
+                timespan, clamped_timespan, min_timespan, max_timespan
+            );
+        }
 
-        Ok(timespan.clamp(min_timespan, max_timespan))
+        Ok(clamped_timespan)
     }
 
     /// Calculate a weighted timespan that reduces impact of outliers
@@ -324,16 +342,51 @@ impl DifficultyAdjustment {
     }
 
     /// Apply adjustment ratio limits
+    /// 
+    /// SECURITY FIX (P2-006): Explicit clamping to prevent difficulty manipulation.
+    /// 
+    /// This method ensures that difficulty cannot change more than 4x in either direction
+    /// per adjustment period. This prevents timestamp manipulation attacks where miners
+    /// artificially inflate or deflate difficulty.
+    ///
+    /// # Clamping Range
+    /// - Minimum ratio: 0.25 (difficulty can increase up to 4x)
+    /// - Maximum ratio: 4.0  (difficulty can decrease up to 4x)
+    ///
+    /// # Security Rationale
+    /// - Too-large adjustments enable oscillation attacks
+    /// - Gradual adjustment prevents sudden difficulty spikes/drops
+    /// - 4x limit is industry standard (Bitcoin compatible)
+    ///
+    /// # Arguments
+    /// * `ratio` - Raw adjustment ratio (actual_time / target_time)
+    ///
+    /// # Returns
+    /// Clamped ratio in range [0.25, 4.0]
     fn apply_adjustment_limits(&self, ratio: f64) -> f64 {
-        if ratio > self.config.max_upward_adjustment {
-            // Cap upward adjustment (targets get bigger = difficulty decreases)
-            self.config.max_upward_adjustment
-        } else if ratio < 1.0 / self.config.max_downward_adjustment {
-            // Cap downward adjustment (targets get smaller = difficulty increases)
-            1.0 / self.config.max_downward_adjustment
-        } else {
-            ratio
+        // SECURITY: Explicit min/max bounds for clarity
+        const MIN_ADJUSTMENT_RATIO: f64 = 0.25; // Difficulty can increase 4x
+        const MAX_ADJUSTMENT_RATIO: f64 = 4.0;  // Difficulty can decrease 4x
+        
+        // Clamp to safe range
+        let clamped = ratio.clamp(MIN_ADJUSTMENT_RATIO, MAX_ADJUSTMENT_RATIO);
+        
+        // Log if clamping occurred (indicates potential manipulation attempt)
+        if clamped != ratio {
+            if ratio > MAX_ADJUSTMENT_RATIO {
+                tracing::warn!(
+                    "Difficulty adjustment clamped: ratio {:.2} > {:.2} max (possible timestamp manipulation)",
+                    ratio, MAX_ADJUSTMENT_RATIO
+                );
+            } else {
+                tracing::warn!(
+                    "Difficulty adjustment clamped: ratio {:.2} < {:.2} min (possible timestamp manipulation)",
+                    ratio, MIN_ADJUSTMENT_RATIO
+                );
+            }
         }
+        
+        clamped
     }
 
     /// Calculate adjusted target
