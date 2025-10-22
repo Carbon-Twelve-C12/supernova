@@ -594,25 +594,71 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             data: None,
         })?;
 
-        // Check if refund is allowed
+        // Comprehensive rollback validation
+        
+        // Validation 1: Check if refund is allowed (timelock expired)
         if !swap.nova_htlc.is_expired() {
             return Err(RpcError {
                 code: -32602,
-                message: "Swap has not expired yet".to_string(),
+                message: format!(
+                    "Swap has not expired yet. Timeout at block {}, current state: {:?}",
+                    swap.nova_htlc.timeout_height,
+                    swap.state
+                ),
+                data: Some(serde_json::json!({
+                    "timeout_height": swap.nova_htlc.timeout_height,
+                    "current_state": format!("{:?}", swap.state),
+                })),
+            });
+        }
+        
+        // Validation 2: Check swap is in refundable state
+        if !matches!(swap.state, SwapState::NovaFunded | SwapState::BothFunded | SwapState::Active | SwapState::Failed(_)) {
+            return Err(RpcError {
+                code: -32602,
+                message: format!(
+                    "Swap in state {:?} cannot be refunded",
+                    swap.state
+                ),
+                data: None,
+            });
+        }
+        
+        // Validation 3: Verify swap hasn't already been refunded
+        if matches!(swap.state, SwapState::Refunded | SwapState::Completed) {
+            return Err(RpcError {
+                code: -32602,
+                message: format!("Swap already in final state: {:?}", swap.state),
                 data: None,
             });
         }
 
-        // Update state
+        // TODO (Production): Actual refund implementation would:
+        // 1. Generate refund transaction spending HTLC back to initiator
+        // 2. Sign refund transaction with initiator's key
+        // 3. Broadcast refund transaction to Supernova network
+        // 4. Wait for confirmation
+        // 5. Update UTXO set to unlock funds
+        // 6. Trigger Bitcoin refund if applicable
+        
+        // For now, update state with comprehensive tracking
         swap.state = SwapState::Refunded;
         swap.updated_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
-        // In a real implementation, we would broadcast the refund transaction
+        // Log refund for audit trail
+        log::info!(
+            "Swap {} refunded after timeout. HTLC funds should be returned to {}",
+            hex::encode(&swap_id),
+            swap.nova_htlc.initiator.address
+        );
+        
+        // SECURITY: Return clear indication this is a stub
+        // Production deployment must implement actual refund transaction
         Ok(TransactionId {
-            txid: "dummy_refund_tx".to_string(),
+            txid: format!("STUB_refund_{}", hex::encode(&swap_id[..8])),
             chain: "supernova".to_string(),
         })
     }
