@@ -595,43 +595,61 @@ impl Transaction {
     }
 
     /// Calculate the fee rate in satoshis per byte
+    /// 
+    /// SECURITY: Protected against division by zero and uses safe fee calculation.
+    ///
+    /// # Arguments
+    /// * `get_output` - Function to retrieve previous transaction outputs
+    ///
+    /// # Returns
+    /// * `Some(fee_rate)` - Fee rate in satoshis per byte
+    /// * `None` - If size is zero or fee calculation fails
     pub fn calculate_fee_rate(
         &self,
         get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>,
     ) -> Option<u64> {
         // Calculate the transaction size
         let tx_size = self.calculate_size();
-
-        // Calculate fee (inputs - outputs)
-        if let Some(fee) = self.calculate_fee(get_output) {
-            if tx_size > 0 {
-                return Some(fee / tx_size as u64);
-            }
+        
+        // SECURITY: Check for zero size before division
+        if tx_size == 0 {
+            return None; // Zero-size transaction is invalid
         }
 
-        None
+        // Calculate fee using safe method (now includes overflow protection)
+        let fee = self.calculate_fee(get_output)?;
+        
+        // Safe division (already verified tx_size > 0)
+        Some(fee / tx_size as u64)
     }
 
     /// Calculate the transaction size in bytes
+    /// 
+    /// SECURITY: Uses saturating arithmetic to prevent overflow in extreme cases.
+    ///
+    /// # Returns
+    /// Transaction size in bytes (capped at usize::MAX if overflow would occur)
     pub fn calculate_size(&self) -> usize {
         // Version (4 bytes) + locktime (4 bytes)
-        let mut size = 8;
+        let mut size = 8usize;
 
-        // Add input sizes
+        // Add input sizes (using saturating_add for safety)
         for input in &self.inputs {
             // Previous tx hash (32) + output index (4) + sequence (4) + script length (1-9)
-            size += 40 + input.signature_script.len();
+            size = size.saturating_add(40);
+            size = size.saturating_add(input.signature_script.len());
         }
 
-        // Add output sizes
+        // Add output sizes (using saturating_add for safety)
         for output in &self.outputs {
             // Amount (8) + script length (1-9)
-            size += 9 + output.pub_key_script.len();
+            size = size.saturating_add(9);
+            size = size.saturating_add(output.pub_key_script.len());
         }
 
         // Add variable length encoding for input and output counts
-        size += varint_size(self.inputs.len() as u64);
-        size += varint_size(self.outputs.len() as u64);
+        size = size.saturating_add(varint_size(self.inputs.len() as u64));
+        size = size.saturating_add(varint_size(self.outputs.len() as u64));
 
         size
     }
@@ -757,19 +775,38 @@ impl Transaction {
     }
 
     /// Calculate the transaction fee (inputs - outputs)
+    /// 
+    /// SECURITY FIX (P2-003): Enhanced with proper overflow handling.
+    /// Previous implementation used `unwrap_or(0)` which could mask overflow,
+    /// and unsafe subtraction which could underflow.
+    ///
+    /// # Security Guarantees
+    /// - Output overflow detection (not masked)
+    /// - Safe subtraction with checked_sub()
+    /// - Explicit None on any arithmetic error
+    /// - No value creation from overflow
+    ///
+    /// # Arguments
+    /// * `get_output` - Function to retrieve previous transaction outputs
+    ///
+    /// # Returns
+    /// * `Some(fee)` - Valid fee amount
+    /// * `None` - If inputs missing, outputs overflow, or arithmetic error
     pub fn calculate_fee(
         &self,
         get_output: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>,
     ) -> Option<u64> {
-        if let Some(total_input) = self.total_input(&get_output) {
-            let total_output = self.total_output().unwrap_or(0);
-
-            if total_input > total_output {
-                return Some(total_input - total_output);
-            }
-        }
-
-        None
+        // SECURITY: Get total input (already uses checked_add internally)
+        let total_input = self.total_input(&get_output)?;
+        
+        // CRITICAL FIX: Don't mask overflow with unwrap_or(0)!
+        // If total_output() returns None, it means overflow occurred
+        let total_output = self.total_output()?; // Propagate None on overflow
+        
+        // SECURITY: Use checked_sub instead of bare subtraction
+        // Even though we check total_input > total_output, use checked_sub
+        // for defense-in-depth in case of race conditions or future refactoring
+        total_input.checked_sub(total_output)
     }
 
     /// Get the priority score of this transaction based on fee rate and other factors
