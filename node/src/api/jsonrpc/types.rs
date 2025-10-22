@@ -133,6 +133,11 @@ pub enum ErrorCode {
     ///
     /// Error in network operations
     NetworkError = -32005,
+
+    /// Rate limit exceeded (-32006)
+    ///
+    /// Too many requests from this IP address 
+    RateLimitExceeded = -32006,
 }
 
 impl From<i32> for ErrorCode {
@@ -149,6 +154,7 @@ impl From<i32> for ErrorCode {
             -32003 => ErrorCode::TransactionError,
             -32004 => ErrorCode::WalletError,
             -32005 => ErrorCode::NetworkError,
+            -32006 => ErrorCode::RateLimitExceeded,
             _ => ErrorCode::InternalError, // Default for unknown codes
         }
     }

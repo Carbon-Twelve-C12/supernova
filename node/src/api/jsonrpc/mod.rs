@@ -5,22 +5,50 @@
 mod handlers;
 mod types;
 
-use actix_web::{web, HttpResponse, Responder, http::header};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, http::header};
 use serde_json::Value;
 use std::sync::Arc;
 use crate::api_facade::ApiFacade;
+use crate::api::rate_limiter::{ApiRateLimiter, ApiRateLimitConfig, is_expensive_endpoint};
 use types::{JsonRpcRequest, JsonRpcResponse, ErrorCode};
 
 /// JSON-RPC request handler
+/// 
+/// Enhanced with rate limiting to prevent API DoS attacks.
 pub async fn handle_jsonrpc(
+    http_req: HttpRequest,
     request: web::Json<JsonRpcRequest>,
     node: web::Data<Arc<ApiFacade>>,
+    rate_limiter: web::Data<Arc<ApiRateLimiter>>,
 ) -> impl Responder {
     let req = request.into_inner();
     let id = req.id.clone();
 
+    // SECURITY: Extract client IP address for rate limiting
+    let client_ip = http_req
+        .peer_addr()
+        .map(|addr| addr.ip())
+        .unwrap_or_else(|| "127.0.0.1".parse().unwrap());
+
+    // SECURITY: Check if endpoint is expensive
+    let is_expensive = is_expensive_endpoint(&req.method);
+
+    // CRITICAL SECURITY CHECK: Rate limiting
+    if let Err(reason) = rate_limiter.check_rate_limit(client_ip, &req.method, is_expensive) {
+        return HttpResponse::TooManyRequests().json(JsonRpcResponse::error(
+            id,
+            ErrorCode::RateLimitExceeded,
+            reason,
+            Some(serde_json::json!({
+                "retry_after": 60,
+                "limit": ApiRateLimitConfig::MAX_REQUESTS_PER_IP_PER_MINUTE,
+            })),
+        ));
+    }
+
     // Validate JSON-RPC version
     if req.jsonrpc != "2.0" {
+        rate_limiter.complete_request(client_ip);
         return HttpResponse::Ok().json(JsonRpcResponse::error(
             id,
             ErrorCode::InvalidRequest,
@@ -39,6 +67,9 @@ pub async fn handle_jsonrpc(
             e.data,
         ),
     };
+
+    // Mark request as complete (decrements concurrent counter)
+    rate_limiter.complete_request(client_ip);
 
     HttpResponse::Ok().json(result)
 }

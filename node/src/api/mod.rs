@@ -7,6 +7,7 @@
 pub mod docs;
 mod error;
 pub mod middleware;
+pub mod rate_limiter;   // API rate limiting
 pub mod routes;
 mod server;
 pub mod types;
@@ -26,6 +27,7 @@ pub mod jsonrpc;         // JSON-RPC 2.0 API enabled
 pub use error::{ApiError, Result};
 pub use server::{ApiConfig, ApiServer};
 pub use types::*;
+pub use rate_limiter::{ApiRateLimiter, ApiRateLimitConfig, ApiRateLimitStats};
 
 // Re-export thread safety types
 pub use crate::thread_safety_fix::{NodeApiFacade, ThreadSafeNode};
