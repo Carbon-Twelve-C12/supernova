@@ -21,6 +21,14 @@ const MAX_HEADERS_PER_REQUEST: u64 = 2000;
 const MAX_BLOCKS_PER_REQUEST: u64 = 128;
 const HEADER_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
 const BLOCK_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+
+// Add timeout for block verification to prevent deadlock
+/// Maximum time allowed for verifying a batch of blocks
+/// 
+/// SECURITY: If verification takes longer than this, the node is likely stuck
+/// on a maliciously crafted block. Timeout and retry with different peer.
+const BLOCK_VERIFICATION_TIMEOUT: Duration = Duration::from_secs(120); // 2 minutes
+
 const SYNC_STATUS_UPDATE_INTERVAL: Duration = Duration::from_secs(10);
 const MAX_PARALLEL_BLOCK_DOWNLOADS: usize = 8;
 const CHECKPOINT_INTERVAL: u64 = 10000;
@@ -1538,6 +1546,10 @@ impl ChainSync {
     }
 
     /// Process sync timeouts
+    /// 
+    /// SECURITY FIX (P2-009): Enhanced with VerifyingBlocks timeout to prevent deadlock.
+    /// Previous implementation had no timeout for block verification, allowing malicious
+    /// blocks to permanently stall synchronization.
     pub async fn process_timeouts(&mut self) -> Result<(), String> {
         match &self.sync_state {
             SyncState::SyncingHeaders {
@@ -1566,6 +1578,27 @@ impl ChainSync {
 
                     // Retry block requests
                     self.request_next_blocks().await?;
+                }
+            }
+            // SECURITY FIX: Add timeout for block verification (was missing - deadlock!)
+            SyncState::VerifyingBlocks {
+                current_verification_start,
+                ..
+            } => {
+                if current_verification_start.elapsed() > BLOCK_VERIFICATION_TIMEOUT {
+                    warn!(
+                        "Block verification timed out after {} seconds. Possible malicious block or resource exhaustion.",
+                        current_verification_start.elapsed().as_secs()
+                    );
+                    
+                    // CRITICAL: Reset sync state to prevent deadlock
+                    // Drop the current batch and restart from where we are
+                    self.sync_state = SyncState::Idle;
+                    
+                    // Restart sync process
+                    info!("Restarting sync after verification timeout");
+                    self.start_sync(self.highest_seen_height, self.highest_seen_total_difficulty)
+                        .await?;
                 }
             }
             _ => {}
