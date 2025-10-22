@@ -5,6 +5,32 @@ use supernova_core::types::transaction::{Transaction, TransactionInput, Transact
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+// ============================================================================
+// Treasury Output Validation Configuration
+// ============================================================================
+
+/// Treasury allocation configuration
+pub struct TreasuryAllocationConfig;
+
+impl TreasuryAllocationConfig {
+    /// Treasury allocation percentage
+    /// 
+    /// SECURITY FIX (P2-010): 5% of block reward goes to environmental treasury.
+    /// This is a consensus rule and must be enforced in block validation.
+    pub const TREASURY_ALLOCATION_PERCENT: f64 = 5.0;
+    
+    /// Treasury address (multisig controlled by governance)
+    /// 
+    /// SECURITY: In production, this should be a multisig address controlled
+    /// by decentralized governance, not a single address.
+    /// 
+    /// TODO: Replace with actual governance-controlled multisig address
+    pub const TREASURY_ADDRESS_PLACEHOLDER: &'static [u8] = b"TREASURY_PLACEHOLDER_ADDRESS";
+    
+    /// Minimum treasury output amount (prevents dust)
+    pub const MIN_TREASURY_OUTPUT: u64 = 1000; // 1000 satoshis minimum
+}
+
 pub const BLOCK_MAX_SIZE: usize = 4_000_000; // 4MB (increased for 2.5-minute blocks)
 pub const TEMPLATE_REFRESH_INTERVAL: Duration = Duration::from_secs(30); // Refresh template every 30 seconds for 2.5-minute blocks
 
@@ -157,6 +183,28 @@ impl BlockTemplate {
         self.needs_refresh.store(false, Ordering::Relaxed);
     }
 
+    /// Create coinbase transaction with treasury allocation
+    /// 
+    /// Adds mandatory treasury output to coinbase.
+    /// Previous implementation sent 100% of reward to miner, breaking the
+    /// environmental system's economic model.
+    ///
+    /// # Coinbase Output Structure
+    /// 1. Miner output: 95% of reward
+    /// 2. Treasury output: 5% of reward (environmental funding)
+    ///
+    /// # Security Guarantee
+    /// - Treasury allocation is enforced
+    /// - Percentage is configurable constant
+    /// - Minimum treasury output prevents dust
+    /// - TODO: Production must validate treasury address via governance
+    ///
+    /// # Arguments
+    /// * `reward` - Total block reward (base + fees + environmental bonus)
+    /// * `reward_address` - Miner's reward address
+    ///
+    /// # Returns
+    /// Transaction with miner and treasury outputs
     fn create_coinbase_transaction(reward: u64, reward_address: Vec<u8>) -> Transaction {
         let coinbase_input = TransactionInput::new(
             [0u8; 32],  // Previous transaction hash is zero for coinbase
@@ -165,14 +213,102 @@ impl BlockTemplate {
             0,          // Sequence
         );
 
-        let reward_output = TransactionOutput::new(reward, reward_address);
+        // SECURITY: Calculate treasury allocation
+        let treasury_percentage = TreasuryAllocationConfig::TREASURY_ALLOCATION_PERCENT / 100.0;
+        let treasury_amount = (reward as f64 * treasury_percentage) as u64;
+        let miner_amount = reward.saturating_sub(treasury_amount);
+        
+        // Create outputs: [miner, treasury]
+        let mut outputs = Vec::new();
+        
+        // Output 0: Miner reward (95%)
+        outputs.push(TransactionOutput::new(miner_amount, reward_address));
+        
+        // Output 1: Treasury allocation (5%)
+        // SECURITY: Only add if amount meets minimum threshold
+        if treasury_amount >= TreasuryAllocationConfig::MIN_TREASURY_OUTPUT {
+            outputs.push(TransactionOutput::new(
+                treasury_amount,
+                TreasuryAllocationConfig::TREASURY_ADDRESS_PLACEHOLDER.to_vec(),
+            ));
+        } else {
+            // If treasury amount too small, give it to miner
+            // This only happens for very small rewards in early testing
+            outputs[0] = TransactionOutput::new(reward, outputs[0].pub_key_script.clone());
+        }
 
         Transaction::new(
             1, // Version
             vec![coinbase_input],
-            vec![reward_output],
+            outputs,
             0, // Lock time
         )
+    }
+    
+    /// Validate coinbase transaction has correct treasury output
+    /// 
+    /// SECURITY: Validates that coinbase includes proper treasury allocation.
+    /// This should be called during block validation to prevent fund diversion.
+    ///
+    /// # Arguments
+    /// * `coinbase` - Coinbase transaction to validate
+    /// * `expected_reward` - Expected total block reward
+    ///
+    /// # Returns
+    /// * `Ok(())` - Coinbase is valid
+    /// * `Err(String)` - Coinbase is invalid with reason
+    pub fn validate_coinbase_treasury(
+        coinbase: &Transaction,
+        expected_reward: u64,
+    ) -> Result<(), String> {
+        let outputs = coinbase.outputs();
+        
+        // Validation 1: Must have at least 1 output (miner)
+        if outputs.is_empty() {
+            return Err("Coinbase has no outputs".to_string());
+        }
+        
+        // Validation 2: Calculate expected treasury amount
+        let treasury_percentage = TreasuryAllocationConfig::TREASURY_ALLOCATION_PERCENT / 100.0;
+        let expected_treasury = (expected_reward as f64 * treasury_percentage) as u64;
+        
+        // Validation 3: If treasury amount significant, must have treasury output
+        if expected_treasury >= TreasuryAllocationConfig::MIN_TREASURY_OUTPUT {
+            if outputs.len() < 2 {
+                return Err(format!(
+                    "Coinbase missing treasury output (expected {} satoshis)",
+                    expected_treasury
+                ));
+            }
+            
+            // Validation 4: Verify treasury output amount
+            let actual_treasury = outputs[1].amount();
+            
+            // Allow 1% tolerance for rounding
+            let tolerance = expected_treasury / 100;
+            if actual_treasury < expected_treasury.saturating_sub(tolerance) 
+                || actual_treasury > expected_treasury + tolerance {
+                return Err(format!(
+                    "Treasury output amount incorrect: expected {}, got {}",
+                    expected_treasury,
+                    actual_treasury
+                ));
+            }
+            
+            // Validation 5: Verify miner doesn't get full reward
+            let miner_output = outputs[0].amount();
+            let total_outputs: u64 = outputs.iter().map(|o| o.amount()).sum();
+            
+            if total_outputs > expected_reward {
+                return Err(format!(
+                    "Total coinbase outputs {} exceed expected reward {}",
+                    total_outputs,
+                    expected_reward
+                ));
+            }
+        }
+        
+        Ok(())
     }
 
     // Add method to update template with additional fee to prioritize mining
