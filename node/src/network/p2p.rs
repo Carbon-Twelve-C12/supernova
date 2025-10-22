@@ -1576,7 +1576,26 @@ impl P2PNetwork {
                 topic: _,
                 data,
             } => {
-                // Update stats
+                // Check size BEFORE deserialization
+                // Previous code deserialized first, allowing memory allocation attacks
+                use crate::network::message::MessageSizeLimits;
+                
+                if data.len() > MessageSizeLimits::MAX_MESSAGE_SIZE {
+                    warn!(
+                        "Rejecting oversized message from peer {}: {} bytes > {} max",
+                        peer_id,
+                        data.len(),
+                        MessageSizeLimits::MAX_MESSAGE_SIZE
+                    );
+                    
+                    // Update stats for monitoring
+                    stats.write().await.messages_received += 1;
+                    
+                    // Skip this message - return early (async function can't use continue)
+                    return;
+                }
+                
+                // Update stats (only for valid-sized messages)
                 stats.write().await.messages_received += 1;
                 stats.write().await.bytes_received += data.len() as u64;
 
@@ -1591,7 +1610,7 @@ impl P2PNetwork {
                     peer_info.last_seen = Instant::now();
                 }
 
-                // Deserialize and dispatch message by type
+                // NOW SAFE: Deserialize after size validation
                 if let Ok(message) = bincode::deserialize::<Message>(&data) {
                     match message {
                         Message::Transaction { transaction } => {

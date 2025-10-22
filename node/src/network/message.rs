@@ -9,8 +9,50 @@ use std::{
 use tokio::sync::mpsc;
 use tracing::{trace, warn};
 
+// ============================================================================
+// Network Message Size Limits
+// ============================================================================
+
+/// Network message size configuration
+/// 
+/// SECURITY: Reduced from dangerous 32MB to safe 4MB limit.
+/// This prevents bandwidth exhaustion and memory DoS attacks.
+pub struct MessageSizeLimits;
+
+impl MessageSizeLimits {
+    /// Maximum size of a network message in bytes
+    /// 
+    /// SECURITY FIX: Reduced from 32MB to 4MB.
+    /// 
+    /// Rationale:
+    /// - Bitcoin mainnet: 2MB blocks
+    /// - Supernova blocks: ~4MB (2.5 minute block time)
+    /// - Messages should fit block size + overhead
+    /// - 32MB was 8x too large, enabled bandwidth DoS
+    pub const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024; // 4 MB
+    
+    /// Maximum block message size (same as MAX_MESSAGE_SIZE)
+    pub const MAX_BLOCK_SIZE: usize = 4 * 1024 * 1024; // 4 MB
+    
+    /// Maximum transaction message size
+    /// 
+    /// Individual transactions should be much smaller than blocks.
+    pub const MAX_TRANSACTION_SIZE: usize = 1 * 1024 * 1024; // 1 MB
+    
+    /// Maximum inventory message size
+    /// 
+    /// Inventory messages list transaction/block hashes.
+    pub const MAX_INVENTORY_SIZE: usize = 512 * 1024; // 512 KB
+    
+    /// Maximum header message size
+    /// 
+    /// Block headers are small (~80 bytes each), but allow batches.
+    pub const MAX_HEADERS_SIZE: usize = 2 * 1024 * 1024; // 2 MB (~25,000 headers)
+}
+
 /// Maximum size of a network message in bytes
-pub const MAX_MESSAGE_SIZE: usize = 32 * 1024 * 1024; // 32 MB
+/// SECURITY: Now uses hardened constant
+pub const MAX_MESSAGE_SIZE: usize = MessageSizeLimits::MAX_MESSAGE_SIZE;
 
 /// Maximum time to keep a message in the seen cache
 pub const MESSAGE_CACHE_TTL: Duration = Duration::from_secs(120);
