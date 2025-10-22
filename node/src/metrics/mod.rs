@@ -138,11 +138,13 @@ impl<'a> VerificationOperation<'a> {
 
 pub mod collector;
 pub mod performance;
+pub mod privacy;     // Metrics privacy filtering
 pub mod registry;
 pub mod types;
 
 pub use collector::MetricsCollector;
 pub use performance::{MetricType, PerformanceMonitor};
+pub use privacy::{MetricsPrivacyFilter, MetricsPrivacyLevel, MetricsPrivacyConfig};
 pub use registry::MetricsRegistry;
 pub use types::{MetricValue, SystemMetrics};
 
