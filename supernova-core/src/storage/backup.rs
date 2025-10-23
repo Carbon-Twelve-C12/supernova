@@ -325,7 +325,19 @@ impl BackupManager {
             let mut backups = self
                 .backups
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Backups cache mutex failure during backup creation
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on backups cache when storing new backup. \
+                         Backup ID: {}, Height: {}, Type: {:?}, Path: {}. \
+                         Lock may be poisoned. Backup file created successfully but cannot be tracked in cache. \
+                         Backup exists on disk but won't appear in listings until next scan.",
+                        backup.id,
+                        height,
+                        backup_type,
+                        backup.path.display()
+                    ))
+                })?;
             backups.insert(backup.id.clone(), backup.clone());
         }
 
@@ -334,7 +346,17 @@ impl BackupManager {
             let mut last_height = self
                 .last_backup_height
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Last backup height mutex failure after backup creation
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on last_backup_height after creating backup at height {}. \
+                         Backup ID: {}, Type: {:?}. Lock may be poisoned. \
+                         Backup successful but height tracking cannot be updated. May trigger redundant backups.",
+                        height,
+                        backup.id,
+                        backup_type
+                    ))
+                })?;
             *last_height = height;
         }
 
@@ -342,7 +364,16 @@ impl BackupManager {
             let mut last_full_height = self
                 .last_full_backup_height
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Full backup height mutex failure
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on last_full_backup_height after creating full backup at height {}. \
+                         Backup ID: {}. Lock may be poisoned. \
+                         Full backup successful but tracking cannot be updated. Next backup may incorrectly be full instead of incremental.",
+                        height,
+                        backup.id
+                    ))
+                })?;
             *last_full_height = height;
         }
 
@@ -358,7 +389,16 @@ impl BackupManager {
             let height = self
                 .last_full_backup_height
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Full backup height mutex failure during backup decision
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on last_full_backup_height when determining backup type for height {}. \
+                         Lock may be poisoned. Cannot determine if full or incremental backup is needed. \
+                         Defaulting to full backup for safety (full backup interval: {} blocks).",
+                        height,
+                        self.config.full_backup_interval
+                    ))
+                })?;
             *height
         };
 
@@ -439,7 +479,16 @@ impl BackupManager {
             let backups = self
                 .backups
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Backups cache mutex failure during restore operation
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on backups cache when retrieving backup {} for restore. \
+                         Lock may be poisoned. Cannot look up backup metadata. \
+                         Restore operation cannot proceed without backup information. \
+                         Try rescanning backups with scan_backups() first.",
+                        backup_id
+                    ))
+                })?;
 
             backups
                 .get(backup_id)
@@ -517,7 +566,16 @@ impl BackupManager {
             let height = self
                 .last_backup_height
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Last backup height mutex failure during backup decision
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on last_backup_height when deciding if backup needed at height {}. \
+                         Lock may be poisoned. Cannot determine time since last backup. \
+                         Defaulting to creating backup for safety (incremental interval: {} blocks).",
+                        height,
+                        self.config.incremental_backup_interval
+                    ))
+                })?;
             *height
         };
 
@@ -525,7 +583,17 @@ impl BackupManager {
             let height = self
                 .last_full_backup_height
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Full backup height mutex failure during backup decision
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on last_full_backup_height when deciding if backup needed at height {}. \
+                         Last incremental: height {}. Lock may be poisoned. \
+                         Cannot determine if full backup needed (full interval: {} blocks).",
+                        height,
+                        last_backup_height,
+                        self.config.full_backup_interval
+                    ))
+                })?;
             *height
         };
 
@@ -551,7 +619,15 @@ impl BackupManager {
             let backups = self
                 .backups
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Backups cache mutex failure during verification
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on backups cache when verifying backup {}. \
+                         Lock may be poisoned. Cannot retrieve backup metadata for integrity verification. \
+                         Backup file may exist but cannot be validated.",
+                        backup_id
+                    ))
+                })?;
 
             backups
                 .get(backup_id)
@@ -582,7 +658,15 @@ impl BackupManager {
         let backups = self
             .backups
             .lock()
-            .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+            .map_err(|_| {
+                // ENHANCED ERROR CONTEXT: Backups cache mutex failure during pruning
+                BackupError::InvalidBackup(format!(
+                    "Failed to acquire mutex lock on backups cache when pruning old backups. \
+                     Lock may be poisoned. Cannot check backup count or determine which backups to delete. \
+                     Backup limit: {} backups. Pruning operation aborted.",
+                    self.config.max_backups
+                ))
+            })?;
 
         // Check if we need to prune
         if backups.len() <= self.config.max_backups {
@@ -639,7 +723,15 @@ impl BackupManager {
         let backups = self
             .backups
             .lock()
-            .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+            .map_err(|_| {
+                // ENHANCED ERROR CONTEXT: Backups cache mutex failure during backup listing
+                BackupError::InvalidBackup(
+                    "Failed to acquire mutex lock on backups cache when listing all backups. \
+                     Lock may be poisoned. Cannot enumerate available backups. \
+                     Backups exist on disk but cannot be listed. Try rescanning backup directory."
+                        .to_string()
+                )
+            })?;
 
         Ok(backups.values().cloned().collect())
     }
