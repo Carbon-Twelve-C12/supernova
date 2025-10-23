@@ -169,7 +169,15 @@ impl BackupManager {
         let mut backups = self
             .backups
             .lock()
-            .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+            .map_err(|_| {
+                // ENHANCED ERROR CONTEXT: Backups cache mutex failure during directory scan
+                BackupError::InvalidBackup(format!(
+                    "Failed to acquire mutex lock on backups cache when scanning backup directory {}. \
+                     Lock may be poisoned by previous thread panic. \
+                     Cannot load backup metadata. Backup discovery and tracking disabled.",
+                    self.config.backup_dir.display()
+                ))
+            })?;
 
         // Clear existing cache
         backups.clear();
@@ -207,7 +215,15 @@ impl BackupManager {
             let mut last_height = self
                 .last_backup_height
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Height tracking mutex failure after backup scan
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on last_backup_height after scanning backups. \
+                         Discovered max backup height: {}. Lock may be poisoned. \
+                         Cannot update last backup height tracking. Backup decision logic may use stale data.",
+                        max_backup_height
+                    ))
+                })?;
             *last_height = max_backup_height;
         }
 
@@ -215,7 +231,15 @@ impl BackupManager {
             let mut last_full_height = self
                 .last_full_backup_height
                 .lock()
-                .map_err(|_| BackupError::InvalidBackup("Failed to acquire mutex".to_string()))?;
+                .map_err(|_| {
+                    // ENHANCED ERROR CONTEXT: Full backup height tracking mutex failure
+                    BackupError::InvalidBackup(format!(
+                        "Failed to acquire mutex lock on last_full_backup_height after scanning backups. \
+                         Discovered max full backup height: {}. Lock may be poisoned. \
+                         Cannot track last full backup. May trigger unnecessary full backups.",
+                        max_full_backup_height
+                    ))
+                })?;
             *last_full_height = max_full_backup_height;
         }
 
