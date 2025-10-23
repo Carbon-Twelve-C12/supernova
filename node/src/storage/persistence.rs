@@ -87,7 +87,19 @@ impl ChainState {
             Some(height_bytes) => {
                 if height_bytes.len() >= 8 {
                     u64::from_be_bytes(height_bytes[..8].try_into()
-                        .map_err(|_| StorageError::DatabaseError("Invalid height bytes".to_string()))?)
+                        .map_err(|_| {
+                            // ENHANCED ERROR CONTEXT: Height metadata conversion failure during persistence load
+                            // This is the FINAL error context enhancement for P2-001!
+                            StorageError::DatabaseError(format!(
+                                "Invalid height metadata during persistence initialization. \
+                                 Expected 8 bytes for u64 blockchain height, got {} bytes. \
+                                 This indicates database corruption of the 'height' metadata key. \
+                                 Cannot determine blockchain state. Database recovery required. \
+                                 Raw bytes: {}",
+                                height_bytes.len(),
+                                hex::encode(&height_bytes[..height_bytes.len().min(16)])
+                            ))
+                        })?)
                 } else {
                     0
                 }

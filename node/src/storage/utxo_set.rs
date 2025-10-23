@@ -403,7 +403,16 @@ impl UtxoSet {
         // Create commitment
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| StorageError::DatabaseError("System time before UNIX epoch".to_string()))?
+            .map_err(|e| {
+                // ENHANCED ERROR CONTEXT: System time error during UTXO commitment creation
+                StorageError::DatabaseError(format!(
+                    "System time error when creating UTXO commitment at height {}: {}. \
+                     System clock may be set before Unix epoch (1970-01-01). \
+                     Cannot timestamp UTXO set commitment. Check system clock configuration.",
+                    height,
+                    e
+                ))
+            })?
             .as_secs();
 
         let commitment = UtxoCommitment {

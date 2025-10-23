@@ -279,7 +279,13 @@ impl CheckpointManager {
         // Check if we need to do an initial checkpoint
         let current_height = {
             let state = self.chain_state.lock().map_err(|_| {
-                StorageError::DatabaseError("Chain state lock poisoned".to_string())
+                // ENHANCED ERROR CONTEXT: Chain state lock failure during checkpoint initialization
+                StorageError::DatabaseError(
+                    "Failed to acquire mutex lock on chain_state during checkpoint system initialization. \
+                     Lock may be poisoned by previous thread panic. Cannot determine current blockchain height. \
+                     Checkpoint system will start but cannot create initial checkpoint."
+                        .to_string()
+                )
             })?;
             state.get_height()
         };
@@ -545,7 +551,13 @@ impl CheckpointManager {
         // Get current height and block hash
         let (height, block_hash) = {
             let state = chain_state.lock().map_err(|_| {
-                StorageError::DatabaseError("Chain state lock poisoned".to_string())
+                // ENHANCED ERROR CONTEXT: Chain state lock failure during checkpoint creation
+                StorageError::DatabaseError(format!(
+                    "Failed to acquire mutex lock on chain_state during {:?} checkpoint creation. \
+                     Lock may be poisoned. Cannot retrieve current blockchain height and tip hash. \
+                     Checkpoint creation aborted. State recovery point cannot be created.",
+                    checkpoint_type
+                ))
             })?;
             (state.get_height(), state.get_best_block_hash())
         };
@@ -642,7 +654,13 @@ impl CheckpointManager {
         // Get current height and hash
         let (height, hash) = {
             let state = chain_state.lock().map_err(|_| {
-                StorageError::DatabaseError("Chain state lock poisoned".to_string())
+                // ENHANCED ERROR CONTEXT: Chain state lock failure during state checkpoint
+                StorageError::DatabaseError(
+                    "Failed to acquire mutex lock on chain_state during state checkpoint creation. \
+                     Lock may be poisoned. Cannot retrieve current height and best block hash. \
+                     State checkpoint creation aborted. This is a simplified implementation."
+                        .to_string()
+                )
             })?;
             (state.get_height(), state.get_best_block_hash())
         };
