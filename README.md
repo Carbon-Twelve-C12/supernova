@@ -160,7 +160,7 @@ Supernova implements defense-in-depth security practices with recent comprehensi
 ### **Security Hardening Complete**
 - **19 vulnerabilities eliminated** (3 P0 Critical, 7 P1 High-Priority, 9 P2 Medium-Priority)
 - **216 security tests added** covering consensus, cryptography, networking, storage, and privacy
-- **Security score: 9.9/10** (up from 7.8/10 at start)
+- **Security score: 9.9/10** 
 - **96% test coverage** across the codebase
 - **Zero `unwrap()` calls** in all security-critical paths
 

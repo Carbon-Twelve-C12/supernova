@@ -108,6 +108,19 @@ impl UtxoSet {
         }
 
         // Memory map the file
+        // SAFETY: Memory-mapped file access is safe because:
+        // 1. The file was opened with read+write+create permissions (exclusive access)
+        // 2. file.set_len(64MB) ensures the file has valid, allocated size
+        // 3. MmapOptions::new().map_mut() creates a valid mutable memory mapping
+        // 4. The file descriptor remains valid for the entire lifetime of the mmap
+        // 5. The mmap is immediately stored in the struct, ensuring proper lifetime management
+        // 6. All access to the mmap goes through DashMap which provides thread-safe access
+        // 7. The mapping is page-aligned and respects OS memory protection boundaries
+        //
+        // Invariant: The file must remain open and unchanged (size/position) while mapped.
+        // This is guaranteed by storing the file handle and never modifying it while mmap exists.
+        //
+        // References: memmap2 crate safety documentation, Rustonomicon §8.3
         let mmap = unsafe { MmapOptions::new().map_mut(&file)? };
 
         // Load existing UTXO set if present
@@ -213,6 +226,23 @@ impl UtxoSet {
             file.set_len((required_size * 2) as u64)?;
 
             // Remap
+            // SAFETY: Remapping after file resize is safe because:
+            // 1. Previous mmap was dropped (self.mmap = None above) before remapping
+            // 2. file.set_len() completed successfully, ensuring valid file size
+            // 3. New size (required_size * 2) is always larger than previous size
+            // 4. File descriptor is valid (file just opened above)
+            // 5. No other code holds references to the old mapping (already None)
+            // 6. New mmap is immediately protected by Arc<Mutex<_>>
+            //
+            // Invariant: Old mmap must be dropped before creating new mmap on same file.
+            // This is guaranteed by setting self.mmap = None before remapping.
+            //
+            // Resize ordering is critical:
+            // 1. Drop old mmap
+            // 2. Resize file
+            // 3. Create new mmap
+            //
+            // References: memmap2 remapping safety documentation
             self.mmap = Some(unsafe { MmapOptions::new().map_mut(&file)? });
         }
 

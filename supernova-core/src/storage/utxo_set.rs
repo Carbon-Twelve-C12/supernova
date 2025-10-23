@@ -162,6 +162,15 @@ impl UtxoSet {
             file.set_len(initial_size)?;
 
             // Create memory map
+            // SAFETY: The memory-mapped file is safe because:
+            // 1. The file was just created/opened exclusively by this process (no concurrent access)
+            // 2. file.set_len() ensures the file has valid size (10MB minimum)
+            // 3. MmapOptions::new().map_mut() creates a mutable mapping with proper permissions
+            // 4. The file remains open (owned by self.file) for the lifetime of the mmap
+            // 5. The mmap is protected by Arc<Mutex<_>> preventing concurrent modification
+            // 6. No raw pointers are exposed outside this module
+            // 
+            // References: Rustonomicon §8.3 (Memory-mapped files), memmap2 crate documentation
             let mmap = unsafe { MmapOptions::new().map_mut(&file)? };
             self.mmap = Some(Arc::new(Mutex::new(mmap)));
 

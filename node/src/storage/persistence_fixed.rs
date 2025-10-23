@@ -238,6 +238,22 @@ impl PersistenceManager {
             .map_err(|e| StorageError::Io(e))?;
 
         // Create memory map
+        // SAFETY: Creating a mutable memory map of the file is safe because:
+        // 1. The file was just created with OpenOptions::new().create(true).write(true)
+        // 2. file.set_len(size) ensures the file has the exact required size
+        // 3. The size is validated and allocated before mapping
+        // 4. map_mut() creates a valid mutable mapping with proper OS permissions
+        // 5. The file remains open for the duration of this function
+        // 6. The returned MmapMut is immediately returned to the caller who owns it
+        // 7. No aliasing occurs - single mutable reference to the mapped region
+        //
+        // Invariant: The file must not be modified externally while mapped.
+        // This is the caller's responsibility to ensure (documented in method docs).
+        //
+        // Risk if violated: If the file is truncated or modified while mapped,
+        // undefined behavior could occur. Callers must ensure exclusive file access.
+        //
+        // References: memmap2::MmapMut safety documentation
         unsafe {
             memmap2::MmapMut::map_mut(&file)
                 .map_err(|e| StorageError::Io(io::Error::new(io::ErrorKind::Other, e)))
