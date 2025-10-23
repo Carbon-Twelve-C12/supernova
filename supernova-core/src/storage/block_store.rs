@@ -150,7 +150,13 @@ impl BlockStore {
         // Update current file number
         {
             let mut current_file_no = self.current_file_no.write().map_err(|_| {
-                BlockStoreError::IndexError("Failed to acquire write lock".to_string())
+                // ENHANCED ERROR CONTEXT: Lock acquisition failure during initialization
+                // Poison occurs if another thread panicked while updating current_file_no
+                BlockStoreError::IndexError(format!(
+                    "Failed to acquire write lock on current_file_no during store initialization. \
+                     Attempted to set file number to {}. Lock may be poisoned by previous panic.",
+                    max_file_no
+                ))
             })?;
             *current_file_no = max_file_no;
         }
@@ -162,7 +168,12 @@ impl BlockStore {
             let file_size = file
                 .lock()
                 .map_err(|_| {
-                    BlockStoreError::IndexError("Failed to acquire file lock".to_string())
+                    // ENHANCED ERROR CONTEXT: File lock failure during initialization
+                    BlockStoreError::IndexError(format!(
+                        "Failed to acquire file lock on blk{:05}.dat during initialization. \
+                         Lock may be poisoned. This prevents determining file size for offset calculation.",
+                        max_file_no
+                    ))
                 })?
                 .metadata()?
                 .len();
@@ -170,7 +181,12 @@ impl BlockStore {
             // Update current offset
             {
                 let mut current_offset = self.current_offset.write().map_err(|_| {
-                    BlockStoreError::IndexError("Failed to acquire write lock".to_string())
+                    // ENHANCED ERROR CONTEXT: Offset update lock failure
+                    BlockStoreError::IndexError(format!(
+                        "Failed to acquire write lock on current_offset during initialization. \
+                         Attempted to set offset to {} bytes for file {}. Lock may be poisoned.",
+                        file_size, max_file_no
+                    ))
                 })?;
                 *current_offset = file_size;
             }
@@ -190,7 +206,12 @@ impl BlockStore {
         // Check if already open
         {
             let files = self.files.read().map_err(|_| {
-                BlockStoreError::IndexError("Failed to acquire read lock".to_string())
+                // ENHANCED ERROR CONTEXT: Files cache read lock failure
+                BlockStoreError::IndexError(format!(
+                    "Failed to acquire read lock on files cache when opening blk{:05}.dat. \
+                     Lock may be poisoned. This prevents checking if file is already open.",
+                    file_no
+                ))
             })?;
 
             if let Some(file) = files.get(&file_no) {
@@ -211,7 +232,12 @@ impl BlockStore {
         // Store in cache
         {
             let mut files = self.files.write().map_err(|_| {
-                BlockStoreError::IndexError("Failed to acquire write lock".to_string())
+                // ENHANCED ERROR CONTEXT: Files cache write lock failure
+                BlockStoreError::IndexError(format!(
+                    "Failed to acquire write lock on files cache when caching blk{:05}.dat. \
+                     Lock may be poisoned. File was opened successfully but cannot be cached for reuse.",
+                    file_no
+                ))
             })?;
 
             files.insert(file_no, Arc::clone(&file_arc));
@@ -227,7 +253,12 @@ impl BlockStore {
         // Check if already stored
         {
             let index = self.index.read().map_err(|_| {
-                BlockStoreError::IndexError("Failed to acquire read lock".to_string())
+                // ENHANCED ERROR CONTEXT: Index read lock failure during block storage
+                BlockStoreError::IndexError(format!(
+                    "Failed to acquire read lock on block index when storing block {}. \
+                     Lock may be poisoned. Cannot verify if block already exists before writing.",
+                    hex::encode(&block_hash[..8])
+                ))
             })?;
 
             if index.contains_key(&block_hash) {

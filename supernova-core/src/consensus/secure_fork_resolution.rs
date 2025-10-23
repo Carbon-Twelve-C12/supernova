@@ -19,8 +19,8 @@ pub enum ForkResolutionError {
     #[error("Block not found: {0}")]
     BlockNotFound(String),
 
-    #[error("Invalid timestamp in chain")]
-    InvalidTimestamp,
+    #[error("Invalid timestamp in chain: {0}")]
+    InvalidTimestamp(String),
 
     #[error("Chain validation failed: {0}")]
     ChainValidationFailed(String),
@@ -302,7 +302,15 @@ impl SecureForkResolver {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .map_err(|_| ForkResolutionError::InvalidTimestamp)
+            .map_err(|e| {
+                // ENHANCED ERROR CONTEXT (P2-001): Preserve underlying SystemTimeError details
+                // This error occurs if system time is set before UNIX epoch (1970-01-01)
+                // which indicates serious system configuration issues
+                ForkResolutionError::InvalidTimestamp(format!(
+                    "System time error: {}. System clock may be set incorrectly (before Unix epoch)",
+                    e
+                ))
+            })
     }
 
     /// Check if timestamps progress properly
