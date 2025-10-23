@@ -343,7 +343,19 @@ impl ChainState {
                 .map_err(|e| ChainStateError::StorageError(e.to_string()))?;
             // Convert block_height from u64 to u32 for the height_map
             let height_u32 = block_height.try_into().map_err(|_| {
-                ChainStateError::InvalidBlock("Block height exceeds u32 maximum".to_string())
+                // ENHANCED ERROR CONTEXT: Height exceeds u32 during height map insertion
+                // Capture current state for debugging
+                let current_tip_height = self.get_height().unwrap_or(0);
+                ChainStateError::InvalidBlock(format!(
+                    "Block height {} exceeds u32::MAX ({}) during height map insertion. \
+                     Block: {}, Current tip height: {}. \
+                     This prevents block indexing by height and breaks height-based lookups. \
+                     Chain state may be corrupted or system has been running for 136+ years.",
+                    block_height,
+                    u32::MAX,
+                    hex::encode(&block_hash[..8]),
+                    current_tip_height
+                ))
             })?;
             height_map.entry(height_u32).or_default().push(block_hash);
         }
@@ -395,7 +407,18 @@ impl ChainState {
             // Handle chain reorganization
             // Convert block_height from u64 to u32 for handle_reorg
             let height_u32 = block_height.try_into().map_err(|_| {
-                ChainStateError::InvalidBlock("Block height exceeds u32 maximum".to_string())
+                // ENHANCED ERROR CONTEXT: Height exceeds u32 during chain reorganization
+                ChainStateError::InvalidBlock(format!(
+                    "Block height {} exceeds u32::MAX ({}) during chain reorganization. \
+                     Reorg target block: {}, Current tip: {} at height {}. \
+                     This blocks chain reorganization and prevents sync to the new best chain. \
+                     The node cannot switch to a chain with heights exceeding 4.29 billion blocks.",
+                    block_height,
+                    u32::MAX,
+                    hex::encode(&block_hash[..8]),
+                    hex::encode(&current_tip[..8]),
+                    current_height
+                ))
             })?;
             self.handle_reorg(&block_hash, height_u32)?;
         } else if *block.prev_block_hash() != current_tip {
@@ -415,7 +438,17 @@ impl ChainState {
         // Create checkpoint if needed
         // Convert block_height and checkpoint_interval to the same type for comparison
         let height_u32 = block_height.try_into().map_err(|_| {
-            ChainStateError::InvalidBlock("Block height exceeds u32 maximum".to_string())
+            // ENHANCED ERROR CONTEXT: Height exceeds u32 during checkpoint creation
+            ChainStateError::InvalidBlock(format!(
+                "Block height {} exceeds u32::MAX ({}) during checkpoint creation. \
+                 Block: {}, Checkpoint interval: {} blocks. \
+                 This prevents checkpoint creation at this height and may affect crash recovery. \
+                 Checkpoints provide fast state restoration after node restart.",
+                block_height,
+                u32::MAX,
+                hex::encode(&block_hash[..8]),
+                self.config.checkpoint_interval
+            ))
         })?;
         if height_u32 % self.config.checkpoint_interval == 0 {
             self.create_checkpoint(height_u32, &block_hash)?;
@@ -533,7 +566,18 @@ impl ChainState {
 
             // Convert fork_height from u64 to u32 for height_map lookup
             let fork_height_u32: u32 = fork_height.try_into().map_err(|_| {
-                ChainStateError::InvalidBlock("Block height exceeds u32 maximum".to_string())
+                // ENHANCED ERROR CONTEXT: Height exceeds u32 during fork point detection
+                let current_tip_height = self.get_height().unwrap_or(0);
+                ChainStateError::InvalidBlock(format!(
+                    "Fork height {} exceeds u32::MAX ({}) during fork point detection. \
+                     Searching for ancestor of block {}, Current tip height: {}. \
+                     This blocks fork point detection and prevents reorganization completion. \
+                     Cannot perform reorg if fork point height exceeds 4.29 billion blocks.",
+                    fork_height,
+                    u32::MAX,
+                    hex::encode(&current[..8]),
+                    current_tip_height
+                ))
             })?;
 
             if let Some(hashes) = height_map.get(&fork_height_u32) {
