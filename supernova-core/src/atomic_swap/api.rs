@@ -601,12 +601,12 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             return Err(RpcError {
                 code: -32602,
                 message: format!(
-                    "Swap has not expired yet. Timeout at block {}, current state: {:?}",
-                    swap.nova_htlc.timeout_height,
+                    "Swap has not expired yet. Timeout at {}, current state: {:?}",
+                    swap.nova_htlc.time_lock.absolute_timeout,
                     swap.state
                 ),
                 data: Some(serde_json::json!({
-                    "timeout_height": swap.nova_htlc.timeout_height,
+                    "absolute_timeout": swap.nova_htlc.time_lock.absolute_timeout,
                     "current_state": format!("{:?}", swap.state),
                 })),
             });
