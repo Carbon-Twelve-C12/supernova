@@ -89,6 +89,9 @@ verify_*.sh
 
 # Sensitive deployment and setup files - NEVER commit these
 DEPLOYMENT_SECURITY.md
+deployment/bootstrap_nodes_active.json
+deployment/DEPLOY_NODE*.sh
+deployment/*_DEPLOYMENT_*.md
 PROMPT_FOR_SUPERNOVA_WEB.md
 SuperNova Overview.textClipping
 TESTNET_SETUP.md

@@ -99,15 +99,28 @@ graph TD
 
 ## Getting Started
 
-### Quick Testnet Deployment
-Deploy your own Supernova testnet in under 30 minutes:
+### 🌐 Join the Supernova Testnet
+
+**Testnet will be LIVE SOON!** Get ready to connect to the world's first quantum-resistant, carbon-negative blockchain testnet.
+
+**Quick Connect (for launch day)**:
 ```bash
-# One-line deployment on Ubuntu VPS
-curl -sSL https://raw.githubusercontent.com/Carbon-Twelve-C12/supernova/main/deployment/scripts/deploy-testnet.sh | \
-  DOMAIN=testnet.yourdomain.com \
-  EMAIL=your-email@example.com \
-  bash
+# Install and connect to testnet
+cargo build --release
+./target/release/supernova-node --network testnet \
+  --connect seed.testnet.supernovanetwork.xyz:8333
 ```
+
+**Testnet Resources**:
+- 🔗 Block Explorer: https://explorer.testnet.supernovanetwork.xyz
+- 💧 Faucet (Get Test Tokens): https://faucet.testnet.supernovanetwork.xyz
+- 📊 Network Dashboard: https://dashboard.testnet.supernovanetwork.xyz
+- 🔌 Public API: https://api.testnet.supernovanetwork.xyz
+
+**Bootstrap Seed Nodes**:
+- Primary: `seed.testnet.supernovanetwork.xyz:8333` (Frankfurt, DE)
+- Secondary: `seed2.testnet.supernovanetwork.xyz:8333` (Amsterdam, NL)  
+- API/Faucet: `api.testnet.supernovanetwork.xyz:8333` (Amsterdam, NL)
 
 ### Build from Source
 ```bash
