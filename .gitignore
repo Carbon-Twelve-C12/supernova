@@ -92,6 +92,9 @@ DEPLOYMENT_SECURITY.md
 deployment/bootstrap_nodes_active.json
 deployment/DEPLOY_NODE*.sh
 deployment/*_DEPLOYMENT_*.md
+deployment/TESTNET_DEPLOYMENT_ISSUES.md
+SESSION_SUMMARY_*.md
+TESTNET_STATUS.md
 PROMPT_FOR_SUPERNOVA_WEB.md
 SuperNova Overview.textClipping
 TESTNET_SETUP.md
