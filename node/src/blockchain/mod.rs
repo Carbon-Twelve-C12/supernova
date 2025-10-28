@@ -1,8 +1,19 @@
 use supernova_core::types::{Block, BlockHeader, Transaction, TransactionInput, TransactionOutput};
 use chrono::Utc;
 
+pub mod genesis;
+
 /// Create the genesis block for a given chain ID
+/// For testnet, this uses a hardcoded pre-mined genesis block to ensure all nodes have identical genesis
+/// For other networks, it dynamically generates a genesis block
 pub fn create_genesis_block(chain_id: &str) -> Result<Block, String> {
+    // Use hardcoded testnet genesis for network consensus
+    if chain_id == "testnet" || chain_id == "supernova-testnet" {
+        tracing::info!("Using hardcoded testnet genesis block for network consensus");
+        return genesis::create_testnet_genesis_block();
+    }
+    
+    // Dynamic genesis for other networks (mainnet, devnet, local testing)
     // Create coinbase transaction
     let coinbase_script = format!("Genesis block for Supernova {}", chain_id).into_bytes();
     let coinbase_input = TransactionInput::new_coinbase(coinbase_script);
@@ -22,10 +33,13 @@ pub fn create_genesis_block(chain_id: &str) -> Result<Block, String> {
     );
 
     // Create genesis block header
+    // GENESIS COORDINATION FIX: Use fixed timestamp for testnet
+    // This ensures all testnet nodes create identical genesis blocks
     let timestamp = match chain_id {
-        "mainnet" => 1767225600u64, // January 1, 2026 00:00:00 UTC
-        "testnet" => Utc::now().timestamp() as u64,
-        _ => Utc::now().timestamp() as u64,
+        "mainnet" => 1767225600u64,       // January 1, 2026 00:00:00 UTC
+        "testnet" => 1730044800u64,       // October 27, 2025 16:00:00 UTC (FIXED for all nodes)
+        "supernova-testnet" => 1730044800u64, // Same fixed timestamp
+        _ => Utc::now().timestamp() as u64,  // Local/devnet can use dynamic
     };
 
     // Use easier difficulty for testnet
