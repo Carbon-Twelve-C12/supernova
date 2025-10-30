@@ -829,10 +829,18 @@ impl P2PNetwork {
 
         // Spawn the swarm handler in a dedicated thread
         std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
+            // SECURITY FIX (P0-002): Handle runtime creation failure gracefully
+            // If runtime creation fails, log error and return instead of panicking
+            let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
-                .build()
-                .expect("Failed to create runtime for swarm thread");
+                .build() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("CRITICAL: Failed to create runtime for swarm thread: {}", e);
+                    error!("Network swarm handler thread cannot start - this is a fatal error");
+                    return; // Exit thread gracefully instead of panicking
+                }
+            };
 
             runtime.block_on(async move {
                 loop {
@@ -1106,11 +1114,19 @@ impl P2PNetwork {
         let task = tokio::spawn(async move {
             info!("Event loop task spawned, acquiring command_receiver...");
             
-            let mut command_rx = command_receiver
+            // SECURITY FIX (P0-002): Handle command receiver acquisition failure gracefully
+            // If receiver is not available, log error and return instead of panicking
+            let mut command_rx = match command_receiver
                 .write()
                 .await
-                .take()
-                .expect("Command receiver should be available");
+                .take() {
+                Some(rx) => rx,
+                None => {
+                    error!("CRITICAL: Command receiver not available - network event loop cannot start");
+                    error!("This indicates a serious initialization error - network will not function");
+                    return; // Exit task gracefully instead of panicking
+                }
+            };
                 
             info!("Command receiver acquired successfully - event loop ready");
             info!("  Receiver address in event loop: {:p}", &command_rx);

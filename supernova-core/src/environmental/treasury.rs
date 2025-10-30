@@ -26,6 +26,9 @@ pub enum TreasuryError {
 
     #[error("Verification failed: {0}")]
     VerificationFailed(String),
+
+    #[error("Lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 /// Types of environmental assets that can be purchased
@@ -209,11 +212,16 @@ impl EnvironmentalTreasury {
 
     /// Process transaction fees and allocate to treasury
     pub fn process_transaction_fees(&self, total_fees: u64) -> Result<u64, TreasuryError> {
-        if !self.config.read().unwrap().enabled {
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        if !self.config.read()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.enabled: {}", e)))?
+            .enabled {
             return Ok(0);
         }
 
-        let allocation_percentage = self.config.read().unwrap().fee_allocation_percentage;
+        let allocation_percentage = self.config.read()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.fee_allocation_percentage: {}", e)))?
+            .fee_allocation_percentage;
 
         if allocation_percentage <= 0.0 || allocation_percentage >= 100.0 {
             return Err(TreasuryError::InvalidAllocationPercentage(
@@ -224,8 +232,10 @@ impl EnvironmentalTreasury {
         let allocation_amount = (total_fees as f64 * (allocation_percentage / 100.0)) as u64;
 
         // Add to balance
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
         {
-            let mut balance = self.balance.write().unwrap();
+            let mut balance = self.balance.write()
+                .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write balance: {}", e)))?;
             *balance += allocation_amount;
         }
 
@@ -233,19 +243,30 @@ impl EnvironmentalTreasury {
     }
 
     /// Get current treasury balance for a specific account type
-    pub fn get_balance(&self, account_type: Option<TreasuryAccountType>) -> u64 {
+    pub fn get_balance(&self, _account_type: Option<TreasuryAccountType>) -> u64 {
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        // Return safe default instead of panicking
         // For now, we only track a single balance
         // In a more complex implementation, we would have separate balances for each account type
-        match account_type {
-            Some(_) => *self.balance.read().unwrap(), // For future expansion
-            None => *self.balance.read().unwrap(),    // Default main account
+        match self.balance.read() {
+            Ok(balance) => *balance,
+            Err(e) => {
+                log::error!("Failed to read treasury balance: {}", e);
+                0 // Safe default: return 0 if lock is poisoned
+            }
         }
     }
 
     /// Update treasury configuration
     pub fn update_config(&self, new_config: TreasuryConfig) {
-        let mut config = self.config.write().unwrap();
-        *config = new_config;
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        // Log error but don't panic if lock is poisoned
+        match self.config.write() {
+            Ok(mut config) => *config = new_config,
+            Err(e) => {
+                log::error!("Failed to update treasury config (lock poisoned): {}", e);
+            }
+        }
     }
 
     /// Purchase an environmental asset
@@ -259,7 +280,10 @@ impl EnvironmentalTreasury {
         metadata: HashMap<String, String>,
     ) -> Result<EnvironmentalAssetPurchase, TreasuryError> {
         // Check if treasury is enabled
-        if !self.config.read().unwrap().enabled {
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        if !self.config.read()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.enabled: {}", e)))?
+            .enabled {
             return Err(TreasuryError::UnsupportedAssetType(
                 "Treasury is disabled".to_string(),
             ));
@@ -272,10 +296,11 @@ impl EnvironmentalTreasury {
         }
 
         // Check if purchase meets minimum amount
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
         let min_amount = self
             .config
             .read()
-            .unwrap()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.min_purchase_amounts: {}", e)))?
             .min_purchase_amounts
             .get(&asset_type)
             .copied()
@@ -286,7 +311,10 @@ impl EnvironmentalTreasury {
         }
 
         // Check if purchase is too large
-        let max_percentage = self.config.read().unwrap().max_single_purchase_percentage;
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        let max_percentage = self.config.read()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.max_single_purchase_percentage: {}", e)))?
+            .max_single_purchase_percentage;
         let max_amount = (current_balance as f64 * (max_percentage / 100.0)) as u64;
 
         if cost > max_amount {
@@ -315,27 +343,34 @@ impl EnvironmentalTreasury {
         };
 
         // Deduct from balance
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
         {
-            let mut balance = self.balance.write().unwrap();
+            let mut balance = self.balance.write()
+                .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write balance in purchase_asset: {}", e)))?;
             *balance -= cost;
         }
 
         // Update totals based on asset type
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
         match asset_type {
             EnvironmentalAssetType::REC => {
-                let mut total_recs = self.total_recs_kwh.write().unwrap();
+                let mut total_recs = self.total_recs_kwh.write()
+                    .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write total_recs_kwh: {}", e)))?;
                 *total_recs += amount;
             }
             EnvironmentalAssetType::CarbonOffset => {
-                let mut total_offsets = self.total_offsets_tonnes.write().unwrap();
+                let mut total_offsets = self.total_offsets_tonnes.write()
+                    .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write total_offsets_tonnes: {}", e)))?;
                 *total_offsets += amount;
             }
             _ => {}
         }
 
         // Add to purchase history
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
         {
-            let mut history = self.purchase_history.write().unwrap();
+            let mut history = self.purchase_history.write()
+                .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write purchase_history: {}", e)))?;
             history.push(purchase.clone());
         }
 
@@ -348,7 +383,9 @@ impl EnvironmentalTreasury {
         purchase_id: &str,
         verification_reference: &str,
     ) -> Result<(), TreasuryError> {
-        let mut history = self.purchase_history.write().unwrap();
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        let mut history = self.purchase_history.write()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write purchase_history in verify_asset: {}", e)))?;
 
         let purchase = history
             .iter_mut()
@@ -365,7 +402,10 @@ impl EnvironmentalTreasury {
 
     /// Distribute treasury funds to purchase assets
     pub fn distribute_funds(&self) -> Result<TreasuryDistribution, TreasuryError> {
-        if !self.config.read().unwrap().enabled {
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        if !self.config.read()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.enabled in distribute_funds: {}", e)))?
+            .enabled {
             return Err(TreasuryError::UnsupportedAssetType(
                 "Treasury is disabled".to_string(),
             ));
@@ -376,7 +416,9 @@ impl EnvironmentalTreasury {
             return Err(TreasuryError::InsufficientFunds(1, 0));
         }
 
-        let config = self.config.read().unwrap();
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        let config = self.config.read()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.allocation: {}", e)))?;
         let allocation = &config.allocation;
 
         // Calculate distribution amounts
@@ -505,8 +547,10 @@ impl EnvironmentalTreasury {
         };
 
         // Add to distribution history
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
         {
-            let mut history = self.distribution_history.write().unwrap();
+            let mut history = self.distribution_history.write()
+                .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write distribution_history: {}", e)))?;
             history.push(distribution.clone());
         }
 
@@ -515,22 +559,50 @@ impl EnvironmentalTreasury {
 
     /// Get purchase history
     pub fn get_purchase_history(&self) -> Vec<EnvironmentalAssetPurchase> {
-        self.purchase_history.read().unwrap().clone()
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        match self.purchase_history.read() {
+            Ok(history) => history.clone(),
+            Err(e) => {
+                log::error!("Failed to read purchase_history: {}", e);
+                Vec::new() // Safe default: return empty vec if lock is poisoned
+            }
+        }
     }
 
     /// Get distribution history
     pub fn get_distribution_history(&self) -> Vec<TreasuryDistribution> {
-        self.distribution_history.read().unwrap().clone()
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        match self.distribution_history.read() {
+            Ok(history) => history.clone(),
+            Err(e) => {
+                log::error!("Failed to read distribution_history: {}", e);
+                Vec::new() // Safe default: return empty vec if lock is poisoned
+            }
+        }
     }
 
     /// Get total RECs purchased (kWh)
     pub fn get_total_recs_kwh(&self) -> f64 {
-        *self.total_recs_kwh.read().unwrap()
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        match self.total_recs_kwh.read() {
+            Ok(total) => *total,
+            Err(e) => {
+                log::error!("Failed to read total_recs_kwh: {}", e);
+                0.0 // Safe default: return 0 if lock is poisoned
+            }
+        }
     }
 
     /// Get total carbon offsets purchased (tonnes CO2e)
     pub fn get_total_offsets_tonnes(&self) -> f64 {
-        *self.total_offsets_tonnes.read().unwrap()
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        match self.total_offsets_tonnes.read() {
+            Ok(total) => *total,
+            Err(e) => {
+                log::error!("Failed to read total_offsets_tonnes: {}", e);
+                0.0 // Safe default: return 0 if lock is poisoned
+            }
+        }
     }
 
     /// Calculate carbon neutrality percentage
@@ -555,7 +627,14 @@ impl EnvironmentalTreasury {
 
     /// Get the current fee percentage
     pub fn get_current_fee_percentage(&self) -> f64 {
-        self.config.read().unwrap().fee_allocation_percentage
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        match self.config.read() {
+            Ok(config) => config.fee_allocation_percentage,
+            Err(e) => {
+                log::error!("Failed to read config.fee_allocation_percentage: {}", e);
+                0.0 // Safe default: return 0 if lock is poisoned
+            }
+        }
     }
 
     /// Update the fee allocation percentage
@@ -567,7 +646,9 @@ impl EnvironmentalTreasury {
             return Err(TreasuryError::InvalidAllocationPercentage(new_percentage));
         }
 
-        let mut config = self.config.write().unwrap();
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        let mut config = self.config.write()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write config.fee_allocation_percentage: {}", e)))?;
         config.fee_allocation_percentage = new_percentage;
 
         Ok(())
@@ -664,11 +745,26 @@ impl EnvironmentalTreasury {
 
     /// Process block allocation from transaction fees
     pub fn process_block_allocation(&self, total_fees: u64) -> u64 {
-        if !self.config.read().unwrap().enabled {
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        let enabled = match self.config.read() {
+            Ok(config) => config.enabled,
+            Err(e) => {
+                log::error!("Failed to read config.enabled in process_block_allocation: {}", e);
+                return 0; // Safe default: don't allocate if lock is poisoned
+            }
+        };
+
+        if !enabled {
             return 0;
         }
 
-        let allocation_percentage = self.config.read().unwrap().fee_allocation_percentage;
+        let allocation_percentage = match self.config.read() {
+            Ok(config) => config.fee_allocation_percentage,
+            Err(e) => {
+                log::error!("Failed to read config.fee_allocation_percentage in process_block_allocation: {}", e);
+                return 0; // Safe default: don't allocate if lock is poisoned
+            }
+        };
 
         if allocation_percentage <= 0.0 || allocation_percentage >= 100.0 {
             return 0;
@@ -677,9 +773,15 @@ impl EnvironmentalTreasury {
         let allocation_amount = (total_fees as f64 * (allocation_percentage / 100.0)) as u64;
 
         // Add to balance
-        {
-            let mut balance = self.balance.write().unwrap();
-            *balance += allocation_amount;
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        match self.balance.write() {
+            Ok(mut balance) => {
+                *balance += allocation_amount;
+            }
+            Err(e) => {
+                log::error!("Failed to write balance in process_block_allocation: {}", e);
+                return 0; // Safe default: don't return allocation amount if write failed
+            }
         }
 
         allocation_amount
@@ -693,7 +795,12 @@ impl EnvironmentalTreasury {
         carbon_percentage: f64,
     ) -> Result<Vec<EnvironmentalAssetPurchase>, TreasuryError> {
         // Check if treasury is enabled and has funds
-        if !self.config.read().unwrap().enabled || available_amount == 0 {
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        let enabled = self.config.read()
+            .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.enabled in purchase_prioritized_assets: {}", e)))?
+            .enabled;
+
+        if !enabled || available_amount == 0 {
             return Ok(Vec::new());
         }
 
@@ -732,8 +839,14 @@ impl EnvironmentalTreasury {
 
     /// Get recent asset purchases
     pub fn get_asset_purchases(&self, limit: usize) -> Vec<EnvironmentalAssetPurchase> {
-        let history = self.purchase_history.read().unwrap();
-        history.iter().rev().take(limit).cloned().collect()
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        match self.purchase_history.read() {
+            Ok(history) => history.iter().rev().take(limit).cloned().collect(),
+            Err(e) => {
+                log::error!("Failed to read purchase_history in get_asset_purchases: {}", e);
+                Vec::new() // Safe default: return empty vec if lock is poisoned
+            }
+        }
     }
 }
 

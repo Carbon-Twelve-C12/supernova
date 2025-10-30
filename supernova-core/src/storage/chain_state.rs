@@ -40,6 +40,9 @@ pub enum ChainStateError {
 
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    #[error("Lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 /// Result type for chain state operations
@@ -740,8 +743,11 @@ impl ChainState {
         }
 
         // Get current tip and height
-        let current_tip = *self.current_tip.read().unwrap();
-        let current_height = *self.current_height.read().unwrap();
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        let current_tip = *self.current_tip.read()
+            .map_err(|e| ChainStateError::LockPoisoned(format!("Failed to read current_tip: {}", e)))?;
+        let current_height = *self.current_height.read()
+            .map_err(|e| ChainStateError::LockPoisoned(format!("Failed to read current_height: {}", e)))?;
         let current_height_u64 = u64::from(current_height);
 
         // Determine if we should reorganize the chain
@@ -817,7 +823,9 @@ impl ChainState {
             u32::MAX
         });
 
-        let height_map = self.height_map.read().unwrap();
+        // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        let height_map = self.height_map.read()
+            .map_err(|e| ChainStateError::LockPoisoned(format!("Failed to read height_map during fork ancestor search: {}", e)))?;
 
         // Iterate backward from fork height
         for height in (0..=fork_height_u32).rev().take(max_depth) {
@@ -834,7 +842,15 @@ impl ChainState {
 
     /// Get the hash of a block header at a specific height
     pub fn get_header_hash_at_height(&self, height: u64) -> Option<[u8; 32]> {
-        let height_map = self.height_map.read().unwrap();
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        // Return None instead of panicking on lock poisoning
+        let height_map = match self.height_map.read() {
+            Ok(map) => map,
+            Err(e) => {
+                error!("Failed to read height_map at height {}: {}", height, e);
+                return None;
+            }
+        };
         height_map
             .get(&(height as u32))
             .and_then(|hashes| hashes.first().cloned())
@@ -927,7 +943,15 @@ impl ChainState {
 
     /// Get the current block count (chain height + 1)
     pub fn get_block_count(&self) -> u64 {
-        let height = *self.current_height.read().unwrap();
+        // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        // Return safe default instead of panicking
+        let height = self.current_height.read()
+            .map_err(|e| {
+                error!("Failed to read current_height in get_block_count: {}", e);
+                ChainStateError::LockPoisoned(format!("Failed to read current_height: {}", e))
+            })
+            .map(|guard| *guard)
+            .unwrap_or(0); // Safe default: assume genesis if lock is poisoned
         height as u64 + 1
     }
 
