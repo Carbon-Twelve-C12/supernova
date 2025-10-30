@@ -29,6 +29,9 @@ pub enum TreasuryError {
 
     #[error("Lock poisoned: {0}")]
     LockPoisoned(String),
+
+    #[error("Arithmetic overflow: {0}")]
+    ArithmeticOverflow(String),
 }
 
 /// Types of environmental assets that can be purchased
@@ -193,6 +196,29 @@ pub struct EnvironmentalTreasury {
 }
 
 impl EnvironmentalTreasury {
+    /// SECURITY FIX (P0-003): Safe conversion from f64 to u64 with overflow checking
+    /// Prevents integer overflow attacks in treasury calculations
+    fn safe_f64_to_u64(value: f64, context: &str) -> Result<u64, TreasuryError> {
+        // Validate value is non-negative
+        if value < 0.0 {
+            return Err(TreasuryError::ArithmeticOverflow(format!(
+                "Negative value in {}: {}",
+                context, value
+            )));
+        }
+
+        // Check if value exceeds u64::MAX
+        if value > u64::MAX as f64 {
+            return Err(TreasuryError::ArithmeticOverflow(format!(
+                "Value exceeds u64::MAX in {}: {}",
+                context, value
+            )));
+        }
+
+        // Safe conversion - we've validated the value is in range
+        Ok(value as u64)
+    }
+
     /// Create a new environmental treasury
     pub fn new(config: TreasuryConfig) -> Self {
         Self {
@@ -229,14 +255,27 @@ impl EnvironmentalTreasury {
             ));
         }
 
-        let allocation_amount = (total_fees as f64 * (allocation_percentage / 100.0)) as u64;
+        // SECURITY FIX (P0-003): Use safe conversion to prevent overflow
+        let allocation_amount_f64 = total_fees as f64 * (allocation_percentage / 100.0);
+        let allocation_amount = Self::safe_f64_to_u64(
+            allocation_amount_f64,
+            "process_transaction_fees allocation_amount"
+        )?;
 
         // Add to balance
         // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        // SECURITY FIX (P0-003): Use checked arithmetic to prevent overflow
         {
             let mut balance = self.balance.write()
                 .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write balance: {}", e)))?;
-            *balance += allocation_amount;
+            
+            let new_balance = balance.checked_add(allocation_amount)
+                .ok_or_else(|| TreasuryError::ArithmeticOverflow(format!(
+                    "Balance overflow: {} + {} exceeds u64::MAX",
+                    *balance, allocation_amount
+                )))?;
+            
+            *balance = new_balance;
         }
 
         Ok(allocation_amount)
@@ -315,7 +354,13 @@ impl EnvironmentalTreasury {
         let max_percentage = self.config.read()
             .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to read config.max_single_purchase_percentage: {}", e)))?
             .max_single_purchase_percentage;
-        let max_amount = (current_balance as f64 * (max_percentage / 100.0)) as u64;
+        
+        // SECURITY FIX (P0-003): Use safe conversion to prevent overflow
+        let max_amount_f64 = current_balance as f64 * (max_percentage / 100.0);
+        let max_amount = Self::safe_f64_to_u64(
+            max_amount_f64,
+            "purchase_asset max_amount"
+        )?;
 
         if cost > max_amount {
             return Err(TreasuryError::InvalidPurchaseAmount(cost as f64));
@@ -344,10 +389,15 @@ impl EnvironmentalTreasury {
 
         // Deduct from balance
         // SECURITY FIX (P0-002): Handle lock poisoning with proper error propagation
+        // SECURITY FIX (P0-003): Use checked arithmetic to prevent underflow
         {
             let mut balance = self.balance.write()
                 .map_err(|e| TreasuryError::LockPoisoned(format!("Failed to write balance in purchase_asset: {}", e)))?;
-            *balance -= cost;
+            
+            let new_balance = balance.checked_sub(cost)
+                .ok_or_else(|| TreasuryError::InsufficientFunds(cost, *balance))?;
+            
+            *balance = new_balance;
         }
 
         // Update totals based on asset type
@@ -422,18 +472,28 @@ impl EnvironmentalTreasury {
         let allocation = &config.allocation;
 
         // Calculate distribution amounts
-        let rec_amount = (current_balance as f64 * (allocation.rec_percentage / 100.0)) as u64;
-        let offset_amount =
-            (current_balance as f64 * (allocation.offset_percentage / 100.0)) as u64;
-        let investment_amount =
-            (current_balance as f64 * (allocation.investment_percentage / 100.0)) as u64;
-        let research_amount =
-            (current_balance as f64 * (allocation.research_percentage / 100.0)) as u64;
+        // SECURITY FIX (P0-003): Use safe conversion to prevent overflow
+        let rec_amount = Self::safe_f64_to_u64(
+            current_balance as f64 * (allocation.rec_percentage / 100.0),
+            "distribute_funds rec_amount"
+        )?;
+        let offset_amount = Self::safe_f64_to_u64(
+            current_balance as f64 * (allocation.offset_percentage / 100.0),
+            "distribute_funds offset_amount"
+        )?;
+        let investment_amount = Self::safe_f64_to_u64(
+            current_balance as f64 * (allocation.investment_percentage / 100.0),
+            "distribute_funds investment_amount"
+        )?;
+        let research_amount = Self::safe_f64_to_u64(
+            current_balance as f64 * (allocation.research_percentage / 100.0),
+            "distribute_funds research_amount"
+        )?;
 
         // Prepare distribution
         let distribution_id = format!("DIST-{}", chrono::Utc::now().timestamp());
         let mut purchases = Vec::new();
-        let mut total_spent = 0;
+        let mut total_spent = 0u64; // SECURITY FIX (P0-003): Explicit type for overflow checks
 
         // Process RECs
         if rec_amount > 0 {
@@ -454,7 +514,11 @@ impl EnvironmentalTreasury {
             ) {
                 Ok(purchase) => {
                     purchases.push(purchase);
-                    total_spent += rec_amount;
+                    // SECURITY FIX (P0-003): Use checked arithmetic to prevent overflow
+                    total_spent = total_spent.checked_add(rec_amount)
+                        .ok_or_else(|| TreasuryError::ArithmeticOverflow(
+                            format!("total_spent overflow adding rec_amount: {} + {}", total_spent, rec_amount)
+                        ))?;
                 }
                 Err(_e) => {
                     // Log error but continue with other purchases
@@ -481,7 +545,11 @@ impl EnvironmentalTreasury {
             ) {
                 Ok(purchase) => {
                     purchases.push(purchase);
-                    total_spent += offset_amount;
+                    // SECURITY FIX (P0-003): Use checked arithmetic to prevent overflow
+                    total_spent = total_spent.checked_add(offset_amount)
+                        .ok_or_else(|| TreasuryError::ArithmeticOverflow(
+                            format!("total_spent overflow adding offset_amount: {} + {}", total_spent, offset_amount)
+                        ))?;
                 }
                 Err(_e) => {
                 }
@@ -504,7 +572,11 @@ impl EnvironmentalTreasury {
             ) {
                 Ok(purchase) => {
                     purchases.push(purchase);
-                    total_spent += investment_amount;
+                    // SECURITY FIX (P0-003): Use checked arithmetic to prevent overflow
+                    total_spent = total_spent.checked_add(investment_amount)
+                        .ok_or_else(|| TreasuryError::ArithmeticOverflow(
+                            format!("total_spent overflow adding investment_amount: {} + {}", total_spent, investment_amount)
+                        ))?;
                 }
                 Err(_e) => {
                 }
@@ -530,7 +602,11 @@ impl EnvironmentalTreasury {
             ) {
                 Ok(purchase) => {
                     purchases.push(purchase);
-                    total_spent += research_amount;
+                    // SECURITY FIX (P0-003): Use checked arithmetic to prevent overflow
+                    total_spent = total_spent.checked_add(research_amount)
+                        .ok_or_else(|| TreasuryError::ArithmeticOverflow(
+                            format!("total_spent overflow adding research_amount: {} + {}", total_spent, research_amount)
+                        ))?;
                 }
                 Err(_e) => {
                 }
@@ -770,13 +846,31 @@ impl EnvironmentalTreasury {
             return 0;
         }
 
-        let allocation_amount = (total_fees as f64 * (allocation_percentage / 100.0)) as u64;
+        // SECURITY FIX (P0-003): Use safe conversion to prevent overflow
+        let allocation_amount_f64 = total_fees as f64 * (allocation_percentage / 100.0);
+        let allocation_amount = match Self::safe_f64_to_u64(
+            allocation_amount_f64,
+            "process_block_allocation allocation_amount"
+        ) {
+            Ok(amount) => amount,
+            Err(e) => {
+                log::error!("Overflow in process_block_allocation: {}", e);
+                return 0; // Safe default: don't allocate if overflow occurs
+            }
+        };
 
         // Add to balance
         // SECURITY FIX (P0-002): Handle lock poisoning gracefully
+        // SECURITY FIX (P0-003): Use checked arithmetic to prevent overflow
         match self.balance.write() {
             Ok(mut balance) => {
-                *balance += allocation_amount;
+                match balance.checked_add(allocation_amount) {
+                    Some(new_balance) => *balance = new_balance,
+                    None => {
+                        log::error!("Balance overflow in process_block_allocation: {} + {} exceeds u64::MAX", *balance, allocation_amount);
+                        return 0; // Safe default: don't return allocation amount if overflow occurs
+                    }
+                }
             }
             Err(e) => {
                 log::error!("Failed to write balance in process_block_allocation: {}", e);
@@ -807,8 +901,15 @@ impl EnvironmentalTreasury {
         let mut purchases = Vec::new();
 
         // Calculate allocation amounts
-        let rec_amount = (available_amount as f64 * (rec_percentage / 100.0)) as u64;
-        let carbon_amount = (available_amount as f64 * (carbon_percentage / 100.0)) as u64;
+        // SECURITY FIX (P0-003): Use safe conversion to prevent overflow
+        let rec_amount = Self::safe_f64_to_u64(
+            available_amount as f64 * (rec_percentage / 100.0),
+            "purchase_prioritized_assets rec_amount"
+        )?;
+        let carbon_amount = Self::safe_f64_to_u64(
+            available_amount as f64 * (carbon_percentage / 100.0),
+            "purchase_prioritized_assets carbon_amount"
+        )?;
 
         // Purchase RECs
         if rec_amount > 0 {
