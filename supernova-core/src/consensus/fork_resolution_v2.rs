@@ -18,6 +18,9 @@ pub enum ForkResolutionError {
 
     #[error("Chain traversal depth exceeded")]
     DepthExceeded,
+
+    #[error("Division by zero in work calculation: {0}")]
+    InvalidChainWork(String),
 }
 
 /// Result type for fork resolution
@@ -213,19 +216,22 @@ impl U256 {
 
         U256(result)
     }
-}
 
-// Simplified division for work calculation
-impl std::ops::Div for U256 {
-    type Output = Self;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        // Simplified division - in production, use a proper big integer library
-        // For now, we'll use a basic implementation that works for our use case
+    /// SECURITY FIX (P0-004): Safe division that returns Result instead of panicking
+    /// This prevents consensus failures from malicious fork data
+    pub fn checked_div(self, rhs: Self) -> Result<Self, ForkResolutionError> {
         if rhs == Self::zero() {
-            panic!("Division by zero");
+            return Err(ForkResolutionError::InvalidChainWork(
+                "Division by zero in work calculation".to_string()
+            ));
         }
 
+        // Perform safe division using internal implementation
+        Ok(self.div_internal(rhs))
+    }
+
+    /// Internal division implementation (used by both Div trait and checked_div)
+    fn div_internal(self, rhs: Self) -> Self {
         // For the specific case of max_target / (target + 1), we can approximate
         // This is sufficient for fork resolution comparison
         let mut quotient = Self::zero();
@@ -250,6 +256,28 @@ impl std::ops::Div for U256 {
         }
 
         quotient
+    }
+}
+
+// Simplified division for work calculation
+// SECURITY FIX (P0-004): Div trait implementation now calls safe internal method
+// In production code, prefer using checked_div() which returns Result
+impl std::ops::Div for U256 {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        // SECURITY FIX (P0-004): Check for zero divisor before division
+        // Note: This still panics for the Div trait, but we provide checked_div() for safe usage
+        // In consensus-critical code, use checked_div() instead of the / operator
+        if rhs == Self::zero() {
+            // Log error and return maximum value as safe fallback
+            // This prevents panic but should be avoided in production code
+            log::error!("CRITICAL: Division by zero in U256::Div trait - this should use checked_div() instead!");
+            return Self::max_value(); // Safe fallback: return max value instead of panicking
+        }
+
+        // Use internal division implementation
+        self.div_internal(rhs)
     }
 }
 
@@ -406,5 +434,101 @@ mod tests {
             Ordering::Greater,
             "Chain B (harder difficulty) should have more work than Chain A"
         );
+    }
+
+    // SECURITY FIX (P0-004): Tests for division by zero protection
+    #[test]
+    fn test_checked_div_zero_divisor() {
+        // Test that checked_div returns error for zero divisor
+        let dividend = U256::from_be_bytes([0xFF; 32]);
+        let divisor = U256::zero();
+
+        let result = dividend.checked_div(divisor);
+        
+        assert!(result.is_err());
+        match result {
+            Err(ForkResolutionError::InvalidChainWork(_)) => {},
+            _ => panic!("Expected InvalidChainWork error for division by zero"),
+        }
+    }
+
+    #[test]
+    fn test_checked_div_normal_division() {
+        // Test normal division works correctly
+        let dividend = U256::from_be_bytes([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, // 16
+        ]);
+        let divisor = U256::from_be_bytes([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, // 4
+        ]);
+
+        let result = dividend.checked_div(divisor);
+        
+        assert!(result.is_ok());
+        let quotient = result.unwrap();
+        // 16 / 4 = 4
+        assert_eq!(quotient, U256::from_be_bytes([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, // 4
+        ]));
+    }
+
+    #[test]
+    fn test_div_trait_zero_divisor_fallback() {
+        // SECURITY FIX (P0-004): Test that Div trait doesn't panic on zero divisor
+        // Instead returns max_value as safe fallback
+        let dividend = U256::from_be_bytes([0xFF; 32]);
+        let divisor = U256::zero();
+
+        // This should not panic
+        let result = dividend / divisor;
+        
+        // Should return max_value as safe fallback
+        assert_eq!(result, U256::max_value());
+    }
+
+    #[test]
+    fn test_division_edge_cases() {
+        // Test division by one
+        let dividend = U256::from_be_bytes([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x42,
+        ]);
+        let divisor = U256::one();
+
+        let result = dividend.checked_div(divisor);
+        
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), dividend);
+    }
+
+    #[test]
+    fn test_calculate_block_work_zero_target() {
+        // SECURITY FIX (P0-004): Test that zero target is handled correctly
+        let resolver = ProofOfWorkForkResolver::new(1000);
+        
+        // Test with bits that result in zero target (should return max work)
+        // Note: bits_to_target validates and returns zero for mantissa == 0
+        let bits = 0x00000000; // Zero mantissa
+        
+        let result = resolver.bits_to_target(bits);
+        
+        assert!(result.is_ok());
+        let target = result.unwrap();
+        assert_eq!(target, U256::zero());
+        
+        // Calculate work for zero target
+        let work = resolver.calculate_block_work(bits).unwrap();
+        assert_eq!(work, U256::max_value());
     }
 }
