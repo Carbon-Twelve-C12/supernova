@@ -825,7 +825,17 @@ impl MiningManager {
     fn calculate_green_mining_bonus(&self) -> u64 {
         if let Some(tracker) = &self.environmental_tracker {
             let renewable_percentage = tracker.calculate_network_renewable_percentage();
-            (renewable_percentage * 1000.0) as u64 // Bonus in satoshis
+            // SECURITY FIX (P0-008): Validate percentage and use safe conversion
+            let renewable_percentage = renewable_percentage.max(0.0).min(100.0);
+            let bonus_f64 = renewable_percentage * 1000.0;
+            
+            // SECURITY FIX (P0-008): Prevent overflow in bonus calculation
+            if bonus_f64 < 0.0 || bonus_f64 > u64::MAX as f64 {
+                log::error!("Green mining bonus overflow: renewable_percentage={}, bonus={}", renewable_percentage, bonus_f64);
+                0 // Safe default
+            } else {
+                bonus_f64 as u64
+            }
         } else {
             0
         }
@@ -1197,22 +1207,63 @@ impl MiningManager {
         if let Some(tracker) = &self.environmental_tracker {
             let renewable_percentage = tracker.calculate_network_renewable_percentage();
 
+            // SECURITY FIX (P0-008): Validate renewable_percentage is in valid range (0-100%)
+            // If percentage exceeds 100%, indicates data corruption or attack
+            let renewable_percentage = renewable_percentage.max(0.0).min(100.0);
+            
+            // Log warning if percentage was outside valid range
+            if renewable_percentage != tracker.calculate_network_renewable_percentage() {
+                log::warn!(
+                    "Renewable percentage out of bounds: {}%, clamped to valid range",
+                    tracker.calculate_network_renewable_percentage()
+                );
+            }
+
             // Bonus calculation based on renewable energy usage
             // 0% renewable = 0% bonus
             // 50% renewable = 12.5% bonus
             // 100% renewable = 25% bonus
             let bonus_percentage = (renewable_percentage * 0.25).min(0.25);
-            let environmental_bonus = (base_reward as f64 * bonus_percentage) as u64;
+            
+            // SECURITY FIX (P0-008): Use checked arithmetic to prevent overflow
+            let environmental_bonus_f64 = base_reward as f64 * bonus_percentage;
+            let environmental_bonus = if environmental_bonus_f64 < 0.0 || environmental_bonus_f64 > u64::MAX as f64 {
+                log::error!(
+                    "Environmental bonus overflow: base_reward={}, bonus_percentage={}, result={}",
+                    base_reward, bonus_percentage, environmental_bonus_f64
+                );
+                0 // Safe default: return 0 on overflow
+            } else {
+                environmental_bonus_f64 as u64
+            };
 
-            // Additional bonus for carbon-negative mining (if implemented)
-            let carbon_negative_bonus = if renewable_percentage > 100.0 {
+            // Additional bonus for carbon-negative mining (100% renewable)
+            // SECURITY FIX (P0-008): Use checked arithmetic and validate percentage
+            let carbon_negative_bonus = if renewable_percentage >= 100.0 {
                 // Extra 5% bonus for carbon-negative operations
-                (base_reward as f64 * 0.05) as u64
+                // SECURITY FIX (P0-008): Use checked arithmetic to prevent overflow
+                base_reward.checked_mul(5)
+                    .and_then(|v| v.checked_div(100))
+                    .unwrap_or_else(|| {
+                        log::error!(
+                            "Carbon negative bonus overflow: base_reward={}",
+                            base_reward
+                        );
+                        0 // Safe default: return 0 on overflow
+                    })
             } else {
                 0
             };
 
-            environmental_bonus + carbon_negative_bonus
+            // SECURITY FIX (P0-008): Use checked addition to prevent overflow
+            environmental_bonus.checked_add(carbon_negative_bonus)
+                .unwrap_or_else(|| {
+                    log::error!(
+                        "Total environmental bonus overflow: env_bonus={}, carbon_bonus={}",
+                        environmental_bonus, carbon_negative_bonus
+                    );
+                    environmental_bonus // Return just environmental bonus if overflow
+                })
         } else {
             // No environmental tracking = no bonus
             0
