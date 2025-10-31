@@ -154,6 +154,11 @@ impl DifficultyAdjustment {
         }
     }
 
+    /// Get the configuration
+    pub fn config(&self) -> &DifficultyAdjustmentConfig {
+        &self.config
+    }
+
     /// Calculate the next target difficulty based on the history of block timestamps
     pub fn calculate_next_target(
         &self,
