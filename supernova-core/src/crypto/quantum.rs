@@ -19,7 +19,11 @@ static INIT: Once = Once::new();
 use crate::crypto::falcon_real::FalconError;
 
 // Adding SPHINCS+ dependencies
-use pqcrypto_sphincsplus::sphincsshake128fsimple;
+use pqcrypto_sphincsplus::{
+    sphincsshake128fsimple,  // NIST Level 1 (128-bit) - Low security
+    sphincsshake192fsimple,  // NIST Level 3 (192-bit) - Medium security
+    sphincsshake256fsimple,  // NIST Level 5 (256-bit) - High security
+};
 
 use crate::validation::SecurityLevel;
 
@@ -599,8 +603,8 @@ impl QuantumParameters {
             }
             QuantumScheme::SphincsPlus => match SecurityLevel::from(self.security_level) {
                 SecurityLevel::Low => Ok(sphincsshake128fsimple::signature_bytes()),
-                SecurityLevel::Medium => Ok(sphincsshake128fsimple::signature_bytes()),
-                SecurityLevel::High => Ok(sphincsshake128fsimple::signature_bytes()),
+                SecurityLevel::Medium => Ok(sphincsshake192fsimple::signature_bytes()),
+                SecurityLevel::High => Ok(sphincsshake256fsimple::signature_bytes()),
                 _ => Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
             },
             QuantumScheme::Hybrid(classical) => {
@@ -755,7 +759,8 @@ impl QuantumKeyPair {
     ) -> Result<Self, QuantumError> {
         match SecurityLevel::from(security_level) {
             SecurityLevel::Low => {
-                // Use SHA-256, 128-bit security level, "fast" variant (f)
+                // SECURITY FIX (P0-006): Use correct SPHINCS+ variant for low security
+                // Use SHAKE-128, 128-bit security level (NIST Level 1), "simple" variant
                 let (pk, sk) = sphincsshake128fsimple::keypair();
 
                 Ok(Self {
@@ -768,8 +773,9 @@ impl QuantumKeyPair {
                 })
             }
             SecurityLevel::Medium => {
-                // Use SHA-256, 128-bit security level, "simple" variant (s)
-                let (pk, sk) = sphincsshake128fsimple::keypair();
+                // SECURITY FIX (P0-006): Use correct SPHINCS+ variant for medium security
+                // Use SHAKE-192, 192-bit security level (NIST Level 3), "simple" variant
+                let (pk, sk) = sphincsshake192fsimple::keypair();
 
                 Ok(Self {
                     public_key: pk.as_bytes().to_vec(),
@@ -781,8 +787,9 @@ impl QuantumKeyPair {
                 })
             }
             SecurityLevel::High => {
-                // Use SHA-256, 256-bit security level, "fast" variant (f)
-                let (pk, sk) = sphincsshake128fsimple::keypair();
+                // SECURITY FIX (P0-006): Use correct SPHINCS+ variant for high security
+                // Use SHAKE-256, 256-bit security level (NIST Level 5), "simple" variant
+                let (pk, sk) = sphincsshake256fsimple::keypair();
 
                 Ok(Self {
                     public_key: pk.as_bytes().to_vec(),
@@ -946,25 +953,27 @@ impl QuantumKeyPair {
                         Ok(signature.as_bytes().to_vec())
                     }
                     SecurityLevel::Medium => {
-                        let sk = sphincsshake128fsimple::SecretKey::from_bytes(&self.secret_key)
+                        // SECURITY FIX (P0-006): Use correct SPHINCS+ variant for medium security
+                        let sk = sphincsshake192fsimple::SecretKey::from_bytes(&self.secret_key)
                             .map_err(|e| {
                                 QuantumError::InvalidKey(format!(
                                     "Invalid SPHINCS+ secret key: {}",
                                     e
                                 ))
                             })?;
-                        let signature = sphincsshake128fsimple::detached_sign(message, &sk);
+                        let signature = sphincsshake192fsimple::detached_sign(message, &sk);
                         Ok(signature.as_bytes().to_vec())
                     }
                     SecurityLevel::High => {
-                        let sk = sphincsshake128fsimple::SecretKey::from_bytes(&self.secret_key)
+                        // SECURITY FIX (P0-006): Use correct SPHINCS+ variant for high security
+                        let sk = sphincsshake256fsimple::SecretKey::from_bytes(&self.secret_key)
                             .map_err(|e| {
                                 QuantumError::InvalidKey(format!(
                                     "Invalid SPHINCS+ secret key: {}",
                                     e
                                 ))
                             })?;
-                        let signature = sphincsshake128fsimple::detached_sign(message, &sk);
+                        let signature = sphincsshake256fsimple::detached_sign(message, &sk);
                         Ok(signature.as_bytes().to_vec())
                     }
                     _ => Err(QuantumError::UnsupportedSecurityLevel(
@@ -1185,14 +1194,15 @@ impl QuantumKeyPair {
                         }
                     }
                     SecurityLevel::Medium => {
-                        let pk = sphincsshake128fsimple::PublicKey::from_bytes(&self.public_key)
+                        // SECURITY FIX (P0-006): Use correct SPHINCS+ variant for medium security
+                        let pk = sphincsshake192fsimple::PublicKey::from_bytes(&self.public_key)
                             .map_err(|e| {
                                 QuantumError::InvalidKey(format!(
                                     "Invalid SPHINCS+ public key: {}",
                                     e
                                 ))
                             })?;
-                        let sig = sphincsshake128fsimple::DetachedSignature::from_bytes(signature)
+                        let sig = sphincsshake192fsimple::DetachedSignature::from_bytes(signature)
                             .map_err(|e| {
                                 QuantumError::InvalidSignature(format!(
                                     "Invalid SPHINCS+ signature: {}",
@@ -1200,21 +1210,22 @@ impl QuantumKeyPair {
                                 ))
                             })?;
 
-                        match sphincsshake128fsimple::verify_detached_signature(&sig, message, &pk)
+                        match sphincsshake192fsimple::verify_detached_signature(&sig, message, &pk)
                         {
                             Ok(_) => Ok(true),
                             Err(_) => Ok(false),
                         }
                     }
                     SecurityLevel::High => {
-                        let pk = sphincsshake128fsimple::PublicKey::from_bytes(&self.public_key)
+                        // SECURITY FIX (P0-006): Use correct SPHINCS+ variant for high security
+                        let pk = sphincsshake256fsimple::PublicKey::from_bytes(&self.public_key)
                             .map_err(|e| {
                                 QuantumError::InvalidKey(format!(
                                     "Invalid SPHINCS+ public key: {}",
                                     e
                                 ))
                             })?;
-                        let sig = sphincsshake128fsimple::DetachedSignature::from_bytes(signature)
+                        let sig = sphincsshake256fsimple::DetachedSignature::from_bytes(signature)
                             .map_err(|e| {
                                 QuantumError::InvalidSignature(format!(
                                     "Invalid SPHINCS+ signature: {}",
@@ -1222,7 +1233,7 @@ impl QuantumKeyPair {
                                 ))
                             })?;
 
-                        match sphincsshake128fsimple::verify_detached_signature(&sig, message, &pk)
+                        match sphincsshake256fsimple::verify_detached_signature(&sig, message, &pk)
                         {
                             Ok(_) => Ok(true),
                             Err(_) => Ok(false),
