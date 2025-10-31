@@ -480,8 +480,9 @@ impl UnifiedBlockValidator {
         block: &Block,
         context: &ValidationContext,
     ) -> UnifiedValidationResult<()> {
-        // SECURITY FIX (P0-005): Implement proper difficulty validation using DifficultyAdjustment
-        let difficulty_adjuster = DifficultyAdjustment::new();
+        // SECURITY FIX (P1-001): Complete difficulty validation with comprehensive checks
+        let difficulty_adjuster = &self.difficulty_adjustment;
+        let config = difficulty_adjuster.config();
         
         // Basic check: difficulty must not be zero
         if block.header.bits() == 0 {
@@ -491,7 +492,39 @@ impl UnifiedBlockValidator {
             });
         }
 
-        // If we have previous headers, validate difficulty adjustment
+        // SECURITY FIX (P1-001): Validate difficulty bounds
+        let actual_bits = block.header.bits();
+        if actual_bits > config.max_target {
+            return Err(UnifiedValidationError::InvalidDifficulty {
+                expected: config.max_target,
+                actual: actual_bits,
+            });
+        }
+        if actual_bits < config.min_target {
+            return Err(UnifiedValidationError::InvalidDifficulty {
+                expected: config.min_target,
+                actual: actual_bits,
+            });
+        }
+
+        // SECURITY FIX (P1-001): Validate timestamp ordering (monotonic progression)
+        if context.previous_headers.len() > 0 {
+            let previous_timestamp = context.previous_headers
+                .last()
+                .map(|h| h.timestamp())
+                .unwrap_or(0);
+            
+            // Block timestamp must be greater than previous block timestamp
+            if block.header.timestamp() <= previous_timestamp {
+                return Err(UnifiedValidationError::InvalidTimestamp(format!(
+                    "Block timestamp {} is not after previous block timestamp {}",
+                    block.header.timestamp(),
+                    previous_timestamp
+                )));
+            }
+        }
+
+        // SECURITY FIX (P1-001): Validate difficulty adjustment for non-genesis blocks
         if context.previous_headers.len() >= 2 {
             // Extract timestamps and heights from previous headers
             let mut timestamps: Vec<u64> = context.previous_headers
@@ -501,6 +534,18 @@ impl UnifiedBlockValidator {
             
             // Add current block timestamp
             timestamps.push(block.header.timestamp());
+            
+            // SECURITY FIX (P1-001): Validate timestamps are monotonically increasing
+            for i in 1..timestamps.len() {
+                if timestamps[i] <= timestamps[i - 1] {
+                    return Err(UnifiedValidationError::InvalidTimestamp(format!(
+                        "Non-monotonic timestamps at index {}: {} <= {}",
+                        i,
+                        timestamps[i],
+                        timestamps[i - 1]
+                    )));
+                }
+            }
             
             // Extract heights (assuming sequential blocks)
             let mut heights: Vec<u64> = (0..context.previous_headers.len())
@@ -514,33 +559,80 @@ impl UnifiedBlockValidator {
                 .map(|h| h.bits())
                 .unwrap_or(0x1d00ffff);
 
-            // Calculate expected next target
+            // SECURITY FIX (P1-001): Calculate expected next target using DifficultyAdjustment
             match difficulty_adjuster.calculate_next_target(
                 current_target,
                 &timestamps,
                 &heights,
             ) {
                 Ok(expected_target) => {
-                    // Compare with actual block difficulty
+                    // SECURITY FIX (P1-001): Strict validation - difficulty must match exactly
+                    // Difficulty adjustment is deterministic, so there should be no tolerance
                     if block.header.bits() != expected_target {
-                        // Allow some tolerance for rounding differences, but log warning
-                        // In strict mode, we should reject mismatches
-                        return Err(UnifiedValidationError::InvalidDifficulty {
-                            expected: expected_target,
-                            actual: block.header.bits(),
-                        });
+                        // Check if we're at an adjustment boundary
+                        let is_adjustment_boundary = context.height % config.adjustment_interval == 0;
+                        
+                        if is_adjustment_boundary {
+                            // At adjustment boundary, difficulty must match exactly
+                            return Err(UnifiedValidationError::InvalidDifficulty {
+                                expected: expected_target,
+                                actual: block.header.bits(),
+                            });
+                        } else {
+                            // Not at adjustment boundary, difficulty should remain the same
+                            if block.header.bits() != current_target {
+                                return Err(UnifiedValidationError::InvalidDifficulty {
+                                    expected: current_target,
+                                    actual: block.header.bits(),
+                                });
+                            }
+                        }
                     }
                 }
                 Err(e) => {
-                    // If calculation fails (e.g., insufficient history), log and continue
-                    // This allows genesis blocks and early blocks to pass
-                    // In production, you might want stricter validation
-                    log::warn!("Difficulty calculation failed: {}", e);
+                    // SECURITY FIX (P1-001): For non-genesis blocks, difficulty calculation failure is suspicious
+                    // Log error and reject block if we have sufficient history
+                    if context.height > config.adjustment_interval {
+                        return Err(UnifiedValidationError::InvalidDifficulty {
+                            expected: 0x1d00ffff,
+                            actual: block.header.bits(),
+                        });
+                    }
+                    // For early blocks (< adjustment_interval), difficulty calculation may fail
+                    // Just ensure difficulty matches previous block (no adjustment yet)
+                    if context.previous_headers.len() > 0 {
+                        let previous_bits = context.previous_headers
+                            .last()
+                            .map(|h| h.bits())
+                            .unwrap_or(0x1d00ffff);
+                        
+                        if block.header.bits() != previous_bits {
+                            return Err(UnifiedValidationError::InvalidDifficulty {
+                                expected: previous_bits,
+                                actual: block.header.bits(),
+                            });
+                        }
+                    }
                 }
             }
+        } else if context.previous_headers.len() == 1 {
+            // SECURITY FIX (P1-001): For second block (after genesis), difficulty should match genesis
+            let genesis_bits = context.previous_headers[0].bits();
+            if block.header.bits() != genesis_bits {
+                return Err(UnifiedValidationError::InvalidDifficulty {
+                    expected: genesis_bits,
+                    actual: block.header.bits(),
+                });
+            }
         } else {
-            // For genesis block or early blocks without enough history, just validate non-zero
-            // This is acceptable as difficulty adjustment requires historical data
+            // SECURITY FIX (P1-001): Genesis block - validate difficulty is within bounds
+            // Genesis difficulty should be set to initial difficulty
+            if block.header.bits() == 0 || block.header.bits() > config.max_target {
+                return Err(UnifiedValidationError::InvalidDifficulty {
+                    expected: 0x1d00ffff,
+                    actual: block.header.bits(),
+                });
+            }
         }
 
         Ok(())
@@ -634,5 +726,334 @@ mod tests {
             result,
             Err(UnifiedValidationError::InvalidMerkleRoot)
         ));
+    }
+
+    /// SECURITY FIX (P1-001): Tests for complete difficulty validation
+    #[test]
+    fn test_difficulty_validation_normal_blocks() {
+        let mut validator = UnifiedBlockValidator::new();
+        let config = validator.difficulty_adjustment.config();
+        
+        // Create previous headers with valid difficulty progression
+        let mut previous_headers = Vec::new();
+        let base_time = 1000000;
+        let base_bits = 0x1d00ffff;
+        
+        // Create 3 previous blocks
+        for i in 0..3 {
+            let header = BlockHeader::new_with_height(
+                1,
+                if i == 0 { [0; 32] } else { [i as u8; 32] },
+                [0; 32], // merkle_root
+                base_time + (i as u64) * 150, // 2.5 minutes apart
+                base_bits,
+                0, // nonce
+                i,
+            );
+            previous_headers.push(header);
+        }
+        
+        // Create current block with correct difficulty (should match previous)
+        let mut current_block = Block::new_with_params(
+            1,
+            [3; 32],
+            vec![create_test_block().transactions[0].clone()],
+            base_bits, // Same difficulty (not at adjustment boundary)
+        );
+        current_block.header.set_timestamp(base_time + 450);
+        
+        let context = ValidationContext {
+            previous_headers: previous_headers.clone(),
+            get_utxo: Box::new(|_, _| None),
+            height: 3,
+            current_time: Some(base_time + 500),
+            is_coinbase_mature: None,
+        };
+        
+        // Should pass validation
+        let result = validator.validate_block_secure(&current_block, Some(&context));
+        assert!(result.is_ok(), "Normal block with correct difficulty should pass");
+    }
+
+    #[test]
+    fn test_difficulty_validation_adjustment_boundary() {
+        let mut validator = UnifiedBlockValidator::new();
+        let config = validator.difficulty_adjustment.config();
+        let adjustment_interval = config.adjustment_interval;
+        
+        // Create headers up to adjustment boundary
+        let mut previous_headers = Vec::new();
+        let base_time = 1000000;
+        let base_bits = 0x1d00ffff;
+        
+        // Create blocks leading up to adjustment boundary
+        for i in 0..adjustment_interval {
+            let header = BlockHeader::new_with_height(
+                1,
+                if i == 0 { [0; 32] } else { [i as u8; 32] },
+                [0; 32],
+                base_time + (i as u64) * 150,
+                base_bits,
+                0,
+                i,
+            );
+            previous_headers.push(header);
+        }
+        
+        // Calculate expected target at adjustment boundary
+        let timestamps: Vec<u64> = previous_headers.iter().map(|h| h.timestamp()).collect();
+        let heights: Vec<u64> = (0..adjustment_interval).collect();
+        let current_target = previous_headers.last().unwrap().bits();
+        
+        let expected_target = validator.difficulty_adjustment
+            .calculate_next_target(current_target, &timestamps, &heights)
+            .unwrap();
+        
+        // Create block at adjustment boundary with correct difficulty
+        let mut current_block = Block::new_with_params(
+            1,
+            [adjustment_interval as u8; 32],
+            vec![create_test_block().transactions[0].clone()],
+            expected_target,
+        );
+        current_block.header.set_timestamp(base_time + (adjustment_interval as u64) * 150);
+        current_block.header.set_height(adjustment_interval);
+        
+        let context = ValidationContext {
+            previous_headers,
+            get_utxo: Box::new(|_, _| None),
+            height: adjustment_interval,
+            current_time: Some(base_time + (adjustment_interval as u64) * 150 + 100),
+            is_coinbase_mature: None,
+        };
+        
+        // Should pass validation
+        let result = validator.validate_block_secure(&current_block, Some(&context));
+        assert!(result.is_ok(), "Block at adjustment boundary with correct difficulty should pass");
+        
+        // Test with incorrect difficulty at adjustment boundary
+        let mut invalid_block = current_block.clone();
+        invalid_block.header.bits = 0x1e00ffff; // Wrong difficulty
+        
+        let result = validator.validate_block_secure(&invalid_block, Some(&context));
+        assert!(matches!(
+            result,
+            Err(UnifiedValidationError::InvalidDifficulty { .. })
+        ), "Block at adjustment boundary with incorrect difficulty should fail");
+    }
+
+    #[test]
+    fn test_difficulty_validation_genesis_block() {
+        let mut validator = UnifiedBlockValidator::new();
+        let config = validator.difficulty_adjustment.config();
+        
+        // Create genesis block with valid difficulty
+        let genesis_block = Block::new_with_params(
+            1,
+            [0; 32],
+            vec![create_test_block().transactions[0].clone()],
+            0x1d00ffff, // Valid genesis difficulty
+        );
+        
+        let context = ValidationContext {
+            previous_headers: Vec::new(),
+            get_utxo: Box::new(|_, _| None),
+            height: 0,
+            current_time: Some(1000000),
+            is_coinbase_mature: None,
+        };
+        
+        // Genesis block should pass validation
+        let result = validator.validate_block_secure(&genesis_block, Some(&context));
+        assert!(result.is_ok(), "Genesis block with valid difficulty should pass");
+        
+        // Test genesis block with zero difficulty
+        let invalid_genesis = Block::new_with_params(
+            1,
+            [0; 32],
+            vec![create_test_block().transactions[0].clone()],
+            0, // Invalid: zero difficulty
+        );
+        
+        let result = validator.validate_block_secure(&invalid_genesis, Some(&context));
+        assert!(matches!(
+            result,
+            Err(UnifiedValidationError::InvalidDifficulty { .. })
+        ), "Genesis block with zero difficulty should fail");
+        
+        // Test genesis block with difficulty exceeding max_target
+        let too_easy_genesis = Block::new_with_params(
+            1,
+            [0; 32],
+            vec![create_test_block().transactions[0].clone()],
+            config.max_target + 1, // Invalid: exceeds max_target
+        );
+        
+        let result = validator.validate_block_secure(&too_easy_genesis, Some(&context));
+        assert!(matches!(
+            result,
+            Err(UnifiedValidationError::InvalidDifficulty { .. })
+        ), "Genesis block with difficulty exceeding max_target should fail");
+    }
+
+    #[test]
+    fn test_difficulty_validation_invalid_bits() {
+        let mut validator = UnifiedBlockValidator::new();
+        let config = validator.difficulty_adjustment.config();
+        
+        // Create previous header
+        let previous_header = BlockHeader::new_with_height(
+            1,
+            [0; 32],
+            [0; 32],
+            1000000,
+            0x1d00ffff,
+            0,
+            0,
+        );
+        
+        // Test with difficulty below min_target
+        let mut invalid_block = Block::new_with_params(
+            1,
+            [1; 32],
+            vec![create_test_block().transactions[0].clone()],
+            config.min_target - 1, // Invalid: below min_target
+        );
+        invalid_block.header.set_timestamp(1000150);
+        
+        let context = ValidationContext {
+            previous_headers: vec![previous_header.clone()],
+            get_utxo: Box::new(|_, _| None),
+            height: 1,
+            current_time: Some(1000200),
+            is_coinbase_mature: None,
+        };
+        
+        let result = validator.validate_block_secure(&invalid_block, Some(&context));
+        assert!(matches!(
+            result,
+            Err(UnifiedValidationError::InvalidDifficulty { .. })
+        ), "Block with difficulty below min_target should fail");
+        
+        // Test with difficulty above max_target
+        let mut too_easy_block = Block::new_with_params(
+            1,
+            [1; 32],
+            vec![create_test_block().transactions[0].clone()],
+            config.max_target + 1, // Invalid: above max_target
+        );
+        too_easy_block.header.set_timestamp(1000150);
+        
+        let result = validator.validate_block_secure(&too_easy_block, Some(&context));
+        assert!(matches!(
+            result,
+            Err(UnifiedValidationError::InvalidDifficulty { .. })
+        ), "Block with difficulty above max_target should fail");
+    }
+
+    #[test]
+    fn test_difficulty_validation_timestamp_bounds() {
+        let mut validator = UnifiedBlockValidator::new();
+        
+        // Create previous header
+        let previous_header = BlockHeader::new_with_height(
+            1,
+            [0; 32],
+            [0; 32],
+            1000000,
+            0x1d00ffff,
+            0,
+            0,
+        );
+        
+        // Test with timestamp not after previous block
+        let mut invalid_block = Block::new_with_params(
+            1,
+            [1; 32],
+            vec![create_test_block().transactions[0].clone()],
+            0x1d00ffff,
+        );
+        invalid_block.header.set_timestamp(1000000); // Same as previous (should fail)
+        
+        let context = ValidationContext {
+            previous_headers: vec![previous_header.clone()],
+            get_utxo: Box::new(|_, _| None),
+            height: 1,
+            current_time: Some(1000200),
+            is_coinbase_mature: None,
+        };
+        
+        let result = validator.validate_block_secure(&invalid_block, Some(&context));
+        assert!(matches!(
+            result,
+            Err(UnifiedValidationError::InvalidTimestamp(..))
+        ), "Block with timestamp not after previous block should fail");
+        
+        // Test with timestamp before previous block
+        let mut invalid_block2 = Block::new_with_params(
+            1,
+            [1; 32],
+            vec![create_test_block().transactions[0].clone()],
+            0x1d00ffff,
+        );
+        invalid_block2.header.set_timestamp(999999); // Before previous (should fail)
+        
+        let result = validator.validate_block_secure(&invalid_block2, Some(&context));
+        assert!(matches!(
+            result,
+            Err(UnifiedValidationError::InvalidTimestamp(..))
+        ), "Block with timestamp before previous block should fail");
+    }
+
+    #[test]
+    fn test_difficulty_validation_second_block() {
+        let mut validator = UnifiedBlockValidator::new();
+        
+        // Create genesis block
+        let genesis_header = BlockHeader::new_with_height(
+            1,
+            [0; 32],
+            [0; 32],
+            1000000,
+            0x1d00ffff,
+            0,
+            0,
+        );
+        
+        // Second block should match genesis difficulty
+        let mut second_block = Block::new_with_params(
+            1,
+            [1; 32],
+            vec![create_test_block().transactions[0].clone()],
+            0x1d00ffff, // Correct: matches genesis
+        );
+        second_block.header.set_timestamp(1000150);
+        
+        let context = ValidationContext {
+            previous_headers: vec![genesis_header.clone()],
+            get_utxo: Box::new(|_, _| None),
+            height: 1,
+            current_time: Some(1000200),
+            is_coinbase_mature: None,
+        };
+        
+        // Should pass validation
+        let result = validator.validate_block_secure(&second_block, Some(&context));
+        assert!(result.is_ok(), "Second block with matching genesis difficulty should pass");
+        
+        // Test with different difficulty (should fail)
+        let mut invalid_second = Block::new_with_params(
+            1,
+            [1; 32],
+            vec![create_test_block().transactions[0].clone()],
+            0x1c00ffff, // Invalid: different from genesis
+        );
+        invalid_second.header.set_timestamp(1000150);
+        
+        let result = validator.validate_block_secure(&invalid_second, Some(&context));
+        assert!(matches!(
+            result,
+            Err(UnifiedValidationError::InvalidDifficulty { .. })
+        ), "Second block with different difficulty should fail");
     }
 }
