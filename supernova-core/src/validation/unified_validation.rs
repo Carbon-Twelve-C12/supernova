@@ -193,13 +193,74 @@ impl UnifiedBlockValidator {
 
             // Validate individual transaction
             if !tx.is_coinbase() && context.is_some() {
-                // TODO: Implement full transaction validation
-                // For now, just check basic structure
+                // SECURITY FIX (P0-005): Implement full transaction validation
+                let ctx = context.as_ref().unwrap();
+                
+                // Check basic structure
                 if tx.inputs().is_empty() {
                     return Err(UnifiedValidationError::InvalidTransaction(
                         "Non-coinbase transaction has no inputs".to_string(),
                     ));
                 }
+
+                // Validate outputs exist and are non-empty
+                if tx.outputs().is_empty() {
+                    return Err(UnifiedValidationError::InvalidTransaction(
+                        "Transaction has no outputs".to_string(),
+                    ));
+                }
+
+                // Validate all inputs reference existing UTXOs
+                let mut total_input_value = 0u64;
+                for (idx, input) in tx.inputs().iter().enumerate() {
+                    match (ctx.get_utxo)(&input.prev_tx_hash(), input.prev_output_index()) {
+                        Some(utxo) => {
+                            // SECURITY FIX (P0-003): Use checked arithmetic to prevent overflow
+                            total_input_value = total_input_value
+                                .checked_add(utxo.amount())
+                                .ok_or_else(|| UnifiedValidationError::InvalidTransaction(
+                                    format!("Input value overflow in transaction {}", hex::encode(txid))
+                                ))?;
+                        }
+                        None => {
+                            return Err(UnifiedValidationError::InvalidTransaction(format!(
+                                "Input {} references non-existent UTXO: {}:{}",
+                                idx,
+                                hex::encode(input.prev_tx_hash()),
+                                input.prev_output_index()
+                            )));
+                        }
+                    }
+                }
+
+                // Validate outputs and calculate total output value
+                let mut total_output_value = 0u64;
+                for (idx, output) in tx.outputs().iter().enumerate() {
+                    if output.amount() == 0 {
+                        return Err(UnifiedValidationError::InvalidTransaction(format!(
+                            "Output {} has zero amount",
+                            idx
+                        )));
+                    }
+                    // SECURITY FIX (P0-003): Use checked arithmetic to prevent overflow
+                    total_output_value = total_output_value
+                        .checked_add(output.amount())
+                        .ok_or_else(|| UnifiedValidationError::InvalidTransaction(
+                            format!("Output value overflow in transaction {}", hex::encode(txid))
+                        ))?;
+                }
+
+                // Validate value conservation: inputs >= outputs (fee is the difference)
+                if total_output_value > total_input_value {
+                    return Err(UnifiedValidationError::InvalidTransaction(format!(
+                        "Transaction creates value: inputs {} < outputs {}",
+                        total_input_value, total_output_value
+                    )));
+                }
+
+                // Note: Signature verification is handled separately by the transaction validator
+                // which has access to cryptographic verification functions. For block validation,
+                // we focus on structural integrity and value conservation.
             }
         }
 
@@ -419,13 +480,67 @@ impl UnifiedBlockValidator {
         block: &Block,
         context: &ValidationContext,
     ) -> UnifiedValidationResult<()> {
-        // TODO: Implement proper difficulty validation
-        // For now, just ensure it's not zero
+        // SECURITY FIX (P0-005): Implement proper difficulty validation using DifficultyAdjustment
+        let difficulty_adjuster = DifficultyAdjustment::new();
+        
+        // Basic check: difficulty must not be zero
         if block.header.bits() == 0 {
             return Err(UnifiedValidationError::InvalidDifficulty {
                 expected: 0x1d00ffff,
                 actual: 0,
             });
+        }
+
+        // If we have previous headers, validate difficulty adjustment
+        if context.previous_headers.len() >= 2 {
+            // Extract timestamps and heights from previous headers
+            let mut timestamps: Vec<u64> = context.previous_headers
+                .iter()
+                .map(|h| h.timestamp())
+                .collect();
+            
+            // Add current block timestamp
+            timestamps.push(block.header.timestamp());
+            
+            // Extract heights (assuming sequential blocks)
+            let mut heights: Vec<u64> = (0..context.previous_headers.len())
+                .map(|i| context.height.saturating_sub((context.previous_headers.len() - i) as u64))
+                .collect();
+            heights.push(context.height);
+
+            // Get the previous block's difficulty as current target
+            let current_target = context.previous_headers
+                .last()
+                .map(|h| h.bits())
+                .unwrap_or(0x1d00ffff);
+
+            // Calculate expected next target
+            match difficulty_adjuster.calculate_next_target(
+                current_target,
+                &timestamps,
+                &heights,
+            ) {
+                Ok(expected_target) => {
+                    // Compare with actual block difficulty
+                    if block.header.bits() != expected_target {
+                        // Allow some tolerance for rounding differences, but log warning
+                        // In strict mode, we should reject mismatches
+                        return Err(UnifiedValidationError::InvalidDifficulty {
+                            expected: expected_target,
+                            actual: block.header.bits(),
+                        });
+                    }
+                }
+                Err(e) => {
+                    // If calculation fails (e.g., insufficient history), log and continue
+                    // This allows genesis blocks and early blocks to pass
+                    // In production, you might want stricter validation
+                    log::warn!("Difficulty calculation failed: {}", e);
+                }
+            }
+        } else {
+            // For genesis block or early blocks without enough history, just validate non-zero
+            // This is acceptable as difficulty adjustment requires historical data
         }
 
         Ok(())
