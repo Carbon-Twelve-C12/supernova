@@ -264,21 +264,28 @@ impl MessageHandler {
         }
     }
 
-    /// Validate a message and check for duplicates
+    /// SECURITY FIX [P1-011]: Validate a message and check for duplicates
+    /// Comprehensive validation including size limits, structure validation, and malformed data checks
     fn validate_message(&mut self, message: &NetworkMessage) -> Result<bool, String> {
-        // Serialize message to get hash for duplicate detection
+        // Step 1: Validate message structure BEFORE serialization
+        self.validate_message_structure(&message.message)?;
+
+        // Step 2: Serialize message to get hash for duplicate detection
         let message_bytes = match bincode::serialize(&message.message) {
             Ok(bytes) => bytes,
             Err(e) => return Err(format!("Failed to serialize message: {}", e)),
         };
 
-        // Check size limit
+        // Step 3: Check overall size limit
         if message_bytes.len() > self.max_message_size {
             self.stats.oversized_messages += 1;
-            return Err(format!("Message too large: {} bytes", message_bytes.len()));
+            return Err(format!("Message too large: {} bytes (max: {})", message_bytes.len(), self.max_message_size));
         }
 
-        // Check for duplicates
+        // Step 4: Check type-specific size limits
+        self.validate_type_specific_size(&message.message, message_bytes.len())?;
+
+        // Step 5: Check for duplicates
         let mut seen = self
             .seen_messages
             .lock()
@@ -292,47 +299,178 @@ impl MessageHandler {
             return Ok(false);
         }
 
-        // Basic validation based on message type
-        match &message.message {
+        // Step 6: Message passed all validation, add to seen cache
+        seen.insert(hash, Instant::now());
+
+        Ok(true)
+    }
+
+    /// SECURITY FIX [P1-011]: Validate message structure before processing
+    /// Prevents malformed message attacks by validating structure upfront
+    fn validate_message_structure(&self, msg: &ProtocolMessage) -> Result<(), String> {
+        match msg {
             ProtocolMessage::Block(block) => {
                 if block.transactions.is_empty() {
                     return Err("Block has no transactions".to_string());
                 }
+                // Validate block header exists (via block structure)
+                // Block structure validation is handled by the consensus layer
             }
             ProtocolMessage::Transaction { transaction } => {
-                // Transaction is just raw bytes, check if it's empty
+                // Transaction structure validation
                 if transaction.is_empty() {
-                    return Err("Empty transaction data".to_string());
+                    return Err("Transaction data is empty".to_string());
+                }
+                // Additional transaction validation would require deserialization
+                // For now, we just check it's not empty
+            }
+            ProtocolMessage::Headers { headers, .. } => {
+                if headers.is_empty() {
+                    return Err("Headers message is empty".to_string());
+                }
+                // Validate header count is reasonable
+                if headers.len() > 25_000 {
+                    return Err(format!("Too many headers: {} (max: 25000)", headers.len()));
+                }
+                // Validate each header is reasonable size (block headers are ~80 bytes)
+                for (idx, header) in headers.iter().enumerate() {
+                    if header.len() > 1024 {
+                        return Err(format!("Header {} too large: {} bytes (max: 1024)", idx, header.len()));
+                    }
                 }
             }
             ProtocolMessage::GetBlocks(msg) => {
-                // GetBlocks contains a GetBlocksMessage with locator hashes
+                // GetBlocks contains a GetBlocksMessage struct
                 if msg.locator_hashes.is_empty() {
                     return Err("GetBlocks has no locator hashes".to_string());
                 }
                 if msg.locator_hashes.len() > 500 {
-                    return Err("Too many locator hashes".to_string());
+                    return Err(format!("Too many block hashes: {} (max: 500)", msg.locator_hashes.len()));
                 }
+            }
+            ProtocolMessage::GetBlocksByHash { block_hashes } => {
+                if block_hashes.is_empty() {
+                    return Err("GetBlocksByHash has no block hashes".to_string());
+                }
+                if block_hashes.len() > 500 {
+                    return Err(format!("Too many block hashes: {} (max: 500)", block_hashes.len()));
+                }
+            }
+            ProtocolMessage::GetData(hashes) => {
+                if hashes.is_empty() {
+                    return Err("GetData has no hashes".to_string());
+                }
+                if hashes.len() > 500 {
+                    return Err(format!("Too many GetData hashes: {} (max: 500)", hashes.len()));
+                }
+                // Note: hashes are Vec<[u8; 32]>, so each hash is guaranteed to be 32 bytes
+                // Fixed-size arrays ensure correct length, no need to validate individually
             }
             ProtocolMessage::GetHeaders {
                 start_height,
                 end_height,
             } => {
                 if end_height < start_height {
-                    return Err("Invalid header range".to_string());
+                    return Err(format!("Invalid header range: end_height {} < start_height {}", end_height, start_height));
                 }
-                if end_height - start_height > 2000 {
-                    return Err("Header range too large".to_string());
+                let range = end_height.saturating_sub(*start_height);
+                if range > 2000 {
+                    return Err(format!("Header range too large: {} (max: 2000)", range));
                 }
             }
-            // Add validation for other message types as needed
-            _ => {}
+            ProtocolMessage::Status {
+                best_hash,
+                ..
+            } => {
+                // Note: best_hash is [u8; 32], a fixed-size array guaranteed to be 32 bytes
+                // No need to validate length, deserialization ensures correctness
+            }
+            ProtocolMessage::Extension(name, payload) => {
+                // Validate extension message name is not empty
+                if name.is_empty() {
+                    return Err("Extension message name is empty".to_string());
+                }
+                // Validate extension message name length (prevent DoS)
+                if name.len() > 256 {
+                    return Err(format!("Extension message name too long: {} bytes (max: 256)", name.len()));
+                }
+                // Validate payload size
+                if payload.len() > MessageSizeLimits::MAX_MESSAGE_SIZE {
+                    return Err(format!("Extension message payload too large: {} bytes", payload.len()));
+                }
+            }
+            ProtocolMessage::Ping(_) | ProtocolMessage::Pong(_) | ProtocolMessage::GetStatus 
+            | ProtocolMessage::Verack | ProtocolMessage::GetAddr
+            | ProtocolMessage::Version(_) | ProtocolMessage::Addr(_)
+            | ProtocolMessage::Environmental(_) | ProtocolMessage::Lightning(_)
+            | ProtocolMessage::NewBlock { .. } | ProtocolMessage::GetBlocksByHeight { .. }
+            | ProtocolMessage::BroadcastTransaction(_) | ProtocolMessage::TransactionAnnouncement { .. }
+            | ProtocolMessage::Blocks { .. } | ProtocolMessage::BlockResponse { .. }
+            | ProtocolMessage::GetMempool { .. } | ProtocolMessage::Mempool { .. } => {
+                // Simple messages or messages with validation handled elsewhere
+                // No additional validation needed at this layer
+            }
         }
+        Ok(())
+    }
 
-        // Message passed validation, add to seen cache
-        seen.insert(hash, Instant::now());
-
-        Ok(true)
+    /// SECURITY FIX [P1-011]: Validate type-specific size limits
+    /// Enforces message-type-specific size constraints to prevent DoS attacks
+    fn validate_type_specific_size(&self, msg: &ProtocolMessage, serialized_size: usize) -> Result<(), String> {
+        match msg {
+            ProtocolMessage::Block(_) => {
+                if serialized_size > MessageSizeLimits::MAX_BLOCK_SIZE {
+                    return Err(format!("Block message too large: {} bytes (max: {})", serialized_size, MessageSizeLimits::MAX_BLOCK_SIZE));
+                }
+            }
+            ProtocolMessage::Transaction { transaction } => {
+                if transaction.len() > MessageSizeLimits::MAX_TRANSACTION_SIZE {
+                    return Err(format!("Transaction message too large: {} bytes (max: {})", transaction.len(), MessageSizeLimits::MAX_TRANSACTION_SIZE));
+                }
+            }
+            ProtocolMessage::Headers { headers, .. } => {
+                // Estimate headers size: ~80 bytes per header + overhead
+                let estimated_size = headers.len() * 80 + 1024; // 1KB overhead
+                if estimated_size > MessageSizeLimits::MAX_HEADERS_SIZE {
+                    return Err(format!("Headers message too large: estimated {} bytes (max: {})", estimated_size, MessageSizeLimits::MAX_HEADERS_SIZE));
+                }
+                // Also check serialized size
+                if serialized_size > MessageSizeLimits::MAX_HEADERS_SIZE {
+                    return Err(format!("Headers message serialized size too large: {} bytes (max: {})", serialized_size, MessageSizeLimits::MAX_HEADERS_SIZE));
+                }
+            }
+            ProtocolMessage::GetData(hashes) => {
+                // Inventory messages: estimate size as hash count * 32 bytes + overhead
+                let estimated_size = hashes.len() * 32 + 1024; // 1KB overhead
+                if estimated_size > MessageSizeLimits::MAX_INVENTORY_SIZE {
+                    return Err(format!("GetData message too large: estimated {} bytes (max: {})", estimated_size, MessageSizeLimits::MAX_INVENTORY_SIZE));
+                }
+            }
+            ProtocolMessage::GetBlocks(msg) => {
+                // GetBlocks contains GetBlocksMessage struct
+                let estimated_size = msg.locator_hashes.len() * 32 + 1024; // 1KB overhead
+                if estimated_size > MessageSizeLimits::MAX_INVENTORY_SIZE {
+                    return Err(format!("GetBlocks message too large: estimated {} bytes (max: {})", estimated_size, MessageSizeLimits::MAX_INVENTORY_SIZE));
+                }
+            }
+            ProtocolMessage::GetBlocksByHash { block_hashes } => {
+                // Estimate size as hash count * 32 bytes + overhead
+                let estimated_size = block_hashes.len() * 32 + 1024; // 1KB overhead
+                if estimated_size > MessageSizeLimits::MAX_INVENTORY_SIZE {
+                    return Err(format!("GetBlocksByHash message too large: estimated {} bytes (max: {})", estimated_size, MessageSizeLimits::MAX_INVENTORY_SIZE));
+                }
+            }
+            ProtocolMessage::Extension(_, payload) => {
+                if payload.len() > MessageSizeLimits::MAX_MESSAGE_SIZE {
+                    return Err(format!("Extension message payload too large: {} bytes (max: {})", payload.len(), MessageSizeLimits::MAX_MESSAGE_SIZE));
+                }
+            }
+            _ => {
+                // Other message types use the general MAX_MESSAGE_SIZE limit
+                // Already checked in validate_message
+            }
+        }
+        Ok(())
     }
 
     /// Clean up the seen messages cache
@@ -479,5 +617,202 @@ mod tests {
 
         // Fresh message should not be expired
         assert!(!fresh_message.is_expired(Duration::from_secs(300)));
+    }
+
+    // Comprehensive message validation tests
+    #[test]
+    fn test_block_message_validation() {
+        use supernova_core::types::{block::Block, block::BlockHeader as CoreBlockHeader, transaction::Transaction};
+
+        let mut handler = MessageHandler::new();
+
+        // Test: Block with no transactions should be rejected
+        let empty_block = Block::new(
+            CoreBlockHeader::new(1, [0u8; 32], [0u8; 32], 0, 0, 0),
+            vec![],
+        );
+        let invalid_msg = NetworkMessage::new(Some(PeerId::random()), ProtocolMessage::Block(empty_block));
+        assert!(handler.validate_message(&invalid_msg).is_err());
+
+        // Test: Valid block should pass (coinbase transaction with output)
+        use supernova_core::types::transaction::TransactionOutput;
+        let coinbase_output = TransactionOutput::new(5000000000, vec![0x51]); // 50 NOVA coinbase reward
+        let coinbase_tx = Transaction::new(1, vec![], vec![coinbase_output], 0);
+        let valid_block = Block::new(
+            CoreBlockHeader::new(1, [0u8; 32], [0u8; 32], 0, 0, 0),
+            vec![coinbase_tx],
+        );
+        let valid_msg = NetworkMessage::new(Some(PeerId::random()), ProtocolMessage::Block(valid_block));
+        assert_eq!(handler.validate_message(&valid_msg), Ok(true));
+    }
+
+    #[test]
+    fn test_transaction_message_validation() {
+        let mut handler = MessageHandler::new();
+
+        // Test: Transaction with empty data should be rejected
+        let invalid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::Transaction { transaction: vec![] },
+        );
+        assert!(handler.validate_message(&invalid_msg).is_err());
+
+        // Test: Valid transaction should pass
+        let valid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::Transaction { transaction: vec![1, 2, 3, 4] },
+        );
+        assert_eq!(handler.validate_message(&valid_msg), Ok(true));
+    }
+
+    #[test]
+    fn test_headers_message_validation() {
+        let mut handler = MessageHandler::new();
+
+        // Test: Empty headers should be rejected
+        let invalid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::Headers {
+                headers: vec![],
+                total_difficulty: 0,
+            },
+        );
+        assert!(handler.validate_message(&invalid_msg).is_err());
+
+        // Test: Too many headers should be rejected
+        let mut too_many_headers = vec![];
+        for _ in 0..25_001 {
+            too_many_headers.push(vec![0u8; 80]); // Simulated header
+        }
+        let invalid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::Headers {
+                headers: too_many_headers,
+                total_difficulty: 0,
+            },
+        );
+        assert!(handler.validate_message(&invalid_msg).is_err());
+
+        // Test: Valid headers should pass
+        let valid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::Headers {
+                headers: vec![vec![0u8; 80]],
+                total_difficulty: 0,
+            },
+        );
+        assert_eq!(handler.validate_message(&valid_msg), Ok(true));
+    }
+
+    #[test]
+    fn test_getblocks_message_validation() {
+        use crate::network::protocol::GetBlocksMessage;
+
+        let mut handler = MessageHandler::new();
+
+        // Test: Empty GetBlocks should be rejected
+        let empty_msg = GetBlocksMessage {
+            version: 1,
+            locator_hashes: vec![],
+            stop_hash: [0u8; 32],
+        };
+        let invalid_msg = NetworkMessage::new(Some(PeerId::random()), ProtocolMessage::GetBlocks(empty_msg));
+        assert!(handler.validate_message(&invalid_msg).is_err());
+
+        // Test: Too many hashes should be rejected
+        let mut too_many_hashes = vec![];
+        for _ in 0..501 {
+            too_many_hashes.push([0u8; 32]);
+        }
+        let invalid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::GetBlocks(GetBlocksMessage {
+                version: 1,
+                locator_hashes: too_many_hashes,
+                stop_hash: [0u8; 32],
+            }),
+        );
+        assert!(handler.validate_message(&invalid_msg).is_err());
+
+        // Test: Valid GetBlocks should pass
+        let valid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::GetBlocks(GetBlocksMessage {
+                version: 1,
+                locator_hashes: vec![[0u8; 32], [1u8; 32]],
+                stop_hash: [0u8; 32],
+            }),
+        );
+        assert_eq!(handler.validate_message(&valid_msg), Ok(true));
+    }
+
+    #[test]
+    fn test_getheaders_message_validation() {
+        let mut handler = MessageHandler::new();
+
+        // Test: Invalid range (end < start) should be rejected
+        let invalid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::GetHeaders {
+                start_height: 100,
+                end_height: 50,
+            },
+        );
+        assert!(handler.validate_message(&invalid_msg).is_err());
+
+        // Test: Range too large should be rejected
+        let invalid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::GetHeaders {
+                start_height: 0,
+                end_height: 2001,
+            },
+        );
+        assert!(handler.validate_message(&invalid_msg).is_err());
+
+        // Test: Valid GetHeaders should pass
+        let valid_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::GetHeaders {
+                start_height: 0,
+                end_height: 100,
+            },
+        );
+        assert_eq!(handler.validate_message(&valid_msg), Ok(true));
+    }
+
+    // Note: ProtocolMessage doesn't have Custom variant, removed test
+
+    #[test]
+    fn test_type_specific_size_limits() {
+        use supernova_core::types::{block::Block, block::BlockHeader as CoreBlockHeader, transaction::Transaction, transaction::TransactionOutput};
+
+        let mut handler = MessageHandler::new();
+        handler.max_message_size = MessageSizeLimits::MAX_MESSAGE_SIZE;
+
+        // Test: Block exceeding MAX_BLOCK_SIZE should be rejected
+        let mut large_transactions = vec![];
+        for _ in 0..1000 {
+            let output = TransactionOutput::new(1000, vec![0u8; 1000]);
+            large_transactions.push(Transaction::new(1, vec![], vec![output], 0));
+        }
+        let large_block = Block::new(
+            CoreBlockHeader::new(1, [0u8; 32], [0u8; 32], 0, 0, 0),
+            large_transactions,
+        );
+        let large_block_msg = NetworkMessage::new(Some(PeerId::random()), ProtocolMessage::Block(large_block));
+        let serialized_size = bincode::serialize(&large_block_msg.message).unwrap().len();
+        if serialized_size > MessageSizeLimits::MAX_BLOCK_SIZE {
+            assert!(handler.validate_message(&large_block_msg).is_err());
+        }
+
+        // Test: Transaction exceeding MAX_TRANSACTION_SIZE should be rejected
+        let large_output = TransactionOutput::new(1000, vec![0u8; MessageSizeLimits::MAX_TRANSACTION_SIZE]);
+        let large_tx = Transaction::new(1, vec![], vec![large_output], 0);
+        let large_tx_msg = NetworkMessage::new(Some(PeerId::random()), ProtocolMessage::Transaction(large_tx));
+        let serialized_size = bincode::serialize(&large_tx_msg.message).unwrap().len();
+        if serialized_size > MessageSizeLimits::MAX_TRANSACTION_SIZE {
+            assert!(handler.validate_message(&large_tx_msg).is_err());
+        }
     }
 }
