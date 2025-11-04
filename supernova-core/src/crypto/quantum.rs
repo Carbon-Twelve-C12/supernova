@@ -982,23 +982,81 @@ impl QuantumKeyPair {
                 }
             }
             QuantumScheme::Hybrid(classical_scheme) => {
+                // Comprehensive hybrid key parsing with defensive bounds checking
                 // Split the secret key into classical and quantum parts
+                // Format: [classical_sk_len (2 bytes)][classical_sk][quantum_sk]
+                
                 if self.secret_key.len() < 2 {
                     return Err(QuantumError::InvalidKey(
-                        "Invalid hybrid secret key format".to_string(),
+                        "Hybrid secret key too short: missing length prefix".to_string(),
                     ));
                 }
 
+                // Read classical key length with bounds validation
                 let classical_sk_len =
                     u16::from_be_bytes([self.secret_key[0], self.secret_key[1]]) as usize;
-                if self.secret_key.len() < 2 + classical_sk_len {
-                    return Err(QuantumError::InvalidKey(
-                        "Invalid hybrid secret key format".to_string(),
-                    ));
+                
+                // Validate classical key length is reasonable
+                // Secp256k1 and Ed25519 both use exactly 32 bytes
+                const EXPECTED_CLASSICAL_KEY_LEN: usize = 32;
+                if classical_sk_len != EXPECTED_CLASSICAL_KEY_LEN {
+                    return Err(QuantumError::InvalidKey(format!(
+                        "Invalid classical key length in hybrid key: expected {}, got {}",
+                        EXPECTED_CLASSICAL_KEY_LEN, classical_sk_len
+                    )));
                 }
 
-                let classical_sk = &self.secret_key[2..(2 + classical_sk_len)];
-                let quantum_sk = &self.secret_key[(2 + classical_sk_len)..];
+                // Use checked arithmetic to prevent integer overflow
+                let classical_start: usize = 2;
+                let classical_end = match classical_start.checked_add(classical_sk_len) {
+                    Some(end) => end,
+                    None => {
+                        return Err(QuantumError::InvalidKey(
+                            "Integer overflow in hybrid key parsing: classical key length too large".to_string(),
+                        ));
+                    }
+                };
+
+                // Validate bounds before slicing
+                if self.secret_key.len() < classical_end {
+                    return Err(QuantumError::InvalidKey(format!(
+                        "Hybrid secret key too short: expected at least {} bytes for classical key, got {}",
+                        classical_end, self.secret_key.len()
+                    )));
+                }
+
+                // Validate quantum key has minimum required length
+                let quantum_sk_start = classical_end;
+                let min_quantum_key_len = match SecurityLevel::from(self.parameters.security_level) {
+                    SecurityLevel::Low => 2528,   // Dilithium2
+                    SecurityLevel::Medium => 4000, // Dilithium3
+                    SecurityLevel::High => 4864,    // Dilithium5
+                    _ => {
+                        return Err(QuantumError::UnsupportedSecurityLevel(
+                            self.parameters.security_level,
+                        ));
+                    }
+                };
+
+                if self.secret_key.len() < quantum_sk_start + min_quantum_key_len {
+                    return Err(QuantumError::InvalidKey(format!(
+                        "Hybrid secret key too short: quantum key requires at least {} bytes, got {}",
+                        min_quantum_key_len,
+                        self.secret_key.len().saturating_sub(quantum_sk_start)
+                    )));
+                }
+
+                // Safe slice operations with validated bounds
+                let classical_sk = &self.secret_key[classical_start..classical_end];
+                let quantum_sk = &self.secret_key[quantum_sk_start..];
+
+                // Additional validation: classical key must be exactly the expected length
+                if classical_sk.len() != EXPECTED_CLASSICAL_KEY_LEN {
+                    return Err(QuantumError::InvalidKey(format!(
+                        "Classical key slice length mismatch: expected {}, got {}",
+                        EXPECTED_CLASSICAL_KEY_LEN, classical_sk.len()
+                    )));
+                }
 
                 // Generate classical signature
                 let classical_sig = match classical_scheme {
@@ -1245,40 +1303,152 @@ impl QuantumKeyPair {
                 }
             }
             QuantumScheme::Hybrid(classical_scheme) => {
+                // SECURITY FIX [P1-004]: Comprehensive hybrid signature parsing with defensive bounds checking
                 // Split the signature into classical and quantum parts
+                // Format: [classical_sig_len (2 bytes)][classical_sig][quantum_sig]
+                
                 if signature.len() < 2 {
                     return Err(QuantumError::InvalidSignature(
-                        "Invalid hybrid signature format".to_string(),
+                        "Hybrid signature too short: missing length prefix".to_string(),
                     ));
                 }
 
+                // Read classical signature length with bounds validation
                 let classical_sig_len = u16::from_be_bytes([signature[0], signature[1]]) as usize;
-                if signature.len() < 2 + classical_sig_len {
+                
+                // Validate classical signature length is reasonable
+                // Secp256k1 DER signatures: ~70-72 bytes typical, max ~73 bytes
+                // Ed25519 signatures: exactly 64 bytes
+                const MAX_CLASSICAL_SIG_LEN: usize = 128; // Reasonable upper bound
+                if classical_sig_len > MAX_CLASSICAL_SIG_LEN {
+                    return Err(QuantumError::InvalidSignature(format!(
+                        "Classical signature length too large: {} (max: {})",
+                        classical_sig_len, MAX_CLASSICAL_SIG_LEN
+                    )));
+                }
+                if classical_sig_len == 0 {
                     return Err(QuantumError::InvalidSignature(
-                        "Invalid hybrid signature format".to_string(),
+                        "Classical signature length cannot be zero".to_string(),
                     ));
                 }
 
-                let classical_sig = &signature[2..(2 + classical_sig_len)];
-                let quantum_sig = &signature[(2 + classical_sig_len)..];
+                // Use checked arithmetic to prevent integer overflow
+                let classical_sig_start: usize = 2;
+                let classical_sig_end = match classical_sig_start.checked_add(classical_sig_len) {
+                    Some(end) => end,
+                    None => {
+                        return Err(QuantumError::InvalidSignature(
+                            "Integer overflow in hybrid signature parsing: classical signature length too large".to_string(),
+                        ));
+                    }
+                };
 
+                // Validate bounds before slicing
+                if signature.len() < classical_sig_end {
+                    return Err(QuantumError::InvalidSignature(format!(
+                        "Hybrid signature too short: expected at least {} bytes for classical signature, got {}",
+                        classical_sig_end, signature.len()
+                    )));
+                }
+
+                // Validate quantum signature has minimum required length
+                let quantum_sig_start = classical_sig_end;
+                let min_quantum_sig_len = match SecurityLevel::from(self.parameters.security_level) {
+                    SecurityLevel::Low => 2420,   // Dilithium2
+                    SecurityLevel::Medium => 3293, // Dilithium3
+                    SecurityLevel::High => 4595,   // Dilithium5
+                    _ => {
+                        return Err(QuantumError::UnsupportedSecurityLevel(
+                            self.parameters.security_level,
+                        ));
+                    }
+                };
+
+                if signature.len() < quantum_sig_start + min_quantum_sig_len {
+                    return Err(QuantumError::InvalidSignature(format!(
+                        "Hybrid signature too short: quantum signature requires at least {} bytes, got {}",
+                        min_quantum_sig_len,
+                        signature.len().saturating_sub(quantum_sig_start)
+                    )));
+                }
+
+                // Safe slice operations with validated bounds
+                let classical_sig = &signature[classical_sig_start..classical_sig_end];
+                let quantum_sig = &signature[quantum_sig_start..];
+
+                // SECURITY FIX [P1-004]: Comprehensive hybrid public key parsing with defensive bounds checking
                 // Split the public key into classical and quantum parts
+                // Format: [classical_pk_len (2 bytes)][classical_pk][quantum_pk]
+                
                 if self.public_key.len() < 2 {
                     return Err(QuantumError::InvalidKey(
-                        "Invalid hybrid public key format".to_string(),
+                        "Hybrid public key too short: missing length prefix".to_string(),
                     ));
                 }
 
+                // Read classical public key length with bounds validation
                 let classical_pk_len =
                     u16::from_be_bytes([self.public_key[0], self.public_key[1]]) as usize;
-                if self.public_key.len() < 2 + classical_pk_len {
+                
+                // Validate classical public key length is reasonable
+                // Secp256k1 compressed: 33 bytes, uncompressed: 65 bytes
+                // Ed25519: exactly 32 bytes
+                const MAX_CLASSICAL_PK_LEN: usize = 128; // Reasonable upper bound
+                if classical_pk_len > MAX_CLASSICAL_PK_LEN {
+                    return Err(QuantumError::InvalidKey(format!(
+                        "Classical public key length too large: {} (max: {})",
+                        classical_pk_len, MAX_CLASSICAL_PK_LEN
+                    )));
+                }
+                if classical_pk_len == 0 {
                     return Err(QuantumError::InvalidKey(
-                        "Invalid hybrid public key format".to_string(),
+                        "Classical public key length cannot be zero".to_string(),
                     ));
                 }
 
-                let classical_pk = &self.public_key[2..(2 + classical_pk_len)];
-                let quantum_pk = &self.public_key[(2 + classical_pk_len)..];
+                // Use checked arithmetic to prevent integer overflow
+                let classical_pk_start: usize = 2;
+                let classical_pk_end = match classical_pk_start.checked_add(classical_pk_len) {
+                    Some(end) => end,
+                    None => {
+                        return Err(QuantumError::InvalidKey(
+                            "Integer overflow in hybrid public key parsing: classical key length too large".to_string(),
+                        ));
+                    }
+                };
+
+                // Validate bounds before slicing
+                if self.public_key.len() < classical_pk_end {
+                    return Err(QuantumError::InvalidKey(format!(
+                        "Hybrid public key too short: expected at least {} bytes for classical key, got {}",
+                        classical_pk_end, self.public_key.len()
+                    )));
+                }
+
+                // Validate quantum public key has minimum required length
+                let quantum_pk_start = classical_pk_end;
+                let min_quantum_pk_len = match SecurityLevel::from(self.parameters.security_level) {
+                    SecurityLevel::Low => 1312,   // Dilithium2
+                    SecurityLevel::Medium => 1952, // Dilithium3
+                    SecurityLevel::High => 2592,   // Dilithium5
+                    _ => {
+                        return Err(QuantumError::UnsupportedSecurityLevel(
+                            self.parameters.security_level,
+                        ));
+                    }
+                };
+
+                if self.public_key.len() < quantum_pk_start + min_quantum_pk_len {
+                    return Err(QuantumError::InvalidKey(format!(
+                        "Hybrid public key too short: quantum key requires at least {} bytes, got {}",
+                        min_quantum_pk_len,
+                        self.public_key.len().saturating_sub(quantum_pk_start)
+                    )));
+                }
+
+                // Safe slice operations with validated bounds
+                let classical_pk = &self.public_key[classical_pk_start..classical_pk_end];
+                let quantum_pk = &self.public_key[quantum_pk_start..];
 
                 // Verify classical signature
                 let classical_valid = match classical_scheme {
@@ -1821,5 +1991,235 @@ mod tests {
             corrupt_quantum[idx] ^= 0xFF;
         }
         assert!(!keypair1.verify(message, &corrupt_quantum).unwrap());
+    }
+
+    // SECURITY FIX [P1-004]: Comprehensive tests for malformed hybrid key parsing
+    #[test]
+    fn test_hybrid_key_parsing_bounds_validation() {
+        // Test: Empty secret key
+        let mut invalid_keypair = QuantumKeyPair {
+            public_key: vec![0u8; 100],
+            secret_key: vec![],
+            parameters: QuantumParameters {
+                scheme: QuantumScheme::Hybrid(ClassicalScheme::Secp256k1),
+                security_level: 3,
+            },
+        };
+        let result = invalid_keypair.sign(b"test");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+
+        // Test: Secret key too short (missing length prefix)
+        invalid_keypair.secret_key = vec![0u8; 1];
+        let result = invalid_keypair.sign(b"test");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+
+        // Test: Invalid classical key length (not 32 bytes)
+        let mut invalid_key = vec![0u8; 2];
+        invalid_key.extend_from_slice(&31u16.to_be_bytes()); // Wrong length: 31 instead of 32
+        invalid_key.extend_from_slice(&vec![0u8; 31]); // Only 31 bytes
+        invalid_key.extend_from_slice(&vec![0u8; 4000]); // Quantum key
+        invalid_keypair.secret_key = invalid_key;
+        let result = invalid_keypair.sign(b"test");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+
+        // Test: Classical key length causes integer overflow
+        let mut invalid_key = vec![0u8; 2];
+        invalid_key.extend_from_slice(&(usize::MAX as u16).to_be_bytes()); // Max u16
+        invalid_keypair.secret_key = invalid_key;
+        let result = invalid_keypair.sign(b"test");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+
+        // Test: Secret key too short for quantum key
+        let mut invalid_key = vec![0u8; 2];
+        invalid_key.extend_from_slice(&32u16.to_be_bytes()); // Correct classical length
+        invalid_key.extend_from_slice(&vec![0u8; 32]); // Classical key
+        invalid_key.extend_from_slice(&vec![0u8; 100]); // Quantum key too short (need 4000 for level 3)
+        invalid_keypair.secret_key = invalid_key;
+        let result = invalid_keypair.sign(b"test");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+    }
+
+    #[test]
+    fn test_hybrid_signature_parsing_bounds_validation() {
+        // Create a valid keypair first
+        let params = QuantumParameters {
+            scheme: QuantumScheme::Hybrid(ClassicalScheme::Secp256k1),
+            security_level: 3,
+        };
+        let keypair = QuantumKeyPair::generate(params).unwrap();
+        let message = b"test";
+        let valid_signature = keypair.sign(message).unwrap();
+
+        // Test: Empty signature
+        let result = keypair.verify(message, &[]);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidSignature(_)
+        ));
+
+        // Test: Signature too short (missing length prefix)
+        let result = keypair.verify(message, &[0u8; 1]);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidSignature(_)
+        ));
+
+        // Test: Classical signature length too large
+        let mut invalid_sig = vec![0u8; 2];
+        invalid_sig.extend_from_slice(&(1000u16).to_be_bytes()); // Too large
+        invalid_sig.extend_from_slice(&vec![0u8; 100]);
+        let result = keypair.verify(message, &invalid_sig);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidSignature(_)
+        ));
+
+        // Test: Classical signature length zero
+        let mut invalid_sig = vec![0u8; 2];
+        invalid_sig.extend_from_slice(&0u16.to_be_bytes()); // Zero length
+        invalid_sig.extend_from_slice(&vec![0u8; 100]);
+        let result = keypair.verify(message, &invalid_sig);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidSignature(_)
+        ));
+
+        // Test: Signature too short for quantum part
+        let mut invalid_sig = vec![0u8; 2];
+        invalid_sig.extend_from_slice(&(70u16).to_be_bytes()); // Classical sig length
+        invalid_sig.extend_from_slice(&vec![0u8; 70]); // Classical signature
+        invalid_sig.extend_from_slice(&vec![0u8; 100]); // Quantum signature too short
+        let result = keypair.verify(message, &invalid_sig);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidSignature(_) | QuantumError::UnsupportedSecurityLevel(_)
+        ));
+    }
+
+    #[test]
+    fn test_hybrid_public_key_parsing_bounds_validation() {
+        // Create a valid keypair
+        let params = QuantumParameters {
+            scheme: QuantumScheme::Hybrid(ClassicalScheme::Secp256k1),
+            security_level: 3,
+        };
+        let keypair = QuantumKeyPair::generate(params).unwrap();
+        let message = b"test";
+        let signature = keypair.sign(message).unwrap();
+
+        // Test: Empty public key
+        let mut invalid_keypair = QuantumKeyPair {
+            public_key: vec![],
+            secret_key: keypair.secret_key.clone(),
+            parameters: keypair.parameters,
+        };
+        let result = invalid_keypair.verify(message, &signature);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+
+        // Test: Public key too short (missing length prefix)
+        invalid_keypair.public_key = vec![0u8; 1];
+        let result = invalid_keypair.verify(message, &signature);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+
+        // Test: Classical public key length too large
+        let mut invalid_pk = vec![0u8; 2];
+        invalid_pk.extend_from_slice(&(500u16).to_be_bytes()); // Too large
+        invalid_pk.extend_from_slice(&vec![0u8; 100]);
+        invalid_keypair.public_key = invalid_pk;
+        let result = invalid_keypair.verify(message, &signature);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+
+        // Test: Classical public key length zero
+        let mut invalid_pk = vec![0u8; 2];
+        invalid_pk.extend_from_slice(&0u16.to_be_bytes()); // Zero length
+        invalid_pk.extend_from_slice(&vec![0u8; 100]);
+        invalid_keypair.public_key = invalid_pk;
+        let result = invalid_keypair.verify(message, &signature);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_)
+        ));
+
+        // Test: Public key too short for quantum part
+        let mut invalid_pk = vec![0u8; 2];
+        invalid_pk.extend_from_slice(&(33u16).to_be_bytes()); // Classical pk length
+        invalid_pk.extend_from_slice(&vec![0u8; 33]); // Classical public key
+        invalid_pk.extend_from_slice(&vec![0u8; 100]); // Quantum key too short
+        invalid_keypair.public_key = invalid_pk;
+        let result = invalid_keypair.verify(message, &signature);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_) | QuantumError::UnsupportedSecurityLevel(_)
+        ));
+    }
+
+    #[test]
+    fn test_hybrid_key_parsing_integer_overflow_protection() {
+        // Test: Classical key length that would cause overflow when adding
+        let params = QuantumParameters {
+            scheme: QuantumScheme::Hybrid(ClassicalScheme::Secp256k1),
+            security_level: 3,
+        };
+
+        // Create a key with maximum u16 value for classical_sk_len
+        // This should trigger overflow protection
+        let mut invalid_key = vec![0u8; 2];
+        invalid_key.extend_from_slice(&(u16::MAX).to_be_bytes()); // Max u16: 65535
+        invalid_key.extend_from_slice(&vec![0u8; 65535]); // Try to allocate max size
+        invalid_key.extend_from_slice(&vec![0u8; 4000]); // Quantum key
+
+        let mut invalid_keypair = QuantumKeyPair {
+            public_key: vec![0u8; 2000],
+            secret_key: invalid_key,
+            parameters: params,
+        };
+
+        // This should fail with overflow protection or invalid length check
+        let result = invalid_keypair.sign(b"test");
+        assert!(result.is_err());
+        // Should either fail on invalid length check (32 expected) or overflow protection
+        assert!(matches!(
+            result.unwrap_err(),
+            QuantumError::InvalidKey(_) | QuantumError::UnsupportedSecurityLevel(_)
+        ));
     }
 }
