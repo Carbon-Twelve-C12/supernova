@@ -2222,4 +2222,279 @@ mod tests {
             QuantumError::InvalidKey(_) | QuantumError::UnsupportedSecurityLevel(_)
         ));
     }
+
+    /// SECURITY FIX (P2-002): Comprehensive tests for algorithm downgrade prevention
+    /// These tests verify that the AlgorithmPolicy correctly prevents downgrade attacks
+    /// where an attacker attempts to use a weaker signature algorithm than the key was created with.
+
+    #[test]
+    fn test_algorithm_downgrade_prevention_mldsa() {
+        let policy = AlgorithmPolicy::migration();
+        let block_height = 1000;
+
+        // SECURITY TEST: ML-DSA → Falcon downgrade should be REJECTED
+        let result = policy.validate_signature_transition(
+            QuantumScheme::Dilithium,
+            QuantumScheme::Falcon,
+            block_height,
+        );
+        assert!(
+            result.is_err(),
+            "ML-DSA → Falcon downgrade should be rejected"
+        );
+        assert!(
+            matches!(result.unwrap_err(), QuantumError::AlgorithmDowngrade { .. }),
+            "Should return AlgorithmDowngrade error"
+        );
+
+        // SECURITY TEST: ML-DSA → SPHINCS+ upgrade should be ALLOWED
+        let result = policy.validate_signature_transition(
+            QuantumScheme::Dilithium,
+            QuantumScheme::SphincsPlus,
+            block_height,
+        );
+        assert!(
+            result.is_ok(),
+            "ML-DSA → SPHINCS+ upgrade should be allowed"
+        );
+
+        // SECURITY TEST: Same algorithm should be ALLOWED
+        let result = policy.validate_signature_transition(
+            QuantumScheme::Dilithium,
+            QuantumScheme::Dilithium,
+            block_height,
+        );
+        assert!(
+            result.is_ok(),
+            "Same algorithm should always be allowed"
+        );
+    }
+
+    #[test]
+    fn test_algorithm_downgrade_prevention_sphincs() {
+        let policy = AlgorithmPolicy::migration();
+        let block_height = 1000;
+
+        // SECURITY TEST: SPHINCS+ → ML-DSA downgrade should be REJECTED
+        let result = policy.validate_signature_transition(
+            QuantumScheme::SphincsPlus,
+            QuantumScheme::Dilithium,
+            block_height,
+        );
+        assert!(
+            result.is_err(),
+            "SPHINCS+ → ML-DSA downgrade should be rejected"
+        );
+        assert!(
+            matches!(result.unwrap_err(), QuantumError::AlgorithmDowngrade { .. }),
+            "Should return AlgorithmDowngrade error"
+        );
+
+        // SECURITY TEST: SPHINCS+ → Falcon downgrade should be REJECTED
+        let result = policy.validate_signature_transition(
+            QuantumScheme::SphincsPlus,
+            QuantumScheme::Falcon,
+            block_height,
+        );
+        assert!(
+            result.is_err(),
+            "SPHINCS+ → Falcon downgrade should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_algorithm_downgrade_prevention_falcon() {
+        let policy = AlgorithmPolicy::migration();
+        let block_height = 1000;
+
+        // SECURITY TEST: Falcon → ML-DSA upgrade should be ALLOWED
+        let result = policy.validate_signature_transition(
+            QuantumScheme::Falcon,
+            QuantumScheme::Dilithium,
+            block_height,
+        );
+        assert!(
+            result.is_ok(),
+            "Falcon → ML-DSA upgrade should be allowed"
+        );
+
+        // SECURITY TEST: Falcon → SPHINCS+ upgrade should be ALLOWED
+        let result = policy.validate_signature_transition(
+            QuantumScheme::Falcon,
+            QuantumScheme::SphincsPlus,
+            block_height,
+        );
+        assert!(
+            result.is_ok(),
+            "Falcon → SPHINCS+ upgrade should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_algorithm_policy_enforcement_at_verification() {
+        let policy = AlgorithmPolicy::migration();
+        let block_height = 1000;
+
+        // Create ML-DSA keypair
+        let key_params = QuantumParameters {
+            scheme: QuantumScheme::Dilithium,
+            security_level: 3,
+        };
+        let keypair = QuantumKeyPair::generate(key_params).expect("ML-DSA key generation failed");
+        let message = b"Test message for policy enforcement";
+
+        // Sign with ML-DSA (same algorithm - should work)
+        let signature = keypair.sign(message).expect("Signing failed");
+
+        // SECURITY TEST: verify_with_policy should enforce policy
+        // Try to verify with Falcon parameters (downgrade attempt)
+        let sig_params_falcon = QuantumParameters {
+            scheme: QuantumScheme::Falcon,
+            security_level: 3,
+        };
+
+        let result = keypair.verify_with_policy(
+            message,
+            &signature,
+            &sig_params_falcon,
+            &policy,
+            block_height,
+        );
+
+        assert!(
+            result.is_err(),
+            "verify_with_policy should reject downgrade attempt"
+        );
+        assert!(
+            matches!(result.unwrap_err(), QuantumError::AlgorithmDowngrade { .. }),
+            "Should return AlgorithmDowngrade error"
+        );
+    }
+
+    #[test]
+    fn test_algorithm_transition_rules() {
+        let policy = AlgorithmPolicy::migration();
+        let block_height = 1000;
+
+        // SECURITY TEST: Verify all allowed upgrade paths
+        let allowed_upgrades = vec![
+            (QuantumScheme::Falcon, QuantumScheme::Dilithium),
+            (QuantumScheme::Falcon, QuantumScheme::SphincsPlus),
+            (QuantumScheme::Dilithium, QuantumScheme::SphincsPlus),
+            (
+                QuantumScheme::Hybrid(ClassicalScheme::Secp256k1),
+                QuantumScheme::Dilithium,
+            ),
+        ];
+
+        for (from, to) in allowed_upgrades {
+            let result = policy.validate_signature_transition(from, to, block_height);
+            assert!(
+                result.is_ok(),
+                "Upgrade from {:?} to {:?} should be allowed",
+                from,
+                to
+            );
+        }
+
+        // SECURITY TEST: Verify all forbidden downgrade paths
+        let forbidden_downgrades = vec![
+            (QuantumScheme::Dilithium, QuantumScheme::Falcon),
+            (QuantumScheme::SphincsPlus, QuantumScheme::Dilithium),
+            (QuantumScheme::SphincsPlus, QuantumScheme::Falcon),
+        ];
+
+        for (from, to) in forbidden_downgrades {
+            let result = policy.validate_signature_transition(from, to, block_height);
+            assert!(
+                result.is_err(),
+                "Downgrade from {:?} to {:?} should be rejected",
+                from,
+                to
+            );
+        }
+    }
+
+    #[test]
+    fn test_invalid_algorithm_rejection() {
+        let mut policy = AlgorithmPolicy::migration();
+        policy.allowed_schemes.clear();
+
+        let result = policy.validate_signature_transition(
+            QuantumScheme::Dilithium,
+            QuantumScheme::Dilithium,
+            1000,
+        );
+
+        assert!(
+            result.is_err(),
+            "Algorithm not in allowed set should be rejected"
+        );
+        assert!(
+            matches!(result.unwrap_err(), QuantumError::AlgorithmNotAllowed(_)),
+            "Should return AlgorithmNotAllowed error"
+        );
+    }
+
+    #[test]
+    fn test_strict_mode_enforcement() {
+        let policy = AlgorithmPolicy::strict();
+
+        // SECURITY TEST: Strict mode should reject ALL transitions (even upgrades)
+        let result = policy.enforce_algorithm_binding(
+            QuantumScheme::Dilithium,
+            QuantumScheme::SphincsPlus,
+        );
+
+        assert!(
+            result.is_err(),
+            "Strict mode should reject all algorithm transitions"
+        );
+        assert!(
+            matches!(result.unwrap_err(), QuantumError::AlgorithmMismatch { .. }),
+            "Should return AlgorithmMismatch error in strict mode"
+        );
+    }
+
+    #[test]
+    fn test_premature_transition_prevention() {
+        let mut policy = AlgorithmPolicy::migration();
+        policy.transition_height = Some(5000);
+        let current_height = 1000;
+
+        // SECURITY TEST: Transition before allowed height should be rejected
+        let result = policy.validate_signature_transition(
+            QuantumScheme::Falcon,
+            QuantumScheme::Dilithium,
+            current_height,
+        );
+
+        assert!(
+            result.is_err(),
+            "Premature transition should be rejected"
+        );
+        assert!(
+            matches!(result.unwrap_err(), QuantumError::PrematureTransition { .. }),
+            "Should return PrematureTransition error"
+        );
+    }
+
+    #[test]
+    fn test_is_upgrade_or_same_comprehensive() {
+        let policy = AlgorithmPolicy::migration();
+
+        // SECURITY TEST: Verify is_upgrade_or_same correctly identifies upgrades
+        assert!(
+            policy.is_upgrade_or_same(QuantumScheme::Falcon, QuantumScheme::Dilithium),
+            "Falcon → ML-DSA should be identified as upgrade"
+        );
+        assert!(
+            !policy.is_upgrade_or_same(QuantumScheme::Dilithium, QuantumScheme::Falcon),
+            "ML-DSA → Falcon should be identified as downgrade"
+        );
+        assert!(
+            policy.is_upgrade_or_same(QuantumScheme::Dilithium, QuantumScheme::Dilithium),
+            "Same algorithm should always be allowed"
+        );
+    }
 }
