@@ -181,11 +181,18 @@ impl SecureForkResolver {
         // Traverse back to find common ancestor or max depth
         for _ in 0..self.config.max_fork_depth {
             if let Some(header) = get_header(&current_hash) {
-                // SECURITY FIX (P1-007): Use proper difficulty-based work calculation
+                // Use proper difficulty-based work calculation
                 // Instead of simplified += 1, calculate actual work based on block difficulty
-                let block_work = Self::calculate_block_work_from_bits(header.bits())?;
-                
-                // SECURITY FIX (P1-007): Use saturating_add to prevent overflow
+                let block_work = Self::calculate_block_work_from_bits(header.bits())
+                    .map_err(|e| ForkResolutionError::InvalidChainWork(format!(
+                        "Function: calculate_chain_metrics | Context: Calculating work for block in chain | Block hash: {} | Block bits: 0x{:08x} | Previous total work: {} | Error: {}",
+                        hex::encode(current_hash),
+                        header.bits(),
+                        total_work,
+                        e
+                    )))?;
+
+                // Use saturating_add to prevent overflow
                 // Work values are cumulative and can grow very large
                 total_work = total_work.saturating_add(block_work);
 
@@ -198,8 +205,14 @@ impl SecureForkResolver {
 
                 current_hash = *header.prev_block_hash();
             } else {
-                return Err(ForkResolutionError::BlockNotFound(hex::encode(
-                    current_hash,
+                // Enhanced error context for debugging
+                return Err(ForkResolutionError::BlockNotFound(format!(
+                    "Function: calculate_chain_metrics | Block hash not found: {} | Tip hash: {} | Headers collected: {} | Max depth: {} | Current hash: {}",
+                    hex::encode(current_hash),
+                    hex::encode(*tip_hash),
+                    headers.len(),
+                    self.config.max_fork_depth,
+                    hex::encode(current_hash)
                 )));
             }
         }
@@ -304,11 +317,11 @@ impl SecureForkResolver {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .map_err(|e| {
-                // ENHANCED ERROR CONTEXT (P2-001): Preserve underlying SystemTimeError details
+                // Enhanced error context with function name and system state
                 // This error occurs if system time is set before UNIX epoch (1970-01-01)
                 // which indicates serious system configuration issues
                 ForkResolutionError::InvalidTimestamp(format!(
-                    "System time error: {}. System clock may be set incorrectly (before Unix epoch)",
+                    "Function: current_timestamp | System time error: {} | System clock may be set incorrectly (before Unix epoch 1970-01-01) | This indicates a serious system configuration issue that could cause consensus failures",
                     e
                 ))
             })
@@ -322,18 +335,41 @@ impl SecureForkResolver {
 
         let current_time = match Self::current_timestamp() {
             Ok(time) => time,
-            Err(_) => return false, // If we can't get current time, assume bad progression
+            Err(e) => {
+                // Enhanced error context - log but don't fail
+                tracing::warn!(
+                    "Function: check_timestamp_progression | Failed to get current timestamp: {} | Assuming bad progression",
+                    e
+                );
+                return false; // If we can't get current time, assume bad progression
+            }
         };
 
         // Check first block isn't too far in future
         if headers[0].timestamp() > current_time + 7200 {
-            // 2 hours
+            // Enhanced error context for debugging
+            tracing::debug!(
+                "Function: check_timestamp_progression | Block timestamp too far in future | Block timestamp: {} | Current time: {} | Difference: {} seconds (max: 7200) | Block hash: {}",
+                headers[0].timestamp(),
+                current_time,
+                headers[0].timestamp().saturating_sub(current_time),
+                hex::encode(headers[0].hash())
+            );
             return false;
         }
 
         // Check monotonic progression
         for i in 1..headers.len() {
             if headers[i - 1].timestamp() <= headers[i].timestamp() {
+                // Enhanced error context with variable states
+                tracing::debug!(
+                    "Function: check_timestamp_progression | Non-monotonic timestamp progression | Header index: {} | Previous timestamp: {} | Current timestamp: {} | Previous hash: {} | Current hash: {} | Timestamps should decrease as we go back",
+                    i,
+                    headers[i - 1].timestamp(),
+                    headers[i].timestamp(),
+                    hex::encode(headers[i - 1].hash()),
+                    hex::encode(headers[i].hash())
+                );
                 return false; // Timestamps should decrease as we go back
             }
         }
@@ -447,9 +483,19 @@ impl SecureForkResolver {
 
         // Validate difficulty per Bitcoin rules
         if mantissa > 0x7fffff || exponent > 34 || (mantissa != 0 && exponent == 0) {
+            // Enhanced error context with function name and variable states
             return Err(ForkResolutionError::InvalidChainWork(format!(
-                "Invalid difficulty bits: 0x{:08x}",
-                bits
+                "Function: calculate_block_work_from_bits | Invalid difficulty bits: 0x{:08x} | Mantissa: 0x{:06x} (max: 0x7fffff) | Exponent: {} (max: 34) | Rule violated: {}",
+                bits,
+                mantissa,
+                exponent,
+                if mantissa > 0x7fffff {
+                    "Mantissa exceeds maximum"
+                } else if exponent > 34 {
+                    "Exponent exceeds maximum"
+                } else {
+                    "Non-zero mantissa with zero exponent"
+                }
             )));
         }
 
@@ -619,7 +665,7 @@ mod tests {
         assert!(result);
     }
 
-    /// SECURITY FIX (P1-007): Tests for proper difficulty-based work calculation
+    /// Tests for proper difficulty-based work calculation
     #[test]
     fn test_work_calculation_from_bits() {
         // Test with different difficulty values
@@ -722,7 +768,7 @@ mod tests {
 
         let get_header = |hash: &[u8; 32]| headers.get(hash).cloned();
 
-        // SECURITY FIX (P1-007): Chain B should win if it has more total work
+        // Chain B should win if it has more total work
         // despite having fewer blocks, because each block has more work
         let metrics_a = resolver.calculate_chain_metrics(&chain_a_tip, &get_header).unwrap();
         let metrics_b = resolver.calculate_chain_metrics(&chain_b_tip, &get_header).unwrap();
@@ -735,5 +781,149 @@ mod tests {
         // Even with fewer blocks, it might have more total work
         // This depends on the actual work calculation
         assert!(metrics_a.total_work != metrics_b.total_work, "Chains should have different work");
+    }
+
+    /// Tests for enhanced error context
+    #[test]
+    fn test_error_context_block_not_found() {
+        let config = SecureForkConfig::default();
+        let resolver = SecureForkResolver::new(config);
+
+        let tip_hash = [0x42; 32];
+        let get_header = |_hash: &[u8; 32]| None; // Always return None
+
+        let result = resolver.calculate_chain_metrics(&tip_hash, &get_header);
+        
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        
+        // Verify error message contains function name
+        assert!(
+            error_msg.contains("calculate_chain_metrics"),
+            "Error message should contain function name: {}",
+            error_msg
+        );
+        
+        // Verify error message contains tip hash
+        assert!(
+            error_msg.contains(&hex::encode(tip_hash)),
+            "Error message should contain tip hash: {}",
+            error_msg
+        );
+        
+        // Verify error message contains debugging context
+        assert!(
+            error_msg.contains("Block hash not found") || error_msg.contains("not found"),
+            "Error message should indicate block not found: {}",
+            error_msg
+        );
+    }
+
+    #[test]
+    fn test_error_context_invalid_difficulty_bits() {
+        // Test invalid mantissa
+        let invalid_mantissa = 0x1d800000;
+        let result = SecureForkResolver::calculate_block_work_from_bits(invalid_mantissa);
+        
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        
+        // Verify error message contains function name
+        assert!(
+            error_msg.contains("calculate_block_work_from_bits"),
+            "Error message should contain function name: {}",
+            error_msg
+        );
+        
+        // Verify error message contains variable states
+        assert!(
+            error_msg.contains("Mantissa") || error_msg.contains("Exponent"),
+            "Error message should contain variable states: {}",
+            error_msg
+        );
+        
+        // Verify error message contains the invalid bits value
+        assert!(
+            error_msg.contains("0x1d800000") || error_msg.contains(&format!("{:08x}", invalid_mantissa)),
+            "Error message should contain invalid bits value: {}",
+            error_msg
+        );
+        
+        // Verify error message contains rule violation information
+        assert!(
+            error_msg.contains("exceeds") || error_msg.contains("violated"),
+            "Error message should indicate rule violation: {}",
+            error_msg
+        );
+    }
+
+    #[test]
+    fn test_error_context_invalid_exponent() {
+        // Test invalid exponent (> 34)
+        let invalid_exponent = 0x24000000;
+        let result = SecureForkResolver::calculate_block_work_from_bits(invalid_exponent);
+        
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        
+        // Verify error message contains function name
+        assert!(
+            error_msg.contains("calculate_block_work_from_bits"),
+            "Error message should contain function name: {}",
+            error_msg
+        );
+        
+        // Verify error message contains exponent value
+        assert!(
+            error_msg.contains("Exponent") || error_msg.contains("36"),
+            "Error message should contain exponent information: {}",
+            error_msg
+        );
+    }
+
+    #[test]
+    fn test_error_context_work_calculation_propagation() {
+        let config = SecureForkConfig::default();
+        let resolver = SecureForkResolver::new(config);
+
+        let tip_hash = [0x42; 32];
+        let mut header_count = 0;
+        
+        // Create a header lookup that returns a header with invalid bits
+        let get_header = |hash: &[u8; 32]| -> Option<BlockHeader> {
+            if header_count == 0 {
+                header_count += 1;
+                // Return header with invalid difficulty bits
+                Some(create_test_header(1, [0; 32], 0x1d800000, 1000)) // Invalid mantissa
+            } else {
+                None
+            }
+        };
+
+        let result = resolver.calculate_chain_metrics(&tip_hash, &get_header);
+        
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        
+        // Verify error message contains context from calculate_chain_metrics
+        assert!(
+            error_msg.contains("calculate_chain_metrics"),
+            "Error message should contain context from calling function: {}",
+            error_msg
+        );
+        
+        // Verify error message contains block hash
+        assert!(
+            error_msg.contains("Block hash") || error_msg.contains("0x42"),
+            "Error message should contain block hash context: {}",
+            error_msg
+        );
+        
+        // Verify error message contains difficulty bits
+        assert!(
+            error_msg.contains("0x1d800000") || error_msg.contains("bits"),
+            "Error message should contain difficulty bits: {}",
+            error_msg
+        );
     }
 }

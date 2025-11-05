@@ -2,6 +2,7 @@ use supernova_core::types::{Block, BlockHeader, Transaction, TransactionInput, T
 use chrono::Utc;
 
 pub mod genesis;
+pub mod checkpoint;
 
 /// Create the genesis block for a given chain ID
 /// For testnet, this uses a hardcoded pre-mined genesis block to ensure all nodes have identical genesis

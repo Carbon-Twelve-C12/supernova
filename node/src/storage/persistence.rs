@@ -1,6 +1,7 @@
 use super::database::{BlockchainDB, StorageError};
 use supernova_core::types::block::Block;
 use supernova_core::types::transaction::{Transaction, TransactionOutput};
+use crate::blockchain::checkpoint::{validate_checkpoint, can_reorganize_below};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -362,6 +363,16 @@ impl ChainState {
                     let (fork_point, blocks_to_apply, blocks_to_disconnect) =
                         self.find_fork_point(&block)?;
 
+                    // Check if reorganization is allowed below checkpoint height
+                    if let Err(e) = can_reorganize_below(fork_point.height()) {
+                        warn!(
+                            "Rejected reorganization below checkpoint: {}",
+                            e
+                        );
+                        self.rejected_reorgs += 1;
+                        return Ok(false);
+                    }
+
                     if blocks_to_disconnect.len() as u64 > MAX_REORG_DEPTH {
                         warn!(
                             "Rejected deep reorganization: {} blocks (max: {})",
@@ -394,6 +405,16 @@ impl ChainState {
                         if new.first_seen < current.first_seen {
                             let (fork_point, blocks_to_apply, blocks_to_disconnect) =
                                 self.find_fork_point(&block)?;
+
+                            // Check if reorganization is allowed below checkpoint height
+                            if let Err(e) = can_reorganize_below(fork_point.height()) {
+                                warn!(
+                                    "Rejected reorganization below checkpoint: {}",
+                                    e
+                                );
+                                self.rejected_reorgs += 1;
+                                return Ok(false);
+                            }
 
                             if blocks_to_disconnect.len() as u64 > MAX_REORG_DEPTH {
                                 warn!(
@@ -478,6 +499,12 @@ impl ChainState {
         
         if !block.validate() {
             tracing::warn!("Block failed basic validation: height={}", block.height());
+            return Ok(false);
+        }
+
+        // Validate against checkpoints
+        if let Err(e) = validate_checkpoint(block) {
+            tracing::warn!("Checkpoint validation failed: {}", e);
             return Ok(false);
         }
 
