@@ -13,6 +13,7 @@ pub mod journal;
 pub mod memory;
 pub mod persistence;
 pub mod traits;
+pub mod transaction_index;
 pub mod utxo_set;
 
 #[cfg(test)]
@@ -38,4 +39,7 @@ pub use journal::{JournalEntry, WalError, WriteAheadLog};
 pub use memory::MemoryStorage;
 pub use persistence::ChainState;
 pub use traits::Storage;
-pub use utxo_set::UtxoSet;
+pub use transaction_index::{
+    BlockLocation, IndexStatistics, IndexedTransaction, TransactionIndexConfig, TransactionIndexer,
+    TransactionIndexError,
+};

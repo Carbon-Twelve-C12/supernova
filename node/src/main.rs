@@ -13,6 +13,7 @@
 use clap::Parser;
 use node::config::NodeConfig;
 use node::Node;
+use node::shutdown::{ShutdownCoordinator, ShutdownConfig, ShutdownSignal, register_signal_handlers};
 use std::io::Write;
 use std::sync::Arc;
 use tokio::signal;
@@ -135,13 +136,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Node started successfully");
     info!("Press Ctrl+C to stop the node");
 
+    // Create shutdown coordinator
+    let shutdown_config = ShutdownConfig {
+        max_shutdown_time: std::time::Duration::from_secs(30),
+        component_timeout: std::time::Duration::from_secs(5),
+        persist_state: true,
+        status_file_path: std::path::PathBuf::from("./data/shutdown_status.json"),
+        force_after_timeout: true,
+    };
+    let shutdown_coordinator = Arc::new(ShutdownCoordinator::new(
+        Arc::clone(&node),
+        shutdown_config,
+    ));
+
+    // Register signal handlers
+    let mut shutdown_rx = register_signal_handlers();
+
     // Wait for shutdown signal
-    match signal::ctrl_c().await {
-        Ok(()) => {
-            info!("Shutdown signal received");
+    tokio::select! {
+        _ = signal::ctrl_c() => {
+            info!("Shutdown signal received (Ctrl+C)");
+            shutdown_coordinator.request_shutdown(ShutdownSignal::User).await;
         }
-        Err(err) => {
-            error!("Unable to listen for shutdown signal: {}", err);
+        signal = shutdown_rx.recv() => {
+            if let Some(sig) = signal {
+                info!("Shutdown signal received: {:?}", sig);
+                shutdown_coordinator.request_shutdown(sig).await;
+            }
         }
     }
 
@@ -150,10 +171,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle.abort();
     }
 
-    // Stop the node
-    info!("Stopping node...");
-    node.stop().await?;
-    info!("Node stopped successfully");
+    // Perform graceful shutdown
+    info!("Initiating graceful shutdown...");
+    match shutdown_coordinator.shutdown(ShutdownSignal::User).await {
+        Ok(()) => {
+            info!("Node stopped successfully");
+        }
+        Err(e) => {
+            error!("Shutdown failed: {}", e);
+            std::process::exit(1);
+        }
+    }
 
     Ok(())
 }

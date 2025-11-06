@@ -32,6 +32,8 @@ pub mod mining; // Mining RPC infrastructure
 pub mod network;
 pub mod node;
 // pub mod rpc; // TODO: Implement
+pub mod recovery;
+pub mod shutdown;
 pub mod storage;
 // pub mod wallet; // TODO: Implement
 pub mod metrics;
@@ -50,7 +52,7 @@ pub use crate::network::{NetworkCommand, NetworkEvent, P2PNetwork, PeerInfo};
 pub use crate::node::{Node, NodeError};
 pub use crate::storage::{
     BackupManager, BackupOperation, BlockchainDB, ChainState, CheckpointConfig, CheckpointManager,
-    CheckpointType, RecoveryManager, StorageError, UtxoSet,
+    CheckpointType, RecoveryManager, StorageError,
 };
 pub use crate::testnet::{
     FaucetDistributionResult, FaucetStatus, NodeTestnetManager, TestnetNodeConfig, TestnetStats,
