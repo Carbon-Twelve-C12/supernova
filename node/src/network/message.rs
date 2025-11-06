@@ -409,7 +409,10 @@ impl MessageHandler {
             |             ProtocolMessage::GetMempool { .. } | ProtocolMessage::Mempool { .. }
             | ProtocolMessage::CompactBlock(_)
             | ProtocolMessage::GetCompactBlockTxs { .. }
-            | ProtocolMessage::CompactBlockTxs(_) => {
+            | ProtocolMessage::CompactBlockTxs(_)
+            | ProtocolMessage::FilterLoad { .. }
+            | ProtocolMessage::FilterAdd { .. }
+            | ProtocolMessage::FilterClear => {
                 // Simple messages or messages with validation handled elsewhere
                 // No additional validation needed at this layer
             }

@@ -15,6 +15,7 @@
 #![cfg_attr(test, allow(clippy::panic))]
 
 pub mod cli;
+mod backup_warning;
 mod core; // Legacy Bitcoin-based wallet (deprecated)
 mod hdwallet;
 mod history;

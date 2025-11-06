@@ -1,3 +1,4 @@
+use super::backup_warning::{BackupMetadata, BackupStatus, BackupWarning, SeedPhraseVerifier};
 use super::password_strength::PasswordStrengthChecker;
 use bip39::{Language, Mnemonic};
 use bitcoin::{
@@ -5,6 +6,7 @@ use bitcoin::{
     secp256k1::{Secp256k1, SecretKey},
     Address, PrivateKey,
 };
+use chrono::Utc;
 use supernova_core::storage::utxo_set::UtxoSet;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -40,11 +42,11 @@ pub enum HDWalletError {
     DecryptionError(String),
     #[error("Password too weak: {0}")]
     PasswordTooWeak(String),
+    #[error("Backup verification failed: {0}")]
+    BackupVerificationFailed(String),
     #[error("Key derivation error: {0}")]
     KeyDerivationError(String),
 }
-
-// ============================================================================
 // SECURITY FIX (P2-008): Encrypted Wallet Backup Structure
 // ============================================================================
 
@@ -68,6 +70,8 @@ pub struct HDWallet {
     network: Network,
     accounts: HashMap<String, HDAccount>,
     wallet_path: PathBuf,
+    #[serde(default)]
+    backup_metadata: BackupMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +109,7 @@ impl HDWallet {
             network,
             accounts: HashMap::new(),
             wallet_path,
+            backup_metadata: BackupMetadata::new(),
         })
     }
 
@@ -120,6 +125,7 @@ impl HDWallet {
             network,
             accounts: HashMap::new(),
             wallet_path,
+            backup_metadata: BackupMetadata::new(),
         })
     }
 
@@ -378,6 +384,65 @@ impl HDWallet {
 
     pub fn get_mnemonic(&self) -> &str {
         &self.mnemonic
+    }
+
+    /// Get backup status
+    pub fn backup_status(&self) -> BackupStatus {
+        self.backup_metadata.status
+    }
+
+    /// Get backup metadata
+    pub fn backup_metadata(&self) -> &BackupMetadata {
+        &self.backup_metadata
+    }
+
+    /// Acknowledge backup (user has seen seed phrase)
+    pub fn acknowledge_backup(&mut self) {
+        self.backup_metadata.acknowledge();
+    }
+
+    /// Verify backup (user has verified seed phrase)
+    pub fn verify_backup(&mut self, skip_check: bool) -> Result<(), HDWalletError> {
+        if skip_check {
+            self.backup_metadata.verify();
+            return Ok(());
+        }
+
+        SeedPhraseVerifier::verify_interactive(&self.mnemonic, false)
+            .map_err(|e| HDWalletError::BackupVerificationFailed(e))?;
+        
+        self.backup_metadata.verify();
+        self.save()?;
+        Ok(())
+    }
+
+    /// Check if backup reminder is needed
+    pub fn needs_backup_reminder(&self) -> bool {
+        self.backup_metadata.needs_reminder()
+    }
+
+    /// Check if backup is overdue
+    pub fn is_backup_overdue(&self) -> bool {
+        self.backup_metadata.is_overdue()
+    }
+
+    /// Display backup warning if needed
+    pub fn check_and_display_backup_warning(&self) {
+        if self.backup_metadata.status == BackupStatus::Verified {
+            return;
+        }
+
+        if self.backup_metadata.is_overdue() {
+            let days = Utc::now()
+                .signed_duration_since(self.backup_metadata.created_at)
+                .num_days();
+            BackupWarning::display_overdue_warning(days);
+        } else if self.backup_metadata.needs_reminder() {
+            let days = Utc::now()
+                .signed_duration_since(self.backup_metadata.created_at)
+                .num_days();
+            BackupWarning::display_reminder(days);
+        }
     }
 }
 

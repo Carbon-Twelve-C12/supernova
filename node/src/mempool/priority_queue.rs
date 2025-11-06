@@ -219,6 +219,14 @@ impl TransactionPriorityQueue {
     ) -> Result<(), String> {
         let tx_hash = transaction.hash();
 
+        // Validate environmental score range (0-100)
+        if environmental_score > 100 {
+            return Err(format!(
+                "Environmental score {} exceeds maximum 100",
+                environmental_score
+            ));
+        }
+
         // Check minimum fee rate
         if fee_rate < self.config.min_fee_rate {
             return Err(format!(
