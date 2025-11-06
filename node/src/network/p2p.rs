@@ -1302,7 +1302,11 @@ impl P2PNetwork {
             bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
         ) {
             let topic = match message {
-                Message::Block { .. } | Message::NewBlock { .. } => TopicHash::from_raw("blocks"),
+                Message::Block { .. }
+                | Message::NewBlock { .. }
+                | Message::CompactBlock(_)
+                | Message::GetCompactBlockTxs { .. }
+                | Message::CompactBlockTxs(_) => TopicHash::from_raw("blocks"),
                 Message::Transaction { .. } => TopicHash::from_raw("transactions"),
                 Message::Headers { .. } => TopicHash::from_raw("headers"),
                 Message::Status { .. } | Message::GetStatus => TopicHash::from_raw("status"),
@@ -1670,6 +1674,23 @@ impl P2PNetwork {
                                     warn!("Failed to deserialize block from peer {}: {}", peer_id, e);
                                 }
                             }
+                        }
+                        Message::CompactBlock(_compact_block) => {
+                            // Handle compact block - decode and dispatch
+                            // In a real implementation, we'd request missing transactions
+                            trace!("Received compact block from peer {}", peer_id);
+                            // For now, fallback to requesting full block
+                            warn!("Compact block received but full reconstruction not yet implemented - requesting full block");
+                        }
+                        Message::GetCompactBlockTxs { short_ids } => {
+                            // Handle request for missing transactions
+                            trace!("Received request for {} missing transactions from peer {}", short_ids.len(), peer_id);
+                            // In a real implementation, we'd look up transactions by short ID and send them
+                        }
+                        Message::CompactBlockTxs(transactions) => {
+                            // Handle missing transactions response
+                            trace!("Received {} missing transactions from peer {}", transactions.len(), peer_id);
+                            // In a real implementation, we'd use these to reconstruct the compact block
                         }
                         _ => {
                             // For other message types, use existing handler

@@ -1,5 +1,6 @@
 pub mod advanced;
 pub mod behaviour;
+pub mod compact_block;
 pub mod connection;
 pub mod peer_identity;
 pub mod discovery;

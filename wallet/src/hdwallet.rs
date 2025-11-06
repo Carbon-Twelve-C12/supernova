@@ -1,3 +1,4 @@
+use super::password_strength::PasswordStrengthChecker;
 use bip39::{Language, Mnemonic};
 use bitcoin::{
     network::Network,
@@ -37,6 +38,8 @@ pub enum HDWalletError {
     EncryptionError(String),
     #[error("Decryption error: {0}")]
     DecryptionError(String),
+    #[error("Password too weak: {0}")]
+    PasswordTooWeak(String),
     #[error("Key derivation error: {0}")]
     KeyDerivationError(String),
 }
@@ -139,6 +142,17 @@ impl HDWallet {
     /// * `Ok(())` - Wallet encrypted and saved
     /// * `Err(HDWalletError)` - Encryption or save failed
     pub fn save_encrypted(&self, password: &str) -> Result<(), HDWalletError> {
+        // Step 0: Validate password strength (quantum-resistant requirement)
+        let checker = PasswordStrengthChecker::new();
+        if let Err(suggestions) = checker.validate(password) {
+            return Err(HDWalletError::PasswordTooWeak(
+                format!(
+                    "Password does not meet quantum-resistant requirements. Suggestions: {}",
+                    suggestions.join("; ")
+                )
+            ));
+        }
+
         // Step 1: Serialize wallet data
         let json = serde_json::to_string_pretty(self)?;
         let plaintext = json.as_bytes();

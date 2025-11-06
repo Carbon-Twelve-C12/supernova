@@ -1,5 +1,6 @@
 pub mod atomic_pool;
 pub mod error;
+pub mod fee_estimator;
 pub mod mev_protection;
 pub mod pool;
 pub mod prioritization;
@@ -10,6 +11,7 @@ pub mod validator;
 
 pub use atomic_pool::AtomicTransactionPool;
 pub use error::{MempoolError, MempoolResult};
+pub use fee_estimator::{FeeEstimator, FeeEstimatorConfig, FeeDistribution, FeePriority};
 pub use mev_protection::{MEVProtection, MEVProtectionConfig, MEVProtectionStats};
 pub use pool::{MempoolConfig, TransactionPool};
 pub use prioritization::{PrioritizationConfig, PrioritizedTransaction, TransactionPrioritizer};
