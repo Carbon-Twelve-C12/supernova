@@ -537,7 +537,7 @@ impl ConfidentialTransaction {
         // Pedersen commitments provide additional privacy but are not required for consensus correctness.
         // Future enhancement: Implement homomorphic commitment verification:
         // sum(input_commitments) == sum(output_commitments) + C(fee)
-
+        
         true
     }
 }

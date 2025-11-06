@@ -31,9 +31,9 @@ pub mod miner;
 pub mod mining; // Mining RPC infrastructure
 pub mod network;
 pub mod node;
-// pub mod rpc; // TODO: Implement
 pub mod recovery;
 pub mod shutdown;
+// pub mod rpc; // TODO: Implement
 pub mod storage;
 // pub mod wallet; // TODO: Implement
 pub mod metrics;
