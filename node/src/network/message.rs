@@ -406,7 +406,10 @@ impl MessageHandler {
             | ProtocolMessage::NewBlock { .. } | ProtocolMessage::GetBlocksByHeight { .. }
             | ProtocolMessage::BroadcastTransaction(_) | ProtocolMessage::TransactionAnnouncement { .. }
             | ProtocolMessage::Blocks { .. } | ProtocolMessage::BlockResponse { .. }
-            | ProtocolMessage::GetMempool { .. } | ProtocolMessage::Mempool { .. } => {
+            |             ProtocolMessage::GetMempool { .. } | ProtocolMessage::Mempool { .. }
+            | ProtocolMessage::CompactBlock(_)
+            | ProtocolMessage::GetCompactBlockTxs { .. }
+            | ProtocolMessage::CompactBlockTxs(_) => {
                 // Simple messages or messages with validation handled elsewhere
                 // No additional validation needed at this layer
             }
@@ -463,6 +466,20 @@ impl MessageHandler {
             ProtocolMessage::Extension(_, payload) => {
                 if payload.len() > MessageSizeLimits::MAX_MESSAGE_SIZE {
                     return Err(format!("Extension message payload too large: {} bytes (max: {})", payload.len(), MessageSizeLimits::MAX_MESSAGE_SIZE));
+                }
+            }
+            ProtocolMessage::CompactBlock(_) => {
+                // Compact blocks use general message size limit
+                // Size validation handled in general check
+            }
+            ProtocolMessage::GetCompactBlockTxs { short_ids } => {
+                if short_ids.len() > 1000 {
+                    return Err(format!("Too many short IDs: {} (max: 1000)", short_ids.len()));
+                }
+            }
+            ProtocolMessage::CompactBlockTxs(transactions) => {
+                if transactions.len() > 1000 {
+                    return Err(format!("Too many transactions: {} (max: 1000)", transactions.len()));
                 }
             }
             _ => {

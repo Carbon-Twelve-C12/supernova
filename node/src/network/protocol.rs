@@ -1,3 +1,4 @@
+use crate::network::compact_block::CompactBlock;
 use bincode;
 use libp2p::{
     gossipsub::{self, ConfigBuilder, IdentTopic, MessageAuthenticity, MessageId, ValidationMode},
@@ -182,6 +183,12 @@ pub enum Message {
     Mempool { tx_hashes: Vec<[u8; 32]> },
     /// Get data request
     GetData(Vec<[u8; 32]>),
+    /// Compact block (Supernova Compact Block Protocol)
+    CompactBlock(CompactBlock),
+    /// Request missing transactions for compact block
+    GetCompactBlockTxs { short_ids: Vec<u64> },
+    /// Missing transactions response
+    CompactBlockTxs(Vec<Transaction>),
 }
 
 /// Checkpoint information for validation
@@ -617,7 +624,10 @@ fn message_to_topic(message: &Message) -> &'static str {
         | Message::GetBlocksByHash { .. }
         | Message::GetBlocksByHeight { .. }
         | Message::Blocks { .. }
-        | Message::BlockResponse { .. } => BLOCKS_TOPIC,
+        | Message::BlockResponse { .. }
+        | Message::CompactBlock(_)
+        | Message::GetCompactBlockTxs { .. }
+        | Message::CompactBlockTxs(_) => BLOCKS_TOPIC,
 
         Message::Transaction { .. }
         | Message::BroadcastTransaction(_)

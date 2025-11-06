@@ -18,6 +18,7 @@ pub mod cli;
 mod core; // Legacy Bitcoin-based wallet (deprecated)
 mod hdwallet;
 mod history;
+pub mod password_strength;
 mod ui;
 
 // NEW: Quantum-resistant wallet infrastructure
