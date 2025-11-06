@@ -189,6 +189,17 @@ pub enum Message {
     GetCompactBlockTxs { short_ids: Vec<u64> },
     /// Missing transactions response
     CompactBlockTxs(Vec<Transaction>),
+    /// Bloom filter load message (for SPV clients)
+    FilterLoad {
+        filter: Vec<u8>,
+        bit_count: usize,
+        hash_count: u32,
+        tweak: u32,
+    },
+    /// Bloom filter add element
+    FilterAdd { element: Vec<u8> },
+    /// Bloom filter clear
+    FilterClear,
 }
 
 /// Checkpoint information for validation

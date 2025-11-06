@@ -1,5 +1,7 @@
 pub mod advanced;
 pub mod behaviour;
+pub mod block_propagation;
+pub mod bloom_filter;
 pub mod compact_block;
 pub mod connection;
 pub mod peer_identity;
