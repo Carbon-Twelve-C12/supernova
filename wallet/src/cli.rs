@@ -1,4 +1,5 @@
 use crate::{
+    backup_warning::BackupWarning,
     hdwallet::{AccountType, HDWallet},
     history::{TransactionDirection, TransactionHistory, TransactionRecord, TransactionStatus},
     ui::tui::WalletTui,
@@ -64,6 +65,13 @@ enum Commands {
         account: String,
     },
 
+    /// Verify wallet backup
+    VerifyBackup {
+        /// Skip interactive verification (testing only)
+        #[arg(long)]
+        skip_check: bool,
+    },
+
     /// Run the TUI
     Tui,
 
@@ -108,21 +116,37 @@ pub fn run_cli() -> Result<(), String> {
     match cli.command {
         Some(Commands::New) => {
             println!("Creating new wallet...");
-            let wallet = HDWallet::new(network, wallet_path)
+            let mut wallet = HDWallet::new(network, wallet_path.clone())
                 .map_err(|e| format!("Failed to create wallet: {}", e))?;
 
-            println!("Wallet created successfully.");
-            println!("Your mnemonic phrase (keep this safe!):");
-            // In a real implementation, we'd get the mnemonic from the created wallet
-            // Here we're just showing the phrase would be displayed
-            println!("{}", wallet.get_mnemonic());
+            // Display backup warning and seed phrase
+            BackupWarning::display_seed_phrase(wallet.get_mnemonic());
+
+            // Prompt user to acknowledge backup
+            println!("Have you written down your seed phrase? (yes/no): ");
+            use std::io::{self, Write};
+            io::stdout().flush().map_err(|e| format!("IO error: {}", e))?;
+            
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .map_err(|e| format!("IO error: {}", e))?;
+            
+            if input.trim().to_lowercase() == "yes" {
+                wallet.acknowledge_backup();
+                println!("✓ Backup acknowledged. Please verify your backup with 'verify-backup' command.");
+            } else {
+                println!("⚠️  WARNING: You have NOT acknowledged your backup!");
+                println!("Please write down your seed phrase before continuing.");
+                println!("Your seed phrase: {}", wallet.get_mnemonic());
+            }
 
             // Create default account
-            let mut wallet = wallet;
             wallet
                 .create_account("default".to_string(), AccountType::NativeSegWit)
                 .map_err(|e| format!("Failed to create default account: {}", e))?;
 
+            wallet.save().map_err(|e| format!("Failed to save wallet: {}", e))?;
             println!("Default account created.");
             Ok(())
         }
@@ -134,6 +158,9 @@ pub fn run_cli() -> Result<(), String> {
 
             let wallet =
                 HDWallet::load(wallet_path).map_err(|e| format!("Failed to load wallet: {}", e))?;
+
+            // Check and display backup warnings
+            wallet.check_and_display_backup_warning();
 
             println!("Wallet loaded successfully.");
             Ok(())
@@ -236,6 +263,26 @@ pub fn run_cli() -> Result<(), String> {
                 .map_err(|e| format!("Failed to get balance: {}", e))?;
 
             println!("Balance for '{}': {} satoshis", account, balance);
+            Ok(())
+        }
+
+        Some(Commands::VerifyBackup { skip_check }) => {
+            if !wallet_path.exists() {
+                return Err("No wallet found. Create one first with 'new' command.".to_string());
+            }
+
+            let mut wallet =
+                HDWallet::load(wallet_path.clone()).map_err(|e| format!("Failed to load wallet: {}", e))?;
+
+            match wallet.verify_backup(skip_check) {
+                Ok(()) => {
+                    println!("✓ Backup verification successful!");
+                    println!("Your wallet backup is verified and you can recover your funds.");
+                }
+                Err(e) => {
+                    return Err(format!("Backup verification failed: {}", e));
+                }
+            }
             Ok(())
         }
 

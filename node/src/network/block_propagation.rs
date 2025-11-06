@@ -150,6 +150,8 @@ pub struct BlockPropagationManager {
     max_parallel_fetches: usize,
     /// Buffer timeout for out-of-order blocks
     buffer_timeout: Duration,
+    /// Callback to get current blockchain height
+    get_current_height: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
 /// Network commands for block propagation
@@ -169,7 +171,7 @@ pub enum NetworkCommand {
 
 impl BlockPropagationManager {
     /// Create a new block propagation manager
-    pub fn new(command_sender: mpsc::Sender<NetworkCommand>) -> Self {
+    pub fn new(command_sender: mpsc::Sender<NetworkCommand>, get_current_height: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
         Self {
             inventory: Arc::new(RwLock::new(HashMap::new())),
             peer_inventories: Arc::new(RwLock::new(HashMap::new())),
@@ -180,6 +182,7 @@ impl BlockPropagationManager {
             stats: Arc::new(RwLock::new(BlockPropagationStats::default())),
             max_parallel_fetches: 8,
             buffer_timeout: Duration::from_secs(30),
+            get_current_height,
         }
     }
 
@@ -459,10 +462,7 @@ impl BlockPropagationManager {
 
         // Check if block is out of order
         let expected_height = height;
-        let current_height = {
-            // TODO: Get current chain height from blockchain
-            0
-        };
+        let current_height = (self.get_current_height)();
 
         if height > current_height + 1 {
             // Out of order - buffer it
@@ -501,10 +501,7 @@ impl BlockPropagationManager {
         let mut to_process = Vec::new();
 
         // Find blocks that are ready to process
-        let current_height = {
-            // TODO: Get current chain height
-            0
-        };
+        let current_height = (self.get_current_height)();
 
         for (height, buffered_block) in buffered.iter() {
             if *height == current_height + 1 {
@@ -608,7 +605,8 @@ mod tests {
     #[tokio::test]
     async fn test_header_first_propagation() {
         let (tx, _rx) = mpsc::channel(100);
-        let manager = BlockPropagationManager::new(tx);
+        let get_height = Arc::new(|| 0u64);
+        let manager = BlockPropagationManager::new(tx, get_height);
 
         let block = create_test_block(100);
         let mempool_txs = HashSet::new();
@@ -623,7 +621,8 @@ mod tests {
     #[tokio::test]
     async fn test_compact_block_relay() {
         let (tx, _rx) = mpsc::channel(100);
-        let manager = BlockPropagationManager::new(tx);
+        let get_height = Arc::new(|| 0u64);
+        let manager = BlockPropagationManager::new(tx, get_height);
 
         // Register peer with compact block support
         let mut capabilities = PeerCapabilities::default();
@@ -644,7 +643,8 @@ mod tests {
     #[tokio::test]
     async fn test_parallel_block_fetching() {
         let (tx, _rx) = mpsc::channel(100);
-        let manager = BlockPropagationManager::new(tx);
+        let get_height = Arc::new(|| 0u64);
+        let manager = BlockPropagationManager::new(tx, get_height);
 
         let peer_id = PeerId::random();
         let block_hash = [1u8; 32];
@@ -661,7 +661,8 @@ mod tests {
     #[tokio::test]
     async fn test_early_validation_rejection() {
         let (tx, _rx) = mpsc::channel(100);
-        let manager = BlockPropagationManager::new(tx);
+        let get_height = Arc::new(|| 0u64);
+        let manager = BlockPropagationManager::new(tx, get_height);
 
         // Create invalid block (no transactions after header)
         let block = create_test_block(100);
@@ -677,7 +678,8 @@ mod tests {
     #[tokio::test]
     async fn test_bandwidth_optimization() {
         let (tx, _rx) = mpsc::channel(100);
-        let manager = BlockPropagationManager::new(tx);
+        let get_height = Arc::new(|| 0u64);
+        let manager = BlockPropagationManager::new(tx, get_height);
 
         let peer_id = PeerId::random();
         manager
@@ -692,7 +694,8 @@ mod tests {
     #[tokio::test]
     async fn test_peer_inventory_tracking() {
         let (tx, _rx) = mpsc::channel(100);
-        let manager = BlockPropagationManager::new(tx);
+        let get_height = Arc::new(|| 0u64);
+        let manager = BlockPropagationManager::new(tx, get_height);
 
         let peer_id = PeerId::random();
         let header = create_test_block(100).header().clone();

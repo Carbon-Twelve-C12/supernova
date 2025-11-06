@@ -12,6 +12,7 @@ pub mod manual_verification;
 pub mod miner_reporting;
 pub mod oracle;
 pub mod renewable_validation;
+pub mod score_validation;
 pub mod transparency;
 pub mod treasury;
 pub mod types;
