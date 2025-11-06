@@ -2,6 +2,7 @@ use super::database::{BlockchainDB, StorageError};
 use supernova_core::types::block::Block;
 use supernova_core::types::transaction::{Transaction, TransactionOutput};
 use crate::blockchain::checkpoint::{validate_checkpoint, can_reorganize_below};
+use crate::blockchain::invalidation::{InvalidBlockTracker, InvalidBlockTrackerConfig, InvalidationReason};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -33,6 +34,7 @@ pub struct ChainState {
     active_forks: HashMap<[u8; 32], ForkInfo>,
     last_block_time: SystemTime,
     rejected_reorgs: u64,
+    invalid_block_tracker: Arc<InvalidBlockTracker>,
 }
 
 #[derive(Debug)]
@@ -136,6 +138,7 @@ impl ChainState {
             active_forks: HashMap::new(),
             last_block_time: SystemTime::now(),
             rejected_reorgs: 0,
+            invalid_block_tracker: Arc::new(InvalidBlockTracker::new(InvalidBlockTrackerConfig::default())),
         })
     }
 
@@ -145,6 +148,11 @@ impl ChainState {
 
     pub fn get_best_block_hash(&self) -> [u8; 32] {
         self.best_block_hash
+    }
+
+    /// Get the invalid block tracker
+    pub fn invalid_block_tracker(&self) -> Arc<InvalidBlockTracker> {
+        self.invalid_block_tracker.clone()
     }
 
     /// Initialize the chain state with a genesis block
@@ -491,6 +499,28 @@ impl ChainState {
     }
 
     async fn validate_block(&self, block: &Block) -> Result<bool, StorageError> {
+        let block_hash = block.hash();
+        
+        // Check if block is already marked as invalid
+        if self.invalid_block_tracker.is_permanently_invalid(&block_hash) {
+            tracing::warn!("Block {} is permanently invalid, rejecting", hex::encode(&block_hash[..8]));
+            return Ok(false);
+        }
+
+        // Check if parent is invalid
+        let parent_hash = block.prev_block_hash();
+        if self.invalid_block_tracker.is_permanently_invalid(parent_hash) {
+            tracing::warn!("Parent block {} is invalid, marking block {} as invalid", 
+                hex::encode(&parent_hash[..8]), hex::encode(&block_hash[..8]));
+            self.invalid_block_tracker.mark_invalid(
+                block_hash,
+                InvalidationReason::ParentInvalid,
+                Some(*parent_hash),
+                Some(block.height()),
+            ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
+            return Ok(false);
+        }
+
         tracing::debug!(
             "Validating block: height={}, prev_hash={}",
             block.height(),
@@ -499,12 +529,24 @@ impl ChainState {
         
         if !block.validate() {
             tracing::warn!("Block failed basic validation: height={}", block.height());
+            self.invalid_block_tracker.mark_invalid(
+                block_hash,
+                InvalidationReason::InvalidStructure("Basic validation failed".to_string()),
+                Some(*block.prev_block_hash()),
+                Some(block.height()),
+            ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
             return Ok(false);
         }
 
         // Validate against checkpoints
         if let Err(e) = validate_checkpoint(block) {
             tracing::warn!("Checkpoint validation failed: {}", e);
+            self.invalid_block_tracker.mark_invalid(
+                block_hash,
+                InvalidationReason::CheckpointViolation,
+                Some(*block.prev_block_hash()),
+                Some(block.height()),
+            ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
             return Ok(false);
         }
 
@@ -516,6 +558,12 @@ impl ChainState {
             
             if fork_distance > MAX_FORK_DISTANCE {
                 tracing::warn!("Fork distance {} exceeds maximum {}", fork_distance, MAX_FORK_DISTANCE);
+                self.invalid_block_tracker.mark_invalid(
+                    block_hash,
+                    InvalidationReason::ForkTooDeep,
+                    Some(*block.prev_block_hash()),
+                    Some(block.height()),
+                ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
                 return Ok(false);
             }
         }
@@ -523,6 +571,12 @@ impl ChainState {
         for (i, tx) in block.transactions().iter().enumerate() {
             if !self.validate_transaction(tx).await? {
                 tracing::warn!("Transaction {} failed validation in block {}", i, hex::encode(&block.hash()[..8]));
+                self.invalid_block_tracker.mark_invalid(
+                    block_hash,
+                    InvalidationReason::TransactionValidation(format!("Transaction {} invalid", i)),
+                    Some(*block.prev_block_hash()),
+                    Some(block.height()),
+                ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
                 return Ok(false);
             }
         }
@@ -835,6 +889,17 @@ impl ChainState {
             hex::encode(&new_tip.hash()[..4]),
             new_tip.height()
         );
+
+        // Clean up orphaned blocks (blocks whose parents are invalid)
+        let chain_blocks: HashSet<[u8; 32]> = blocks_to_disconnect
+            .iter()
+            .map(|b| b.hash())
+            .collect();
+        if let Ok(orphaned) = self.invalid_block_tracker.cleanup_orphans(&chain_blocks) {
+            if !orphaned.is_empty() {
+                info!("Cleaned up {} orphaned blocks during reorganization", orphaned.len());
+            }
+        }
 
         Ok(())
     }
