@@ -427,12 +427,11 @@ impl NetworkRateLimiter {
         
         let limit = limits.entry(ip).or_insert_with(IpRateLimit::new);
 
-        // Check if banned
-        if limit.is_banned() {
-            let banned_until = limit
-                .banned_until
-                .expect("is_banned() returned true but banned_until is None");
-            return Err(RateLimitError::IpBanned(ip, banned_until));
+        // Check if banned - use if-let for safer extraction
+        if let Some(banned_until) = limit.banned_until {
+            if Instant::now() < banned_until {
+                return Err(RateLimitError::IpBanned(ip, banned_until));
+            }
         }
 
         // Check if in backoff period
@@ -632,12 +631,11 @@ impl NetworkRateLimiter {
         })?;
         let limit = limits.entry(ip).or_insert_with(IpRateLimit::new);
 
-        // Check if banned
-        if limit.is_banned() {
-            let banned_until = limit
-                .banned_until
-                .expect("is_banned() returned true but banned_until is None");
-            return Err(RateLimitError::IpBanned(ip, banned_until));
+        // Check if banned - use if-let for safer extraction
+        if let Some(banned_until) = limit.banned_until {
+            if Instant::now() < banned_until {
+                return Err(RateLimitError::IpBanned(ip, banned_until));
+            }
         }
 
         // Check rate limit

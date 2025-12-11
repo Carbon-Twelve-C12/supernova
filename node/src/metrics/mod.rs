@@ -137,12 +137,18 @@ impl<'a> VerificationOperation<'a> {
 }
 
 pub mod collector;
+pub mod error_metrics;  // Error metrics for P1-005
 pub mod performance;
 pub mod privacy;     // Metrics privacy filtering
 pub mod registry;
 pub mod types;
 
 pub use collector::MetricsCollector;
+pub use error_metrics::{
+    ErrorComponent, ErrorMetrics, ErrorMetricsSummary, ErrorRecord, ErrorType,
+    GLOBAL_ERROR_METRICS, record_error, record_error_with_context, error_summary,
+    export_prometheus_metrics as export_error_metrics,
+};
 pub use performance::{MetricType, PerformanceMonitor};
 pub use privacy::{MetricsPrivacyFilter, MetricsPrivacyLevel, MetricsPrivacyConfig};
 pub use registry::MetricsRegistry;
