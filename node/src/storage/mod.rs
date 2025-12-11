@@ -5,6 +5,7 @@
 pub mod atomic_utxo_set;
 pub mod backup;
 pub mod checkpoint;
+pub mod checksum;
 pub mod corruption;
 pub mod database;
 pub mod database_shutdown;
@@ -28,6 +29,11 @@ pub use backup::{
     BackupError, BackupManager, BackupMode, BackupOperation, BackupState, RecoveryManager,
 };
 pub use checkpoint::{CheckpointConfig, CheckpointError, CheckpointManager, CheckpointType};
+pub use checksum::{
+    calculate_block_checksum, calculate_crc32, calculate_sha256, calculate_utxo_checksum,
+    verify_block_checksum, verify_crc32, verify_sha256, verify_utxo_checksum, ChecksumError,
+    ChecksummedData, StreamingChecksum,
+};
 pub use corruption::{
     CorruptionError, CorruptionHandler, CorruptionInfo, CorruptionType, IntegrityChecker,
     RepairPlan,
