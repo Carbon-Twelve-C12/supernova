@@ -554,6 +554,7 @@ pub struct UtxoSetStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supernova_core::types::transaction::TransactionOutput;
     use tempfile::tempdir;
 
     fn create_test_transaction(value: u64) -> Transaction {

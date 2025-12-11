@@ -612,9 +612,10 @@ mod tests {
         let mut handler = MessageHandler::new();
         handler.max_message_size = 10; // Set very small limit for testing
 
-        // Create a message that will be larger than the limit
-        let large_data = vec![0u8; 100];
-        let message = ProtocolMessage::Block { block: large_data };
+        // Create a message that will be larger than the limit using GetData with many hashes
+        // This will serialize to a large message that exceeds our small limit
+        let many_hashes: Vec<[u8; 32]> = (0..100).map(|_| [0u8; 32]).collect();
+        let message = ProtocolMessage::GetData(many_hashes);
         let network_message = NetworkMessage::new(Some(PeerId::random()), message);
 
         // Message should be rejected as too large

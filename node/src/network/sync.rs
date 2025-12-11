@@ -2056,8 +2056,9 @@ mod tests {
 
         assert_ne!(hash1, hash2, "Different hashes should not be equal");
 
-        // Create a simple header
-        let header = BlockHeader::new(1, hash1, [0u8; 32], 0);
+        // Create a simple header with all 6 required arguments
+        // BlockHeader::new(version, prev_block_hash, merkle_root, timestamp, bits, nonce)
+        let header = BlockHeader::new(1, hash1, [0u8; 32], 0, 0x1d00ffff, 0);
 
         // Just check that prev_block_hash returns what we gave it
         assert_eq!(

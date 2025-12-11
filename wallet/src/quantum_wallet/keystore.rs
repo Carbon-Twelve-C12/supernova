@@ -160,9 +160,11 @@ impl Keystore {
         self.passphrase_hash = Some(hasher.finalize().to_vec());
         
         // Generate master seed
+        // SECURITY FIX (P0-006): Use OsRng instead of thread_rng for cryptographic entropy
+        use rand::rngs::OsRng;
         use rand::RngCore;
         let mut seed = vec![0u8; 64];
-        rand::thread_rng().fill_bytes(&mut seed);
+        OsRng.fill_bytes(&mut seed);
         self.master_seed = Some(seed);
         
         // Unlock keystore

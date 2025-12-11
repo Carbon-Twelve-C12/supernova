@@ -17,6 +17,7 @@ use sha3::{Digest, Sha3_256, Sha3_512};
 use sha2::{Sha256, Sha512};
 use zeroize::Zeroize;
 use thiserror::Error;
+use rand::rngs::OsRng;
 use rand::RngCore;
 
 // ============================================================================
@@ -34,6 +35,9 @@ pub enum HDDerivationError {
     
     #[error("Key derivation failed: {0}")]
     DerivationFailed(String),
+    
+    #[error("Low quality entropy detected: {0}")]
+    LowQualityEntropy(String),
 }
 
 /// Quantum HD Wallet Configuration
@@ -52,16 +56,72 @@ impl QuantumHDConfig {
     /// Argon2 memory cost (in KB)
     /// 
     /// High memory cost resists brute-force and ASIC attacks.
+    /// SECURITY FIX (P0-006): 64MB meets OWASP minimum recommendations.
     pub const ARGON2_MEMORY_KB: u32 = 64 * 1024; // 64MB
     
     /// Argon2 time cost (iterations)
+    /// SECURITY FIX (P0-006): 3 iterations meets OWASP minimum.
     pub const ARGON2_ITERATIONS: u32 = 3;
     
     /// Argon2 parallelism
+    /// SECURITY FIX (P0-006): 4 threads meets OWASP minimum.
     pub const ARGON2_PARALLELISM: u32 = 4;
     
     /// Maximum derivation index
     pub const MAX_DERIVATION_INDEX: u32 = 0x7FFFFFFF; // 2^31 - 1
+    
+    /// Maximum ratio of zero bytes allowed in entropy (1/8 = 12.5%)
+    pub const MAX_ZERO_BYTE_RATIO: f64 = 0.125;
+}
+
+/// Validate entropy quality
+/// 
+/// SECURITY FIX (P0-006): Validates entropy doesn't show obvious patterns
+/// that might indicate a weak RNG.
+///
+/// # Arguments
+/// * `entropy` - The entropy bytes to validate
+///
+/// # Returns
+/// * `Ok(())` - Entropy appears to be of good quality
+/// * `Err(HDDerivationError)` - Entropy appears suspicious
+pub fn validate_entropy_quality(entropy: &[u8]) -> Result<(), HDDerivationError> {
+    if entropy.is_empty() {
+        return Err(HDDerivationError::InsufficientEntropy(
+            "Empty entropy".to_string()
+        ));
+    }
+    
+    // Check for too many zero bytes (potential weak RNG)
+    let zero_count = entropy.iter().filter(|&&b| b == 0).count();
+    let max_zeros = (entropy.len() as f64 * QuantumHDConfig::MAX_ZERO_BYTE_RATIO) as usize;
+    if zero_count > max_zeros {
+        return Err(HDDerivationError::LowQualityEntropy(format!(
+            "Too many zero bytes: {} of {} (max {})",
+            zero_count, entropy.len(), max_zeros
+        )));
+    }
+    
+    // Check for too many 0xFF bytes (another weak RNG indicator)
+    let ff_count = entropy.iter().filter(|&&b| b == 0xFF).count();
+    if ff_count > max_zeros {
+        return Err(HDDerivationError::LowQualityEntropy(format!(
+            "Too many 0xFF bytes: {} of {} (max {})",
+            ff_count, entropy.len(), max_zeros
+        )));
+    }
+    
+    // Check for obvious patterns (all same byte)
+    if entropy.len() > 1 {
+        let first = entropy[0];
+        if entropy.iter().all(|&b| b == first) {
+            return Err(HDDerivationError::LowQualityEntropy(
+                "All bytes identical - potential RNG failure".to_string()
+            ));
+        }
+    }
+    
+    Ok(())
 }
 
 /// Quantum Hierarchical Deterministic Derivation
@@ -90,14 +150,16 @@ impl QuantumHDDerivation {
     /// Create HD derivation from master seed
     /// 
     /// SECURITY: Validates seed has sufficient entropy for quantum keys.
+    /// SECURITY FIX (P0-006): Added entropy quality validation.
     ///
     /// # Arguments
     /// * `master_seed` - Master seed (must be ≥32 bytes)
     ///
     /// # Returns
     /// * `Ok(QuantumHDDerivation)` - HD derivation ready
-    /// * `Err(HDDerivationError)` - Insufficient entropy
+    /// * `Err(HDDerivationError)` - Insufficient or low-quality entropy
     pub fn from_seed(master_seed: Vec<u8>) -> Result<Self, HDDerivationError> {
+        // Check minimum length
         if master_seed.len() < QuantumHDConfig::MIN_ENTROPY_BYTES {
             return Err(HDDerivationError::InsufficientEntropy(format!(
                 "Master seed too short: {} bytes < {} required",
@@ -105,6 +167,9 @@ impl QuantumHDDerivation {
                 QuantumHDConfig::MIN_ENTROPY_BYTES
             )));
         }
+        
+        // Validate entropy quality
+        validate_entropy_quality(&master_seed)?;
         
         Ok(Self { master_seed })
     }
@@ -143,8 +208,9 @@ impl QuantumHDDerivation {
         
         // Step 2: CRITICAL - Add fresh system entropy
         // This prevents predictability even if master seed is compromised
+        // SECURITY FIX (P0-006): Use OsRng instead of thread_rng for cryptographic entropy
         let mut system_entropy = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut system_entropy);
+        OsRng.fill_bytes(&mut system_entropy);
         hasher.update(&system_entropy);
         
         let base_hash = hasher.finalize();
@@ -243,28 +309,56 @@ impl Drop for QuantumHDDerivation {
 mod tests {
     use super::*;
     
+    /// Generate a valid seed for testing (varied bytes)
+    fn valid_test_seed() -> Vec<u8> {
+        (0..32).map(|i| (i * 7 + 13) as u8).collect()
+    }
+    
     #[test]
     fn test_minimum_entropy_enforced() {
         // Too short seed should fail
-        let short_seed = vec![0u8; 16]; // Only 128 bits
+        let short_seed: Vec<u8> = (0..16).map(|i| (i * 7 + 13) as u8).collect();
         let result = QuantumHDDerivation::from_seed(short_seed);
         assert!(result.is_err());
         
         // Proper seed should succeed
-        let good_seed = vec![0u8; 32]; // 256 bits
+        let good_seed = valid_test_seed();
         let result = QuantumHDDerivation::from_seed(good_seed);
+        assert!(result.is_ok());
+    }
+    
+    #[test]
+    fn test_entropy_quality_validation() {
+        // All zeros should fail
+        let zero_seed = vec![0u8; 32];
+        let result = validate_entropy_quality(&zero_seed);
+        assert!(result.is_err());
+        
+        // All 0xFF should fail
+        let ff_seed = vec![0xFF; 32];
+        let result = validate_entropy_quality(&ff_seed);
+        assert!(result.is_err());
+        
+        // All same byte should fail
+        let same_seed = vec![0x42u8; 32];
+        let result = validate_entropy_quality(&same_seed);
+        assert!(result.is_err());
+        
+        // Good entropy should pass
+        let good_seed = valid_test_seed();
+        let result = validate_entropy_quality(&good_seed);
         assert!(result.is_ok());
     }
     
     #[test]
     fn test_derivation_deterministic() {
         // Same seed + index should produce same key
-        let seed = vec![1u8; 32];
+        let seed = valid_test_seed();
         let hd1 = QuantumHDDerivation::from_seed(seed.clone()).unwrap();
         let hd2 = QuantumHDDerivation::from_seed(seed).unwrap();
         
-        let key1 = hd1.derive_child_key(0).unwrap();
-        let key2 = hd2.derive_child_key(0).unwrap();
+        let _key1 = hd1.derive_child_key(0).unwrap();
+        let _key2 = hd2.derive_child_key(0).unwrap();
         
         // Note: Due to system entropy mixing, keys may differ
         // This is actually a FEATURE for forward secrecy
@@ -273,7 +367,7 @@ mod tests {
     
     #[test]
     fn test_different_indices_produce_different_keys() {
-        let seed = vec![1u8; 32];
+        let seed = valid_test_seed();
         let hd = QuantumHDDerivation::from_seed(seed).unwrap();
         
         let key0 = hd.derive_child_key(0).unwrap();
@@ -284,6 +378,16 @@ mod tests {
         assert_ne!(key0, key1);
         assert_ne!(key1, key2);
         assert_ne!(key0, key2);
+    }
+    
+    #[test]
+    fn test_osrng_entropy_generation() {
+        // Verify OsRng generates valid entropy
+        let mut entropy = [0u8; 32];
+        OsRng.fill_bytes(&mut entropy);
+        
+        // Should pass quality validation
+        assert!(validate_entropy_quality(&entropy).is_ok());
     }
 }
 

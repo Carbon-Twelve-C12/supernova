@@ -725,8 +725,10 @@ mod tests {
 
     fn create_test_transaction(prev_hash: [u8; 32], value: u64) -> Transaction {
         Transaction::new(
+            1, // version
             vec![TransactionInput::new(prev_hash, 0, vec![], 0xffffffff)],
             vec![TransactionOutput::new(value, vec![])],
+            0, // lock_time
         )
     }
 

@@ -678,9 +678,9 @@ mod tests {
         let energy_data = monitor.get_energy_usage(3600, false).unwrap();
 
         // Energy should be positive
-        assert!(energy_data.total_consumption > 0.0);
-        assert!(energy_data.renewable_consumption > 0.0);
-        assert!(energy_data.non_renewable_consumption > 0.0);
+        assert!(energy_data.total_energy_kwh > 0.0);
+        assert!(energy_data.current_power_watts > 0.0);
+        assert!(energy_data.efficiency > 0.0);
     }
 
     #[test]

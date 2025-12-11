@@ -1,10 +1,16 @@
 //! API rate limiting middleware
 //!
 //! This module provides rate limiting functionality for the supernova API.
+//! 
+//! SECURITY FIX (P0-002): Added standard X-RateLimit-* headers to all responses:
+//! - X-RateLimit-Limit: Maximum requests allowed in window
+//! - X-RateLimit-Remaining: Requests remaining in current window
+//! - X-RateLimit-Reset: Unix timestamp when window resets
+//! - Retry-After: Seconds until rate limit resets (on 429 responses)
 
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    http::StatusCode,
+    http::{header::HeaderValue, StatusCode},
     HttpResponse, ResponseError,
 };
 use serde_json::json;
@@ -12,7 +18,7 @@ use std::collections::HashMap;
 use std::future::{ready, Ready};
 use std::rc::Rc;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
 /// Rate limit error
@@ -54,8 +60,21 @@ impl ResponseError for RateLimitError {
 struct RateLimitEntry {
     /// Timestamp of first request in current window
     first_request: Instant,
+    /// Unix timestamp when window resets
+    window_reset_time: u64,
     /// Number of requests in current window
     count: u32,
+}
+
+/// Rate limit info to include in response headers
+#[derive(Clone)]
+struct RateLimitInfo {
+    /// Maximum requests allowed in window
+    limit: u32,
+    /// Remaining requests in current window
+    remaining: u32,
+    /// Unix timestamp when window resets
+    reset: u64,
 }
 
 /// Rate limiter state shared between requests
@@ -165,6 +184,9 @@ where
         // Check rate limit
         let now = Instant::now();
         let window = Duration::from_secs(self.state.window_secs);
+        let rate = self.state.rate;
+        let window_secs = self.state.window_secs;
+        
         let mut clients = match self.state.clients.lock() {
             Ok(clients) => clients,
             Err(_) => {
@@ -180,24 +202,39 @@ where
         // Clean up expired entries
         clients.retain(|_, entry| now.duration_since(entry.first_request) < window);
 
+        // Calculate reset time
+        let current_unix_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
         // Get current client's entry
         let entry = clients.entry(ip.clone()).or_insert_with(|| RateLimitEntry {
             first_request: now,
+            window_reset_time: current_unix_time + window_secs,
             count: 0,
         });
 
         // Reset entry if window has expired
         if now.duration_since(entry.first_request) >= window {
             entry.first_request = now;
+            entry.window_reset_time = current_unix_time + window_secs;
             entry.count = 0;
         }
 
+        // Calculate rate limit info for headers
+        let rate_limit_info = RateLimitInfo {
+            limit: rate,
+            remaining: rate.saturating_sub(entry.count + 1),
+            reset: entry.window_reset_time,
+        };
+
         // Check if rate limit exceeded
-        if entry.count >= self.state.rate {
+        if entry.count >= rate {
             warn!("Rate limit exceeded for client IP {}", ip);
             let error = RateLimitError {
-                rate: self.state.rate,
-                window_secs: self.state.window_secs,
+                rate,
+                window_secs,
             };
             return Box::pin(async move { Err(error.into()) });
         }
@@ -209,7 +246,32 @@ where
         // Forward request to next middleware/handler
         let fut = self.service.call(req);
         Box::pin(async move {
-            let res = fut.await?;
+            let mut res = fut.await?;
+            
+            // Add rate limit headers to response (P0-002)
+            let headers = res.headers_mut();
+            
+            if let Ok(limit_val) = HeaderValue::from_str(&rate_limit_info.limit.to_string()) {
+                headers.insert(
+                    actix_web::http::header::HeaderName::from_static("x-ratelimit-limit"),
+                    limit_val,
+                );
+            }
+            
+            if let Ok(remaining_val) = HeaderValue::from_str(&rate_limit_info.remaining.to_string()) {
+                headers.insert(
+                    actix_web::http::header::HeaderName::from_static("x-ratelimit-remaining"),
+                    remaining_val,
+                );
+            }
+            
+            if let Ok(reset_val) = HeaderValue::from_str(&rate_limit_info.reset.to_string()) {
+                headers.insert(
+                    actix_web::http::header::HeaderName::from_static("x-ratelimit-reset"),
+                    reset_val,
+                );
+            }
+            
             Ok(res)
         })
     }
@@ -284,5 +346,107 @@ mod tests {
             let resp = call_service(&app, req).await;
             assert_eq!(resp.status(), StatusCode::OK);
         }
+    }
+
+    #[actix_web::test]
+    async fn test_rate_limit_headers_present() {
+        let app = init_service(
+            App::new()
+                .wrap(RateLimiter::new(10)) // 10 requests per minute
+                .route("/", web::get().to(test_handler)),
+        )
+        .await;
+
+        let req = TestRequest::get().uri("/").to_request();
+        let resp = call_service(&app, req).await;
+
+        // Verify rate limit headers are present
+        let headers = resp.headers();
+        
+        assert!(
+            headers.contains_key("x-ratelimit-limit"),
+            "X-RateLimit-Limit header should be present"
+        );
+        assert!(
+            headers.contains_key("x-ratelimit-remaining"),
+            "X-RateLimit-Remaining header should be present"
+        );
+        assert!(
+            headers.contains_key("x-ratelimit-reset"),
+            "X-RateLimit-Reset header should be present"
+        );
+
+        // Verify X-RateLimit-Limit value
+        let limit = headers.get("x-ratelimit-limit")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        assert_eq!(limit, 10, "X-RateLimit-Limit should be 10");
+
+        // Verify X-RateLimit-Remaining value (should be 9 after first request)
+        let remaining = headers.get("x-ratelimit-remaining")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        assert_eq!(remaining, 9, "X-RateLimit-Remaining should be 9 after first request");
+    }
+
+    #[actix_web::test]
+    async fn test_rate_limit_remaining_decrements() {
+        let app = init_service(
+            App::new()
+                .wrap(RateLimiter::new(5)) // 5 requests per minute
+                .route("/", web::get().to(test_handler)),
+        )
+        .await;
+
+        // Make requests and verify remaining decrements
+        for i in 0..4 {
+            let req = TestRequest::get().uri("/").to_request();
+            let resp = call_service(&app, req).await;
+            
+            let remaining = resp.headers()
+                .get("x-ratelimit-remaining")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(99);
+            
+            assert_eq!(
+                remaining, 
+                4 - i as u32, 
+                "Remaining should decrement with each request"
+            );
+        }
+    }
+
+    #[actix_web::test]
+    async fn test_retry_after_on_429() {
+        let app = init_service(
+            App::new()
+                .wrap(RateLimiter::with_window(2, 120)) // 2 requests per 2 minutes
+                .route("/", web::get().to(test_handler)),
+        )
+        .await;
+
+        // Exhaust rate limit
+        for _ in 0..2 {
+            let req = TestRequest::get().uri("/").to_request();
+            let _ = call_service(&app, req).await;
+        }
+
+        // Third request should get 429 with Retry-After header
+        let req = TestRequest::get().uri("/").to_request();
+        let resp = call_service(&app, req).await;
+        
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        
+        // Check Retry-After header is present
+        let retry_after = resp.headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok());
+        
+        assert!(retry_after.is_some(), "Retry-After header should be present on 429");
+        assert_eq!(retry_after.unwrap(), 120, "Retry-After should match window_secs");
     }
 }

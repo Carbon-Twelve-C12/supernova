@@ -751,9 +751,11 @@ mod tests {
             result
         );
 
-        // Test block announcement
-        let block_message = Message::Block {
-            block: vec![1, 2, 3, 4],
+        // Test block announcement using NewBlock variant (which accepts raw bytes)
+        let block_message = Message::NewBlock {
+            block_data: vec![1, 2, 3, 4],
+            height: 100,
+            total_difficulty: 1000,
         };
         let result = test_protocol.publish(BLOCKS_TOPIC, block_message);
         assert!(result.is_ok(), "Failed to publish block: {:?}", result);
@@ -772,17 +774,21 @@ mod tests {
 
     #[test]
     fn test_message_serialization() {
-        // Test block announcement message
-        let block_message = Message::Block {
-            block: vec![1, 2, 3, 4],
+        // Test block announcement message using NewBlock variant
+        let block_message = Message::NewBlock {
+            block_data: vec![1, 2, 3, 4],
+            height: 100,
+            total_difficulty: 1000,
         };
 
         let encoded = bincode::serialize(&block_message).unwrap();
         let decoded: Message = bincode::deserialize(&encoded).unwrap();
 
         match decoded {
-            Message::Block { block } => {
-                assert_eq!(block, vec![1, 2, 3, 4]);
+            Message::NewBlock { block_data, height, total_difficulty } => {
+                assert_eq!(block_data, vec![1, 2, 3, 4]);
+                assert_eq!(height, 100);
+                assert_eq!(total_difficulty, 1000);
             }
             _ => panic!("Wrong message type after deserialization"),
         }

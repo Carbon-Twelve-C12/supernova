@@ -305,6 +305,16 @@ pub struct MEVProtectionStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supernova_core::types::transaction::{TransactionInput, TransactionOutput};
+
+    fn create_test_transaction() -> Transaction {
+        Transaction::new(
+            1, // version
+            vec![TransactionInput::new([0u8; 32], 0, vec![], 0xffffffff)],
+            vec![TransactionOutput::new(100_000, vec![])],
+            0, // lock_time
+        )
+    }
 
     #[tokio::test]
     async fn test_commit_reveal_flow() {
@@ -312,7 +322,7 @@ mod tests {
         let mev_protection = MEVProtection::new(config);
 
         // Create a mock transaction
-        let tx = Transaction::default();
+        let tx = create_test_transaction();
         let tx_hash = [1u8; 32];
         let nonce = vec![42; 16];
         let commitment = mev_protection.calculate_commitment(&tx, &nonce).unwrap();
@@ -366,10 +376,14 @@ mod tests {
         // This is probabilistic, so we just verify the grouping
     }
 
-    fn create_test_tx_with_fee(fee: u64) -> Transaction {
+    fn create_test_tx_with_fee(_fee: u64) -> Transaction {
         // Mock transaction with specific fee
-        let mut tx = Transaction::default();
-        // In real implementation, set fee properly
-        tx
+        Transaction::new(
+            1, // version
+            vec![TransactionInput::new([0u8; 32], 0, vec![], 0xffffffff)],
+            vec![TransactionOutput::new(100_000, vec![])],
+            0, // lock_time
+        )
+        // In real implementation, set fee properly through input/output values
     }
 }

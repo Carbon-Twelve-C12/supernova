@@ -1,0 +1,17 @@
+# PodDisruptionBudget to ensure high availability during disruptions
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: supernova-node-pdb
+  namespace: supernova-testnet
+  labels:
+    app.kubernetes.io/name: supernova
+    app.kubernetes.io/component: availability
+spec:
+  # At least 2 nodes must be available at all times (for 3-node cluster)
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: supernova
+      app.kubernetes.io/component: node
+

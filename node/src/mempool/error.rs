@@ -60,6 +60,25 @@ pub enum MempoolError {
         max: usize,
         tx_size: usize,
     },
+
+    // SECURITY (P1-002): Ancestor/Descendant chain limits
+    #[error("Ancestor chain too long: {count} ancestors exceeds limit of {limit}")]
+    AncestorChainTooLong { count: usize, limit: usize },
+
+    #[error("Descendant chain too long: {count} descendants exceeds limit of {limit}")]
+    DescendantChainTooLong { count: usize, limit: usize },
+
+    #[error("Ancestor chain size too large: {size} bytes exceeds limit of {limit} bytes")]
+    AncestorSizeTooLarge { size: usize, limit: usize },
+
+    #[error("Descendant chain size too large: {size} bytes exceeds limit of {limit} bytes")]
+    DescendantSizeTooLarge { size: usize, limit: usize },
+
+    #[error("RBF replacement would evict too many transactions: {count} > {limit}")]
+    RbfTooManyEvictions { count: usize, limit: usize },
+
+    #[error("Transaction relay rate limit exceeded for peer {peer}")]
+    RelayRateLimitExceeded { peer: String },
 }
 
 impl From<bincode::Error> for MempoolError {

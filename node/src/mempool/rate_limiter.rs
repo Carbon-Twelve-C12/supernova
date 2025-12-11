@@ -31,6 +31,12 @@ impl MempoolDoSConfig {
     /// 100 txs/minute = reasonable for legitimate usage, blocks flooding.
     pub const MAX_TXS_PER_PEER_PER_MINUTE: usize = 100;
     
+    /// Maximum transaction relays per peer per second
+    ///
+    /// SECURITY (P1-002): Prevents inventory flooding attacks.
+    /// 7 txs/second = prevents rapid-fire relay while allowing bursts.
+    pub const MAX_TX_RELAY_PER_SECOND: usize = 7;
+    
     /// Maximum mempool size in bytes
     /// 
     /// SECURITY: 300MB cap prevents memory exhaustion.
@@ -45,6 +51,9 @@ impl MempoolDoSConfig {
     /// Rate limit window duration
     pub const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60); // 1 minute
     
+    /// Relay rate limit window duration
+    pub const RELAY_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(1); // 1 second
+    
     /// Maximum transaction size in bytes
     /// 
     /// Prevents single massive transaction from consuming all memory.
@@ -54,20 +63,27 @@ impl MempoolDoSConfig {
 /// Per-peer rate limit tracker
 #[derive(Debug)]
 struct PeerRateLimit {
-    /// Transaction count in current window
+    /// Transaction count in current minute window
     tx_count: usize,
-    /// Window start time
+    /// Minute window start time
     window_start: Instant,
-    /// Total bytes submitted
+    /// Total bytes submitted in minute window
     bytes_submitted: usize,
+    /// Transaction relay count in current second window
+    relay_count: usize,
+    /// Second window start time for relay limiting
+    relay_window_start: Instant,
 }
 
 impl PeerRateLimit {
     fn new() -> Self {
+        let now = Instant::now();
         Self {
             tx_count: 0,
-            window_start: Instant::now(),
+            window_start: now,
             bytes_submitted: 0,
+            relay_count: 0,
+            relay_window_start: now,
         }
     }
     
@@ -77,14 +93,14 @@ impl PeerRateLimit {
     fn check_and_update(&mut self, tx_size: usize) -> bool {
         let now = Instant::now();
         
-        // Reset window if expired
+        // Reset minute window if expired
         if now.duration_since(self.window_start) >= MempoolDoSConfig::RATE_LIMIT_WINDOW {
             self.tx_count = 0;
             self.bytes_submitted = 0;
             self.window_start = now;
         }
         
-        // Check if adding this tx would exceed limit
+        // Check if adding this tx would exceed minute limit
         if self.tx_count >= MempoolDoSConfig::MAX_TXS_PER_PEER_PER_MINUTE {
             return false;
         }
@@ -94,15 +110,39 @@ impl PeerRateLimit {
         self.bytes_submitted += tx_size;
         true
     }
+    
+    /// Check and update relay rate limit (per second)
+    ///
+    /// SECURITY (P1-002): Prevents inventory flooding attacks
+    /// Returns true if within limit, false if exceeded
+    fn check_relay_rate(&mut self) -> bool {
+        let now = Instant::now();
+        
+        // Reset second window if expired
+        if now.duration_since(self.relay_window_start) >= MempoolDoSConfig::RELAY_RATE_LIMIT_WINDOW {
+            self.relay_count = 0;
+            self.relay_window_start = now;
+        }
+        
+        // Check if relay would exceed per-second limit
+        if self.relay_count >= MempoolDoSConfig::MAX_TX_RELAY_PER_SECOND {
+            return false;
+        }
+        
+        // Update counter
+        self.relay_count += 1;
+        true
+    }
 }
 
 /// Mempool rate limiter with DoS protection
 /// 
 /// SECURITY: Multi-layered DoS protection:
-/// 1. Per-peer rate limiting
-/// 2. Global memory cap
-/// 3. Transaction size validation
-/// 4. Fee-based prioritization
+/// 1. Per-peer rate limiting (txs/minute)
+/// 2. Per-peer relay rate limiting (txs/second)
+/// 3. Global memory cap
+/// 4. Transaction size validation
+/// 5. Fee-based prioritization
 pub struct MempoolRateLimiter {
     /// Per-peer rate limits using DashMap for concurrent access
     peer_limits: Arc<DashMap<String, PeerRateLimit>>,
@@ -114,6 +154,7 @@ pub struct MempoolRateLimiter {
     rejected_by_rate_limit: Arc<AtomicUsize>,
     rejected_by_memory: Arc<AtomicUsize>,
     rejected_by_size: Arc<AtomicUsize>,
+    rejected_by_relay_limit: Arc<AtomicUsize>,
 }
 
 impl MempoolRateLimiter {
@@ -125,7 +166,41 @@ impl MempoolRateLimiter {
             rejected_by_rate_limit: Arc::new(AtomicUsize::new(0)),
             rejected_by_memory: Arc::new(AtomicUsize::new(0)),
             rejected_by_size: Arc::new(AtomicUsize::new(0)),
+            rejected_by_relay_limit: Arc::new(AtomicUsize::new(0)),
         }
+    }
+    
+    /// Check if transaction relay is allowed for a peer
+    ///
+    /// SECURITY (P1-002): Prevents inventory flooding attacks by limiting
+    /// the rate at which a peer can relay transaction announcements.
+    ///
+    /// # Arguments
+    /// * `peer_id` - Identifier of the relaying peer
+    ///
+    /// # Returns
+    /// * `Ok(())` - Relay is allowed
+    /// * `Err(MempoolError)` - Relay rate limit exceeded
+    pub fn check_relay_rate_limit(&self, peer_id: &str) -> Result<(), MempoolError> {
+        let mut rate_limit = self.peer_limits
+            .entry(peer_id.to_string())
+            .or_insert_with(PeerRateLimit::new);
+        
+        if !rate_limit.check_relay_rate() {
+            self.rejected_by_relay_limit.fetch_add(1, Ordering::Relaxed);
+            
+            debug!(
+                "Peer {} exceeded relay rate limit: {} txs/second",
+                peer_id,
+                MempoolDoSConfig::MAX_TX_RELAY_PER_SECOND
+            );
+            
+            return Err(MempoolError::RelayRateLimitExceeded {
+                peer: peer_id.to_string(),
+            });
+        }
+        
+        Ok(())
     }
     
     /// Check if transaction submission is allowed
@@ -222,6 +297,7 @@ impl MempoolRateLimiter {
             rejected_by_rate_limit: self.rejected_by_rate_limit.load(Ordering::Relaxed),
             rejected_by_memory: self.rejected_by_memory.load(Ordering::Relaxed),
             rejected_by_size: self.rejected_by_size.load(Ordering::Relaxed),
+            rejected_by_relay_limit: self.rejected_by_relay_limit.load(Ordering::Relaxed),
             active_peer_limits: self.peer_limits.len(),
         }
     }
@@ -244,6 +320,7 @@ pub struct MempoolDoSStats {
     pub rejected_by_rate_limit: usize,
     pub rejected_by_memory: usize,
     pub rejected_by_size: usize,
+    pub rejected_by_relay_limit: usize,
     pub active_peer_limits: usize,
 }
 

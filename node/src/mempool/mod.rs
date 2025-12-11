@@ -1,4 +1,5 @@
 pub mod atomic_pool;
+pub mod chain_limits;
 pub mod error;
 pub mod fee_estimator;
 pub mod manager;
@@ -11,7 +12,11 @@ pub mod rate_limiter;
 pub mod secure_pool;
 pub mod validator;
 
+#[cfg(test)]
+mod dos_protection_tests;
+
 pub use atomic_pool::AtomicTransactionPool;
+pub use chain_limits::{ChainLimitsConfig, ChainLimitsTracker, ChainStats};
 pub use error::{MempoolError, MempoolResult};
 pub use fee_estimator::{FeeEstimator, FeeEstimatorConfig, FeeDistribution, FeePriority};
 pub use manager::{MempoolManager, MempoolStats};

@@ -1,0 +1,255 @@
+# Supernova Prometheus Alert Rules
+# PRODUCTION MODULE (P1-010): Production monitoring stack
+#
+# Alert Categories:
+# - Critical (P1): Immediate response required
+# - Warning (P2): Should be addressed soon
+# - Info (P3): Informational, review during business hours
+#
+# Documentation: https://prometheus.io/docs/alerting/latest/configuration/
+
+groups:
+  # ==========================================================================
+  # Node Availability Alerts (Critical)
+  # ==========================================================================
+  - name: supernova-availability
+    rules:
+      # Node down for more than 1 minute
+      - alert: SupernovaNodeDown
+        expr: up{job="supernova-node"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Supernova node {{ $labels.instance }} is down"
+          description: "Node {{ $labels.instance }} has been unreachable for more than 1 minute. Check node health and connectivity."
+          runbook_url: "https://docs.supernova.io/runbooks/node-down"
+          
+      # Block production stopped
+      - alert: BlockProductionStopped
+        expr: increase(supernova_blocks_total[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: protocol
+        annotations:
+          summary: "Block production has stopped"
+          description: "No new blocks have been produced in the last 5 minutes. This could indicate a consensus failure or network issue."
+          runbook_url: "https://docs.supernova.io/runbooks/block-production-stopped"
+          
+      # Insufficient peer count
+      - alert: InsufficientPeers
+        expr: supernova_peer_count < 3
+        for: 2m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Node {{ $labels.instance }} has insufficient peers"
+          description: "Node {{ $labels.instance }} has only {{ $value }} peers. Minimum required is 3 for safe operation."
+          runbook_url: "https://docs.supernova.io/runbooks/insufficient-peers"
+          
+      # Chain sync stalled
+      - alert: SyncProgressStalled
+        expr: delta(supernova_chain_height[10m]) == 0 and supernova_sync_progress < 0.99
+        for: 10m
+        labels:
+          severity: critical
+          team: protocol
+        annotations:
+          summary: "Chain sync has stalled on {{ $labels.instance }}"
+          description: "Node {{ $labels.instance }} sync progress has not changed in 10 minutes. Current progress: {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.supernova.io/runbooks/sync-stalled"
+
+  # ==========================================================================
+  # Resource Alerts (Critical)
+  # ==========================================================================
+  - name: supernova-resources
+    rules:
+      # Disk space critical
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.10
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Critical disk space on {{ $labels.instance }}"
+          description: "Disk space on {{ $labels.instance }} is below 10%. Free space: {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.supernova.io/runbooks/disk-space"
+          
+      # Memory usage critical
+      - alert: MemoryUsageCritical
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.90
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Critical memory usage on {{ $labels.instance }}"
+          description: "Memory usage on {{ $labels.instance }} is above 90%. Current: {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.supernova.io/runbooks/memory-usage"
+
+  # ==========================================================================
+  # Performance Alerts (Warning)
+  # ==========================================================================
+  - name: supernova-performance
+    rules:
+      # Low peer count warning
+      - alert: LowPeerCount
+        expr: supernova_peer_count < 8 and supernova_peer_count >= 3
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Node {{ $labels.instance }} has low peer count"
+          description: "Node {{ $labels.instance }} has only {{ $value }} peers. Consider investigating network connectivity."
+          
+      # High mempool size
+      - alert: HighMempoolSize
+        expr: supernova_mempool_size > 50000
+        for: 15m
+        labels:
+          severity: warning
+          team: protocol
+        annotations:
+          summary: "High mempool size on {{ $labels.instance }}"
+          description: "Mempool has {{ $value }} transactions. This may indicate network congestion or block space issues."
+          
+      # Elevated error rate
+      - alert: ElevatedErrorRate
+        expr: rate(supernova_errors_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: protocol
+        annotations:
+          summary: "Elevated error rate on {{ $labels.instance }}"
+          description: "Error rate is {{ $value | humanize }}/s. Check logs for details."
+          
+      # Block propagation latency
+      - alert: HighBlockPropagationLatency
+        expr: histogram_quantile(0.95, rate(supernova_block_propagation_seconds_bucket[5m])) > 2
+        for: 10m
+        labels:
+          severity: warning
+          team: protocol
+        annotations:
+          summary: "High block propagation latency"
+          description: "P95 block propagation latency is {{ $value | humanizeDuration }}. Network may have connectivity issues."
+          
+      # RPC latency warning
+      - alert: HighRPCLatency
+        expr: histogram_quantile(0.95, rate(supernova_rpc_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "High RPC latency on {{ $labels.instance }}"
+          description: "P95 RPC latency is {{ $value | humanizeDuration }}. Consider scaling or optimization."
+          
+      # Disk space warning
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.20
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk space on {{ $labels.instance }} is below 20%. Plan for capacity expansion."
+
+  # ==========================================================================
+  # Security Alerts
+  # ==========================================================================
+  - name: supernova-security
+    rules:
+      # Deep reorganization detected
+      - alert: DeepReorgDetected
+        expr: increase(supernova_reorg_depth_total{depth="deep"}[1h]) > 0
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Deep chain reorganization detected"
+          description: "A reorganization of more than 10 blocks has occurred. This could indicate a 51% attack."
+          runbook_url: "https://docs.supernova.io/runbooks/deep-reorg"
+          
+      # Rate limit exceeded spikes
+      - alert: RateLimitExceededSpike
+        expr: rate(supernova_rate_limit_exceeded_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate of rate limit violations"
+          description: "Rate limit exceeded {{ $value | humanize }}/s. Could indicate DDoS attempt."
+          
+      # Failed signature verifications
+      - alert: HighSignatureFailures
+        expr: rate(supernova_signature_verification_failed_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate of signature verification failures"
+          description: "{{ $value | humanize }} signature failures per second. May indicate malicious transactions."
+
+  # ==========================================================================
+  # Lightning Network Alerts
+  # ==========================================================================
+  - name: supernova-lightning
+    rules:
+      # Channel force close
+      - alert: LightningForceClose
+        expr: increase(supernova_lightning_force_close_total[1h]) > 0
+        labels:
+          severity: warning
+          team: protocol
+        annotations:
+          summary: "Lightning channel force-closed"
+          description: "{{ $value }} channels have been force-closed in the last hour. Check for network issues or peer problems."
+          
+      # Low channel liquidity
+      - alert: LowChannelLiquidity
+        expr: supernova_lightning_local_balance_ratio < 0.1
+        for: 30m
+        labels:
+          severity: info
+          team: operations
+        annotations:
+          summary: "Low outbound liquidity in Lightning channels"
+          description: "Local balance ratio is {{ $value | humanizePercentage }}. Consider rebalancing."
+
+  # ==========================================================================
+  # Informational Alerts
+  # ==========================================================================
+  - name: supernova-info
+    rules:
+      # New version available
+      - alert: NewVersionAvailable
+        expr: supernova_version_latest > supernova_version_current
+        for: 24h
+        labels:
+          severity: info
+          team: operations
+        annotations:
+          summary: "New Supernova version available"
+          description: "Current version: {{ $labels.current_version }}, Latest: {{ $labels.latest_version }}"
+          
+      # High CPU usage (not critical but notable)
+      - alert: HighCPUUsage
+        expr: avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) < 0.2
+        for: 30m
+        labels:
+          severity: info
+          team: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU is {{ $value | humanizePercentage }} busy for extended period. Consider scaling."
+

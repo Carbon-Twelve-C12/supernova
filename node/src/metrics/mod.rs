@@ -282,6 +282,7 @@ impl Default for ApiMetricsManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::registry::MetricsConfig;
 
     #[test]
     fn test_init_metrics() {

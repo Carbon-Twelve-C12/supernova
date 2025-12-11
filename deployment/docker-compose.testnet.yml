@@ -1,0 +1,252 @@
+# Docker Compose for 3-Node Supernova Testnet
+# Simple deployment for local testing and development
+#
+# Usage:
+#   docker-compose -f deployment/docker-compose.testnet.yml up -d
+#   docker-compose -f deployment/docker-compose.testnet.yml logs -f
+#   docker-compose -f deployment/docker-compose.testnet.yml down
+
+version: '3.8'
+
+services:
+  # Node 1 - Bootstrap/Seed Node
+  supernova-node-1:
+    build:
+      context: ..
+      dockerfile: deployment/docker/Dockerfile.node
+    container_name: supernova-testnet-node-1
+    hostname: node-1
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      - SUPERNOVA_NODE_ID=testnet-node-1
+      - SUPERNOVA_NODE_TYPE=bootstrap
+      - SUPERNOVA_P2P_PORT=8333
+      - SUPERNOVA_RPC_PORT=8332
+      - SUPERNOVA_METRICS_PORT=9100
+      - SUPERNOVA_DATA_DIR=/data/supernova
+      - SUPERNOVA_QUANTUM_ENABLED=true
+      - SUPERNOVA_ENVIRONMENTAL_TRACKING=true
+      - SUPERNOVA_ENABLE_MINING=true
+      - SUPERNOVA_MINING_THREADS=2
+      - SUPERNOVA_BOOTSTRAP_NODES=
+      - RUST_LOG=info,supernova=debug
+    ports:
+      - "8333:8333"   # P2P
+      - "8332:8332"   # RPC
+      - "9100:9100"   # Metrics
+    volumes:
+      - node1-data:/data/supernova
+      - ./config:/config:ro
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.28.0.10
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8332/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  # Node 2 - Standard Node
+  supernova-node-2:
+    build:
+      context: ..
+      dockerfile: deployment/docker/Dockerfile.node
+    container_name: supernova-testnet-node-2
+    hostname: node-2
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      - SUPERNOVA_NODE_ID=testnet-node-2
+      - SUPERNOVA_NODE_TYPE=full
+      - SUPERNOVA_P2P_PORT=8333
+      - SUPERNOVA_RPC_PORT=8332
+      - SUPERNOVA_METRICS_PORT=9100
+      - SUPERNOVA_DATA_DIR=/data/supernova
+      - SUPERNOVA_QUANTUM_ENABLED=true
+      - SUPERNOVA_ENVIRONMENTAL_TRACKING=true
+      - SUPERNOVA_ENABLE_MINING=true
+      - SUPERNOVA_MINING_THREADS=2
+      - SUPERNOVA_BOOTSTRAP_NODES=node-1:8333
+      - RUST_LOG=info,supernova=debug
+    ports:
+      - "8343:8333"   # P2P
+      - "8342:8332"   # RPC
+      - "9101:9100"   # Metrics
+    volumes:
+      - node2-data:/data/supernova
+      - ./config:/config:ro
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.28.0.11
+    depends_on:
+      supernova-node-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8332/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  # Node 3 - Standard Node
+  supernova-node-3:
+    build:
+      context: ..
+      dockerfile: deployment/docker/Dockerfile.node
+    container_name: supernova-testnet-node-3
+    hostname: node-3
+    user: "1001:1001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      - SUPERNOVA_NODE_ID=testnet-node-3
+      - SUPERNOVA_NODE_TYPE=full
+      - SUPERNOVA_P2P_PORT=8333
+      - SUPERNOVA_RPC_PORT=8332
+      - SUPERNOVA_METRICS_PORT=9100
+      - SUPERNOVA_DATA_DIR=/data/supernova
+      - SUPERNOVA_QUANTUM_ENABLED=true
+      - SUPERNOVA_ENVIRONMENTAL_TRACKING=true
+      - SUPERNOVA_ENABLE_MINING=true
+      - SUPERNOVA_MINING_THREADS=2
+      - SUPERNOVA_BOOTSTRAP_NODES=node-1:8333,node-2:8333
+      - RUST_LOG=info,supernova=debug
+    ports:
+      - "8353:8333"   # P2P
+      - "8352:8332"   # RPC
+      - "9102:9100"   # Metrics
+    volumes:
+      - node3-data:/data/supernova
+      - ./config:/config:ro
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.28.0.12
+    depends_on:
+      supernova-node-1:
+        condition: service_healthy
+      supernova-node-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8332/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: supernova-testnet-prometheus
+    user: "65534:65534"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.28.0.20
+    restart: unless-stopped
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: supernova-testnet-grafana
+    user: "472:472"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=supernova-testnet
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      supernova-testnet:
+        ipv4_address: 172.28.0.21
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+networks:
+  supernova-testnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1
+
+volumes:
+  node1-data:
+    name: supernova-testnet-node1
+  node2-data:
+    name: supernova-testnet-node2
+  node3-data:
+    name: supernova-testnet-node3
+  prometheus-data:
+    name: supernova-testnet-prometheus
+  grafana-data:
+    name: supernova-testnet-grafana
+

@@ -21,6 +21,15 @@ mod tests {
             circuit_breaker_enabled: true,
             circuit_breaker_threshold: 0.5,
             circuit_breaker_timeout: Duration::from_secs(30),
+            // Per-message-type rate limits
+            block_request_limit: 100,
+            transaction_broadcast_limit: 500,
+            peer_discovery_limit: 100,
+            general_message_limit: 1000,
+            global_message_limit: 10000,
+            exponential_backoff_enabled: true,
+            base_backoff_duration: Duration::from_secs(1),
+            max_backoff_duration: Duration::from_secs(3600),
         };
 
         let limiter = NetworkRateLimiter::new(config);

@@ -1,0 +1,126 @@
+# Supernova Prometheus Configuration
+# PRODUCTION MODULE (P1-010): Production monitoring stack
+#
+# This configuration sets up Prometheus to scrape metrics from:
+# - Supernova nodes
+# - System metrics (via node_exporter)
+# - Process metrics
+#
+# Documentation: https://prometheus.io/docs/prometheus/latest/configuration/
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  
+  # Labels applied to all metrics
+  external_labels:
+    monitor: 'supernova-production'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Rule files
+rule_files:
+  - "alerts.yml"
+
+# Scrape configurations
+scrape_configs:
+  # ==========================================================================
+  # Prometheus self-monitoring
+  # ==========================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'prometheus'
+
+  # ==========================================================================
+  # Supernova Node Metrics
+  # ==========================================================================
+  - job_name: 'supernova-node'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    metrics_path: '/metrics'
+    
+    # Node discovery - update targets for your deployment
+    static_configs:
+      - targets:
+        - 'supernova-node-1:9100'
+        - 'supernova-node-2:9100'
+        - 'supernova-node-3:9100'
+        labels:
+          cluster: 'mainnet'
+          service: 'supernova-node'
+    
+    # Kubernetes service discovery (alternative to static)
+    # kubernetes_sd_configs:
+    #   - role: pod
+    #     namespaces:
+    #       names: ['supernova']
+    # relabel_configs:
+    #   - source_labels: [__meta_kubernetes_pod_label_app]
+    #     regex: supernova-node
+    #     action: keep
+    #   - source_labels: [__meta_kubernetes_pod_ip]
+    #     action: replace
+    #     target_label: __address__
+    #     replacement: ${1}:9100
+
+  # ==========================================================================
+  # System Metrics (Node Exporter)
+  # ==========================================================================
+  - job_name: 'node-exporter'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+        - 'node-exporter-1:9100'
+        - 'node-exporter-2:9100'
+        - 'node-exporter-3:9100'
+        labels:
+          service: 'node-exporter'
+
+  # ==========================================================================
+  # RPC Endpoint Health
+  # ==========================================================================
+  - job_name: 'supernova-rpc'
+    scrape_interval: 30s
+    metrics_path: '/health/ready'
+    static_configs:
+      - targets:
+        - 'supernova-rpc:8332'
+        labels:
+          service: 'supernova-rpc'
+    
+    # Custom metric relabeling
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'go_.*'
+        action: drop
+
+  # ==========================================================================
+  # Blackbox Exporter (External Probes)
+  # ==========================================================================
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - 'https://rpc.supernova.io/health'
+        labels:
+          probe_type: 'http'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+

@@ -467,7 +467,7 @@ mod tests {
         let mut filter = SupernovaBloomFilter::new(1000, 0.001, 0).unwrap();
         
         // Add 1000 elements
-        for i in 0..1000 {
+        for i in 0i32..1000 {
             filter.add(&i.to_le_bytes());
         }
 
@@ -494,7 +494,7 @@ mod tests {
         let mut filter = SupernovaBloomFilter::new(100, 0.01, 0).unwrap();
         
         // Add some elements
-        for i in 0..50 {
+        for i in 0i32..50 {
             filter.add(&i.to_le_bytes());
         }
 
@@ -508,10 +508,10 @@ mod tests {
         let mut filter2 = SupernovaBloomFilter::new(100, 0.01, 0).unwrap();
 
         // Add different elements to each filter
-        for i in 0..50 {
+        for i in 0i32..50 {
             filter1.add(&i.to_le_bytes());
         }
-        for i in 50..100 {
+        for i in 50i32..100 {
             filter2.add(&i.to_le_bytes());
         }
 
@@ -519,7 +519,7 @@ mod tests {
         filter1.merge(&filter2).unwrap();
 
         // Both sets should be contained
-        for i in 0..100 {
+        for i in 0i32..100 {
             assert!(filter1.contains(&i.to_le_bytes()));
         }
     }

@@ -9,6 +9,7 @@ mod eclipse_prevention_tests {
     use super::super::p2p::P2PNetwork;
     use libp2p::PeerId;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::sleep;
 

@@ -1,0 +1,10 @@
+# Kubernetes Namespace for Supernova Testnet
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: supernova-testnet
+  labels:
+    app.kubernetes.io/name: supernova
+    app.kubernetes.io/component: blockchain
+    environment: testnet
+

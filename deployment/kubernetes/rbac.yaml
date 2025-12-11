@@ -1,0 +1,51 @@
+# ServiceAccount for Supernova nodes
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: supernova-node
+  namespace: supernova-testnet
+  labels:
+    app.kubernetes.io/name: supernova
+    app.kubernetes.io/component: security
+---
+# Role for minimal required permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: supernova-node-role
+  namespace: supernova-testnet
+  labels:
+    app.kubernetes.io/name: supernova
+    app.kubernetes.io/component: security
+rules:
+  # Allow reading ConfigMaps and Secrets in the namespace
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading pod information (for peer discovery)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading endpoints (for service discovery)
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+---
+# RoleBinding to attach the role to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: supernova-node-rolebinding
+  namespace: supernova-testnet
+  labels:
+    app.kubernetes.io/name: supernova
+    app.kubernetes.io/component: security
+subjects:
+  - kind: ServiceAccount
+    name: supernova-node
+    namespace: supernova-testnet
+roleRef:
+  kind: Role
+  name: supernova-node-role
+  apiGroup: rbac.authorization.k8s.io
+

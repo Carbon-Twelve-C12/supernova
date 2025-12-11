@@ -2590,6 +2590,30 @@ impl BlockchainDB {
         self.store_metadata(HEIGHT_KEY, &height.to_be_bytes())
     }
 
+    /// Perform a health check on the database
+    ///
+    /// Verifies that the database is accessible and functional by:
+    /// 1. Reading the current height metadata
+    /// 2. Verifying the blocks tree is accessible
+    ///
+    /// Returns Ok(()) if healthy, Err with details if not.
+    pub fn health_check(&self) -> Result<(), StorageError> {
+        // Try to read height metadata - this exercises the metadata tree
+        let _ = self.get_height()?;
+        
+        // Try to check if blocks tree is accessible
+        let _ = self.blocks.len();
+        
+        // Try to verify the database is not in a corrupted state
+        // by checking if we can iterate (quickly)
+        if let Some(first) = self.blocks.first()? {
+            // Just verify we can read the first entry
+            let _ = first;
+        }
+        
+        Ok(())
+    }
+
     // ===== ARCHITECTURAL BRIDGE ADAPTER METHODS =====
     // These methods provide compatibility for the node layer
 

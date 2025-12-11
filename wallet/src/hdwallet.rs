@@ -8,6 +8,7 @@ use bitcoin::{
 };
 use chrono::Utc;
 use supernova_core::storage::utxo_set::UtxoSet;
+use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
@@ -97,8 +98,9 @@ pub enum AccountType {
 impl HDWallet {
     pub fn new(network: Network, wallet_path: PathBuf) -> Result<Self, HDWalletError> {
         // Generate entropy for a 12-word mnemonic (128 bits = 16 bytes)
+        // SECURITY FIX (P0-006): Use OsRng instead of thread_rng for cryptographic entropy
         let mut entropy = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut entropy);
+        OsRng.fill_bytes(&mut entropy);
 
         // Create mnemonic from entropy
         let mnemonic = Mnemonic::from_entropy(&entropy)
@@ -316,7 +318,8 @@ impl HDWallet {
             .ok_or_else(|| HDWalletError::AccountNotFound(account_name.to_string()))?;
 
         let secp = Secp256k1::new();
-        let secret_key = SecretKey::new(&mut rand::thread_rng());
+        // SECURITY FIX (P0-006): Use OsRng instead of thread_rng for secret key generation
+        let secret_key = SecretKey::new(&mut OsRng);
         let private_key = PrivateKey::new(secret_key, self.network);
         let public_key = private_key.public_key(&secp);
 

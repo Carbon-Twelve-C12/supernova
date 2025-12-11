@@ -8,6 +8,7 @@ use bitcoin::{
     Address, Amount, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction, TxIn,
     TxOut, Witness,
 };
+use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -60,7 +61,8 @@ pub struct UTXO {
 impl Wallet {
     pub fn new(network: Network) -> Result<Self, WalletError> {
         let secp = Secp256k1::new();
-        let (secret_key, _) = secp.generate_keypair(&mut rand::thread_rng());
+        // SECURITY FIX (P0-006): Use OsRng instead of thread_rng for key generation
+        let (secret_key, _) = secp.generate_keypair(&mut OsRng);
         let private_key = PrivateKey::new(secret_key, network);
 
         Ok(Self {

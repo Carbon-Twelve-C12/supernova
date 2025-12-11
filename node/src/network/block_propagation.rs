@@ -582,8 +582,10 @@ mod tests {
 
     fn create_test_block(height: u64) -> Block {
         let coinbase = Transaction::new(
+            1, // version
             vec![TransactionInput::new([0u8; 32], 0, vec![], 0xffffffff)],
             vec![TransactionOutput::new(50_000_000, vec![])],
+            0, // lock_time
         );
 
         Block::new(

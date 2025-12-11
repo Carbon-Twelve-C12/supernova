@@ -889,11 +889,11 @@ mod tests {
         assert!(!manager.has_inbound_slots());
 
         // Close one connection of each type
-        let first_outbound = manager.connections.iter().find(|(_, conns)| {
+        let first_outbound = manager.connections.iter().find(|(peer_id, conns)| {
             if let Some(conn_id) = conns.first() {
-                let key = ((*conn_id).clone(), (*conn_id));
-                manager.connection_states.get(&key).map_or(false, |&state| {
-                    if let Some(endpoint) = manager.peer_endpoints.get(conn_id) {
+                let key = ((*peer_id).clone(), *conn_id);
+                manager.connection_states.get(&key).map_or(false, |_state| {
+                    if let Some(endpoint) = manager.peer_endpoints.get(peer_id) {
                         match endpoint {
                             ConnectedPoint::Dialer { .. } => true,
                             _ => false,
@@ -912,11 +912,11 @@ mod tests {
             manager.handle_connection_closed(&peer_id, conn_id);
         }
 
-        let first_inbound = manager.connections.iter().find(|(_, conns)| {
+        let first_inbound = manager.connections.iter().find(|(peer_id, conns)| {
             if let Some(conn_id) = conns.first() {
-                let key = ((*conn_id).clone(), (*conn_id));
-                manager.connection_states.get(&key).map_or(false, |&state| {
-                    if let Some(endpoint) = manager.peer_endpoints.get(conn_id) {
+                let key = ((*peer_id).clone(), *conn_id);
+                manager.connection_states.get(&key).map_or(false, |_state| {
+                    if let Some(endpoint) = manager.peer_endpoints.get(peer_id) {
                         match endpoint {
                             ConnectedPoint::Listener { .. } => true,
                             _ => false,

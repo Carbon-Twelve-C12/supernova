@@ -511,8 +511,10 @@ mod tests {
 
     fn create_test_transaction(value: u64) -> Arc<Transaction> {
         Arc::new(Transaction::new(
+            1, // version
             vec![TransactionInput::new([1u8; 32], 0, vec![], 0xffffffff)],
             vec![TransactionOutput::new(value, vec![])],
+            0, // lock_time
         ))
     }
 

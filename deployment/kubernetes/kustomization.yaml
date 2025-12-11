@@ -1,0 +1,41 @@
+# Kustomization file for Supernova Testnet Deployment
+# Deploy with: kubectl apply -k deployment/kubernetes/
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: supernova-testnet
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: supernova
+  app.kubernetes.io/part-of: supernova-blockchain
+  app.kubernetes.io/managed-by: kustomize
+  environment: testnet
+
+# Resources to deploy in order
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - configmap.yaml
+  - pdb.yaml
+  - network-policy.yaml
+  - service.yaml
+  - statefulset.yaml
+
+# Images can be customized per environment
+images:
+  - name: supernova/node
+    newTag: latest
+
+# Patches for environment-specific customization
+# Uncomment and modify for production/staging
+# patchesStrategicMerge:
+#   - patches/production-resources.yaml
+
+# Configuration for generating ConfigMaps/Secrets
+# configMapGenerator:
+#   - name: supernova-env-config
+#     envs:
+#       - .env.testnet
+

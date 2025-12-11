@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub mod blockchain;
 pub mod environmental;
 pub mod faucet;
+pub mod health;
 pub mod lightning;
 pub mod mempool;
 pub mod mining;
@@ -23,6 +24,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg
         // JSON-RPC 2.0 API at root (main endpoint)
         .configure(crate::api::jsonrpc::configure)
+        // Health check routes (Kubernetes probes)
+        .configure(health::configure)
         // Blockchain routes
         .service(web::scope("/api/v1/blockchain").configure(blockchain::configure))
         // Node routes
@@ -42,12 +45,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Environmental routes
         .service(web::scope("/api/v1/environmental").configure(environmental::configure));
 
-    // Add health check endpoint at root
-    cfg.route("/health", web::get().to(health_check));
+    // Legacy health check endpoint (for backwards compatibility)
+    cfg.route("/health", web::get().to(health_check_legacy));
 }
 
-/// Health check endpoint
-async fn health_check() -> actix_web::HttpResponse {
+/// Legacy health check endpoint (for backwards compatibility)
+/// Use /health/live and /health/ready for Kubernetes probes
+async fn health_check_legacy() -> actix_web::HttpResponse {
     actix_web::HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),

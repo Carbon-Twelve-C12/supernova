@@ -1,0 +1,86 @@
+# ConfigMap for Supernova Node Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supernova-config
+  namespace: supernova-testnet
+  labels:
+    app.kubernetes.io/name: supernova
+    app.kubernetes.io/component: config
+data:
+  # Node configuration
+  node.toml: |
+    [network]
+    network_id = "testnet"
+    p2p_port = 8333
+    rpc_port = 8332
+    max_peers = 50
+    enable_upnp = false
+    
+    [consensus]
+    block_time_target = 600  # 10 minutes in seconds
+    difficulty_adjustment_interval = 2016
+    initial_difficulty = 0x1d00ffff
+    
+    [quantum]
+    enabled = true
+    signature_scheme = "ml-dsa-65"  # NIST Level 3
+    kem_scheme = "ml-kem-768"
+    
+    [environmental]
+    tracking_enabled = true
+    carbon_offset_required = true
+    renewable_energy_bonus = true
+    
+    [storage]
+    data_dir = "/data/supernova"
+    max_db_size = "100GB"
+    pruning_enabled = false
+    
+    [mining]
+    enabled = true
+    threads = 2
+    green_mining_bonus = true
+    
+    [api]
+    enabled = true
+    cors_enabled = true
+    rate_limit_enabled = true
+    rate_limit_requests = 100
+    rate_limit_window = 60
+  
+  # Bootstrap nodes list
+  bootstrap-nodes.json: |
+    {
+      "bootstrap_nodes": [
+        {
+          "id": "supernova-node-0",
+          "address": "supernova-node-0.supernova-headless.supernova-testnet.svc.cluster.local:8333"
+        },
+        {
+          "id": "supernova-node-1", 
+          "address": "supernova-node-1.supernova-headless.supernova-testnet.svc.cluster.local:8333"
+        },
+        {
+          "id": "supernova-node-2",
+          "address": "supernova-node-2.supernova-headless.supernova-testnet.svc.cluster.local:8333"
+        }
+      ]
+    }
+  
+  # Genesis block configuration
+  genesis.json: |
+    {
+      "version": 1,
+      "timestamp": 1700000000,
+      "difficulty": "0x1d00ffff",
+      "nonce": 0,
+      "transactions": [],
+      "environmental_data": {
+        "carbon_neutral": true,
+        "renewable_percentage": 100
+      },
+      "quantum_secured": true,
+      "message": "Supernova Testnet Genesis Block - Quantum Resistant, Carbon Negative"
+    }
+

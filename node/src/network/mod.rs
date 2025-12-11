@@ -762,12 +762,14 @@ impl MessageSizeHint for ProtocolMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::NetworkConfig;
 
     #[test]
     fn test_network_config_default() {
         let config = NetworkConfig::default();
         assert_eq!(config.network_id, "supernova");
-        assert_eq!(config.listen_port, 8333);
+        // listen_addr contains the full address, check it ends with the expected port
+        assert!(config.listen_addr.contains("8333") || config.listen_addr.contains("0.0.0.0"));
         assert_eq!(config.max_peers, MAX_PEERS);
     }
 

@@ -1,0 +1,180 @@
+# StatefulSet for Supernova Blockchain Nodes
+# Deploys 3 nodes for testnet with stable network identities
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: supernova-node
+  namespace: supernova-testnet
+  labels:
+    app.kubernetes.io/name: supernova
+    app.kubernetes.io/component: node
+spec:
+  serviceName: supernova-headless
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: supernova
+      app.kubernetes.io/component: node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: supernova
+        app.kubernetes.io/component: node
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: supernova-node
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      
+      # Pod anti-affinity to spread nodes across different K8s nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: supernova
+                    app.kubernetes.io/component: node
+                topologyKey: kubernetes.io/hostname
+      
+      initContainers:
+        # Init container to set up data directory permissions
+        - name: init-permissions
+          image: busybox:1.36
+          command: ['sh', '-c', 'chown -R 1001:1001 /data/supernova']
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /data/supernova
+      
+      containers:
+        - name: supernova-node
+          image: supernova/node:latest
+          imagePullPolicy: IfNotPresent
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+          
+          env:
+            - name: SUPERNOVA_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SUPERNOVA_P2P_PORT
+              value: "8333"
+            - name: SUPERNOVA_RPC_PORT
+              value: "8332"
+            - name: SUPERNOVA_METRICS_PORT
+              value: "9100"
+            - name: SUPERNOVA_DATA_DIR
+              value: "/data/supernova"
+            - name: SUPERNOVA_CONFIG_FILE
+              value: "/config/node.toml"
+            - name: SUPERNOVA_BOOTSTRAP_NODES
+              value: "/config/bootstrap-nodes.json"
+            - name: SUPERNOVA_GENESIS_FILE
+              value: "/config/genesis.json"
+            - name: SUPERNOVA_QUANTUM_ENABLED
+              value: "true"
+            - name: SUPERNOVA_ENVIRONMENTAL_TRACKING
+              value: "true"
+            - name: RUST_LOG
+              value: "info,supernova=debug"
+          
+          ports:
+            - name: p2p
+              containerPort: 8333
+              protocol: TCP
+            - name: rpc
+              containerPort: 8332
+              protocol: TCP
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          
+          volumeMounts:
+            - name: data
+              mountPath: /data/supernova
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          
+          # Liveness probe: is the process alive?
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: rpc
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          # Readiness probe: is the node ready to serve traffic?
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: rpc
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          
+          # Startup probe: longer timeout for initial sync
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: rpc
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30  # 5 minutes to start up
+          
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+      
+      volumes:
+        - name: config
+          configMap:
+            name: supernova-config
+        - name: tmp
+          emptyDir: {}
+      
+      terminationGracePeriodSeconds: 120
+  
+  # Persistent volume claim template for node data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: supernova
+          app.kubernetes.io/component: storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard  # Adjust based on your cluster
+        resources:
+          requests:
+            storage: 100Gi
+
