@@ -127,3 +127,10 @@ vergen = { version = "8", features = ["build", "git", "gitcl", "rustc", "cargo"]
 name = "node"
 path = "src/lib.rs"
 
+[[bench]]
+name = "utxo_benchmarks"
+harness = false
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+

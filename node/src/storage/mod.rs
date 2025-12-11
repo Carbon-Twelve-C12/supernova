@@ -14,6 +14,7 @@ pub mod memory;
 pub mod persistence;
 pub mod traits;
 pub mod transaction_index;
+pub mod utxo_cache;
 pub mod utxo_set;
 
 #[cfg(test)]
@@ -42,4 +43,8 @@ pub use traits::Storage;
 pub use transaction_index::{
     BlockLocation, IndexStatistics, IndexedTransaction, TransactionIndexConfig, TransactionIndexer,
     TransactionIndexError,
+};
+pub use utxo_cache::{
+    CacheEntry, CacheEntryState, CacheStatistics, PruningConfig, UtxoCache, UtxoCacheConfig,
+    UtxoSnapshot, load_from_snapshot,
 };
