@@ -40,6 +40,7 @@ chrono = "0.4"
 config = "0.13"
 anyhow = "1.0"
 thiserror = "1.0"
+rayon = "1.7"
 dirs = "5.0"
 uuid = { version = "1.5", features = ["v4", "serde"] }
 sysinfo = "0.30"
