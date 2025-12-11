@@ -137,13 +137,20 @@ impl<'a> VerificationOperation<'a> {
 }
 
 pub mod collector;
-pub mod error_metrics;  // Error metrics for P1-005
+pub mod eclipse_metrics;  // Eclipse attack prevention metrics (P1-008)
+pub mod error_metrics;    // Error metrics for P1-005
 pub mod performance;
-pub mod privacy;     // Metrics privacy filtering
+pub mod privacy;          // Metrics privacy filtering
 pub mod registry;
 pub mod types;
 
 pub use collector::MetricsCollector;
+pub use eclipse_metrics::{
+    AttackIndicator, EclipseMetrics, EclipseMetricsSnapshot, EclipseRiskLevel,
+    global_eclipse_metrics, record_attack_indicator, update_connection_balance,
+    update_diversity, update_risk_level,
+    export_prometheus_metrics as export_eclipse_metrics,
+};
 pub use error_metrics::{
     ErrorComponent, ErrorMetrics, ErrorMetricsSummary, ErrorRecord, ErrorType,
     GLOBAL_ERROR_METRICS, record_error, record_error_with_context, error_summary,
