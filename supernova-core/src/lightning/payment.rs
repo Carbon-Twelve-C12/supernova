@@ -134,8 +134,8 @@ pub struct Htlc {
     pub id: u64,
     /// Payment hash
     pub payment_hash: [u8; 32],
-    /// Amount in satoshis
-    pub amount_sat: u64,
+    /// Amount in nova units (smallest denomination)
+    pub amount_nova: u64,
     /// CLTV expiry height
     pub cltv_expiry: u32,
     /// Whether this HTLC is offered by us (outgoing) or received (incoming)
@@ -209,16 +209,16 @@ pub struct Payment {
     pub payment_hash: PaymentHash,
     /// Payment preimage (if known)
     pub payment_preimage: Option<PaymentPreimage>,
-    /// Amount in millisatoshis
-    pub amount_msat: u64,
+    /// Amount in millinova (mnova)
+    pub amount_mnova: u64,
     /// Payment status
     pub status: PaymentStatus,
     /// Creation timestamp
     pub created_at: u64,
     /// Completion timestamp
     pub completed_at: Option<u64>,
-    /// Fee paid in millisatoshis
-    pub fee_msat: u64,
+    /// Fee paid in millinova (mnova)
+    pub fee_mnova: u64,
     /// Payment route taken
     pub route: Option<Vec<RouteHop>>,
     /// Failure reason if payment failed
@@ -234,20 +234,20 @@ pub struct RouteHop {
     pub channel_id: u64,
     /// Node public key
     pub node_id: String,
-    /// Amount to forward in millisatoshis
-    pub amount_msat: u64,
-    /// Fee for this hop in millisatoshis
-    pub fee_msat: u64,
+    /// Amount to forward in millinova (mnova)
+    pub amount_mnova: u64,
+    /// Fee for this hop in millinova (mnova)
+    pub fee_mnova: u64,
     /// CLTV expiry delta
     pub cltv_expiry_delta: u16,
 }
 
 impl RouteHop {
     /// Calculate fee for forwarding an amount through this hop
-    pub fn channel_fee(&self, amount_msat: u64) -> u64 {
+    pub fn channel_fee(&self, amount_mnova: u64) -> u64 {
         // Base fee + proportional fee
-        let base_fee: u64 = 1000; // 1 sat base fee
-        let proportional_fee = amount_msat
+        let base_fee: u64 = 1000; // 1 nova-unit base fee (expressed in mnova context)
+        let proportional_fee = amount_mnova
             .saturating_mul(100)
             .saturating_div(1_000_000); // 0.01% proportional fee
         base_fee.saturating_add(proportional_fee)
@@ -280,7 +280,7 @@ impl PaymentProcessor {
     /// Create a new payment
     pub fn create_payment(
         &mut self,
-        amount_msat: u64,
+        amount_mnova: u64,
         destination: &str,
     ) -> Result<PaymentHash, PaymentError> {
         let preimage = PaymentPreimage::new_random();
@@ -289,14 +289,14 @@ impl PaymentProcessor {
         let payment = Payment {
             payment_hash,
             payment_preimage: Some(preimage),
-            amount_msat,
+            amount_mnova,
             status: PaymentStatus::Pending,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
             completed_at: None,
-            fee_msat: 0,
+            fee_mnova: 0,
             route: None,
             failure_reason: None,
             carbon_footprint_grams: None,
@@ -305,9 +305,9 @@ impl PaymentProcessor {
         self.payments.insert(payment_hash, payment);
 
         info!(
-            "Created payment: hash={:x?}, amount={} msat, destination={}",
+            "Created payment: hash={:x?}, amount={} mnova, destination={}",
             &payment_hash.as_bytes()[0..4],
-            amount_msat,
+            amount_mnova,
             destination
         );
 
@@ -318,7 +318,7 @@ impl PaymentProcessor {
     pub fn add_htlc(
         &mut self,
         payment_hash: [u8; 32],
-        amount_sat: u64,
+        amount_nova: u64,
         cltv_expiry: u32,
         offered: bool,
     ) -> Result<u64, PaymentError> {
@@ -328,7 +328,7 @@ impl PaymentProcessor {
         let htlc = Htlc {
             id: htlc_id,
             payment_hash,
-            amount_sat,
+            amount_nova,
             cltv_expiry,
             offered,
             state: HtlcState::Pending,
@@ -338,10 +338,10 @@ impl PaymentProcessor {
         self.htlcs.insert(htlc_id, htlc);
 
         debug!(
-            "Added HTLC {}: payment_hash={:x?}, amount={} sat, offered={}",
+            "Added HTLC {}: payment_hash={:x?}, amount={} nova units, offered={}",
             htlc_id,
             &payment_hash[0..4],
-            amount_sat,
+            amount_nova,
             offered
         );
 
