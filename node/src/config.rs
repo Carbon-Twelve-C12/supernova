@@ -5,7 +5,26 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
+use thiserror::Error;
 use tracing::{error, info, warn};
+
+#[derive(Debug, Error)]
+pub enum NodeConfigValidationError {
+    #[error("Invalid port: {0}")]
+    InvalidPort(String),
+
+    #[error("Port conflict: {0}")]
+    PortConflict(String),
+
+    #[error("Invalid value: {0}")]
+    InvalidValue(String),
+
+    #[error("Invalid path: {0}")]
+    InvalidPath(String),
+
+    #[error("Missing required field: {0}")]
+    MissingField(String),
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct NodeConfig {
@@ -154,6 +173,304 @@ pub struct PubSubConfig {
     pub validation_mode: String,
     pub max_transmit_size: usize,
     pub explicit_relays: usize,
+}
+
+fn parse_libp2p_listen_port(listen_addr: &str) -> Result<u16, NodeConfigValidationError> {
+    // Expected pattern contains "/tcp/<port>"
+    let port_str = listen_addr
+        .split("/tcp/")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .ok_or_else(|| {
+            NodeConfigValidationError::InvalidValue(format!(
+                "network.listen_addr must contain '/tcp/<port>': got '{listen_addr}'"
+            ))
+        })?;
+
+    let port: u16 = port_str.parse().map_err(|_| {
+        NodeConfigValidationError::InvalidPort(format!(
+            "network.listen_addr has invalid TCP port '{port_str}'"
+        ))
+    })?;
+
+    if port == 0 {
+        return Err(NodeConfigValidationError::InvalidPort(
+            "network.listen_addr TCP port cannot be 0".to_string(),
+        ));
+    }
+
+    Ok(port)
+}
+
+impl NetworkConfig {
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        let _listen_port = parse_libp2p_listen_port(&self.listen_addr)?;
+
+        if self.max_peers < 8 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.max_peers must be >= 8".to_string(),
+            ));
+        }
+        if self.max_inbound_connections > self.max_peers {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.max_inbound_connections cannot exceed network.max_peers".to_string(),
+            ));
+        }
+        if self.max_outbound_connections > self.max_peers {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.max_outbound_connections cannot exceed network.max_peers".to_string(),
+            ));
+        }
+        if self.max_inbound_connections == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.max_inbound_connections must be > 0".to_string(),
+            ));
+        }
+        if self.max_outbound_connections == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.max_outbound_connections must be > 0".to_string(),
+            ));
+        }
+        if self.min_outbound_connections < 8 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.min_outbound_connections must be >= 8".to_string(),
+            ));
+        }
+        if self.min_outbound_connections > self.max_outbound_connections {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.min_outbound_connections cannot exceed network.max_outbound_connections"
+                    .to_string(),
+            ));
+        }
+        if self.peer_ping_interval.as_secs() < 1 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.peer_ping_interval must be >= 1 second".to_string(),
+            ));
+        }
+        if self.connection_timeout.as_secs() < 1 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.connection_timeout must be >= 1 second".to_string(),
+            ));
+        }
+        if self.reconnect_interval.as_secs() < 1 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.reconnect_interval must be >= 1 second".to_string(),
+            ));
+        }
+        if self.status_broadcast_interval.as_secs() < 1 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.status_broadcast_interval must be >= 1 second".to_string(),
+            ));
+        }
+        if self.ban_threshold == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.ban_threshold must be > 0".to_string(),
+            ));
+        }
+        if self.ban_duration.as_secs() < 60 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.ban_duration must be >= 60 seconds".to_string(),
+            ));
+        }
+        if self.network_id.trim().is_empty() {
+            return Err(NodeConfigValidationError::MissingField(
+                "network.network_id cannot be empty".to_string(),
+            ));
+        }
+
+        self.peer_diversity.validate()?;
+        self.pubsub_config.validate()?;
+        Ok(())
+    }
+}
+
+impl PeerDiversityConfig {
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if !(0.0..=1.0).contains(&self.min_diversity_score) {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.peer_diversity.min_diversity_score must be between 0.0 and 1.0"
+                    .to_string(),
+            ));
+        }
+        if self.rotation_interval.as_secs() < 60 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.peer_diversity.rotation_interval must be >= 60 seconds".to_string(),
+            ));
+        }
+        if self.max_peers_per_subnet == 0
+            || self.max_peers_per_asn == 0
+            || self.max_peers_per_region == 0
+        {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.peer_diversity max_peers_per_* values must be > 0".to_string(),
+            ));
+        }
+        if self.max_inbound_ratio <= 0.0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.peer_diversity.max_inbound_ratio must be > 0".to_string(),
+            ));
+        }
+        if self.max_connection_attempts_per_min == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.peer_diversity.max_connection_attempts_per_min must be > 0".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl PubSubConfig {
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        if self.history_length == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.pubsub_config.history_length must be > 0".to_string(),
+            ));
+        }
+        if self.duplicate_cache_size == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.pubsub_config.duplicate_cache_size must be > 0".to_string(),
+            ));
+        }
+        if self.max_transmit_size == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.pubsub_config.max_transmit_size must be > 0".to_string(),
+            ));
+        }
+        if self.heartbeat_interval.as_secs() < 1 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "network.pubsub_config.heartbeat_interval must be >= 1 second".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl StorageConfig {
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        if self.cache_size < 64 * 1024 * 1024 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "storage.cache_size must be >= 64MB".to_string(),
+            ));
+        }
+        if self.max_open_files <= 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "storage.max_open_files must be > 0".to_string(),
+            ));
+        }
+        if self.block_cache_size < 8 * 1024 * 1024 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "storage.block_cache_size must be >= 8MB".to_string(),
+            ));
+        }
+        fs::create_dir_all(&self.db_path).map_err(|e| {
+            NodeConfigValidationError::InvalidPath(format!(
+                "Cannot create storage.db_path {:?}: {e}",
+                self.db_path
+            ))
+        })?;
+        Ok(())
+    }
+}
+
+impl BackupConfig {
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        if self.max_backups == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "backup.max_backups must be > 0".to_string(),
+            ));
+        }
+        if self.backup_interval.as_secs() < 60 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "backup.backup_interval must be >= 60 seconds".to_string(),
+            ));
+        }
+        fs::create_dir_all(&self.backup_dir).map_err(|e| {
+            NodeConfigValidationError::InvalidPath(format!(
+                "Cannot create backup.backup_dir {:?}: {e}",
+                self.backup_dir
+            ))
+        })?;
+        Ok(())
+    }
+}
+
+impl MempoolConfig {
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        if self.max_size == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "mempool.max_size must be > 0".to_string(),
+            ));
+        }
+        if self.transaction_timeout.as_secs() < 60 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "mempool.transaction_timeout must be >= 60 seconds".to_string(),
+            ));
+        }
+        if self.min_fee_rate < 0.0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "mempool.min_fee_rate must be non-negative".to_string(),
+            ));
+        }
+        if self.max_orphan_transactions == 0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "mempool.max_orphan_transactions must be > 0".to_string(),
+            ));
+        }
+        if self.enable_rbf && self.min_rbf_fee_increase < 0.0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "mempool.min_rbf_fee_increase must be non-negative".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl GeneralConfig {
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        if self.chain_id.trim().is_empty() {
+            return Err(NodeConfigValidationError::MissingField(
+                "node.chain_id cannot be empty".to_string(),
+            ));
+        }
+        if self.network_name.trim().is_empty() {
+            return Err(NodeConfigValidationError::MissingField(
+                "node.network_name cannot be empty".to_string(),
+            ));
+        }
+        if self.metrics_enabled && self.metrics_port == 0 {
+            return Err(NodeConfigValidationError::InvalidPort(
+                "node.metrics_port cannot be 0 when metrics are enabled".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl CheckpointConfig {
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        if self.checkpoints_enabled {
+            if self.checkpoint_interval.as_secs() < 60 {
+                return Err(NodeConfigValidationError::InvalidValue(
+                    "checkpoint.checkpoint_interval must be >= 60 seconds".to_string(),
+                ));
+            }
+            if self.max_checkpoints == 0 {
+                return Err(NodeConfigValidationError::InvalidValue(
+                    "checkpoint.max_checkpoints must be > 0".to_string(),
+                ));
+            }
+            fs::create_dir_all(&self.data_dir).map_err(|e| {
+                NodeConfigValidationError::InvalidPath(format!(
+                    "Cannot create checkpoint.data_dir {:?}: {e}",
+                    self.data_dir
+                ))
+            })?;
+        }
+        Ok(())
+    }
 }
 
 mod duration_serde {
@@ -361,6 +678,9 @@ impl NodeConfig {
 
         let config: NodeConfig = config.build()?.try_deserialize()?;
         Self::ensure_directories(&config)?;
+        if let Err(e) = config.validate() {
+            return Err(ConfigError::Message(format!("Configuration validation error: {e}")));
+        }
 
         // Log loaded configuration for debugging
         info!("Configuration loaded:");
@@ -469,61 +789,42 @@ impl NodeConfig {
         Ok(())
     }
 
-    pub fn validate(&self) -> Result<(), String> {
-        if self.backup.max_backups == 0 {
-            return Err("max_backups must be greater than 0".to_string());
+    pub fn validate(&self) -> Result<(), NodeConfigValidationError> {
+        // Validate per-module config first
+        self.network.validate()?;
+        self.storage.validate()?;
+        self.mempool.validate()?;
+        self.backup.validate()?;
+        self.node.validate()?;
+        self.checkpoint.validate()?;
+
+        // Cross-field validation
+        let p2p_port = parse_libp2p_listen_port(&self.network.listen_addr)?;
+        if self.api.port == 0 {
+            return Err(NodeConfigValidationError::InvalidPort(
+                "api.port cannot be 0".to_string(),
+            ));
         }
-        if self.backup.backup_interval.as_secs() < 60 {
-            return Err("backup_interval must be at least 60 seconds".to_string());
+        if p2p_port == self.api.port {
+            return Err(NodeConfigValidationError::PortConflict(format!(
+                "network.listen_addr TCP port ({p2p_port}) must differ from api.port ({})",
+                self.api.port
+            )));
         }
 
-        if self.network.max_peers == 0 {
-            return Err("max_peers must be greater than 0".to_string());
-        }
-        if self.network.peer_ping_interval.as_secs() < 1 {
-            return Err("peer_ping_interval must be at least 1 second".to_string());
-        }
-        if self.network.max_inbound_connections == 0 {
-            return Err("max_inbound_connections must be greater than 0".to_string());
-        }
-        if self.network.max_outbound_connections == 0 {
-            return Err("max_outbound_connections must be greater than 0".to_string());
-        }
-        if self.network.min_outbound_connections > self.network.max_outbound_connections {
-            return Err(
-                "min_outbound_connections cannot exceed max_outbound_connections".to_string(),
-            );
-        }
-        if self.network.connection_timeout.as_secs() < 1 {
-            return Err("connection_timeout must be at least 1 second".to_string());
-        }
-        if self.network.peer_diversity.max_inbound_ratio <= 0.0 {
-            return Err("max_inbound_ratio must be positive".to_string());
-        }
-        if self.network.peer_diversity.min_diversity_score < 0.0
-            || self.network.peer_diversity.min_diversity_score > 1.0
+        // Production safety: refuse to start with default API key.
+        if matches!(self.node.environment, NetworkEnvironment::Production)
+            && self.api.enable_auth
+            && self
+                .api
+                .api_keys
+                .as_ref()
+                .map(|keys| keys.iter().any(|k| k.contains("CHANGE-ME")))
+                .unwrap_or(true)
         {
-            return Err("min_diversity_score must be between 0.0 and 1.0".to_string());
-        }
-
-        if self.mempool.max_size == 0 {
-            return Err("mempool max_size must be greater than 0".to_string());
-        }
-        if self.mempool.min_fee_rate < 0.0 {
-            return Err("min_fee_rate must be non-negative".to_string());
-        }
-        if self.mempool.max_orphan_transactions == 0 {
-            return Err("max_orphan_transactions must be greater than 0".to_string());
-        }
-        if self.mempool.min_rbf_fee_increase < 0.0 {
-            return Err("min_rbf_fee_increase must be non-negative".to_string());
-        }
-
-        if self.storage.max_open_files < 100 {
-            return Err("max_open_files must be at least 100".to_string());
-        }
-        if self.storage.block_cache_size == 0 {
-            return Err("block_cache_size must be greater than 0".to_string());
+            return Err(NodeConfigValidationError::InvalidValue(
+                "api.enable_auth is true in production, but api.api_keys is missing or contains the default 'CHANGE-ME' key".to_string(),
+            ));
         }
 
         Ok(())

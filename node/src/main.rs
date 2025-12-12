@@ -65,6 +65,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     });
 
+    // Validate early, fail fast (also runs during load, but keep explicit here for clarity)
+    if let Err(e) = config.validate() {
+        eprintln!("Configuration error: {e}");
+        std::process::exit(1);
+    }
+
     // Check if this is a testnet deployment
     let is_testnet =
         config.node.network_name.to_lowercase().contains("test") || config.testnet.enabled;
