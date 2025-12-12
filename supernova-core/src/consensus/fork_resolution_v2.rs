@@ -1,4 +1,4 @@
-//! Secure Fork Resolution V2 - Following Bitcoin's Proven Approach
+//! Secure Fork Resolution V2 - Following a Proven Approach
 //!
 //! This module implements fork resolution based on accumulated proof-of-work,
 //! the fundamental security mechanism of Nakamoto Consensus.
@@ -101,7 +101,7 @@ impl ProofOfWorkForkResolver {
 
         // Use a simplified calculation that preserves ordering:
         // work ≈ (2^256 - 1) / target
-        // For practical Bitcoin difficulties, this approximation maintains correct ordering
+        // For practical network difficulties, this approximation maintains correct ordering
 
         // Instead of complex division, we'll use the inverse relationship:
         // Lower bits (compact form) generally means higher difficulty
@@ -119,12 +119,12 @@ impl ProofOfWorkForkResolver {
     }
 
     /// Convert compact difficulty bits to 256-bit target
-    /// Following Bitcoin's exact algorithm from bitcoin/src/arith_uint256.cpp
+    /// Following the reference implementation algorithm from arith_uint256.cpp
     fn bits_to_target(&self, bits: u32) -> ForkResolutionResult<U256> {
         let exponent = ((bits >> 24) & 0xFF) as usize;
         let mantissa = bits & 0x00FFFFFF;
 
-        // Validate difficulty per Bitcoin rules
+        // Validate difficulty per reference rules
         if mantissa > 0x7fffff || exponent > 34 || (mantissa != 0 && exponent == 0) {
             return Err(ForkResolutionError::InvalidDifficulty(bits));
         }
@@ -356,7 +356,7 @@ mod tests {
     fn test_bits_to_target() {
         let resolver = ProofOfWorkForkResolver::new(1000);
 
-        // Test cases from Bitcoin
+        // Reference test cases
         let test_cases = vec![
             (
                 0x1d00ffff,

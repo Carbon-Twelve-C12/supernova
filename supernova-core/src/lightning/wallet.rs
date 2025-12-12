@@ -209,8 +209,8 @@ pub struct Payment {
     /// Payment hash
     hash: PaymentHash,
 
-    /// Payment amount in millisatoshis
-    amount_msat: u64,
+    /// Payment amount in millinova
+    amount_mnova: u64,
 
     /// Payment description
     description: String,
@@ -324,7 +324,7 @@ impl LightningWallet {
     /// Create an invoice for receiving payment
     pub fn create_invoice(
         &mut self,
-        amount_msat: u64,
+        amount_mnova: u64,
         description: &str,
         expiry_seconds: u32,
     ) -> Result<Invoice, WalletError> {
@@ -338,7 +338,7 @@ impl LightningWallet {
         // Create invoice with preimage - payment hash will be derived automatically
         let invoice = Invoice::new_with_preimage(
             preimage,
-            amount_msat,
+            amount_mnova,
             description.to_string(),
             expiry_seconds,
         )?;
@@ -355,14 +355,14 @@ impl LightningWallet {
     /// Pay an invoice
     pub fn pay_invoice(&mut self, invoice: &Invoice) -> Result<PaymentPreimage, WalletError> {
         let payment_hash = invoice.payment_hash();
-        let amount_msat = invoice.amount_msat();
+        let amount_mnova = invoice.amount_mnova();
 
         // Check if we have enough balance
-        if self.on_chain_balance < amount_msat / 1000 {
+        if self.on_chain_balance < amount_mnova / 1000 {
             return Err(WalletError::InsufficientFunds(format!(
                 "Insufficient on-chain balance: {} < {}",
                 self.on_chain_balance,
-                amount_msat / 1000
+                amount_mnova / 1000
             )));
         }
 
@@ -399,7 +399,7 @@ impl LightningWallet {
         // Create payment record
         let payment = Payment {
             hash: payment_hash,
-            amount_msat,
+            amount_mnova,
             description: invoice.description().to_string(),
             creation_time: SystemTime::now(),
             status: PaymentStatus::Succeeded,
@@ -408,7 +408,7 @@ impl LightningWallet {
         };
 
         // Update our balance (simulate payment sent)
-        self.on_chain_balance -= amount_msat / 1000;
+        self.on_chain_balance -= amount_mnova / 1000;
 
         // Store the payment
         self.payments.insert(payment_hash, payment);
@@ -473,7 +473,7 @@ impl LightningWallet {
         let invoice = self.invoices.get(&hash).unwrap();
         let payment = Payment {
             hash,
-            amount_msat: invoice.amount_msat(),
+            amount_mnova: invoice.amount_mnova(),
             description: invoice.description().to_string(),
             creation_time: SystemTime::now(),
             status: PaymentStatus::Succeeded,
@@ -482,7 +482,7 @@ impl LightningWallet {
         };
 
         // Update our balance (we received payment)
-        self.on_chain_balance += invoice.amount_msat() / 1000;
+        self.on_chain_balance += invoice.amount_mnova() / 1000;
 
         // Store the payment
         self.payments.insert(hash, payment);

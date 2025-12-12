@@ -314,7 +314,7 @@ impl Node {
                 min_channel_capacity: 10_000,        // 0.0001 NOVA minimum
                 max_channel_capacity: 16_777_215,    // ~0.16 NOVA maximum
                 cltv_expiry_delta: 40,
-                fee_base_msat: 1000,
+                fee_base_mnova: 1000,
                 fee_proportional_millionths: 1,
                 use_quantum_signatures: config.node.enable_quantum_security,
                 quantum_scheme: if config.node.enable_quantum_security {
@@ -1022,18 +1022,18 @@ impl Node {
                 LightningEvent::ChannelClosed(channel_id) => {
                     info!("Lightning channel closed: {}", channel_id.to_hex());
                 }
-                LightningEvent::PaymentReceived(payment_hash, amount_msat) => {
+                LightningEvent::PaymentReceived(payment_hash, amount_mnova) => {
                     info!(
-                        "Lightning payment received: {} ({} msat)",
+                        "Lightning payment received: {} ({} mnova)",
                         payment_hash.to_hex(),
-                        amount_msat
+                        amount_mnova
                     );
                 }
-                LightningEvent::PaymentSent(payment_hash, amount_msat) => {
+                LightningEvent::PaymentSent(payment_hash, amount_mnova) => {
                     info!(
-                        "Lightning payment sent: {} ({} msat)",
+                        "Lightning payment sent: {} ({} mnova)",
                         payment_hash.to_hex(),
-                        amount_msat
+                        amount_mnova
                     );
                 }
                 LightningEvent::InvoiceCreated(payment_hash) => {

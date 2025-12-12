@@ -427,7 +427,7 @@ impl UnifiedBlockValidator {
 
     /// Calculate block subsidy for a given height
     pub fn calculate_block_subsidy(&self, height: u64) -> u64 {
-        // Supernova emission schedule - Bitcoin-inspired
+        // Supernova emission schedule - Nakamoto-inspired
         const INITIAL_SUBSIDY: u64 = 50_000_000_000; // 50 NOVA in nanoNOVAs (smallest unit)
         const HALVING_INTERVAL: u64 = 210_000; // Halve every 210,000 blocks
         const MAX_HALVINGS: u64 = 64; // After 64 halvings, subsidy becomes 0

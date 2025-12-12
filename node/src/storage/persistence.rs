@@ -718,7 +718,7 @@ impl ChainState {
                     self.db.store_utxo(&prev_tx, prev_vout, &output_data)?;
 
                     tracing::debug!(
-                        "Restored UTXO: {}:{} (amount: {} satoshis)",
+                        "Restored UTXO: {}:{} (amount: {} nova units)",
                         hex::encode(&prev_tx[..8]),
                         prev_vout,
                         prev_output.value()
@@ -730,7 +730,7 @@ impl ChainState {
             for (vout, output) in tx.outputs().iter().enumerate() {
                 self.db.remove_utxo(&tx_hash, vout as u32)?;
                 tracing::debug!(
-                    "Removed UTXO: {}:{} (amount: {} satoshis)",
+                    "Removed UTXO: {}:{} (amount: {} nova units)",
                     hex::encode(&tx_hash[..8]),
                     vout,
                     output.value()

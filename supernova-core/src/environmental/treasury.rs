@@ -69,7 +69,7 @@ pub struct EnvironmentalAssetPurchase {
     pub provider: String,
     /// Amount purchased (kWh for RECs, tonnes CO2e for offsets)
     pub amount: f64,
-    /// Cost in treasury units (satoshis)
+    /// Cost in treasury units (nova units)
     pub cost: u64,
     /// Purchase date
     pub purchase_date: DateTime<Utc>,
@@ -133,8 +133,8 @@ impl Default for TreasuryConfig {
         let mut min_purchase_amounts = HashMap::new();
         min_purchase_amounts.insert(EnvironmentalAssetType::REC, 1000.0); // 1,000 kWh
         min_purchase_amounts.insert(EnvironmentalAssetType::CarbonOffset, 1.0); // 1 tonne CO2e
-        min_purchase_amounts.insert(EnvironmentalAssetType::GreenInvestment, 5000.0); // 5,000 sats
-        min_purchase_amounts.insert(EnvironmentalAssetType::ResearchGrant, 10000.0); // 10,000 sats
+        min_purchase_amounts.insert(EnvironmentalAssetType::GreenInvestment, 5000.0); // 5,000 nova units
+        min_purchase_amounts.insert(EnvironmentalAssetType::ResearchGrant, 10000.0); // 10,000 nova units
 
         Self {
             enabled: true,
@@ -181,7 +181,7 @@ pub enum TreasuryAccountType {
 
 /// Environmental treasury for managing carbon offset funds
 pub struct EnvironmentalTreasury {
-    /// Current balance in treasury (satoshis)
+    /// Current balance in treasury (nova units)
     balance: Arc<RwLock<u64>>,
     /// Configuration for treasury
     config: Arc<RwLock<TreasuryConfig>>,
@@ -542,7 +542,7 @@ impl EnvironmentalTreasury {
 
         // Process RECs
         if rec_amount > 0 {
-            // Simple conversion: 1 satoshi = 0.01 kWh (example)
+            // Simple conversion: 1 nova unit = 0.01 kWh (example)
             let rec_kwh = rec_amount as f64 * 0.01;
 
             let mut metadata = HashMap::new();
@@ -573,7 +573,7 @@ impl EnvironmentalTreasury {
 
         // Process Carbon Offsets
         if offset_amount > 0 {
-            // Simple conversion: 100,000 satoshis = 1 tonne CO2e (example)
+            // Simple conversion: 100,000 nova units = 1 tonne CO2e (example)
             let offset_tonnes = offset_amount as f64 / 100_000.0;
 
             let mut metadata = HashMap::new();
@@ -1039,7 +1039,7 @@ mod tests {
                 EnvironmentalAssetType::CarbonOffset,
                 "TestProvider",
                 1.0,  // 1 tonne CO2e
-                5000, // Cost in satoshis
+                5000, // Cost in nova units
                 Some(region),
                 metadata,
             )

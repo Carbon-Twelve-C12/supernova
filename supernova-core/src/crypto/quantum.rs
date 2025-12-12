@@ -39,7 +39,7 @@ pub type ECDSASignature = secp256k1::ecdsa::Signature;
 /// Classical cryptographic schemes for hybrid quantum signatures
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum ClassicalScheme {
-    /// secp256k1 curve (used in Bitcoin)
+    /// secp256k1 curve (widely used)
     Secp256k1,
     /// Ed25519 curve (used in many modern cryptographic systems)
     Ed25519,

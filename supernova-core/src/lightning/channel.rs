@@ -163,10 +163,10 @@ pub struct ChannelConfig {
     pub announce_channel: bool,
 
     /// Maximum value in flight
-    pub max_htlc_value_in_flight_msat: u64,
+    pub max_htlc_value_in_flight_mnova: u64,
 
     /// Minimum value for an HTLC
-    pub min_htlc_value_msat: u64,
+    pub min_htlc_value_mnova: u64,
 
     /// Maximum number of HTLCs
     pub max_accepted_htlcs: u16,
@@ -200,8 +200,8 @@ impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
             announce_channel: true,
-            max_htlc_value_in_flight_msat: 100_000_000, // 0.001 NOVA in millinovas
-            min_htlc_value_msat: 1_000,                 // 1 millinova
+            max_htlc_value_in_flight_mnova: 100_000_000, // 0.001 NOVA in millinovas
+            min_htlc_value_mnova: 1_000,                 // 1 millinova
             max_accepted_htlcs: 30,
             cltv_expiry_delta: 40,
             channel_reserve_novas: 10_000, // 0.0001 NOVA
@@ -239,14 +239,14 @@ pub struct ChannelInfo {
     /// Channel state
     pub state: ChannelState,
 
-    /// Channel capacity in satoshis
+    /// Channel capacity in nova units
     pub capacity: u64,
 
-    /// Local balance in millisatoshis
-    pub local_balance_msat: u64,
+    /// Local balance in millinova
+    pub local_balance_mnova: u64,
 
-    /// Remote balance in millisatoshis
-    pub remote_balance_msat: u64,
+    /// Remote balance in millinova
+    pub remote_balance_mnova: u64,
 
     /// Whether channel is public
     pub is_public: bool,
@@ -487,7 +487,7 @@ impl Channel {
             pending_htlcs: Vec::new(),
             to_self_delay: 144,                          // 1 day default
             channel_reserve_novas: capacity_novas / 100, // 1% default
-            min_htlc_value_novas: 1000,                  // 1000 sats minimum
+            min_htlc_value_novas: 1000,                  // 1000 nova units minimum
             max_accepted_htlcs: 30,
             is_public,
             features: Vec::new(),
@@ -1044,7 +1044,7 @@ impl Channel {
 
         // Apply configuration
         channel.channel_reserve_novas = config.channel_reserve_novas;
-        channel.min_htlc_value_novas = config.min_htlc_value_msat / 1000; // Convert from msat to novas
+        channel.min_htlc_value_novas = config.min_htlc_value_mnova / 1000; // Convert from millinova to nova units
         channel.max_accepted_htlcs = config.max_accepted_htlcs;
 
         // If there's a push amount, adjust balances
@@ -1126,8 +1126,8 @@ impl Channel {
             id: ChannelId::from_bytes(self.channel_id),
             state: self.state,
             capacity: self.capacity_novas,
-            local_balance_msat: self.local_balance_novas * 1000, // Convert to millisatoshis
-            remote_balance_msat: self.remote_balance_novas * 1000,
+            local_balance_mnova: self.local_balance_novas * 1000, // Convert to millinova
+            remote_balance_mnova: self.remote_balance_novas * 1000,
             is_public: self.is_public,
             pending_htlcs: self.pending_htlcs.len() as u16,
             config: ChannelConfig::default(), // In real implementation, store actual config

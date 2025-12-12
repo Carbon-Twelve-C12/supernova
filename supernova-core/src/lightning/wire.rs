@@ -231,23 +231,23 @@ pub struct OpenChannelPayload {
     /// Temporary channel ID
     pub temporary_channel_id: [u8; 32],
 
-    /// Funding amount in satoshis
-    pub funding_satoshis: u64,
+    /// Funding amount in nova units
+    pub funding_nova_units: u64,
 
-    /// Push amount in millisatoshis
-    pub push_msat: u64,
+    /// Push amount in millinova
+    pub push_mnova: u64,
 
-    /// Dust limit in satoshis
-    pub dust_limit_satoshis: u64,
+    /// Dust limit in nova units
+    pub dust_limit_nova_units: u64,
 
     /// Maximum HTLC value in flight
-    pub max_htlc_value_in_flight_msat: u64,
+    pub max_htlc_value_in_flight_mnova: u64,
 
-    /// Channel reserve in satoshis
-    pub channel_reserve_satoshis: u64,
+    /// Channel reserve in nova units
+    pub channel_reserve_nova_units: u64,
 
-    /// Minimum HTLC value in millisatoshis
-    pub htlc_minimum_msat: u64,
+    /// Minimum HTLC value in millinova
+    pub htlc_minimum_mnova: u64,
 
     /// Fee rate per kiloweight
     pub feerate_per_kw: u32,
@@ -289,8 +289,8 @@ pub struct HtlcPayload {
     /// HTLC ID
     pub htlc_id: u64,
 
-    /// Amount in millisatoshis
-    pub amount_msat: u64,
+    /// Amount in millinova
+    pub amount_mnova: u64,
 
     /// Payment hash
     pub payment_hash: PaymentHash,
@@ -384,15 +384,15 @@ impl MessageFactory {
     /// Create an open channel message
     pub fn create_open_channel(
         &self,
-        funding_satoshis: u64,
-        push_msat: u64,
+        funding_nova_units: u64,
+        push_mnova: u64,
     ) -> Result<Message, LightningError> {
         // Create a temporary channel ID
         let mut rng = thread_rng();
         let mut temporary_channel_id = [0u8; 32];
         rng.fill_bytes(&mut temporary_channel_id);
 
-        // Create chain hash (Bitcoin mainnet in this case)
+        // Create chain hash (Supernova mainnet placeholder)
         let chain_hash = [
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -403,12 +403,12 @@ impl MessageFactory {
         let payload = OpenChannelPayload {
             chain_hash,
             temporary_channel_id,
-            funding_satoshis,
-            push_msat,
-            dust_limit_satoshis: 546,
-            max_htlc_value_in_flight_msat: funding_satoshis * 1000,
-            channel_reserve_satoshis: funding_satoshis / 100, // 1% reserve
-            htlc_minimum_msat: 1000,
+            funding_nova_units,
+            push_mnova,
+            dust_limit_nova_units: 546,
+            max_htlc_value_in_flight_mnova: funding_nova_units * 1000,
+            channel_reserve_nova_units: funding_nova_units / 100, // 1% reserve
+            htlc_minimum_mnova: 1000,
             feerate_per_kw: 1000,
             to_self_delay: 144, // 1 day (6 blocks/hour * 24 hours)
             max_accepted_htlcs: 30,
@@ -435,14 +435,14 @@ impl MessageFactory {
         &self,
         channel_id: ChannelId,
         htlc_id: u64,
-        amount_msat: u64,
+        amount_mnova: u64,
         payment_hash: PaymentHash,
         cltv_expiry: u32,
     ) -> Result<Message, LightningError> {
         let payload = HtlcPayload {
             channel_id: channel_id.clone(),
             htlc_id,
-            amount_msat,
+            amount_mnova,
             payment_hash,
             cltv_expiry,
             onion_routing_packet: vec![0; 1366], // Dummy onion packet

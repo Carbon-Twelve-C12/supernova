@@ -26,7 +26,7 @@ pub enum TransactionError {
     #[error("Transaction too large: {size} bytes exceeds maximum {max}")]
     TransactionTooLarge { size: usize, max: usize },
     
-    #[error("Fee too low: {rate} sat/byte, minimum {min}")]
+    #[error("Fee too low: {rate} nova/byte, minimum {min}")]
     FeeTooLow { rate: u64, min: u64 },
     
     #[error("No UTXOs available")]

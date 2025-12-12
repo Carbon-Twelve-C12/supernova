@@ -1,7 +1,8 @@
 use super::backup_warning::{BackupMetadata, BackupStatus, BackupWarning, SeedPhraseVerifier};
 use super::password_strength::PasswordStrengthChecker;
 use bip39::{Language, Mnemonic};
-use bitcoin::{
+use bitcoin as btc_compat; // Bitcoin-compatible
+use btc_compat::{
     network::Network,
     secp256k1::{Secp256k1, SecretKey},
     Address, PrivateKey,
@@ -33,8 +34,8 @@ pub enum HDWalletError {
     AccountNotFound(String),
     #[error("Address not found: {0}")]
     AddressNotFound(String),
-    #[error("Bitcoin error: {0}")]
-    Bitcoin(String),
+    #[error("Compatibility error: {0}")]
+    Compatibility(String),
     #[error("Address parsing error: {0}")]
     AddressParsing(String),
     #[error("Encryption error: {0}")]
@@ -326,9 +327,9 @@ impl HDWallet {
         let address = match account.account_type {
             AccountType::Legacy => Address::p2pkh(&public_key, self.network),
             AccountType::SegWit => Address::p2shwpkh(&public_key, self.network)
-                .map_err(|e| HDWalletError::Bitcoin(e.to_string()))?,
+                .map_err(|e| HDWalletError::Compatibility(e.to_string()))?,
             AccountType::NativeSegWit => Address::p2wpkh(&public_key, self.network)
-                .map_err(|e| HDWalletError::Bitcoin(e.to_string()))?,
+                .map_err(|e| HDWalletError::Compatibility(e.to_string()))?,
         };
 
         let hd_address = HDAddress {

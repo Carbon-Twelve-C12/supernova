@@ -179,9 +179,9 @@ pub async fn open_channel(
         .open_channel(
             &request.node_id,
             request.local_funding_amount,
-            request.push_amount_msat,
+            request.push_amount_mnova,
             request.private.unwrap_or(false),
-            request.min_htlc_msat,
+            request.min_htlc_mnova,
         )
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to open channel: {}", e)))?;
@@ -315,9 +315,9 @@ pub async fn send_payment(
     let response = manager
         .send_payment(
             &request.payment_request,
-            request.amount_msat,
+            request.amount_mnova,
             request.timeout_seconds.unwrap_or(60),
-            request.fee_limit_msat,
+            request.fee_limit_mnova,
         )
         .await;
 
@@ -408,7 +408,7 @@ pub async fn create_invoice(
         .map_err(|e| ApiError::internal_error(format!("Lightning manager lock poisoned: {}", e)))?;
     let response = manager
         .create_invoice(
-            request.value_msat,
+            request.value_mnova,
             request.memo.as_deref().unwrap_or(""),
             request.expiry.unwrap_or(3600),
             request.private.unwrap_or(false),
@@ -506,12 +506,12 @@ pub struct FindRouteParams {
     /// Destination node ID (public key)
     pub_key: String,
 
-    /// Amount to send in millisatoshis
-    amt_msat: u64,
+    /// Amount to send in millinova
+    amt_mnova: u64,
 
-    /// Maximum fee in millisatoshis (default: 10000)
+    /// Maximum fee in millinova (default: 10000)
     #[param(default = "10000")]
-    fee_limit_msat: Option<u64>,
+    fee_limit_mnova: Option<u64>,
 }
 
 #[utoipa::path(
@@ -543,8 +543,8 @@ pub async fn find_route(
     let route = manager
         .find_route(
             &params.pub_key,
-            params.amt_msat,
-            params.fee_limit_msat.unwrap_or(10000),
+            params.amt_mnova,
+            params.fee_limit_mnova.unwrap_or(10000),
         )
         .await
         .map_err(|e| ApiError::internal_error(format!("Failed to find route: {}", e)))?

@@ -110,7 +110,7 @@ pub struct TransactionOutput {
 /// Type of signature scheme used in a transaction
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SignatureSchemeType {
-    /// Legacy ECDSA with secp256k1 (original Bitcoin)
+    /// Legacy ECDSA with secp256k1 (classical)
     Legacy,
     /// Ed25519 signatures
     Ed25519,
@@ -594,7 +594,7 @@ impl Transaction {
         true
     }
 
-    /// Calculate the fee rate in satoshis per byte
+    /// Calculate the fee rate in nova units per byte
     /// 
     /// SECURITY: Protected against division by zero and uses safe fee calculation.
     ///
@@ -602,7 +602,7 @@ impl Transaction {
     /// * `get_output` - Function to retrieve previous transaction outputs
     ///
     /// # Returns
-    /// * `Some(fee_rate)` - Fee rate in satoshis per byte
+    /// * `Some(fee_rate)` - Fee rate in nova units per byte
     /// * `None` - If size is zero or fee calculation fails
     pub fn calculate_fee_rate(
         &self,
@@ -938,7 +938,7 @@ impl Transaction {
 
         // Create a reward output with block subsidy (simplified)
         let output = TransactionOutput::new(
-            5000000000, // 50 BTC subsidy (simplified)
+            5000000000, // 50 NOVA subsidy (simplified)
             vec![
                 0x76, 0xa9, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x88,
                 0xac,

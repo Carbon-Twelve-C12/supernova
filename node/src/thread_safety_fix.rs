@@ -251,7 +251,7 @@ impl NodeApiFacade {
     /// Create invoice
     pub fn create_invoice(
         &self,
-        _amount_msat: u64,
+        _amount_mnova: u64,
         _description: &str,
         _expiry_seconds: u32,
     ) -> Result<String, String> {

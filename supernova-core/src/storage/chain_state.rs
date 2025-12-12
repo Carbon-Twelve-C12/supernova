@@ -938,7 +938,7 @@ impl ChainState {
             }
         }
         // Return default difficulty if we can't get the tip
-        0x1d00ffff // Default Bitcoin difficulty
+        0x1d00ffff // Default difficulty target
     }
 
     /// Get the current block count (chain height + 1)

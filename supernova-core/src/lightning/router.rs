@@ -68,11 +68,11 @@ pub struct ChannelInfo {
     /// Destination node
     pub destination: NodeId,
 
-    /// Channel capacity in satoshis
+    /// Channel capacity in nova units
     pub capacity: u64,
 
-    /// Base fee in millisatoshis
-    pub base_fee_msat: u32,
+    /// Base fee in millinova
+    pub base_fee_mnova: u32,
 
     /// Fee rate in parts per million
     pub fee_rate_millionths: u32,
@@ -96,8 +96,8 @@ pub struct RouteHint {
     /// Channel ID
     pub channel_id: ChannelId,
 
-    /// Base fee in millisatoshis
-    pub base_fee_msat: u32,
+    /// Base fee in millinova
+    pub base_fee_mnova: u32,
 
     /// Fee rate in parts per million
     pub fee_rate_millionths: u32,
@@ -115,14 +115,14 @@ pub struct PathHop {
     /// Channel ID
     pub channel_id: ChannelId,
 
-    /// Amount to forward in millinovas
-    pub amount_msat: u64,
+    /// Amount to forward in millinova
+    pub amount_mnova: u64,
 
     /// CLTV expiry
     pub cltv_expiry: u32,
 
-    /// Base fee in millinovas
-    pub base_fee_msat: u32,
+    /// Base fee in millinova
+    pub base_fee_mnova: u32,
 
     /// Fee rate in parts per million
     pub fee_rate_millionths: u32,
@@ -133,12 +133,12 @@ pub struct PathHop {
 
 impl PathHop {
     /// Calculate the fee for forwarding a payment through this channel
-    pub fn channel_fee(&self, amount_msat: u64) -> u64 {
+    pub fn channel_fee(&self, amount_mnova: u64) -> u64 {
         // Fee calculation: base_fee + (amount * fee_rate / 1_000_000)
-        let proportional_fee = amount_msat
+        let proportional_fee = amount_mnova
             .saturating_mul(self.fee_rate_millionths as u64)
             .saturating_div(1_000_000);
-        (self.base_fee_msat as u64).saturating_add(proportional_fee)
+        (self.base_fee_mnova as u64).saturating_add(proportional_fee)
     }
 }
 
@@ -148,14 +148,14 @@ pub struct PaymentPath {
     /// Hops in the path
     pub hops: Vec<PathHop>,
 
-    /// Total fee in millisatoshis
-    pub total_fee_msat: u64,
+    /// Total fee in millinova
+    pub total_fee_mnova: u64,
 
     /// Total CLTV delta
     pub total_cltv_delta: u32,
 
     /// Total amount to send including fees
-    pub total_amount_msat: u64,
+    pub total_amount_mnova: u64,
 }
 
 impl Default for PaymentPath {
@@ -169,9 +169,9 @@ impl PaymentPath {
     pub fn new() -> Self {
         Self {
             hops: Vec::new(),
-            total_fee_msat: 0,
+            total_fee_mnova: 0,
             total_cltv_delta: 0,
-            total_amount_msat: 0,
+            total_amount_mnova: 0,
         }
     }
 
@@ -325,7 +325,7 @@ impl ChannelScorer {
             ScoringFunction::LowestFee => {
                 // Score inversely proportional to fees
                 let fee_score =
-                    1_000_000 - channel.base_fee_msat as u64 - channel.fee_rate_millionths as u64;
+                    1_000_000 - channel.base_fee_mnova as u64 - channel.fee_rate_millionths as u64;
                 std::cmp::max(1, fee_score) // Ensure score is at least 1
             }
             ScoringFunction::ShortestPath => {
@@ -593,7 +593,7 @@ impl Router {
     pub fn find_route(
         &self,
         destination: &str,
-        amount_msat: u64,
+        amount_mnova: u64,
         route_hints: &[RouteHint],
     ) -> Result<PaymentPath, RoutingError> {
         let destination_id = NodeId::new(destination.to_string());
@@ -617,8 +617,8 @@ impl Router {
                 channel_id: hint.channel_id.clone(),
                 source: hint.node_id.clone(),
                 destination: destination_id.clone(),
-                capacity: amount_msat / 1000, // Assume sufficient capacity
-                base_fee_msat: hint.base_fee_msat,
+                capacity: amount_mnova / 1000, // Assume sufficient capacity
+                base_fee_mnova: hint.base_fee_mnova,
                 fee_rate_millionths: hint.fee_rate_millionths,
                 cltv_expiry_delta: hint.cltv_expiry_delta,
                 is_active: true,
@@ -636,7 +636,7 @@ impl Router {
             &temp_graph,
             &self.local_node,
             &destination_id,
-            amount_msat,
+            amount_mnova,
             &start_time,
             &timeout,
         )?;
@@ -650,7 +650,7 @@ impl Router {
         graph: &NetworkGraph,
         source: &NodeId,
         destination: &NodeId,
-        amount_msat: u64,
+        amount_mnova: u64,
         start_time: &Instant,
         timeout: &Duration,
     ) -> Result<PaymentPath, RoutingError> {
@@ -715,9 +715,9 @@ impl Router {
             if current.node == *destination {
                 let mut path = PaymentPath::new();
                 path.hops = current.path;
-                path.total_fee_msat = current.cost;
+                path.total_fee_mnova = current.cost;
                 path.total_cltv_delta = current.total_cltv;
-                path.total_amount_msat = amount_msat + current.cost;
+                path.total_amount_mnova = amount_mnova + current.cost;
                 return Ok(path);
             }
 
@@ -737,7 +737,7 @@ impl Router {
                 }
 
                 // Skip if channel doesn't have enough capacity
-                if channel.capacity * 1000 < amount_msat + current.cost {
+                if channel.capacity * 1000 < amount_mnova + current.cost {
                     continue;
                 }
 
@@ -756,8 +756,8 @@ impl Router {
                 }
 
                 // Calculate fee for this hop
-                let hop_amount = amount_msat + current.cost;
-                let fee = channel.base_fee_msat as u64
+                let hop_amount = amount_mnova + current.cost;
+                let fee = channel.base_fee_mnova as u64
                     + (hop_amount * channel.fee_rate_millionths as u64) / 1_000_000;
 
                 // Check fee rate limits
@@ -785,9 +785,9 @@ impl Router {
                     let hop = PathHop {
                         node_id: channel.destination.clone(),
                         channel_id: channel.channel_id.clone(),
-                        amount_msat: hop_amount,
+                        amount_mnova: hop_amount,
                         cltv_expiry: new_cltv,
-                        base_fee_msat: channel.base_fee_msat,
+                        base_fee_mnova: channel.base_fee_mnova,
                         fee_rate_millionths: channel.fee_rate_millionths,
                         cltv_expiry_delta: channel.cltv_expiry_delta,
                     };
@@ -808,7 +808,7 @@ impl Router {
         }
 
         // No route found - try fallback to direct path
-        self.find_direct_path(graph, source, destination, amount_msat)
+        self.find_direct_path(graph, source, destination, amount_mnova)
     }
 
     /// Find a direct path as fallback
@@ -817,7 +817,7 @@ impl Router {
         graph: &NetworkGraph,
         source: &NodeId,
         destination: &NodeId,
-        amount_msat: u64,
+        amount_mnova: u64,
     ) -> Result<PaymentPath, RoutingError> {
         // Find a channel between source and destination
         let channels = graph.get_node_channels(source, self.preferences.use_private_channels);
@@ -826,7 +826,7 @@ impl Router {
             // Check if this channel connects to destination
             if channel.destination == *destination {
                 // Check if channel has sufficient capacity
-                if channel.capacity * 1000 < amount_msat {
+                if channel.capacity * 1000 < amount_mnova {
                     continue;
                 }
 
@@ -836,16 +836,16 @@ impl Router {
                 }
 
                 // Calculate fee
-                let fee_msat = channel.base_fee_msat as u64
-                    + (amount_msat * channel.fee_rate_millionths as u64) / 1_000_000;
+                let fee_mnova = channel.base_fee_mnova as u64
+                    + (amount_mnova * channel.fee_rate_millionths as u64) / 1_000_000;
 
                 // Create hop
                 let hop = PathHop {
                     node_id: destination.clone(),
                     channel_id: channel.channel_id.clone(),
-                    amount_msat,
+                    amount_mnova,
                     cltv_expiry: 40, // Default CLTV delta
-                    base_fee_msat: channel.base_fee_msat,
+                    base_fee_mnova: channel.base_fee_mnova,
                     fee_rate_millionths: channel.fee_rate_millionths,
                     cltv_expiry_delta: channel.cltv_expiry_delta,
                 };
@@ -853,9 +853,9 @@ impl Router {
                 // Create path
                 let mut path = PaymentPath::new();
                 path.add_hop(hop);
-                path.total_fee_msat = fee_msat;
+                path.total_fee_mnova = fee_mnova;
                 path.total_cltv_delta = 40;
-                path.total_amount_msat = amount_msat + fee_msat;
+                path.total_amount_mnova = amount_mnova + fee_mnova;
 
                 return Ok(path);
             }
@@ -902,7 +902,7 @@ impl Router {
         let last_hop = path.hops.last().ok_or(RoutingError::NoRouteFound)?;
         let result = self.find_route(
             last_hop.node_id.as_str(),
-            last_hop.amount_msat,
+            last_hop.amount_mnova,
             &[], // No route hints for retry
         );
 
@@ -936,14 +936,14 @@ impl Router {
     pub fn find_alternative_routes(
         &self,
         destination: &str,
-        amount_msat: u64,
+        amount_mnova: u64,
         route_hints: &[RouteHint],
         num_routes: usize,
     ) -> Result<Vec<PaymentPath>, RoutingError> {
         let mut routes = Vec::with_capacity(num_routes);
 
         // First, try to find the best route
-        let first_route = self.find_route(destination, amount_msat, route_hints)?;
+        let first_route = self.find_route(destination, amount_mnova, route_hints)?;
         routes.push(first_route);
 
         // Create a set of avoided channels and nodes for finding alternative routes
@@ -966,7 +966,7 @@ impl Router {
             let mut router_copy = self.clone();
             router_copy.preferences = alt_preferences.clone();
 
-            match router_copy.find_route(destination, amount_msat, route_hints) {
+            match router_copy.find_route(destination, amount_mnova, route_hints) {
                 Ok(route) => {
                     // Add this route to the list
                     routes.push(route.clone());
@@ -993,23 +993,23 @@ impl Router {
     pub fn split_payment(
         &self,
         destination: &str,
-        total_amount_msat: u64,
+        total_amount_mnova: u64,
         route_hints: &[RouteHint],
         num_parts: usize,
     ) -> Result<Vec<(PaymentPath, u64)>, RoutingError> {
         if num_parts <= 1 {
             // No splitting needed
-            let route = self.find_route(destination, total_amount_msat, route_hints)?;
-            return Ok(vec![(route, total_amount_msat)]);
+            let route = self.find_route(destination, total_amount_mnova, route_hints)?;
+            return Ok(vec![(route, total_amount_mnova)]);
         }
 
         // Calculate amount per part (ensure it's above minimum)
-        let min_amount = 1000; // 1 sat minimum
-        let amount_per_part = std::cmp::max(total_amount_msat / num_parts as u64, min_amount);
+        let min_amount = 1000; // 1 nova unit minimum
+        let amount_per_part = std::cmp::max(total_amount_mnova / num_parts as u64, min_amount);
 
         // Adjust num_parts if necessary
-        let adjusted_num_parts = if amount_per_part * num_parts as u64 > total_amount_msat {
-            (total_amount_msat / amount_per_part) as usize
+        let adjusted_num_parts = if amount_per_part * num_parts as u64 > total_amount_mnova {
+            (total_amount_mnova / amount_per_part) as usize
         } else {
             num_parts
         };
@@ -1027,7 +1027,7 @@ impl Router {
         }
 
         let mut result = Vec::with_capacity(adjusted_num_parts);
-        let mut remaining_amount = total_amount_msat;
+        let mut remaining_amount = total_amount_mnova;
 
         // Distribute amount across routes
         for i in 0..adjusted_num_parts {
@@ -1048,7 +1048,7 @@ impl Router {
     pub fn find_capacity_constrained_path(
         &self,
         destination: &str,
-        amount_msat: u64,
+        amount_mnova: u64,
         route_hints: &[RouteHint],
         min_channel_capacity: u64,
     ) -> Result<PaymentPath, RoutingError> {
@@ -1064,7 +1064,7 @@ impl Router {
         let max_attempts = 5;
 
         while attempts < max_attempts {
-            match router_copy.find_route(destination, amount_msat, route_hints) {
+            match router_copy.find_route(destination, amount_mnova, route_hints) {
                 Ok(path) => {
                     // Check if all channels in the path meet capacity requirements
                     let mut meets_capacity = true;
@@ -1094,7 +1094,7 @@ impl Router {
         }
 
         // If we can't find a route with sufficient capacity, return the best available
-        router_copy.find_route(destination, amount_msat, route_hints)
+        router_copy.find_route(destination, amount_mnova, route_hints)
     }
 
     /// Calculate reliability score for a path
@@ -1167,7 +1167,7 @@ impl Router {
 
         // Create a new path with the same endpoints
         let _optimized = PaymentPath::new();
-        let amount_msat = path.total_amount_msat;
+        let amount_mnova = path.total_amount_mnova;
 
         // Get start and end nodes
         let _source = &path.hops.first().unwrap().node_id;
@@ -1185,18 +1185,18 @@ impl Router {
         router_copy.scorer = fee_scorer;
 
         let destination_str = destination.as_str().to_string();
-        router_copy.find_route(&destination_str, amount_msat, &[])
+        router_copy.find_route(&destination_str, amount_mnova, &[])
     }
 
     /// Find a path optimized for reliability
     pub fn find_reliable_path(
         &self,
         destination: &str,
-        amount_msat: u64,
+        amount_mnova: u64,
         min_reliability: f64,
     ) -> Result<PaymentPath, RoutingError> {
         // Try to find a path with standard algorithm
-        let path = self.find_route(destination, amount_msat, &[])?;
+        let path = self.find_route(destination, amount_mnova, &[])?;
 
         // Calculate reliability
         let reliability = self.calculate_path_reliability(&path);
@@ -1206,7 +1206,7 @@ impl Router {
         }
 
         // If reliability is too low, try to find alternative paths
-        let alt_paths = self.find_alternative_routes(destination, amount_msat, &[], 5)?;
+        let alt_paths = self.find_alternative_routes(destination, amount_mnova, &[], 5)?;
 
         // Find the most reliable path
         let mut most_reliable_path = path;
@@ -1245,7 +1245,7 @@ pub struct PaymentTracker {
     parts: Vec<PaymentPart>,
 
     /// Total amount
-    total_amount_msat: u64,
+    total_amount_mnova: u64,
 
     /// Status
     status: PaymentStatus,
@@ -1279,8 +1279,8 @@ pub struct PaymentPart {
     /// Part ID
     id: u64,
 
-    /// Amount in millisatoshis
-    amount_msat: u64,
+    /// Amount in millinova
+    amount_mnova: u64,
 
     /// Payment path
     path: PaymentPath,
@@ -1297,11 +1297,11 @@ pub struct PaymentPart {
 
 impl PaymentTracker {
     /// Create a new payment tracker
-    pub fn new(payment_hash: [u8; 32], total_amount_msat: u64) -> Self {
+    pub fn new(payment_hash: [u8; 32], total_amount_mnova: u64) -> Self {
         Self {
             payment_hash,
             parts: Vec::new(),
-            total_amount_msat,
+            total_amount_mnova,
             status: PaymentStatus::Pending,
             creation_time: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -1312,7 +1312,7 @@ impl PaymentTracker {
     }
 
     /// Add a payment part
-    pub fn add_part(&mut self, path: PaymentPath, amount_msat: u64) -> u64 {
+    pub fn add_part(&mut self, path: PaymentPath, amount_mnova: u64) -> u64 {
         let id = self.parts.len() as u64;
 
         let now = SystemTime::now()
@@ -1322,7 +1322,7 @@ impl PaymentTracker {
 
         let part = PaymentPart {
             id,
-            amount_msat,
+            amount_mnova,
             path,
             status: PaymentStatus::Pending,
             attempts: 0,
@@ -1404,16 +1404,16 @@ impl PaymentTracker {
     }
 
     /// Get the total amount
-    pub fn total_amount_msat(&self) -> u64 {
-        self.total_amount_msat
+    pub fn total_amount_mnova(&self) -> u64 {
+        self.total_amount_mnova
     }
 
     /// Get the successful amount
-    pub fn successful_amount_msat(&self) -> u64 {
+    pub fn successful_amount_mnova(&self) -> u64 {
         self.parts
             .iter()
             .filter(|p| p.status == PaymentStatus::Succeeded)
-            .map(|p| p.amount_msat)
+            .map(|p| p.amount_mnova)
             .sum()
     }
 
@@ -1451,17 +1451,17 @@ impl MultiPathPaymentCoordinator {
         &mut self,
         payment_hash: [u8; 32],
         destination: &str,
-        amount_msat: u64,
+        amount_mnova: u64,
         num_parts: usize,
     ) -> Result<Vec<PaymentPart>, RoutingError> {
         // Create a new payment tracker
-        let mut tracker = PaymentTracker::new(payment_hash, amount_msat);
+        let mut tracker = PaymentTracker::new(payment_hash, amount_mnova);
 
         // Get the router
         let router = self.router.read().unwrap();
 
         // Split the payment across multiple routes
-        let split_payment = router.split_payment(destination, amount_msat, &[], num_parts)?;
+        let split_payment = router.split_payment(destination, amount_mnova, &[], num_parts)?;
 
         // Add each part to the tracker
         for (path, part_amount) in split_payment {
@@ -1533,7 +1533,7 @@ impl MultiPathPaymentCoordinator {
             .parts
             .iter()
             .filter(|p| matches!(p.status, PaymentStatus::Failed(_)) && p.attempts < max_attempts)
-            .map(|p| (p.amount_msat, p.path.clone()))
+            .map(|p| (p.amount_mnova, p.path.clone()))
             .collect();
 
         let mut retried_parts = Vec::new();
@@ -1541,7 +1541,7 @@ impl MultiPathPaymentCoordinator {
         // Get the router
         let router = self.router.read().unwrap();
 
-        for (amount_msat, path) in failed_part_data {
+        for (amount_mnova, path) in failed_part_data {
             // Try to find a new route for this part
             let destination = path
                 .hops
@@ -1550,10 +1550,10 @@ impl MultiPathPaymentCoordinator {
                 .unwrap_or_default();
 
             // Find a different route
-            match router.find_route(&destination, amount_msat, &[]) {
+            match router.find_route(&destination, amount_mnova, &[]) {
                 Ok(new_path) => {
                     // Add a new part with the new path
-                    let part_id = tracker.add_part(new_path, amount_msat);
+                    let part_id = tracker.add_part(new_path, amount_mnova);
 
                     if let Some(new_part) = tracker.parts.iter().find(|p| p.id == part_id) {
                         retried_parts.push(new_part.clone());
@@ -1576,20 +1576,20 @@ pub struct RouteHop {
     pub channel_id: ChannelId,
     /// Node ID
     pub node_id: String,
-    /// Amount to forward in millisatoshis
-    pub amount_msat: u64,
-    /// Fee for this hop in millisatoshis
-    pub fee_msat: u64,
+    /// Amount to forward in millinova
+    pub amount_mnova: u64,
+    /// Fee for this hop in millinova
+    pub fee_mnova: u64,
     /// CLTV expiry delta
     pub cltv_expiry_delta: u16,
 }
 
 impl RouteHop {
     /// Calculate fee for forwarding an amount through this hop
-    pub fn channel_fee(&self, amount_msat: u64) -> u64 {
+    pub fn channel_fee(&self, amount_mnova: u64) -> u64 {
         // Base fee + proportional fee
-        let base_fee = 1000; // 1 sat base fee
-        let proportional_fee = (amount_msat * 100) / 1_000_000; // 0.01% proportional fee
-        base_fee + proportional_fee
+        let base_fee: u64 = 1000; // 1 nova unit base fee
+        let proportional_fee = amount_mnova.saturating_mul(100).saturating_div(1_000_000); // 0.01% proportional fee
+        base_fee.saturating_add(proportional_fee)
     }
 }

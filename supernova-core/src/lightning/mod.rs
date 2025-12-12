@@ -142,7 +142,7 @@ pub struct LightningConfig {
     pub cltv_expiry_delta: u16,
 
     /// Fee rate for forwarded payments (millionths)
-    pub fee_base_msat: u32,
+    pub fee_base_mnova: u32,
 
     /// Fee rate proportional to payment amount (millionths)
     pub fee_proportional_millionths: u32,
@@ -300,12 +300,12 @@ impl LightningNetwork {
     /// Create an invoice for payment
     pub fn create_invoice(
         &self,
-        amount_msat: u64,
+        amount_mnova: u64,
         description: &str,
         expiry_seconds: u32,
     ) -> Result<Invoice, LightningNetworkError> {
         let mut wallet = self.wallet.lock().unwrap();
-        let invoice = wallet.create_invoice(amount_msat, description, expiry_seconds)?;
+        let invoice = wallet.create_invoice(amount_mnova, description, expiry_seconds)?;
 
         Ok(invoice)
     }
@@ -316,8 +316,8 @@ impl LightningNetwork {
         invoice: &Invoice,
     ) -> Result<payment::PaymentPreimage, LightningNetworkError> {
         info!(
-            "Paying invoice: amount={} msat, destination={}",
-            invoice.amount_msat(),
+            "Paying invoice: amount={} mnova, destination={}",
+            invoice.amount_mnova(),
             invoice.destination()
         );
 
@@ -335,7 +335,7 @@ impl LightningNetwork {
                     router::RouteHint {
                         node_id: router::NodeId::new(hint.node_id.clone()),
                         channel_id: channel::ChannelId::from_bytes(channel_id_bytes),
-                        base_fee_msat: hint.base_fee_msat,
+                        base_fee_mnova: hint.base_fee_mnova,
                         fee_rate_millionths: hint.fee_rate_millionths,
                         cltv_expiry_delta: hint.cltv_expiry_delta,
                     }
@@ -343,7 +343,7 @@ impl LightningNetwork {
                 .collect();
 
             self.router
-                .find_route(invoice.destination(), invoice.amount_msat(), &router_hints)?
+                .find_route(invoice.destination(), invoice.amount_mnova(), &router_hints)?
         };
 
         if route.is_empty() {
@@ -353,9 +353,9 @@ impl LightningNetwork {
         }
 
         debug!(
-            "Found route with {} hops, total fee: {} msat",
+            "Found route with {} hops, total fee: {} mnova",
             route.len(),
-            route.total_fee_msat
+            route.total_fee_mnova
         );
 
         // For single-hop payments, proceed directly
@@ -376,7 +376,7 @@ impl LightningNetwork {
         let payment_preimage_bytes = payment_preimage.into_inner(); // Store the bytes once
 
         // Track the current payment amount (decreases as we move through the route due to fees)
-        let mut remaining_amount = invoice.amount_msat();
+        let mut remaining_amount = invoice.amount_mnova();
         let mut current_expiry = invoice.min_final_cltv_expiry();
 
         // Process the route in reverse (from destination to source)
@@ -416,7 +416,7 @@ impl LightningNetwork {
             // Calculate the amount to forward and timelock
             let forward_amount = if i == route.hops.len() - 1 {
                 // Last hop - use final amount
-                invoice.amount_msat()
+                invoice.amount_mnova()
             } else {
                 // Intermediate hop - forward amount minus fees for next hops
                 let next_hop_fees = route.hops[i + 1..]
@@ -436,7 +436,7 @@ impl LightningNetwork {
             };
 
             debug!(
-                "Hop {}: forwarding {} msat with timelock {}",
+                "Hop {}: forwarding {} mnova with timelock {}",
                 i, forward_amount, timelock
             );
 
@@ -445,7 +445,7 @@ impl LightningNetwork {
             // Add HTLC to channel
             let htlc_id = channel.add_htlc(
                 payment_hash_bytes,
-                forward_amount / 1000, // Convert from msat to sat
+                forward_amount / 1000, // Convert from millinova to nova units
                 timelock,
                 matches!(HtlcDirection::Offered, HtlcDirection::Offered), // Convert enum to bool
             )?;
@@ -522,14 +522,14 @@ impl LightningNetwork {
         channel_id: &channel::ChannelId,
         htlc_id: u64,
         payment_hash: [u8; 32],
-        amount_msat: u64,
+        amount_mnova: u64,
         cltv_expiry: u32,
         _onion_packet: &[u8],
     ) -> Result<Option<payment::PaymentPreimage>, LightningNetworkError> {
         info!(
-            "Received incoming HTLC on channel {}: amount={} msat, payment_hash={:x?}",
+            "Received incoming HTLC on channel {}: amount={} mnova, payment_hash={:x?}",
             channel_id,
-            amount_msat,
+            amount_mnova,
             &payment_hash[0..4]
         );
 
@@ -566,11 +566,11 @@ impl LightningNetwork {
             })?;
 
             // Verify amount
-            if invoice.amount_msat() > amount_msat {
+            if invoice.amount_mnova() > amount_mnova {
                 return Err(LightningNetworkError::InsufficientFunds(format!(
                     "Received amount {} is less than invoice amount {}",
-                    amount_msat,
-                    invoice.amount_msat()
+                    amount_mnova,
+                    invoice.amount_mnova()
                 )));
             }
 
@@ -590,7 +590,7 @@ impl LightningNetwork {
                 // Record the incoming HTLC
                 channel.add_htlc(
                     payment_hash,
-                    amount_msat / 1000, // Convert from msat to sat
+                    amount_mnova / 1000, // Convert from millinova to nova units
                     cltv_expiry,
                     matches!(HtlcDirection::Received, HtlcDirection::Received), // Convert enum to bool
                 )?;
@@ -633,11 +633,11 @@ impl LightningNetwork {
 impl Default for LightningConfig {
     fn default() -> Self {
         Self {
-            default_channel_capacity: 1_000_000, // 0.01 BTC in satoshis
-            min_channel_capacity: 100_000,       // 0.001 BTC in satoshis
-            max_channel_capacity: 167_772_160,   // 1.67772160 BTC in satoshis
+            default_channel_capacity: 1_000_000, // 0.01 NOVA in nova units
+            min_channel_capacity: 100_000,       // 0.001 NOVA in nova units
+            max_channel_capacity: 167_772_160,   // 1.67772160 NOVA in nova units
             cltv_expiry_delta: 40,
-            fee_base_msat: 1000,              // 1 satoshi base fee
+            fee_base_mnova: 1000,              // 1 nova unit base fee
             fee_proportional_millionths: 100, // 0.01% fee rate
             use_quantum_signatures: false,
             quantum_scheme: None,

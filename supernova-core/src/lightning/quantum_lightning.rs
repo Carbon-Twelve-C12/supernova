@@ -28,8 +28,8 @@ pub struct QuantumLightningChannel {
     pub funding_tx: Transaction,
     pub funding_outpoint: (String, u32),
 
-    /// Channel capacity in satoshis
-    pub capacity_sats: u64,
+    /// Channel capacity in nova units
+    pub capacity_nova_units: u64,
 
     /// Current channel state
     pub state: ChannelState,
@@ -135,8 +135,8 @@ pub struct QuantumHTLC {
     /// HTLC ID
     pub htlc_id: [u8; 32],
 
-    /// Amount in satoshis
-    pub amount_sats: u64,
+    /// Amount in nova units
+    pub amount_nova_units: u64,
 
     /// Payment hash (quantum-resistant)
     pub payment_hash: [u8; 32],
@@ -202,7 +202,7 @@ impl QuantumHTLC {
     /// SECURITY: Ensures timeout meets quantum signature requirements
     pub fn new(
         htlc_id: [u8; 32],
-        amount_sats: u64,
+        amount_nova_units: u64,
         payment_hash: [u8; 32],
         quantum_preimage_commitment: Vec<u8>,
         base_expiry_height: u32,
@@ -217,7 +217,7 @@ impl QuantumHTLC {
         
         Ok(Self {
             htlc_id,
-            amount_sats,
+            amount_nova_units,
             payment_hash,
             quantum_preimage_commitment,
             expiry_height: safe_expiry,
@@ -233,11 +233,11 @@ pub struct GreenLightningRoute {
     /// Route hops
     pub hops: Vec<GreenRouteHop>,
 
-    /// Total route capacity
-    pub total_capacity_sats: u64,
+    /// Total route capacity (nova units)
+    pub total_capacity_nova_units: u64,
 
-    /// Total fees
-    pub total_fees_sats: u64,
+    /// Total fees (nova units)
+    pub total_fees_nova_units: u64,
 
     /// Environmental metrics
     pub total_carbon_footprint: f64,
@@ -256,8 +256,8 @@ pub struct GreenRouteHop {
     /// Channel to use
     pub channel_id: [u8; 32],
 
-    /// Hop fee
-    pub fee_sats: u64,
+    /// Hop fee (nova units)
+    pub fee_nova_units: u64,
 
     /// Environmental data
     pub renewable_percentage: f64,
@@ -340,7 +340,7 @@ impl QuantumLightningManager {
         remote_quantum_pubkey: Vec<u8>,
         funding_tx: Transaction,
         funding_outpoint: (String, u32),
-        capacity_sats: u64,
+        capacity_nova_units: u64,
         environmental_cert: Option<RenewableValidationResult>,
     ) -> Result<QuantumLightningChannel, LightningError> {
 
@@ -371,7 +371,7 @@ impl QuantumLightningManager {
             remote_quantum_pubkey,
             funding_tx,
             funding_outpoint,
-            capacity_sats,
+            capacity_nova_units,
             state: ChannelState::Pending,
             environmental_data,
             quantum_params,
@@ -421,7 +421,7 @@ impl QuantumLightningManager {
     pub async fn test_quantum_htlc_operations(&self) -> Result<(), LightningError> {
 
         // Create test HTLC
-        let test_amount = 100_000; // sats
+        let test_amount = 100_000; // nova units
         let test_preimage = b"quantum_test_preimage_supernova";
 
         // Create quantum HTLC
@@ -447,7 +447,7 @@ impl QuantumLightningManager {
     /// Create quantum HTLC contract
     pub fn create_quantum_htlc_contract(
         &self,
-        amount_sats: u64,
+        amount_nova_units: u64,
         preimage: &[u8],
         expiry_blocks: u32,
     ) -> Result<QuantumHTLC, LightningError> {
@@ -460,18 +460,18 @@ impl QuantumLightningManager {
         let quantum_commitment = self.create_quantum_preimage_commitment(preimage)?;
 
         // Sign HTLC with quantum key
-        let htlc_data = self.serialize_htlc_data(amount_sats, &payment_hash, expiry_blocks);
+        let htlc_data = self.serialize_htlc_data(amount_nova_units, &payment_hash, expiry_blocks);
         let quantum_signature = self
             .node_quantum_keys
             .sign(&htlc_data)
             .map_err(|e| LightningError::QuantumSignatureError(e.to_string()))?;
 
         // Calculate carbon footprint
-        let carbon_footprint = self.calculate_htlc_carbon_footprint(amount_sats);
+        let carbon_footprint = self.calculate_htlc_carbon_footprint(amount_nova_units);
 
         let htlc = QuantumHTLC {
             htlc_id: self.generate_htlc_id(),
-            amount_sats,
+            amount_nova_units,
             payment_hash,
             quantum_preimage_commitment: quantum_commitment,
             expiry_height: expiry_blocks,
@@ -492,7 +492,7 @@ impl QuantumLightningManager {
     pub fn validate_quantum_htlc_security(&self, htlc: &QuantumHTLC) -> Result<(), LightningError> {
         // Verify quantum signature
         let htlc_data =
-            self.serialize_htlc_data(htlc.amount_sats, &htlc.payment_hash, htlc.expiry_height);
+            self.serialize_htlc_data(htlc.amount_nova_units, &htlc.payment_hash, htlc.expiry_height);
 
         let valid = verify_quantum_signature(
             &self.node_quantum_keys.public_key,
@@ -517,12 +517,12 @@ impl QuantumLightningManager {
     /// Test quantum payment routing
     pub async fn test_quantum_payment_routing(
         &self,
-        amount_sats: u64,
+        amount_nova_units: u64,
     ) -> Result<GreenLightningRoute, LightningError> {
         // Find green route
         let route = self
             .find_green_payment_route(
-                amount_sats,
+                amount_nova_units,
                 &self.node_quantum_keys.public_key,
                 &[0u8; 33], // Test destination
             )
@@ -562,12 +562,12 @@ impl QuantumLightningManager {
     }
 
     /// Calculate Lightning carbon footprint
-    pub fn calculate_lightning_carbon_footprint(&self, payment_amount_sats: u64) -> f64 {
+    pub fn calculate_lightning_carbon_footprint(&self, payment_amount_nova_units: u64) -> f64 {
         // Base carbon footprint per Lightning transaction (kg CO2e)
         let base_carbon = 0.0001; // Much lower than on-chain
 
         // Scale slightly with payment size
-        let size_factor = (payment_amount_sats as f64 / 1_000_000.0).sqrt();
+        let size_factor = (payment_amount_nova_units as f64 / 1_000_000.0).sqrt();
 
         base_carbon * (1.0 + size_factor * 0.1)
     }
@@ -575,7 +575,7 @@ impl QuantumLightningManager {
     /// Apply green Lightning incentives
     pub fn apply_green_lightning_incentives(
         &self,
-        base_fee_sats: u64,
+        base_fee_nova_units: u64,
         node_renewable_percentage: f64,
     ) -> u64 {
         let prefs = self.routing_preferences.read().unwrap();
@@ -583,12 +583,12 @@ impl QuantumLightningManager {
         if node_renewable_percentage >= prefs.min_renewable_percentage {
             // Apply green discount
             let discount_factor = prefs.green_incentive_multiplier;
-            let discounted_fee = (base_fee_sats as f64 * discount_factor) as u64;
+            let discounted_fee = (base_fee_nova_units as f64 * discount_factor) as u64;
 
 
             discounted_fee
         } else {
-            base_fee_sats
+            base_fee_nova_units
         }
     }
 
@@ -628,11 +628,11 @@ impl QuantumLightningManager {
     /// Validate carbon negative payments
     pub fn validate_carbon_negative_payments(
         &self,
-        payment_amount_sats: u64,
+        payment_amount_nova_units: u64,
         route: &GreenLightningRoute,
     ) -> Result<bool, LightningError> {
         // Calculate payment carbon footprint
-        let _payment_carbon = self.calculate_lightning_carbon_footprint(payment_amount_sats);
+        let _payment_carbon = self.calculate_lightning_carbon_footprint(payment_amount_nova_units);
 
         // Check if route is carbon negative
         let carbon_negative = route.total_carbon_footprint < 0.0
@@ -648,7 +648,7 @@ impl QuantumLightningManager {
     /// Find green payment route
     pub async fn find_green_payment_route(
         &self,
-        amount_sats: u64,
+        amount_nova_units: u64,
         _source: &[u8],
         _destination: &[u8],
     ) -> Result<GreenLightningRoute, LightningError> {
@@ -659,7 +659,7 @@ impl QuantumLightningManager {
             GreenRouteHop {
                 node_pubkey: vec![1u8; 33],
                 channel_id: [1u8; 32],
-                fee_sats: 10,
+                fee_nova_units: 10,
                 renewable_percentage: 100.0,
                 carbon_footprint: -0.001, // Carbon negative!
                 green_certified: true,
@@ -667,7 +667,7 @@ impl QuantumLightningManager {
             GreenRouteHop {
                 node_pubkey: vec![2u8; 33],
                 channel_id: [2u8; 32],
-                fee_sats: 15,
+                fee_nova_units: 15,
                 renewable_percentage: 85.0,
                 carbon_footprint: 0.0001,
                 green_certified: true,
@@ -684,8 +684,8 @@ impl QuantumLightningManager {
 
         Ok(GreenLightningRoute {
             hops: mock_hops,
-            total_capacity_sats: amount_sats,
-            total_fees_sats: 25,
+            total_capacity_nova_units: amount_nova_units,
+            total_fees_nova_units: 25,
             total_carbon_footprint: total_carbon,
             average_renewable_percentage: avg_renewable,
             green_nodes_count: green_count,
@@ -758,8 +758,8 @@ impl QuantumLightningManager {
         data
     }
 
-    fn calculate_htlc_carbon_footprint(&self, amount_sats: u64) -> f64 {
-        self.calculate_lightning_carbon_footprint(amount_sats)
+    fn calculate_htlc_carbon_footprint(&self, amount_nova_units: u64) -> f64 {
+        self.calculate_lightning_carbon_footprint(amount_nova_units)
     }
 
     fn update_metrics_for_new_channel(&self, channel: &QuantumLightningChannel) {
@@ -816,7 +816,7 @@ pub async fn create_quantum_lightning_channel(
     remote_quantum_pubkey: Vec<u8>,
     funding_tx: Transaction,
     funding_outpoint: (String, u32),
-    capacity_sats: u64,
+    capacity_nova_units: u64,
     environmental_cert: Option<RenewableValidationResult>,
 ) -> Result<QuantumLightningChannel, LightningError> {
     manager
@@ -824,7 +824,7 @@ pub async fn create_quantum_lightning_channel(
             remote_quantum_pubkey,
             funding_tx,
             funding_outpoint,
-            capacity_sats,
+            capacity_nova_units,
             environmental_cert,
         )
         .await
@@ -845,9 +845,9 @@ pub async fn test_quantum_htlc_operations(
 
 pub fn calculate_lightning_carbon_footprint(
     manager: &QuantumLightningManager,
-    payment_amount_sats: u64,
+    payment_amount_nova_units: u64,
 ) -> f64 {
-    manager.calculate_lightning_carbon_footprint(payment_amount_sats)
+    manager.calculate_lightning_carbon_footprint(payment_amount_nova_units)
 }
 
 pub fn track_environmental_lightning_metrics(

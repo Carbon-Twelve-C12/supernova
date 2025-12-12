@@ -117,9 +117,9 @@ pub struct LightningInfo {
     pub num_channels: usize,
     pub num_pending_channels: usize,
     pub num_inactive_channels: usize,
-    pub total_balance_msat: u64,
-    pub total_outbound_capacity_msat: u64,
-    pub total_inbound_capacity_msat: u64,
+    pub total_balance_mnova: u64,
+    pub total_outbound_capacity_mnova: u64,
+    pub total_inbound_capacity_mnova: u64,
     pub num_peers: usize,
     pub synced_to_chain: bool,
     pub synced_to_graph: bool,
@@ -137,22 +137,22 @@ pub struct LightningChannel {
     pub commit_weight: u64,
     pub fee_per_kw: u64,
     pub unsettled_balance: u64,
-    pub total_satoshis_sent: u64,
-    pub total_satoshis_received: u64,
+    pub total_nova_units_sent: u64,
+    pub total_nova_units_received: u64,
     pub num_updates: u64,
     pub pending_htlcs: Vec<PendingHTLC>,
     pub csv_delay: u32,
     pub private: bool,
     pub initiator: bool,
     pub chan_status_flags: String,
-    pub local_chan_reserve_sat: u64,
-    pub remote_chan_reserve_sat: u64,
+    pub local_chan_reserve_nova: u64,
+    pub remote_chan_reserve_nova: u64,
     pub static_remote_key: bool,
     pub commitment_type: String,
     pub lifetime: u64,
     pub uptime: u64,
     pub close_address: String,
-    pub push_amount_sat: u64,
+    pub push_amount_nova: u64,
     pub thaw_height: u32,
     pub local_constraints: ChannelConstraints,
     pub remote_constraints: ChannelConstraints,
@@ -171,10 +171,10 @@ pub struct PendingHTLC {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelConstraints {
     pub csv_delay: u32,
-    pub chan_reserve_sat: u64,
-    pub dust_limit_sat: u64,
-    pub max_pending_amt_msat: u64,
-    pub min_htlc_msat: u64,
+    pub chan_reserve_nova: u64,
+    pub dust_limit_nova: u64,
+    pub max_pending_amt_mnova: u64,
+    pub min_htlc_mnova: u64,
     pub max_accepted_htlcs: u32,
 }
 
@@ -185,12 +185,12 @@ pub struct LightningPayment {
     pub creation_date: u64,
     pub fee: u64,
     pub payment_preimage: String,
-    pub value_sat: u64,
-    pub value_msat: u64,
+    pub value_nova_units: u64,
+    pub value_mnova: u64,
     pub payment_request: String,
     pub status: String,
-    pub fee_sat: u64,
-    pub fee_msat: u64,
+    pub fee_nova_units: u64,
+    pub fee_mnova: u64,
     pub creation_time_ns: u64,
     pub htlcs: Vec<HTLCAttempt>,
     pub payment_index: u64,
@@ -214,8 +214,8 @@ pub struct Route {
     pub total_fees: u64,
     pub total_amt: u64,
     pub hops: Vec<Hop>,
-    pub total_fees_msat: u64,
-    pub total_amt_msat: u64,
+    pub total_fees_mnova: u64,
+    pub total_amt_mnova: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,8 +225,8 @@ pub struct Hop {
     pub amt_to_forward: u64,
     pub fee: u64,
     pub expiry: u32,
-    pub amt_to_forward_msat: u64,
-    pub fee_msat: u64,
+    pub amt_to_forward_mnova: u64,
+    pub fee_mnova: u64,
     pub pub_key: String,
     pub tlv_payload: bool,
     pub mpp_record: Option<MPPRecord>,
@@ -237,7 +237,7 @@ pub struct Hop {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MPPRecord {
     pub payment_addr: Vec<u8>,
-    pub total_amt_msat: u64,
+    pub total_amt_mnova: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,7 +251,7 @@ pub struct AMPRecord {
 pub struct Failure {
     pub code: String,
     pub channel_update: Option<ChannelUpdate>,
-    pub htlc_msat: u64,
+    pub htlc_mnova: u64,
     pub onion_sha_256: Vec<u8>,
     pub cltv_expiry: u32,
     pub flags: u32,
@@ -268,10 +268,10 @@ pub struct ChannelUpdate {
     pub message_flags: u32,
     pub channel_flags: u32,
     pub time_lock_delta: u32,
-    pub htlc_minimum_msat: u64,
+    pub htlc_minimum_mnova: u64,
     pub base_fee: u32,
     pub fee_rate: u32,
-    pub htlc_maximum_msat: u64,
+    pub htlc_maximum_mnova: u64,
     pub extra_opaque_data: Vec<u8>,
 }
 
@@ -281,7 +281,7 @@ pub struct LightningInvoice {
     pub r_preimage: Vec<u8>,
     pub r_hash: Vec<u8>,
     pub value: u64,
-    pub value_msat: u64,
+    pub value_mnova: u64,
     pub settled: bool,
     pub creation_date: u64,
     pub settle_date: u64,
@@ -295,8 +295,8 @@ pub struct LightningInvoice {
     pub add_index: u64,
     pub settle_index: u64,
     pub amt_paid: u64,
-    pub amt_paid_sat: u64,
-    pub amt_paid_msat: u64,
+    pub amt_paid_nova_units: u64,
+    pub amt_paid_mnova: u64,
     pub state: String,
     pub htlcs: Vec<InvoiceHTLC>,
     pub features: HashMap<u32, Feature>,
@@ -315,7 +315,7 @@ pub struct RouteHint {
 pub struct HopHint {
     pub node_id: String,
     pub chan_id: u64,
-    pub fee_base_msat: u32,
+    pub fee_base_mnova: u32,
     pub fee_proportional_millionths: u32,
     pub cltv_expiry_delta: u32,
 }
@@ -324,14 +324,14 @@ pub struct HopHint {
 pub struct InvoiceHTLC {
     pub chan_id: u64,
     pub htlc_index: u64,
-    pub amt_msat: u64,
+    pub amt_mnova: u64,
     pub accept_height: i32,
     pub accept_time: u64,
     pub resolve_time: u64,
     pub expiry_height: i32,
     pub state: String,
     pub custom_records: HashMap<u64, Vec<u8>>,
-    pub mpp_total_amt_msat: u64,
+    pub mpp_total_amt_mnova: u64,
     pub amp: Option<AMP>,
 }
 
@@ -356,7 +356,7 @@ pub struct AMPInvoiceState {
     pub state: String,
     pub settle_index: u64,
     pub settle_time: u64,
-    pub amt_paid_msat: u64,
+    pub amt_paid_mnova: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -399,10 +399,10 @@ pub struct ChannelEdge {
 pub struct RoutingPolicy {
     pub time_lock_delta: u32,
     pub min_htlc: u64,
-    pub fee_base_msat: u64,
-    pub fee_rate_milli_msat: u64,
+    pub fee_base_mnova: u64,
+    pub fee_rate_milli_mnova: u64,
     pub disabled: bool,
-    pub max_htlc_msat: u64,
+    pub max_htlc_mnova: u64,
     pub last_update: u32,
 }
 
@@ -532,7 +532,7 @@ impl LightningManager {
             })
             .collect();
 
-        let total_balance_msat = active_channels
+        let total_balance_mnova = active_channels
             .iter()
             .filter_map(|c| {
                 c.get_channel_info()
@@ -541,7 +541,7 @@ impl LightningManager {
             })
             .sum();
 
-        let total_outbound_capacity_msat = active_channels
+        let total_outbound_capacity_mnova = active_channels
             .iter()
             .filter_map(|c| {
                 c.get_channel_info()
@@ -550,7 +550,7 @@ impl LightningManager {
             })
             .sum();
 
-        let total_inbound_capacity_msat = active_channels
+        let total_inbound_capacity_mnova = active_channels
             .iter()
             .filter_map(|c| {
                 c.get_channel_info()
@@ -579,9 +579,9 @@ impl LightningManager {
                     }
                 })
                 .count(),
-            total_balance_msat,
-            total_outbound_capacity_msat,
-            total_inbound_capacity_msat,
+            total_balance_mnova,
+            total_outbound_capacity_mnova,
+            total_inbound_capacity_mnova,
             num_peers: peers.len(),
             synced_to_chain,
             synced_to_graph,
@@ -643,7 +643,7 @@ impl LightningManager {
         local_funding_amount: u64,
         push_amount: u64,
         private: bool,
-        min_htlc_msat: Option<u64>,
+        min_htlc_mnova: Option<u64>,
     ) -> Result<OpenChannelResponse, ManagerError> {
         info!(
             "Opening channel to {} with funding {}",
@@ -653,7 +653,7 @@ impl LightningManager {
         // Validate parameters
         if local_funding_amount < 20000 {
             return Err(ManagerError::ConfigError(
-                "Minimum channel size is 20,000 satoshis".to_string(),
+                "Minimum channel size is 20,000 nova units".to_string(),
             ));
         }
 
@@ -685,8 +685,8 @@ impl LightningManager {
         // Create channel configuration
         let mut config = ChannelConfig::default();
         config.announce_channel = !private;
-        if let Some(min_htlc) = min_htlc_msat {
-            config.min_htlc_value_msat = min_htlc;
+        if let Some(min_htlc) = min_htlc_mnova {
+            config.min_htlc_value_mnova = min_htlc;
         }
 
         // Create channel
@@ -808,9 +808,9 @@ impl LightningManager {
     pub async fn send_payment(
         &self,
         payment_request: &str,
-        amount_msat: Option<u64>,
+        amount_mnova: Option<u64>,
         _timeout_seconds: u32,
-        fee_limit_msat: Option<u64>,
+        fee_limit_mnova: Option<u64>,
     ) -> Result<PaymentResponse, ManagerError> {
         info!("Sending payment: {}", payment_request);
 
@@ -818,7 +818,7 @@ impl LightningManager {
         let invoice = self.parse_payment_request(payment_request)?;
 
         // Use provided amount or invoice amount
-        let amount = amount_msat.unwrap_or(invoice.amount_msat);
+        let amount = amount_mnova.unwrap_or(invoice.amount_mnova);
 
         // Find route
         let route = self
@@ -835,11 +835,11 @@ impl LightningManager {
         }
 
         // Check fee limit
-        if let Some(max_fee) = fee_limit_msat {
-            if route.total_fee_msat > max_fee {
+        if let Some(max_fee) = fee_limit_mnova {
+            if route.total_fee_mnova > max_fee {
                 return Err(ManagerError::PaymentFailed(format!(
                     "Route fee {} exceeds limit {}",
-                    route.total_fee_msat, max_fee
+                    route.total_fee_mnova, max_fee
                 )));
             }
         }
@@ -853,14 +853,14 @@ impl LightningManager {
         let payment = Payment {
             payment_hash,
             payment_preimage: None,
-            amount_msat: amount,
+            amount_mnova: amount,
             status: PaymentStatus::Pending,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
             completed_at: None,
-            fee_msat: route.total_fee_msat,
+            fee_mnova: route.total_fee_mnova,
             route: Some(
                 route
                     .hops
@@ -868,8 +868,8 @@ impl LightningManager {
                     .map(|h| RouteHop {
                         channel_id: h.channel_id.to_hex().parse().unwrap_or(0),
                         node_id: h.node_id.to_string(),
-                        amount_msat: h.amount_msat,
-                        fee_msat: h.channel_fee(h.amount_msat),
+                        amount_mnova: h.amount_mnova,
+                        fee_mnova: h.channel_fee(h.amount_mnova),
                         cltv_expiry_delta: h.cltv_expiry_delta,
                     })
                     .collect(),
@@ -914,8 +914,8 @@ impl LightningManager {
             payment_error: None,
             payment_index,
             status: "SUCCEEDED".to_string(),
-            fee_msat: route.total_fee_msat,
-            value_msat: amount,
+            fee_mnova: route.total_fee_mnova,
+            value_mnova: amount,
             creation_time_ns: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -946,12 +946,12 @@ impl LightningManager {
     /// Create an invoice
     pub fn create_invoice(
         &self,
-        value_msat: u64,
+        value_mnova: u64,
         memo: &str,
         expiry: u32,
         _private: bool,
     ) -> Result<InvoiceResponse, ManagerError> {
-        info!("Creating invoice for {} millinovas", value_msat);
+        info!("Creating invoice for {} millinovas", value_mnova);
 
         // Generate payment hash and preimage using payment module types
         let preimage = crate::lightning::payment::PaymentPreimage::new_random();
@@ -961,7 +961,7 @@ impl LightningManager {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         // Create invoice using payment module types directly
-        let invoice = Invoice::new_with_preimage(preimage, value_msat, memo.to_string(), expiry)
+        let invoice = Invoice::new_with_preimage(preimage, value_mnova, memo.to_string(), expiry)
             .map_err(|e| ManagerError::InvalidPaymentRequest(e.to_string()))?;
 
         // Store invoice using payment module types
@@ -985,7 +985,7 @@ impl LightningManager {
                                 invoice_htlcs.push(crate::lightning::payment::Htlc {
                                     id: htlc.id,
                                     payment_hash: htlc.payment_hash,
-                                    amount_sat: htlc.amount_novas,
+                                    amount_nova: htlc.amount_novas,
                                     cltv_expiry: htlc.expiry_height,
                                     offered: htlc.is_outgoing,
                                     state: crate::lightning::payment::HtlcState::Pending,
@@ -1069,8 +1069,8 @@ impl LightningManager {
                 .iter()
                 .map(|htlc| htlc.amount_novas)
                 .sum(),
-            total_satoshis_sent: total_novas_sent,
-            total_satoshis_received: total_novas_received,
+            total_nova_units_sent: total_novas_sent,
+            total_nova_units_received: total_novas_received,
             num_updates,
             pending_htlcs: channel
                 .pending_htlcs
@@ -1089,29 +1089,29 @@ impl LightningManager {
             private: !channel.is_public,
             initiator: channel.is_initiator,
             chan_status_flags: "ChanStatusDefault".to_string(),
-            local_chan_reserve_sat: channel.channel_reserve_novas,
-            remote_chan_reserve_sat: channel.channel_reserve_novas,
+            local_chan_reserve_nova: channel.channel_reserve_novas,
+            remote_chan_reserve_nova: channel.channel_reserve_novas,
             static_remote_key: false,
             commitment_type: "ANCHORS".to_string(),
             lifetime: uptime,
             uptime,
             close_address: "".to_string(),
-            push_amount_sat: 0, // Would need to track this from channel opening
+            push_amount_nova: 0, // Would need to track this from channel opening
             thaw_height: 0,
             local_constraints: ChannelConstraints {
                 csv_delay: channel.to_self_delay as u32,
-                chan_reserve_sat: channel.channel_reserve_novas,
-                dust_limit_sat: 546,
-                max_pending_amt_msat: 990000000,
-                min_htlc_msat: channel.min_htlc_value_novas * 1000,
+                chan_reserve_nova: channel.channel_reserve_novas,
+                dust_limit_nova: 546,
+                max_pending_amt_mnova: 990000000,
+                min_htlc_mnova: channel.min_htlc_value_novas * 1000,
                 max_accepted_htlcs: channel.max_accepted_htlcs as u32,
             },
             remote_constraints: ChannelConstraints {
                 csv_delay: channel.to_self_delay as u32,
-                chan_reserve_sat: channel.channel_reserve_novas,
-                dust_limit_sat: 546,
-                max_pending_amt_msat: 990000000,
-                min_htlc_msat: channel.min_htlc_value_novas * 1000,
+                chan_reserve_nova: channel.channel_reserve_novas,
+                dust_limit_nova: 546,
+                max_pending_amt_mnova: 990000000,
+                min_htlc_mnova: channel.min_htlc_value_novas * 1000,
                 max_accepted_htlcs: channel.max_accepted_htlcs as u32,
             },
         }
@@ -1130,18 +1130,18 @@ impl LightningManager {
                 },
                 route: Route {
                     total_time_lock: 0, // Would need to track this
-                    total_fees: payment.fee_msat / 1000,
-                    total_amt: payment.amount_msat / 1000,
+                    total_fees: payment.fee_mnova / 1000,
+                    total_amt: payment.amount_mnova / 1000,
                     hops: route
                         .iter()
                         .map(|h| Hop {
                             chan_id: format!("{:016x}", h.channel_id),
                             chan_capacity: 1000000, // Would need channel info
-                            amt_to_forward: h.amount_msat / 1000,
-                            fee: h.channel_fee(h.amount_msat) / 1000,
+                            amt_to_forward: h.amount_mnova / 1000,
+                            fee: h.channel_fee(h.amount_mnova) / 1000,
                             expiry: h.cltv_expiry_delta as u32,
-                            amt_to_forward_msat: h.amount_msat,
-                            fee_msat: h.channel_fee(h.amount_msat),
+                            amt_to_forward_mnova: h.amount_mnova,
+                            fee_mnova: h.channel_fee(h.amount_mnova),
                             pub_key: h.node_id.clone(),
                             tlv_payload: true,
                             mpp_record: None,
@@ -1149,15 +1149,15 @@ impl LightningManager {
                             custom_records: HashMap::new(),
                         })
                         .collect(),
-                    total_fees_msat: payment.fee_msat,
-                    total_amt_msat: payment.amount_msat,
+                    total_fees_mnova: payment.fee_mnova,
+                    total_amt_mnova: payment.amount_mnova,
                 },
                 attempt_time_ns: payment.created_at * 1_000_000_000,
                 resolve_time_ns: payment.completed_at.unwrap_or(payment.created_at) * 1_000_000_000,
                 failure: payment.failure_reason.as_ref().map(|reason| Failure {
                     code: reason.clone(),
                     channel_update: None,
-                    htlc_msat: payment.amount_msat,
+                    htlc_mnova: payment.amount_mnova,
                     onion_sha_256: vec![],
                     cltv_expiry: 0,
                     flags: 0,
@@ -1181,16 +1181,16 @@ impl LightningManager {
 
         LightningPayment {
             payment_hash: payment.payment_hash.to_hex(),
-            value: payment.amount_msat / 1000,
+            value: payment.amount_mnova / 1000,
             creation_date: payment.created_at,
-            fee: payment.fee_msat / 1000,
+            fee: payment.fee_mnova / 1000,
             payment_preimage: payment
                 .payment_preimage
                 .as_ref()
                 .map(|p| p.to_hex())
                 .unwrap_or_default(),
-            value_sat: payment.amount_msat / 1000,
-            value_msat: payment.amount_msat,
+            value_nova_units: payment.amount_mnova / 1000,
+            value_mnova: payment.amount_mnova,
             payment_request: "".to_string(),
             status: match payment.status {
                 PaymentStatus::Pending => "IN_FLIGHT".to_string(),
@@ -1198,8 +1198,8 @@ impl LightningManager {
                 PaymentStatus::Failed(_) => "FAILED".to_string(),
                 PaymentStatus::Cancelled => "FAILED".to_string(),
             },
-            fee_sat: payment.fee_msat / 1000,
-            fee_msat: payment.fee_msat,
+            fee_nova_units: payment.fee_mnova / 1000,
+            fee_mnova: payment.fee_mnova,
             creation_time_ns: payment.created_at * 1_000_000_000,
             htlcs,
             payment_index,
@@ -1220,7 +1220,7 @@ impl LightningManager {
                             invoice_htlcs.push(InvoiceHTLC {
                                 chan_id: channel_id.to_hex().parse().unwrap_or(0),
                                 htlc_index: idx as u64,
-                                amt_msat: htlc.amount_novas * 1000, // Convert to msat
+                                amt_mnova: htlc.amount_novas * 1000, // Convert to millinova
                                 accept_height: htlc.expiry_height as i32,
                                 accept_time: invoice.created_at(),
                                 resolve_time: invoice.settled_at().unwrap_or(0),
@@ -1231,7 +1231,7 @@ impl LightningManager {
                                     "ACCEPTED".to_string()
                                 },
                                 custom_records: HashMap::new(),
-                                mpp_total_amt_msat: 0, // Would need MPP info
+                                mpp_total_amt_mnova: 0, // Would need MPP info
                                 amp: None,             // Would need AMP info
                             });
                         }
@@ -1255,8 +1255,8 @@ impl LightningManager {
             memo: invoice.description().to_string(),
             r_preimage: invoice.payment_preimage().as_bytes().to_vec(),
             r_hash: invoice.payment_hash().as_bytes().to_vec(),
-            value: invoice.amount_msat() / 1000,
-            value_msat: invoice.amount_msat(),
+            value: invoice.amount_mnova() / 1000,
+            value_mnova: invoice.amount_mnova(),
             settled: invoice.is_settled(),
             creation_date: invoice.created_at(),
             settle_date: invoice.settled_at().unwrap_or(0),
@@ -1270,17 +1270,17 @@ impl LightningManager {
             add_index,
             settle_index,
             amt_paid: if invoice.is_settled() {
-                invoice.amount_msat() / 1000
+                invoice.amount_mnova() / 1000
             } else {
                 0
             },
-            amt_paid_sat: if invoice.is_settled() {
-                invoice.amount_msat() / 1000
+            amt_paid_nova_units: if invoice.is_settled() {
+                invoice.amount_mnova() / 1000
             } else {
                 0
             },
-            amt_paid_msat: if invoice.is_settled() {
-                invoice.amount_msat()
+            amt_paid_mnova: if invoice.is_settled() {
+                invoice.amount_mnova()
             } else {
                 0
             },
@@ -1319,7 +1319,7 @@ impl LightningManager {
         // Simplified BOLT11 parsing - in production would use proper parser
         Ok(ParsedInvoice {
             payment_hash: crate::lightning::payment::PaymentHash::new([0u8; 32]), // Placeholder
-            amount_msat: 1000000,                                                 // Placeholder
+            amount_mnova: 1000000,                                                 // Placeholder
             destination: "destination_node".to_string(),
             expiry: 3600,
             description: "Test payment".to_string(),
@@ -1331,9 +1331,9 @@ impl LightningManager {
         // Format: ln[prefix][amount][separator][data][checksum]
 
         let _network_prefix = "bc"; // mainnet
-        let amount_part = if invoice.amount_msat() > 0 {
+        let amount_part = if invoice.amount_mnova() > 0 {
             // Convert millinovas to the appropriate unit
-            let amount_novas = invoice.amount_msat() / 1000;
+            let amount_novas = invoice.amount_mnova() / 1000;
             if amount_novas >= 1000000 {
                 format!("{}m", amount_novas / 1000000) // mega-novas
             } else if amount_novas >= 1000 {
@@ -1394,12 +1394,12 @@ impl LightningManager {
     pub async fn find_route(
         &self,
         pub_key: &str,
-        amt_msat: u64,
-        fee_limit_msat: u64,
+        amt_mnova: u64,
+        fee_limit_mnova: u64,
     ) -> Result<Option<Route>, ManagerError> {
-        match self.router.find_route(pub_key, amt_msat, &[]) {
+        match self.router.find_route(pub_key, amt_mnova, &[]) {
             Ok(route) => {
-                if route.total_fee_msat <= fee_limit_msat {
+                if route.total_fee_mnova <= fee_limit_mnova {
                     // Get channel capacities for each hop
                     let channels = self.channels.read().unwrap();
 
@@ -1409,8 +1409,8 @@ impl LightningManager {
                             .iter()
                             .map(|h| h.cltv_expiry_delta as u32)
                             .sum(),
-                        total_fees: route.total_fee_msat / 1000,
-                        total_amt: amt_msat / 1000,
+                        total_fees: route.total_fee_mnova / 1000,
+                        total_amt: amt_mnova / 1000,
                         hops: route
                             .hops
                             .iter()
@@ -1433,11 +1433,11 @@ impl LightningManager {
                                 Hop {
                                     chan_id: hop.channel_id.to_hex(),
                                     chan_capacity,
-                                    amt_to_forward: hop.amount_msat / 1000,
-                                    fee: hop.channel_fee(hop.amount_msat) / 1000,
+                                    amt_to_forward: hop.amount_mnova / 1000,
+                                    fee: hop.channel_fee(hop.amount_mnova) / 1000,
                                     expiry: hop.cltv_expiry_delta as u32,
-                                    amt_to_forward_msat: hop.amount_msat,
-                                    fee_msat: hop.channel_fee(hop.amount_msat),
+                                    amt_to_forward_mnova: hop.amount_mnova,
+                                    fee_mnova: hop.channel_fee(hop.amount_mnova),
                                     pub_key: hop.node_id.to_string(),
                                     tlv_payload: true,
                                     mpp_record: None,
@@ -1446,8 +1446,8 @@ impl LightningManager {
                                 }
                             })
                             .collect(),
-                        total_fees_msat: route.total_fee_msat,
-                        total_amt_msat: amt_msat,
+                        total_fees_mnova: route.total_fee_mnova,
+                        total_amt_mnova: amt_mnova,
                     }))
                 } else {
                     Ok(None)
@@ -1493,7 +1493,7 @@ impl LightningManager {
                 .map(|(i, hop)| crate::lightning::payment::Htlc {
                     id: i as u64,
                     payment_hash: *payment_hash_obj.as_bytes(),
-                    amount_sat: hop.amount_msat / 1000, // Convert to sats
+                    amount_nova: hop.amount_mnova / 1000, // Convert to nova units
                     cltv_expiry: 0,                     // Would need to track this
                     offered: i == 0,                    // First hop is offered by us
                     state: crate::lightning::payment::HtlcState::Pending,
@@ -1523,8 +1523,8 @@ impl LightningManager {
                 PaymentStatus::Failed(_) => "FAILED".to_string(),
                 PaymentStatus::Cancelled => "FAILED".to_string(),
             },
-            fee_msat: payment.fee_msat,
-            value_msat: payment.amount_msat,
+            fee_mnova: payment.fee_mnova,
+            value_mnova: payment.amount_mnova,
             creation_time_ns: payment.created_at * 1_000_000_000, // Convert to nanoseconds
         })
     }
@@ -1533,7 +1533,7 @@ impl LightningManager {
 // Helper structs
 struct ParsedInvoice {
     payment_hash: crate::lightning::payment::PaymentHash,
-    amount_msat: u64,
+    amount_mnova: u64,
     destination: String,
     expiry: u32,
     description: String,
@@ -1554,8 +1554,8 @@ pub struct PaymentResponse {
     pub payment_error: Option<String>,
     pub payment_index: u64,
     pub status: String,
-    pub fee_msat: u64,
-    pub value_msat: u64,
+    pub fee_mnova: u64,
+    pub value_mnova: u64,
     pub creation_time_ns: u64,
 }
 

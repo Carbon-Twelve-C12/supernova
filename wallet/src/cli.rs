@@ -4,7 +4,7 @@ use crate::{
     history::{TransactionDirection, TransactionHistory, TransactionRecord, TransactionStatus},
     ui::tui::WalletTui,
 };
-use bitcoin::network::Network;
+use bitcoin::network::Network; // Bitcoin-compatible
 use supernova_core::storage::utxo_set::UtxoSet;
 use chrono::Utc;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -82,7 +82,7 @@ enum Commands {
         #[arg(short, long)]
         account: String,
 
-        /// Amount in satoshis
+        /// Amount in nova units
         #[arg(short, long, default_value = "50000")]
         amount: u64,
     },
@@ -93,7 +93,7 @@ pub fn run_cli() -> Result<(), String> {
 
     // Parse network string to Network enum
     let network = match cli.network.to_lowercase().as_str() {
-        "mainnet" | "bitcoin" => Network::Bitcoin,
+        "mainnet" | "nova" => Network::Bitcoin, // Bitcoin-compatible
         "testnet" => Network::Testnet,
         "regtest" => Network::Regtest,
         "signet" => Network::Signet,
@@ -262,7 +262,7 @@ pub fn run_cli() -> Result<(), String> {
                 .get_balance(&account, &utxo_set)
                 .map_err(|e| format!("Failed to get balance: {}", e))?;
 
-            println!("Balance for '{}': {} satoshis", account, balance);
+            println!("Balance for '{}': {} nova units", account, balance);
             Ok(())
         }
 
@@ -342,7 +342,7 @@ pub fn run_cli() -> Result<(), String> {
                 .map_err(|e| format!("Failed to add transaction: {}", e))?;
 
             println!(
-                "Test transaction of {} sats created for account '{}'",
+                "Test transaction of {} nova units created for account '{}'",
                 amount, account
             );
             Ok(())

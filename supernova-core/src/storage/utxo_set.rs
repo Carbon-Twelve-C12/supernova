@@ -9,7 +9,6 @@ use sha2::{Digest, Sha256};
 
 use crate::types::transaction::{OutPoint, TransactionOutput as TxOutput};
 use crate::wallet::quantum_wallet::QuantumAddress;
-// use bitcoin::{Address, ScriptBuf};
 
 use tracing::{error, info};
 
@@ -575,7 +574,7 @@ impl UtxoSet {
         let cache = self.cache.read().unwrap();
         // let address_scripts: Vec<ScriptBuf> = addresses.iter().filter_map(|a| {
         //     Address::from_str(&a.address).ok().map(|addr| {
-        //         // Assume network for the address - using Bitcoin network as default
+        //         // Assume network for the address - using a default network
         //         addr.assume_checked().script_pubkey()
         //     })
         // }).collect();

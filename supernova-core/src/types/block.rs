@@ -230,7 +230,7 @@ impl fmt::Display for BlockHeader {
 }
 
 /// Convert difficulty bits to a target hash
-/// Bitcoin's compact representation: target = coefficient * 256^(exponent - 3)
+/// Compact representation: target = coefficient * 256^(exponent - 3)
 fn bits_to_target(bits: u32) -> [u8; 32] {
     let mut target = [0u8; 32];
 
@@ -502,7 +502,7 @@ impl Block {
         // 4. Subtract block reward
 
         // For now, we'll return a simple estimate based on transaction count
-        let base_fee = 1000; // 1000 satoshis
+        let base_fee = 1000; // 1000 nova units
         if self.transactions.is_empty() {
             0
         } else {

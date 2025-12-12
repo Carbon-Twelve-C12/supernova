@@ -41,9 +41,9 @@ pub fn calculate_base_reward(block_height: u64) -> u64 {
     }
 
     // Calculate reward: initial_reward / 2^halvings
-    // Convert to satoshis (1 NOVA = 100_000_000 satoshis)
-    let initial_reward_satoshis = NOVA_BLOCK_REWARD * 100_000_000;
-    initial_reward_satoshis >> halvings
+    // Base units: 1 NOVA = 100_000_000 nova units
+    let initial_reward_nova_units = NOVA_BLOCK_REWARD * 100_000_000;
+    initial_reward_nova_units >> halvings
 }
 
 /// Calculate environmental bonus based on miner's environmental profile
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_environmental_bonus() {
-        let base_reward = 50 * 100_000_000; // 50 NOVA in satoshis
+        let base_reward = 50 * 100_000_000; // 50 NOVA in nova units
 
         // Test no bonus for unverified profile
         let unverified_profile = EnvironmentalProfile {

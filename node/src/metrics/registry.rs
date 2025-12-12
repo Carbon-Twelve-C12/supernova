@@ -91,13 +91,13 @@ impl MetricsRegistry {
         gauge!("lightning_pending_channels", pending as f64);
     }
 
-    pub fn record_payment_outcome(&self, success: bool, amount_msat: u64) {
+    pub fn record_payment_outcome(&self, success: bool, amount_mnova: u64) {
         if success {
             counter!("lightning_payments_success", 1);
         } else {
             counter!("lightning_payments_failed", 1);
         }
-        histogram!("lightning_payment_amounts", amount_msat as f64);
+        histogram!("lightning_payment_amounts", amount_mnova as f64);
     }
 }
 

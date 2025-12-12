@@ -222,9 +222,9 @@ pub struct MempoolTransaction {
     pub txid: String,
     /// Transaction size in bytes
     pub size: usize,
-    /// Transaction fee in satoshis
+    /// Transaction fee in nova units
     pub fee: u64,
-    /// Fee rate in satoshis per byte
+    /// Fee rate in nova units per byte
     pub fee_rate: u64,
     /// Time when transaction was added to mempool
     pub time: u64,
@@ -260,7 +260,7 @@ pub struct TransactionValidationResult {
     pub valid: bool,
     /// Validation error message
     pub error: Option<String>,
-    /// Fee rate in satoshis per byte
+    /// Fee rate in nova units per byte
     pub fee_rate: Option<u64>,
     /// Transaction size in bytes
     pub size: Option<usize>,
@@ -269,11 +269,11 @@ pub struct TransactionValidationResult {
 /// Transaction fee estimates
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TransactionFees {
-    /// Low priority fee rate (satoshis per byte)
+    /// Low priority fee rate (nova units per byte)
     pub low_priority: u64,
-    /// Normal priority fee rate (satoshis per byte)
+    /// Normal priority fee rate (nova units per byte)
     pub normal_priority: u64,
-    /// High priority fee rate (satoshis per byte)
+    /// High priority fee rate (nova units per byte)
     pub high_priority: u64,
     /// Target number of blocks for confirmation
     pub target_blocks: u32,
@@ -470,13 +470,13 @@ pub struct MiningInfo {
 /// Fee tiers
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FeeTiers {
-    /// High priority fee rate (satoshis per byte)
+    /// High priority fee rate (nova units per byte)
     pub high_priority: f64,
-    /// Medium priority fee rate (satoshis per byte)
+    /// Medium priority fee rate (nova units per byte)
     pub medium_priority: f64,
-    /// Low priority fee rate (satoshis per byte)
+    /// Low priority fee rate (nova units per byte)
     pub low_priority: f64,
-    /// Minimum fee rate (satoshis per byte)
+    /// Minimum fee rate (nova units per byte)
     pub minimum: f64,
 }
 
@@ -665,12 +665,12 @@ pub struct LightningInfo {
     pub num_pending_channels: usize,
     /// Number of inactive channels
     pub num_inactive_channels: usize,
-    /// Total channel balance in millisatoshis
-    pub total_balance_msat: u64,
-    /// Total outbound capacity in millisatoshis
-    pub total_outbound_capacity_msat: u64,
-    /// Total inbound capacity in millisatoshis
-    pub total_inbound_capacity_msat: u64,
+    /// Total channel balance in millinova
+    pub total_balance_mnova: u64,
+    /// Total outbound capacity in millinova
+    pub total_outbound_capacity_mnova: u64,
+    /// Total inbound capacity in millinova
+    pub total_inbound_capacity_mnova: u64,
     /// Number of peers
     pub num_peers: usize,
     /// Whether synced to chain
@@ -692,40 +692,40 @@ pub struct LightningChannel {
     pub output_index: u32,
     /// Remote node ID
     pub remote_node_id: String,
-    /// Channel capacity in satoshis
+    /// Channel capacity in nova units
     pub capacity: u64,
-    /// Local balance in millisatoshis
-    pub local_balance_msat: u64,
-    /// Remote balance in millisatoshis
-    pub remote_balance_msat: u64,
+    /// Local balance in millinova
+    pub local_balance_mnova: u64,
+    /// Remote balance in millinova
+    pub remote_balance_mnova: u64,
     /// Channel state
     pub state: String,
     /// Whether channel is public
     pub is_public: bool,
     /// Whether channel is active
     pub is_active: bool,
-    /// Total sent in millisatoshis
-    pub total_sent_msat: u64,
-    /// Total received in millisatoshis
-    pub total_received_msat: u64,
+    /// Total sent in millinova
+    pub total_sent_mnova: u64,
+    /// Total received in millinova
+    pub total_received_mnova: u64,
     /// Number of updates
     pub num_updates: u64,
     /// CSV delay
     pub csv_delay: u16,
-    /// Local channel reserve in satoshis
-    pub local_reserve_sat: u64,
-    /// Remote channel reserve in satoshis
-    pub remote_reserve_sat: u64,
-    /// Commit fee in satoshis
+    /// Local channel reserve in nova units
+    pub local_reserve_nova: u64,
+    /// Remote channel reserve in nova units
+    pub remote_reserve_nova: u64,
+    /// Commit fee in nova units
     pub commit_fee: u64,
     /// Fee per kiloweight
     pub fee_per_kw: u64,
-    /// Unsettled balance in millisatoshis
-    pub unsettled_balance_msat: u64,
+    /// Unsettled balance in millinova
+    pub unsettled_balance_mnova: u64,
     /// Commit weight
     pub commit_weight: u64,
-    /// Fee base in millisatoshis
-    pub fee_base_msat: u32,
+    /// Fee base in millinova
+    pub fee_base_mnova: u32,
     /// Fee rate in parts per million
     pub fee_rate_ppm: u32,
     /// Last update time
@@ -743,8 +743,8 @@ pub struct LightningInvoice {
     pub creation_date: u64,
     /// Expiry date
     pub expiry_date: u64,
-    /// Amount in millisatoshis
-    pub amount_msat: Option<u64>,
+    /// Amount in millinova
+    pub amount_mnova: Option<u64>,
     /// Description
     pub description: Option<String>,
     /// Description hash
@@ -753,8 +753,8 @@ pub struct LightningInvoice {
     pub payment_preimage: Option<String>,
     /// Settled date
     pub settled_date: Option<u64>,
-    /// Settled amount in millisatoshis
-    pub settled_amount_msat: Option<u64>,
+    /// Settled amount in millinova
+    pub settled_amount_mnova: Option<u64>,
     /// State
     pub state: String,
     /// Features
@@ -770,14 +770,14 @@ pub struct LightningPayment {
     pub creation_date: u64,
     /// Payment preimage
     pub payment_preimage: Option<String>,
-    /// Value in millisatoshis
-    pub value_msat: u64,
+    /// Value in millinova
+    pub value_mnova: u64,
     /// Payment request
     pub payment_request: Option<String>,
     /// Status
     pub status: String,
-    /// Fee in millisatoshis
-    pub fee_msat: u64,
+    /// Fee in millinova
+    pub fee_mnova: u64,
     /// Creation time in nanoseconds
     pub creation_time_ns: u64,
     /// HTLCs
@@ -812,10 +812,10 @@ pub struct LightningRouteHop {
     pub channel_id: u64,
     /// Channel capacity
     pub channel_capacity: u64,
-    /// Amount to forward in millisatoshis
-    pub amount_to_forward_msat: u64,
-    /// Fee in millisatoshis
-    pub fee_msat: u64,
+    /// Amount to forward in millinova
+    pub amount_to_forward_mnova: u64,
+    /// Fee in millinova
+    pub fee_mnova: u64,
     /// Expiry
     pub expiry: u32,
     /// Public key
@@ -850,10 +850,10 @@ pub struct NodeInfo {
 pub struct Route {
     /// Total time lock
     pub total_time_lock: u32,
-    /// Total fees in millisatoshis
-    pub total_fees_msat: u64,
-    /// Total amount in millisatoshis
-    pub total_amt_msat: u64,
+    /// Total fees in millinova
+    pub total_fees_mnova: u64,
+    /// Total amount in millinova
+    pub total_amt_mnova: u64,
     /// Route hops
     pub hops: Vec<RouteHop>,
 }
@@ -865,10 +865,10 @@ pub struct RouteHop {
     pub chan_id: String,
     /// Channel capacity
     pub chan_capacity: u64,
-    /// Amount to forward in millisatoshis
-    pub amt_to_forward_msat: u64,
-    /// Fee in millisatoshis
-    pub fee_msat: u64,
+    /// Amount to forward in millinova
+    pub amt_to_forward_mnova: u64,
+    /// Fee in millinova
+    pub fee_mnova: u64,
     /// Expiry
     pub expiry: u32,
     /// Public key
@@ -884,16 +884,16 @@ pub struct RouteHop {
 pub struct OpenChannelRequest {
     /// Node ID
     pub node_id: String,
-    /// Local funding amount in satoshis
+    /// Local funding amount in nova units
     pub local_funding_amount: u64,
-    /// Push amount in millisatoshis
+    /// Push amount in millinova
     #[serde(default)]
-    pub push_amount_msat: u64,
+    pub push_amount_mnova: u64,
     /// Whether to make the channel private
     #[serde(default)]
     pub private: Option<bool>,
-    /// Minimum HTLC value in millisatoshis
-    pub min_htlc_msat: Option<u64>,
+    /// Minimum HTLC value in millinova
+    pub min_htlc_mnova: Option<u64>,
 }
 
 /// Open channel response
@@ -922,10 +922,10 @@ pub struct CloseChannelRequest {
 pub struct PaymentRequest {
     /// Payment request (BOLT11 invoice)
     pub payment_request: String,
-    /// Amount in millisatoshis (optional, can override invoice amount)
-    pub amount_msat: Option<u64>,
-    /// Fee limit in millisatoshis
-    pub fee_limit_msat: Option<u64>,
+    /// Amount in millinova (optional, can override invoice amount)
+    pub amount_mnova: Option<u64>,
+    /// Fee limit in millinova
+    pub fee_limit_mnova: Option<u64>,
     /// Timeout in seconds
     pub timeout_seconds: Option<u32>,
 }
@@ -945,10 +945,10 @@ pub struct PaymentResponse {
     pub payment_index: u64,
     /// Status
     pub status: String,
-    /// Fee in millisatoshis
-    pub fee_msat: u64,
-    /// Value in millisatoshis
-    pub value_msat: u64,
+    /// Fee in millinova
+    pub fee_mnova: u64,
+    /// Value in millinova
+    pub value_mnova: u64,
     /// Creation time in nanoseconds
     pub creation_time_ns: u64,
 }
@@ -956,8 +956,8 @@ pub struct PaymentResponse {
 /// Invoice request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct InvoiceRequest {
-    /// Amount in millisatoshis
-    pub value_msat: u64,
+    /// Amount in millinova
+    pub value_mnova: u64,
     /// Description
     pub memo: Option<String>,
     /// Expiry in seconds
@@ -1589,7 +1589,7 @@ pub struct TransactionInput {
     pub witness: Option<Vec<String>>,
     /// Sequence number
     pub sequence: u32,
-    /// Previous output value in satoshis
+    /// Previous output value in nova units
     pub value: u64,
     /// Address (if available)
     pub address: Option<String>,
@@ -1598,7 +1598,7 @@ pub struct TransactionInput {
 /// Transaction output
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TransactionOutput {
-    /// Output value in satoshis
+    /// Output value in nova units
     pub value: u64,
     /// Output script
     pub script_pub_key: String,

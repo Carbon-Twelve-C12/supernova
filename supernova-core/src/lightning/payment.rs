@@ -435,7 +435,7 @@ impl PaymentProcessor {
     /// Calculate environmental impact of a payment
     pub fn calculate_payment_emissions(&self, payment: &Payment) -> f64 {
         // Base emissions for Lightning transaction (much lower than on-chain)
-        let base_emissions = 0.001; // 0.001g CO2 for Lightning vs ~700g for Bitcoin on-chain
+        let base_emissions = 0.001; // 0.001g CO2 for Lightning vs ~700g for legacy on-chain PoW
 
         // Add emissions based on route length
         let route_emissions = if let Some(route) = &payment.route {
@@ -524,18 +524,18 @@ impl PaymentProcessor {
             .filter(|p| p.status == PaymentStatus::Pending)
             .count();
 
-        let total_volume_msat = self
+        let total_volume_mnova = self
             .payments
             .values()
             .filter(|p| p.status == PaymentStatus::Succeeded)
-            .map(|p| p.amount_msat)
+            .map(|p| p.amount_mnova)
             .sum();
 
-        let total_fees_msat = self
+        let total_fees_mnova = self
             .payments
             .values()
             .filter(|p| p.status == PaymentStatus::Succeeded)
-            .map(|p| p.fee_msat)
+            .map(|p| p.fee_mnova)
             .sum();
 
         PaymentStats {
@@ -543,8 +543,8 @@ impl PaymentProcessor {
             successful_payments,
             failed_payments,
             pending_payments,
-            total_volume_msat,
-            total_fees_msat,
+            total_volume_mnova,
+            total_fees_mnova,
         }
     }
 }
@@ -556,8 +556,8 @@ pub struct PaymentStats {
     pub successful_payments: usize,
     pub failed_payments: usize,
     pub pending_payments: usize,
-    pub total_volume_msat: u64,
-    pub total_fees_msat: u64,
+    pub total_volume_mnova: u64,
+    pub total_fees_mnova: u64,
 }
 
 /// Payment processing errors
@@ -600,7 +600,7 @@ mod tests {
             .unwrap();
 
         let payment = processor.get_payment(&payment_hash).unwrap();
-        assert_eq!(payment.amount_msat, 100_000);
+        assert_eq!(payment.amount_mnova, 100_000);
         assert_eq!(payment.status, PaymentStatus::Pending);
     }
 

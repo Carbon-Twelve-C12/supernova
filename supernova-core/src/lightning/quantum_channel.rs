@@ -32,7 +32,7 @@ pub struct QuantumChannel {
     /// Remote node's quantum public key
     pub remote_quantum_pubkey: Vec<u8>,
 
-    /// Channel capacity in satoshis
+    /// Channel capacity in nova units
     pub capacity: u64,
 
     /// Local balance
@@ -66,7 +66,7 @@ pub struct QuantumHtlc {
     /// HTLC ID
     pub id: u64,
 
-    /// Amount in satoshis
+    /// Amount in nova units
     pub amount: u64,
 
     /// Payment hash (quantum-safe: SHA3-512)

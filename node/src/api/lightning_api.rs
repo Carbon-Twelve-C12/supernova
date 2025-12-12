@@ -37,8 +37,8 @@ pub struct CloseChannelRequest {
 /// Request to create an invoice
 #[derive(Debug, Deserialize)]
 pub struct CreateInvoiceRequest {
-    /// Amount in millisatoshis
-    pub amount_msat: u64,
+    /// Amount in millinova
+    pub amount_mnova: u64,
 
     /// Description
     pub description: String,
@@ -207,7 +207,7 @@ async fn handle_create_invoice(
         }
     };
 
-    match node.create_invoice(request.amount_msat, &request.description, request.expiry_seconds) {
+    match node.create_invoice(request.amount_mnova, &request.description, request.expiry_seconds) {
         Ok(invoice) => {
             let response = LightningResponse::success(invoice);
             Ok(warp::reply::json(&response))

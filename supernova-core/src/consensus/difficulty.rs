@@ -361,7 +361,7 @@ impl DifficultyAdjustment {
     /// # Security Rationale
     /// - Too-large adjustments enable oscillation attacks
     /// - Gradual adjustment prevents sudden difficulty spikes/drops
-    /// - 4x limit is industry standard (Bitcoin compatible)
+    /// - 4x limit is an industry standard
     ///
     /// # Arguments
     /// * `ratio` - Raw adjustment ratio (actual_time / target_time)

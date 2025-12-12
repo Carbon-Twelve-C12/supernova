@@ -486,7 +486,7 @@ pub trait WatchTowerStorage: Send + Sync {
 
 /// Trait for fee estimation
 pub trait FeeEstimator: Send + Sync {
-    /// Estimate fee rate in satoshis per kilobyte
+    /// Estimate fee rate in nova units per kilobyte
     fn estimate_fee_rate(&self) -> u64;
 
     /// Estimate fee for a transaction
@@ -955,7 +955,7 @@ impl WatchTowerStorage for EncryptedWatchTowerStorage {
 
 /// Fee estimator implementation
 pub struct DynamicFeeEstimator {
-    /// Base fee rate in satoshis per kilobyte
+    /// Base fee rate in nova units per kilobyte
     base_fee_rate: u64,
 
     /// Fee multiplier for urgent transactions

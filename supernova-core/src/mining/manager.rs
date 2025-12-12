@@ -96,13 +96,13 @@ pub struct MiningStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeeTiers {
-    /// High priority fee rate (satoshis per byte)
+    /// High priority fee rate (nova units per byte)
     pub high_priority: f64,
-    /// Medium priority fee rate (satoshis per byte)
+    /// Medium priority fee rate (nova units per byte)
     pub medium_priority: f64,
-    /// Low priority fee rate (satoshis per byte)
+    /// Low priority fee rate (nova units per byte)
     pub low_priority: f64,
-    /// Minimum fee rate (satoshis per byte)
+    /// Minimum fee rate (nova units per byte)
     pub minimum: f64,
 }
 
@@ -1218,14 +1218,14 @@ impl MiningManager {
 
     /// Calculate base block reward with halving mechanism
     fn calculate_base_reward(&self, height: u64) -> u64 {
-        // Supernova initial reward: 50 NOVA (50 * 10^8 satoshis)
+        // Supernova initial reward: 50 NOVA (50 * 10^8 nova units)
         let initial_reward = 50_00000000u64;
         let halving_interval = 840_000u64; // Approximately 4 years at 2.5-minute blocks
 
         // Calculate number of halvings
         let halvings = height / halving_interval;
 
-        // After 64 halvings, reward becomes negligible (less than 1 satoshi)
+        // After 64 halvings, reward becomes negligible (less than 1 nova unit)
         if halvings >= 64 {
             return 0;
         }

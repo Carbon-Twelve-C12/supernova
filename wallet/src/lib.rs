@@ -25,7 +25,7 @@ mod ui;
 // NEW: Quantum-resistant wallet infrastructure
 pub mod quantum_wallet;
 
-use bitcoin::network::Network;
+use bitcoin::network::Network; // Bitcoin-compatible
 use supernova_core::storage::utxo_set::UtxoSet;
 use std::path::PathBuf;
 use thiserror::Error;

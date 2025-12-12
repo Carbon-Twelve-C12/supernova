@@ -1,4 +1,5 @@
-use bitcoin::{
+use bitcoin as btc_compat; // Bitcoin-compatible
+use btc_compat::{
     absolute::LockTime,
     hashes::Hash,
     network::Network,
@@ -16,8 +17,8 @@ use std::str::FromStr;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalletError {
-    #[error("Bitcoin error")]
-    Bitcoin(String),
+    #[error("Compatibility error")]
+    Compatibility(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Invalid address: {0}")]
@@ -92,7 +93,7 @@ impl Wallet {
 
     pub fn get_address(&self) -> Result<Address, WalletError> {
         Address::p2wpkh(&self.get_public_key(), self.network)
-            .map_err(|e| WalletError::Bitcoin(e.to_string()))
+            .map_err(|e| WalletError::Compatibility(e.to_string()))
     }
 
     pub fn sign_transaction(&self, tx: &mut Transaction) -> Result<(), WalletError> {
@@ -114,7 +115,7 @@ impl Wallet {
             let sighash = self.create_signature_hash(tx, input_index)?;
 
             // Sign the hash
-            let msg = bitcoin::secp256k1::Message::from_digest_slice(&sighash)
+        let msg = btc_compat::secp256k1::Message::from_digest_slice(&sighash)
                 .map_err(|e| WalletError::SigningError(e.to_string()))?;
 
             let signature = secp.sign_ecdsa(&msg, &self.private_key.inner);
@@ -171,8 +172,8 @@ impl Wallet {
             .iter()
             .map(|utxo| {
                 let outpoint = OutPoint {
-                    txid: bitcoin::Txid::from_raw_hash(
-                        bitcoin::hashes::sha256d::Hash::from_byte_array(utxo.tx_hash),
+                    txid: btc_compat::Txid::from_raw_hash(
+                        btc_compat::hashes::sha256d::Hash::from_byte_array(utxo.tx_hash),
                     ),
                     vout: utxo.output_index,
                 };
@@ -240,7 +241,7 @@ impl Wallet {
     /// Broadcast a transaction to the network
     pub fn broadcast_transaction(&self, transaction: &Transaction) -> Result<(), WalletError> {
         // Serialize the transaction
-        let tx_data = bitcoin::consensus::encode::serialize(transaction);
+        let tx_data = btc_compat::consensus::encode::serialize(transaction);
 
         // In a real implementation, this would connect to the P2P network or an RPC interface
         // and broadcast the transaction to the network

@@ -84,7 +84,7 @@ pub struct EnvironmentalChannel {
     pub available_balance: u64,
 
     /// Routing fees
-    pub base_fee_msat: u32,
+    pub base_fee_mnova: u32,
     pub fee_rate_ppm: u32,
 
     /// Environmental metrics
@@ -562,9 +562,9 @@ impl GreenLightningRouter {
         params: &GreenRoutingParameters,
     ) -> f64 {
         // Fee component
-        let fee_msat =
-            channel.base_fee_msat as u64 + (amount_sats * channel.fee_rate_ppm as u64 / 1_000_000);
-        let fee_cost = (fee_msat as f64 / 1000.0) * params.fee_weight;
+        let fee_mnova =
+            channel.base_fee_mnova as u64 + (amount_sats * channel.fee_rate_ppm as u64 / 1_000_000);
+        let fee_cost = (fee_mnova as f64 / 1000.0) * params.fee_weight;
 
         // Carbon component
         let carbon_cost = channel.carbon_footprint * params.carbon_weight * 10000.0;
@@ -595,7 +595,7 @@ impl GreenLightningRouter {
         destination: NodeId,
         previous: &HashMap<NodeId, Option<(NodeId, ChannelId)>>,
         graph: &EnvironmentalNetworkGraph,
-        amount_sats: u64,
+        amount_nova_units: u64,
     ) -> Result<GreenLightningRoute, RoutingError> {
         let mut hops = Vec::new();
         let mut current = destination;
@@ -608,19 +608,19 @@ impl GreenLightningRouter {
                 let channel = &graph.channels[channel_id];
                 let node = &graph.nodes[&current];
 
-                let fee_msat = channel.base_fee_msat as u64
-                    + (amount_sats * channel.fee_rate_ppm as u64 / 1_000_000);
+                let fee_mnova = channel.base_fee_mnova as u64
+                    + (amount_nova_units * channel.fee_rate_ppm as u64 / 1_000_000);
 
                 hops.push(GreenRouteHop {
                     node_pubkey: node.public_key.clone(),
                     channel_id: *channel_id,
-                    fee_sats: fee_msat / 1000,
+                    fee_nova_units: fee_mnova / 1000,
                     renewable_percentage: node.renewable_percentage,
                     carbon_footprint: channel.carbon_footprint,
                     green_certified: node.green_certified,
                 });
 
-                total_fees += fee_msat / 1000;
+                total_fees += fee_mnova / 1000;
                 total_carbon += channel.carbon_footprint;
                 current = *prev_node;
             } else {
@@ -641,8 +641,8 @@ impl GreenLightningRouter {
 
         Ok(GreenLightningRoute {
             hops,
-            total_capacity_sats: amount_sats,
-            total_fees_sats: total_fees,
+            total_capacity_nova_units: amount_nova_units,
+            total_fees_nova_units: total_fees,
             total_carbon_footprint: total_carbon,
             average_renewable_percentage: avg_renewable,
             green_nodes_count: green_count,

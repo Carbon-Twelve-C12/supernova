@@ -154,8 +154,8 @@ impl<'de> Deserialize<'de> for OnionPacket {
 /// Per-hop payload containing routing instructions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerHopPayload {
-    /// Amount to forward in millisatoshis
-    pub amount_msat: u64,
+    /// Amount to forward in millinova
+    pub amount_mnova: u64,
     /// Outgoing CLTV value
     pub outgoing_cltv_value: u32,
     /// Short channel ID for next hop (0 for final hop)
@@ -172,11 +172,11 @@ pub struct RouteHop {
     /// Short channel ID
     pub short_channel_id: u64,
     /// Amount to forward
-    pub amount_msat: u64,
+    pub amount_mnova: u64,
     /// CLTV expiry delta
     pub cltv_expiry_delta: u16,
     /// Fee for this hop
-    pub fee_msat: u64,
+    pub fee_mnova: u64,
 }
 
 /// Shared secret for onion encryption
@@ -258,7 +258,7 @@ impl OnionRouter {
             let is_final_hop = i == route.len() - 1;
 
             let payload = PerHopPayload {
-                amount_msat: hop.amount_msat,
+                amount_mnova: hop.amount_mnova,
                 outgoing_cltv_value: if is_final_hop {
                     0
                 } else {
@@ -431,7 +431,7 @@ impl OnionRouter {
     fn serialize_payload(&self, payload: &PerHopPayload) -> Result<Vec<u8>, OnionError> {
         // Simplified serialization - in practice would use proper TLV encoding
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&payload.amount_msat.to_be_bytes());
+        bytes.extend_from_slice(&payload.amount_mnova.to_be_bytes());
         bytes.extend_from_slice(&payload.outgoing_cltv_value.to_be_bytes());
         bytes.extend_from_slice(&payload.short_channel_id.to_be_bytes());
 
@@ -450,12 +450,12 @@ impl OnionRouter {
         let payload_bytes = &routing_info[..PER_HOP_PAYLOAD_SIZE];
 
         // Deserialize (simplified)
-        let amount_msat = u64::from_be_bytes(payload_bytes[0..8].try_into().unwrap());
+        let amount_mnova = u64::from_be_bytes(payload_bytes[0..8].try_into().unwrap());
         let outgoing_cltv_value = u32::from_be_bytes(payload_bytes[8..12].try_into().unwrap());
         let short_channel_id = u64::from_be_bytes(payload_bytes[12..20].try_into().unwrap());
 
         Ok(PerHopPayload {
-            amount_msat,
+            amount_mnova,
             outgoing_cltv_value,
             short_channel_id,
             tlv_payload: HashMap::new(),
@@ -621,16 +621,16 @@ mod tests {
             RouteHop {
                 node_id: [2u8; 33],
                 short_channel_id: 12345,
-                amount_msat: 100000,
+                amount_mnova: 100000,
                 cltv_expiry_delta: 40,
-                fee_msat: 1000,
+                fee_mnova: 1000,
             },
             RouteHop {
                 node_id: [3u8; 33],
                 short_channel_id: 0, // Final hop
-                amount_msat: 99000,
+                amount_mnova: 99000,
                 cltv_expiry_delta: 0,
-                fee_msat: 0,
+                fee_mnova: 0,
             },
         ];
 
@@ -667,7 +667,7 @@ mod tests {
         let router = OnionRouter::new([1u8; 32], None);
 
         let payload = PerHopPayload {
-            amount_msat: 100000,
+            amount_mnova: 100000,
             outgoing_cltv_value: 500000,
             short_channel_id: 12345,
             tlv_payload: HashMap::new(),
@@ -677,7 +677,7 @@ mod tests {
         assert_eq!(serialized.len(), PER_HOP_PAYLOAD_SIZE);
 
         let deserialized = router.extract_payload(&serialized).unwrap();
-        assert_eq!(deserialized.amount_msat, payload.amount_msat);
+        assert_eq!(deserialized.amount_mnova, payload.amount_mnova);
         assert_eq!(
             deserialized.outgoing_cltv_value,
             payload.outgoing_cltv_value

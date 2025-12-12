@@ -61,8 +61,8 @@ pub struct TimeWarpConfig {
 impl Default for TimeWarpConfig {
     fn default() -> Self {
         Self {
-            max_future_time: 7200,  // 2 hours (same as Bitcoin)
-            median_time_blocks: 11, // Same as Bitcoin
+            max_future_time: 7200,  // 2 hours (reference value)
+            median_time_blocks: 11, // Reference value
             max_time_gap: 86400,    // 24 hours
             min_time_increment: 1,  // SECURITY FIX (P1-002): Minimum 1 second between blocks
             max_clock_drift: 300,   // SECURITY FIX (P1-002): 5 minutes drift tolerance
@@ -391,7 +391,7 @@ impl TimeWarpPrevention {
 
     /// Check if we're near a difficulty adjustment boundary
     fn is_near_difficulty_adjustment(&self, block_count: usize) -> bool {
-        // Assuming 2016 block adjustment period like Bitcoin
+        // Assuming 2016 block adjustment period (reference)
         const ADJUSTMENT_PERIOD: usize = 2016;
         let blocks_until_adjustment = ADJUSTMENT_PERIOD - (block_count % ADJUSTMENT_PERIOD);
         blocks_until_adjustment <= 10 // Within 10 blocks of adjustment

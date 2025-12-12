@@ -481,7 +481,7 @@ impl SecureForkResolver {
         let exponent = ((bits >> 24) & 0xFF) as usize;
         let mantissa = bits & 0x00FFFFFF;
 
-        // Validate difficulty per Bitcoin rules
+        // Validate difficulty per reference rules
         if mantissa > 0x7fffff || exponent > 34 || (mantissa != 0 && exponent == 0) {
             // Enhanced error context with function name and variable states
             return Err(ForkResolutionError::InvalidChainWork(format!(

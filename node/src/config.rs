@@ -596,9 +596,9 @@ impl Default for TestnetConfig {
             enabled: false,
             network_id: "testnet".to_string(),
             enable_faucet: false,
-            faucet_amount: 1000000000000000000, // 1 trillion satoshis
+            faucet_amount: 1000000000000000000, // 1 trillion nova units
             faucet_cooldown: 60,                // 1 minute
-            faucet_max_balance: 1000000000000000000, // 1 trillion satoshis
+            faucet_max_balance: 1000000000000000000, // 1 trillion nova units
             enable_test_mining: false,
             test_mining_difficulty: 1,
             enable_network_simulation: false,

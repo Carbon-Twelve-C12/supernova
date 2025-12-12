@@ -276,7 +276,7 @@ impl WalletTui {
             Line::from(vec![
                 Span::raw("Total Balance: "),
                 Span::styled(
-                    format!("{} sats", total_balance),
+                    format!("{} nova", total_balance),
                     Style::default()
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
@@ -286,21 +286,21 @@ impl WalletTui {
             Line::from(vec![
                 Span::raw("Total Sent: "),
                 Span::styled(
-                    format!("{} sats", total_sent),
+                    format!("{} nova", total_sent),
                     Style::default().fg(Color::Red),
                 ),
             ]),
             Line::from(vec![
                 Span::raw("Total Received: "),
                 Span::styled(
-                    format!("{} sats", total_received),
+                    format!("{} nova", total_received),
                     Style::default().fg(Color::Green),
                 ),
             ]),
             Line::from(vec![
                 Span::raw("Net Flow: "),
                 Span::styled(
-                    format!("{} sats", net_flow),
+                    format!("{} nova", net_flow),
                     Style::default().fg(if net_flow >= 0 {
                         Color::Green
                     } else {
@@ -380,7 +380,7 @@ impl WalletTui {
                         ),
                         Span::raw(" - "),
                         Span::styled(
-                            format!("{} sats", balance),
+                            format!("{} nova", balance),
                             Style::default().fg(Color::Green),
                         ),
                     ]),
@@ -453,7 +453,7 @@ impl WalletTui {
                         ),
                         Span::raw(" - "),
                         Span::styled(
-                            format!("{} sats", tx.amount),
+                            format!("{} nova", tx.amount),
                             Style::default()
                                 .fg(amount_color)
                                 .add_modifier(Modifier::BOLD),
@@ -527,7 +527,7 @@ impl WalletTui {
                 "Account Types:",
                 Style::default().add_modifier(Modifier::BOLD),
             )]),
-            Line::from("  Legacy       - Traditional Bitcoin addresses (1...)"),
+            Line::from("  Legacy       - Compatibility addresses (1...)"), // Bitcoin-compatible
             Line::from("  SegWit       - Segregated Witness addresses (3...)"),
             Line::from("  NativeSegWit - Bech32 addresses (bc1...)"),
         ];

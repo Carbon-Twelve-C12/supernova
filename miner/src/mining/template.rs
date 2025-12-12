@@ -28,7 +28,7 @@ impl TreasuryAllocationConfig {
     pub const TREASURY_ADDRESS_PLACEHOLDER: &'static [u8] = b"TREASURY_PLACEHOLDER_ADDRESS";
     
     /// Minimum treasury output amount (prevents dust)
-    pub const MIN_TREASURY_OUTPUT: u64 = 1000; // 1000 satoshis minimum
+    pub const MIN_TREASURY_OUTPUT: u64 = 1000; // 1000 nova units minimum
 }
 
 pub const BLOCK_MAX_SIZE: usize = 4_000_000; // 4MB (increased for 2.5-minute blocks)
@@ -276,7 +276,7 @@ impl BlockTemplate {
         if expected_treasury >= TreasuryAllocationConfig::MIN_TREASURY_OUTPUT {
             if outputs.len() < 2 {
                 return Err(format!(
-                    "Coinbase missing treasury output (expected {} satoshis)",
+                    "Coinbase missing treasury output (expected {} nova units)",
                     expected_treasury
                 ));
             }

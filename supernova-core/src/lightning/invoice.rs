@@ -52,8 +52,8 @@ pub struct RouteHint {
     /// Channel ID
     pub channel_id: u64,
 
-    /// Base fee in millisatoshis
-    pub base_fee_msat: u32,
+    /// Base fee in millinova
+    pub base_fee_mnova: u32,
 
     /// Fee rate in parts per million
     pub fee_rate_millionths: u32,
@@ -77,8 +77,8 @@ pub struct Invoice {
     /// Destination (node ID)
     destination: String,
 
-    /// Amount in millisatoshis
-    amount_msat: u64,
+    /// Amount in millinova
+    amount_mnova: u64,
 
     /// Creation timestamp
     timestamp: u64,
@@ -103,7 +103,7 @@ impl Invoice {
     /// Create a new invoice with all required parameters
     pub fn new(
         payment_hash: PaymentHash,
-        amount_msat: u64,
+        amount_mnova: u64,
         description: String,
         expiry: u32,
         _is_private: bool,
@@ -120,7 +120,7 @@ impl Invoice {
             payment_preimage,
             description,
             destination: node_id,
-            amount_msat,
+            amount_mnova,
             timestamp,
             expiry,
             route_hints: Vec::new(),
@@ -164,11 +164,11 @@ impl Invoice {
     /// Create a new invoice with preimage and payment hash
     pub fn new_with_preimage(
         payment_preimage: PaymentPreimage,
-        amount_msat: u64,
+        amount_mnova: u64,
         description: String,
         expiry: u32,
     ) -> Result<Self, InvoiceError> {
-        if amount_msat == 0 {
+        if amount_mnova == 0 {
             return Err(InvoiceError::InvalidAmount(
                 "Amount must be greater than zero".to_string(),
             ));
@@ -192,7 +192,7 @@ impl Invoice {
             payment_preimage,
             description,
             destination,
-            amount_msat,
+            amount_mnova,
             timestamp,
             expiry,
             route_hints: Vec::new(),
@@ -205,11 +205,11 @@ impl Invoice {
     /// Create a new invoice (legacy method - generates random preimage)
     pub fn new_legacy(
         payment_hash: PaymentHash,
-        amount_msat: u64,
+        amount_mnova: u64,
         description: String,
         expiry: u32,
     ) -> Result<Self, InvoiceError> {
-        if amount_msat == 0 {
+        if amount_mnova == 0 {
             return Err(InvoiceError::InvalidAmount(
                 "Amount must be greater than zero".to_string(),
             ));
@@ -240,7 +240,7 @@ impl Invoice {
             payment_preimage,
             description,
             destination,
-            amount_msat,
+            amount_mnova,
             timestamp,
             expiry,
             route_hints: Vec::new(),
@@ -269,9 +269,9 @@ impl Invoice {
         &self.description
     }
 
-    /// Get amount in millisatoshis
-    pub fn amount_msat(&self) -> u64 {
-        self.amount_msat
+    /// Get amount in millinova
+    pub fn amount_mnova(&self) -> u64 {
+        self.amount_mnova
     }
 
     /// Get destination (node ID)
@@ -358,7 +358,7 @@ impl Invoice {
         // For simplicity, we'll just create a placeholder string
         let invoice_str = format!(
             "lnbc{}{}{}",
-            self.amount_msat / 1000,
+            self.amount_mnova / 1000,
             self.payment_hash,
             self.timestamp
         );
@@ -454,13 +454,13 @@ impl EnhancedInvoice {
     /// Create a new enhanced invoice
     pub fn new(
         payment_hash: PaymentHash,
-        amount_msat: u64,
+        amount_mnova: u64,
         description: String,
         expiry: u32,
         features: u64,
     ) -> Result<Self, InvoiceError> {
         // Create the base invoice
-        let invoice = Invoice::new_legacy(payment_hash, amount_msat, description, expiry)?;
+        let invoice = Invoice::new_legacy(payment_hash, amount_mnova, description, expiry)?;
 
         // Generate a random payment secret
         let mut rng = thread_rng();
@@ -537,9 +537,9 @@ impl EnhancedInvoice {
         &self.payment_secret
     }
 
-    /// Get the amount in millisatoshis
-    pub fn amount_msat(&self) -> u64 {
-        self.invoice.amount_msat()
+    /// Get the amount in millinova
+    pub fn amount_mnova(&self) -> u64 {
+        self.invoice.amount_mnova()
     }
 
     /// Get the description
@@ -622,7 +622,7 @@ impl EnhancedInvoice {
         // For simplicity, we'll just create a placeholder string
         let invoice_str = format!(
             "lnbc{}m{}{}{}{}",
-            self.amount_msat() / 1_000_000,
+            self.amount_mnova() / 1_000_000,
             hex::encode(&self.payment_hash().into_inner()[0..4]),
             self.features,
             self.invoice.timestamp(),
