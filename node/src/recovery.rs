@@ -799,7 +799,7 @@ mod tests {
         let start = Instant::now();
         let attempt_times = Arc::new(std::sync::Mutex::new(Vec::new()));
 
-        let _ = recovery_manager
+        let _: Result<(), String> = recovery_manager
             .recover("database", || {
                 let times = Arc::clone(&attempt_times);
                 async move {
@@ -829,7 +829,7 @@ mod tests {
 
         // Fail enough times to open circuit breaker
         for _ in 0..6 {
-            let _ = recovery_manager
+            let _: Result<(), String> = recovery_manager
                 .recover("network", || async {
                     Err(Box::new(std::io::Error::new(
                         std::io::ErrorKind::ConnectionRefused,

@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::api::{create_environmental_api, ApiError};
 use btclib::environmental::dashboard::EmissionsTimePeriod;
 use btclib::environmental::treasury::EnvironmentalAssetType;

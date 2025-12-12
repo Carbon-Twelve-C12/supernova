@@ -2,6 +2,8 @@
 // Mission: Validate all 3 post-quantum signature schemes for Supernova
 // This comprehensive test suite proves Supernova's quantum-resistant capabilities
 
+extern crate supernova_core as btclib;
+
 use btclib::crypto::quantum::{
     verify_quantum_signature, ClassicalScheme, QuantumError, QuantumKeyPair, QuantumParameters,
     QuantumScheme,

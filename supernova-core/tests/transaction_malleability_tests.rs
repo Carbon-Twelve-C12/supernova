@@ -6,6 +6,8 @@
 use std::convert::TryFrom;
 use std::sync::Arc;
 
+extern crate supernova_core as btclib;
+
 use btclib::api::create_testnet_api;
 use btclib::crypto::key_pair::{generate_key_pair, KeyPair};
 use btclib::crypto::signature::{Ed25519, Secp256k1, SignatureScheme};

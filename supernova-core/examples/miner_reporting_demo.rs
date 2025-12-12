@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::environmental::{
     EmissionFactor, EnergySource, HardwareType, MinerEnvironmentalInfo, MinerReportingManager,
     Region, VerificationStatus,

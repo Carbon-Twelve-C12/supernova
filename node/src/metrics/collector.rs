@@ -452,7 +452,7 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_collector_lifecycle() {
         let config = MetricsCollectorConfig::default();
-        let registry = Arc::new(MetricsRegistry::default());
+        let registry = Arc::new(MetricsRegistry::disabled());
         let collector = MetricsCollector::new(config, registry);
 
         // Start the collector

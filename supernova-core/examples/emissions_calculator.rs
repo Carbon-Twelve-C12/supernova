@@ -1,6 +1,8 @@
 // Emissions calculator example using supernova's environmental features
 // This example demonstrates how to calculate emissions for different miners
 
+extern crate supernova_core as btclib;
+
 use btclib::environmental::emissions::EmissionsTracker;
 use btclib::environmental::miner_reporting::{
     CarbonOffsetInfo, MinerEnvironmentalInfo, RECCertificateInfo, VerificationStatus,

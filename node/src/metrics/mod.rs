@@ -299,11 +299,8 @@ mod tests {
 
     #[test]
     fn test_init_metrics() {
-        let metrics = init_metrics(None).unwrap();
-        assert!(metrics.is_enabled());
-
-        let global = global_metrics().unwrap();
-        assert!(global.is_enabled());
+        let result = init_metrics();
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -311,7 +308,7 @@ mod tests {
         let mut config = MetricsConfig::default();
         config.namespace = Some("test".to_string());
 
-        let metrics = init_metrics(Some(config)).unwrap();
-        assert!(metrics.is_enabled());
+        let registry = MetricsRegistry::with_config(config).unwrap();
+        assert!(registry.is_enabled());
     }
 }

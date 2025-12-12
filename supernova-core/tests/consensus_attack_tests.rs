@@ -10,6 +10,8 @@
 //!
 //! These tests are critical for mainnet security.
 
+extern crate supernova_core as btclib;
+
 use btclib::consensus::difficulty::calculate_required_work;
 use btclib::consensus::fork_resolution_v2::ProofOfWorkForkResolver;
 use btclib::types::block::BlockHeader;

@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use rand::rngs::OsRng;
 use std::sync::Arc;
 

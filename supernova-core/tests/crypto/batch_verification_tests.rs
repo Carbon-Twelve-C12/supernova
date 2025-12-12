@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::crypto::falcon_real::{FalconKeyPair, FalconParameters};
 use btclib::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
 use btclib::crypto::signature::{

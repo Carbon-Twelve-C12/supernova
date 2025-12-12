@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::crypto::quantum::{ClassicalScheme, QuantumKeyPair, QuantumParameters, QuantumScheme};
 use btclib::validation::SecurityLevel;
 use rand::rngs::OsRng;

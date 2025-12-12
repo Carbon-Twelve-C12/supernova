@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::storage::utxo_set::{UtxoEntry, UtxoSet};
 use btclib::types::transaction::{OutPoint, TxOutput};
 use rand::rngs::StdRng;

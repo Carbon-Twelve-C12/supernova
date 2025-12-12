@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::crypto::quantum::{
     ClassicalScheme, QuantumError, QuantumKeyPair, QuantumParameters, QuantumScheme,
     QuantumSignature,

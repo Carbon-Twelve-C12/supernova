@@ -141,6 +141,7 @@ impl fmt::Display for Address {
 mod tests {
     use super::*;
     use pqcrypto_dilithium::dilithium5;
+    use pqcrypto_traits::sign::PublicKey;
     
     #[test]
     fn test_address_from_public_key() {

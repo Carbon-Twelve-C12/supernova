@@ -883,6 +883,8 @@ async fn verify_blockchain_range(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supernova_core::storage::chain_state::ChainStateConfig;
+    use supernova_core::storage::utxo_set::UtxoSet;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -902,7 +904,8 @@ mod tests {
         let db = Arc::new(BlockchainDB::new(db_path)?);
 
         // Initialize chain state with default values that won't throw validation errors
-        let chain_state = ChainState::new(Arc::clone(&db))?;
+        let utxo_set = Arc::new(UtxoSet::new_in_memory(1024));
+        let chain_state = ChainState::new(ChainStateConfig::default(), utxo_set);
 
         // Add metadata to satisfy integrity checks in the recovery manager
         db.store_metadata(b"best_block_hash", &[0u8; 32])?;

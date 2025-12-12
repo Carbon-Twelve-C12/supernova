@@ -287,6 +287,7 @@ impl MiningWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supernova_core::types::transaction::Transaction;
     use std::sync::Arc;
     use tokio::sync::mpsc;
 

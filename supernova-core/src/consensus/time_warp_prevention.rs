@@ -546,10 +546,12 @@ mod tests {
     #[test]
     fn test_clock_drift_tolerance() {
         let config = TimeWarpConfig::default();
+        let max_clock_drift = config.max_clock_drift;
+        let max_future_time = config.max_future_time;
         let mut prevention = TimeWarpPrevention::new(config);
 
         let current_time = 1_000_000;
-        let drift_time = current_time + config.max_clock_drift - 1; // Within drift tolerance
+        let drift_time = current_time + max_clock_drift - 1; // Within drift tolerance
         
         let header = BlockHeader::new(
             1,
@@ -565,7 +567,7 @@ mod tests {
         assert!(result.is_ok(), "Timestamp within clock drift tolerance should pass");
 
         // Test beyond drift tolerance
-        let beyond_drift = current_time + config.max_clock_drift + config.max_future_time + 1;
+        let beyond_drift = current_time + max_clock_drift + max_future_time + 1;
         let header2 = BlockHeader::new(1, [0; 32], [0; 32], beyond_drift, 0x1d00ffff, 0);
         let result2 = prevention.validate_timestamp(&header2, &[], Some(current_time));
         assert!(result2.is_err(), "Timestamp beyond drift tolerance should fail");
@@ -677,12 +679,13 @@ mod tests {
     fn test_minimum_time_increment_validation() {
         let mut config = TimeWarpConfig::default();
         config.min_time_increment = 5; // Require 5 seconds minimum
+        let min_time_increment = config.min_time_increment;
         let mut prevention = TimeWarpPrevention::new(config);
 
         let previous_timestamps = vec![1000];
         
         // Test with timestamp too close (less than minimum increment)
-        let too_close = previous_timestamps[0] + config.min_time_increment - 1;
+        let too_close = previous_timestamps[0] + min_time_increment - 1;
         let header = BlockHeader::new(1, [0; 32], [0; 32], too_close, 0x1d00ffff, 0);
         
         let result = prevention.validate_timestamp(&header, &previous_timestamps, Some(2000));
@@ -695,7 +698,7 @@ mod tests {
         }
 
         // Test with valid increment
-        let valid_timestamp = previous_timestamps[0] + config.min_time_increment;
+        let valid_timestamp = previous_timestamps[0] + min_time_increment;
         let header2 = BlockHeader::new(1, [0; 32], [0; 32], valid_timestamp, 0x1d00ffff, 0);
         let result2 = prevention.validate_timestamp(&header2, &previous_timestamps, Some(2000));
         assert!(result2.is_ok(), "Timestamp with valid increment should pass");

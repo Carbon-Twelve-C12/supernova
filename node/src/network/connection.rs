@@ -889,49 +889,35 @@ mod tests {
         assert!(!manager.has_inbound_slots());
 
         // Close one connection of each type
-        let first_outbound = manager.connections.iter().find(|(peer_id, conns)| {
-            if let Some(conn_id) = conns.first() {
-                let key = ((*peer_id).clone(), *conn_id);
-                manager.connection_states.get(&key).map_or(false, |_state| {
-                    if let Some(endpoint) = manager.peer_endpoints.get(peer_id) {
-                        match endpoint {
-                            ConnectedPoint::Dialer { .. } => true,
-                            _ => false,
-                        }
-                    } else {
-                        false
-                    }
-                })
+        let first_outbound: Option<(PeerId, u64)> = manager.connections.iter().find_map(|(peer_id, conns)| {
+            let conn_id = *conns.first()?;
+            let key = (peer_id.clone(), conn_id);
+            let is_dialer = manager.connection_states.get(&key).is_some()
+                && matches!(manager.peer_endpoints.get(peer_id), Some(ConnectedPoint::Dialer { .. }));
+            if is_dialer {
+                Some((peer_id.clone(), conn_id))
             } else {
-                false
+                None
             }
         });
 
-        if let Some((peer_id, conns)) = first_outbound {
-            let conn_id = conns[0];
+        if let Some((peer_id, conn_id)) = first_outbound {
             manager.handle_connection_closed(&peer_id, conn_id);
         }
 
-        let first_inbound = manager.connections.iter().find(|(peer_id, conns)| {
-            if let Some(conn_id) = conns.first() {
-                let key = ((*peer_id).clone(), *conn_id);
-                manager.connection_states.get(&key).map_or(false, |_state| {
-                    if let Some(endpoint) = manager.peer_endpoints.get(peer_id) {
-                        match endpoint {
-                            ConnectedPoint::Listener { .. } => true,
-                            _ => false,
-                        }
-                    } else {
-                        false
-                    }
-                })
+        let first_inbound: Option<(PeerId, u64)> = manager.connections.iter().find_map(|(peer_id, conns)| {
+            let conn_id = *conns.first()?;
+            let key = (peer_id.clone(), conn_id);
+            let is_listener = manager.connection_states.get(&key).is_some()
+                && matches!(manager.peer_endpoints.get(peer_id), Some(ConnectedPoint::Listener { .. }));
+            if is_listener {
+                Some((peer_id.clone(), conn_id))
             } else {
-                false
+                None
             }
         });
 
-        if let Some((peer_id, conns)) = first_inbound {
-            let conn_id = conns[0];
+        if let Some((peer_id, conn_id)) = first_inbound {
             manager.handle_connection_closed(&peer_id, conn_id);
         }
 

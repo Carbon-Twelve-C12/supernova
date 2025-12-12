@@ -2804,7 +2804,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db = BlockchainDB::new(temp_dir.path())?;
 
-        let block = Block::new(1, [0u8; 32], Vec::new(), 0);
+        let block = Block::new_with_params(1, [0u8; 32], Vec::new(), 0);
         let block_hash = block.hash();
 
         let block_data = bincode::serialize(&block)?;
@@ -2821,7 +2821,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db = BlockchainDB::new(temp_dir.path())?;
 
-        let header = BlockHeader::new(1, [0u8; 32], [0u8; 32], 0);
+        let header = BlockHeader::new(1, [0u8; 32], [0u8; 32], 0, 0, 0);
         let header_hash = header.hash();
 
         let header_data = bincode::serialize(&header)?;
@@ -2838,7 +2838,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db = BlockchainDB::new(temp_dir.path())?;
 
-        let block = Block::new(1, [0u8; 32], Vec::new(), 0);
+        let block = Block::new_with_params(1, [0u8; 32], Vec::new(), 0);
         let block_hash = block.hash();
 
         let block_data = bincode::serialize(&block)?;

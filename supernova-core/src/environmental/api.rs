@@ -749,6 +749,8 @@ pub use crate::environmental::emissions::NetworkEmissionsData;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::environmental::{EnergySource, HardwareType, Region};
+    use crate::environmental::miner_reporting::VerificationInfo;
 
     #[test]
     fn test_miner_registration_and_emissions() {

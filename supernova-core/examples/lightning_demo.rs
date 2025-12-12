@@ -3,6 +3,8 @@
 // This example demonstrates the basic functionality of the Lightning Network
 // implementation in supernova, including channel creation, payments, and closure.
 
+extern crate supernova_core as btclib;
+
 use btclib::crypto::quantum::QuantumScheme;
 use btclib::lightning::invoice::{Invoice, PaymentHash};
 use btclib::lightning::wallet::LightningWallet;

@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::environmental::{
     api::{AssetPurchaseRecord, EnvironmentalApi, MinerEmissionsData, NetworkEmissionsData},
     emissions::Region,

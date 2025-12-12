@@ -830,7 +830,12 @@ mod tests {
         // Test: Transaction exceeding MAX_TRANSACTION_SIZE should be rejected
         let large_output = TransactionOutput::new(1000, vec![0u8; MessageSizeLimits::MAX_TRANSACTION_SIZE]);
         let large_tx = Transaction::new(1, vec![], vec![large_output], 0);
-        let large_tx_msg = NetworkMessage::new(Some(PeerId::random()), ProtocolMessage::Transaction(large_tx));
+        let large_tx_msg = NetworkMessage::new(
+            Some(PeerId::random()),
+            ProtocolMessage::Transaction {
+                transaction: bincode::serialize(&large_tx).unwrap_or_default(),
+            },
+        );
         let serialized_size = bincode::serialize(&large_tx_msg.message).unwrap().len();
         if serialized_size > MessageSizeLimits::MAX_TRANSACTION_SIZE {
             assert!(handler.validate_message(&large_tx_msg).is_err());

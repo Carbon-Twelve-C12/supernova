@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::crypto::zkp::{
     commit_pedersen, create_confidential_transaction, create_range_proof, prove_equality,
     verify_range_proof, BulletproofRangeProof, Commitment, CommitmentType, ZeroKnowledgeProof,

@@ -1337,7 +1337,7 @@ mod tests {
         let mut chain_state = ChainState::new(db)?;
 
         // Create a genesis block with a known hash
-        let genesis = Block::new(1, [0u8; 32], Vec::new(), u32::MAX);
+        let genesis = Block::new_with_params(1, [0u8; 32], Vec::new(), u32::MAX);
         chain_state.store_block(genesis.clone())?;
 
         // Update initial chain state with the genesis block
@@ -1345,7 +1345,7 @@ mod tests {
         chain_state.best_block_hash = genesis.hash();
 
         // First fork with higher difficulty (lower target = higher difficulty)
-        let fork_block = Block::new(1, genesis.hash(), Vec::new(), u32::MAX / 2);
+        let fork_block = Block::new_with_params(1, genesis.hash(), Vec::new(), u32::MAX / 2);
 
         // Process the fork block and check that it becomes the new best block
         let reorg_successful = chain_state.process_block(fork_block.clone()).await?;
@@ -1358,7 +1358,7 @@ mod tests {
         let mut deep_fork = fork_block.clone();
         for _ in 0..MAX_REORG_DEPTH + 1 {
             let prev_hash = deep_fork.hash();
-            deep_fork = Block::new(
+            deep_fork = Block::new_with_params(
                 (deep_fork.height() + 1) as u32,
                 prev_hash,
                 Vec::new(),
@@ -1379,15 +1379,15 @@ mod tests {
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
         let mut chain_state = ChainState::new(db)?;
 
-        let genesis = Block::new(1, [0u8; 32], Vec::new(), u32::MAX);
+        let genesis = Block::new_with_params(1, [0u8; 32], Vec::new(), u32::MAX);
         chain_state.store_block(genesis.clone())?;
 
-        let valid_fork = Block::new(2, genesis.hash(), Vec::new(), u32::MAX / 2);
+        let valid_fork = Block::new_with_params(2, genesis.hash(), Vec::new(), u32::MAX / 2);
         assert!(chain_state.validate_block(&valid_fork).await?);
 
         let mut invalid_fork = genesis.clone();
         for _ in 0..MAX_FORK_DISTANCE + 1 {
-            invalid_fork = Block::new(
+            invalid_fork = Block::new_with_params(
                 (invalid_fork.height() + 1) as u32,
                 invalid_fork.hash(),
                 Vec::new(),
@@ -1408,7 +1408,7 @@ mod tests {
         assert_eq!(chain_state.get_total_difficulty(), 0);
 
         // Create and add a block
-        let genesis = Block::new(1, [0u8; 32], Vec::new(), u32::MAX);
+        let genesis = Block::new_with_params(1, [0u8; 32], Vec::new(), u32::MAX);
         chain_state.process_block(genesis.clone()).await?;
 
         // Total difficulty should be increased

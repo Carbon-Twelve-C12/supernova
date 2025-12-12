@@ -256,6 +256,24 @@ impl EclipsePreventionSystem {
         Ok(true)
     }
 
+    #[cfg(test)]
+    pub(crate) async fn test_connections_snapshot(
+        &self,
+    ) -> HashMap<PeerId, PeerConnectionInfo> {
+        self.connections.read().await.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn test_is_banned(&self, peer_id: &PeerId, ip_address: &IpAddr) -> bool {
+        self.is_banned(peer_id, ip_address).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn test_diversity_score(&self) -> f64 {
+        let connections = self.connections.read().await;
+        self.calculate_diversity_score(&connections).await
+    }
+
     /// Register a new connection
     pub async fn register_connection(
         &self,

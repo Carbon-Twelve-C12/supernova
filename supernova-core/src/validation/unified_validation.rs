@@ -845,7 +845,7 @@ mod tests {
     #[test]
     fn test_difficulty_validation_genesis_block() {
         let mut validator = UnifiedBlockValidator::new();
-        let config = validator.difficulty_adjustment.config();
+        let max_target = validator.difficulty_adjustment.config().max_target;
         
         // Create genesis block with valid difficulty
         let genesis_block = Block::new_with_params(
@@ -886,7 +886,7 @@ mod tests {
             1,
             [0; 32],
             vec![create_test_block().transactions[0].clone()],
-            config.max_target + 1, // Invalid: exceeds max_target
+            max_target + 1, // Invalid: exceeds max_target
         );
         
         let result = validator.validate_block_secure(&too_easy_genesis, Some(&context));
@@ -899,7 +899,7 @@ mod tests {
     #[test]
     fn test_difficulty_validation_invalid_bits() {
         let mut validator = UnifiedBlockValidator::new();
-        let config = validator.difficulty_adjustment.config();
+        let difficulty_cfg = validator.difficulty_adjustment.config().clone();
         
         // Create previous header
         let previous_header = BlockHeader::new_with_height(
@@ -917,7 +917,7 @@ mod tests {
             1,
             [1; 32],
             vec![create_test_block().transactions[0].clone()],
-            config.min_target - 1, // Invalid: below min_target
+            difficulty_cfg.min_target - 1, // Invalid: below min_target
         );
         invalid_block.header.set_timestamp(1000150);
         
@@ -940,7 +940,7 @@ mod tests {
             1,
             [1; 32],
             vec![create_test_block().transactions[0].clone()],
-            config.max_target + 1, // Invalid: above max_target
+            difficulty_cfg.max_target + 1, // Invalid: above max_target
         );
         too_easy_block.header.set_timestamp(1000150);
         

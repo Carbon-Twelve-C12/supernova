@@ -6,6 +6,8 @@
 //! - Automatic claim/refund triggers
 //! - Real-time swap state tracking
 
+extern crate supernova_core as btclib;
+
 use btclib::atomic_swap::{
     crypto::{HashFunction, HashLock},
     htlc::{FeeStructure, TimeLock},

@@ -176,7 +176,7 @@ mod tests {
                     let tx = create_unique_transaction(
                         vec![(input, 1000)],
                         vec![1000], // Keep value constant
-                        attacker_id * 1000 + i,
+                        (attacker_id as u32) * 1000u32 + (i as u32),
                     );
 
                     if utxo_set_clone

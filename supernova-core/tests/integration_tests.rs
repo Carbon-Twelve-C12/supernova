@@ -2,6 +2,8 @@ use dashmap::DashMap;
 use rand::rngs::OsRng;
 use std::sync::Arc;
 
+extern crate supernova_core as btclib;
+
 use btclib::api::{create_testnet_api, CryptoAPI};
 use btclib::config::{Config, NetworkType};
 use btclib::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};

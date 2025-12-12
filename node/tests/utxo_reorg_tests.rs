@@ -22,8 +22,7 @@ fn create_test_transaction(
         1,
         vec![input],
         vec![output],
-        0,
-        vec![], // Signature placeholder
+        0, // lock_time
     )
 }
 
@@ -34,12 +33,14 @@ fn create_test_block(
     transactions: Vec<Transaction>,
     difficulty: u32,
 ) -> Block {
-    let mut header = BlockHeader::new(
-        height,
-        prev_hash,
-        [0u8; 32], // merkle root placeholder
-        difficulty,
-        0, // nonce
+    // Header height is tracked by chain state; keep timestamp deterministic-ish for tests.
+    let header = BlockHeader::new(
+        1,          // version
+        prev_hash,  // prev
+        [0u8; 32],  // merkle root placeholder
+        height as u64, // timestamp placeholder
+        difficulty, // bits
+        0,          // nonce
     );
     
     Block::new(header, transactions)
@@ -57,11 +58,11 @@ async fn test_simple_2_block_reorg() -> Result<(), Box<dyn std::error::Error>> {
     chain_state.add_block(&genesis).await?;
     
     // Create chain A: genesis -> block1 -> block2
-    let coinbase1 = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase1 = Transaction::new_coinbase();
     let block1_a = create_test_block(1, genesis.hash(), vec![coinbase1], 0x207fffff);
     chain_state.add_block(&block1_a).await?;
     
-    let coinbase2 = Transaction::coinbase(2, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase2 = Transaction::new_coinbase();
     let block2_a = create_test_block(2, block1_a.hash(), vec![coinbase2], 0x207fffff);
     chain_state.add_block(&block2_a).await?;
     
@@ -70,7 +71,7 @@ async fn test_simple_2_block_reorg() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(chain_state.get_best_block_hash(), block2_a.hash());
     
     // Create chain B: genesis -> block1' (with higher difficulty - will trigger reorg)
-    let coinbase1_b = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase1_b = Transaction::new_coinbase();
     let block1_b = create_test_block(1, genesis.hash(), vec![coinbase1_b], 0x1d00ffff); // Much higher difficulty
     
     // Adding block1_b should trigger reorg since it has higher cumulative work
@@ -104,7 +105,7 @@ async fn test_5_block_reorg_with_spending() -> Result<(), Box<dyn std::error::Er
     // Chain A: Create 5 blocks with transaction spending
     let mut prev_block = genesis.clone();
     for i in 1..=5 {
-        let coinbase = Transaction::coinbase(i, vec![TransactionOutput::new(50_00000000, vec![])]);
+        let coinbase = Transaction::new_coinbase();
         let block = create_test_block(i, prev_block.hash(), vec![coinbase], 0x207fffff);
         chain_state.add_block(&block).await?;
         prev_block = block;
@@ -115,7 +116,7 @@ async fn test_5_block_reorg_with_spending() -> Result<(), Box<dyn std::error::Er
     // Create competing chain B with higher total work
     let mut prev_block_b = genesis.clone();
     for i in 1..=3 {
-        let coinbase = Transaction::coinbase(i, vec![TransactionOutput::new(50_00000000, vec![])]);
+        let coinbase = Transaction::new_coinbase();
         // Higher difficulty = higher work per block
         let block = create_test_block(i, prev_block_b.hash(), vec![coinbase], 0x1d00ffff);
         chain_state.add_block(&block).await?;
@@ -144,7 +145,7 @@ async fn test_reorg_coinbase_handling() -> Result<(), Box<dyn std::error::Error>
     // Create 101 blocks to have mature coinbase
     let mut prev_block = genesis.clone();
     for i in 1..=101 {
-        let coinbase = Transaction::coinbase(i, vec![TransactionOutput::new(50_00000000, vec![])]);
+        let coinbase = Transaction::new_coinbase();
         let block = create_test_block(i, prev_block.hash(), vec![coinbase], 0x207fffff);
         chain_state.add_block(&block).await?;
         prev_block = block;
@@ -152,7 +153,7 @@ async fn test_reorg_coinbase_handling() -> Result<(), Box<dyn std::error::Error>
     
     // Coinbase from block 1 should be mature (100+ confirmations)
     // Create competing fork that removes it
-    let coinbase_alt = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase_alt = Transaction::new_coinbase();
     let block1_alt = create_test_block(1, genesis.hash(), vec![coinbase_alt], 0x1c000000); // Much higher difficulty
     
     chain_state.add_block(&block1_alt).await?;
@@ -176,7 +177,7 @@ async fn test_deep_reorg() -> Result<(), Box<dyn std::error::Error>> {
     // Create main chain of 100 blocks
     let mut prev_block = genesis.clone();
     for i in 1..=100 {
-        let coinbase = Transaction::coinbase(i, vec![TransactionOutput::new(50_00000000, vec![])]);
+        let coinbase = Transaction::new_coinbase();
         let block = create_test_block(i, prev_block.hash(), vec![coinbase], 0x207fffff);
         chain_state.add_block(&block).await?;
         prev_block = block;
@@ -188,7 +189,7 @@ async fn test_deep_reorg() -> Result<(), Box<dyn std::error::Error>> {
     // Create alternate chain from genesis with higher difficulty
     let mut prev_block_alt = genesis.clone();
     for i in 1..=50 {
-        let coinbase = Transaction::coinbase(i, vec![TransactionOutput::new(50_00000000, vec![])]);
+        let coinbase = Transaction::new_coinbase();
         // Much higher difficulty so 50 blocks have more work than 100 easy blocks
         let block = create_test_block(i, prev_block_alt.hash(), vec![coinbase], 0x1b000000);
         chain_state.add_block(&block).await?;
@@ -211,19 +212,19 @@ async fn test_reorg_prevents_double_spend() -> Result<(), Box<dyn std::error::Er
     chain_state.add_block(&genesis).await?;
     
     // Create block 1 with a spendable output
-    let coinbase1 = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase1 = Transaction::new_coinbase();
     let block1 = create_test_block(1, genesis.hash(), vec![coinbase1.clone()], 0x207fffff);
     chain_state.add_block(&block1).await?;
     
     // Chain A: Block 2 spends the coinbase from block 1
     let spend_tx_a = create_test_transaction(coinbase1.hash(), 0, 49_99000000);
-    let coinbase2_a = Transaction::coinbase(2, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase2_a = Transaction::new_coinbase();
     let block2_a = create_test_block(2, block1.hash(), vec![coinbase2_a, spend_tx_a], 0x207fffff);
     chain_state.add_block(&block2_a).await?;
     
     // Chain B: Competing block 2 that also tries to spend the same coinbase (double-spend attempt)
     let spend_tx_b = create_test_transaction(coinbase1.hash(), 0, 48_00000000); // Different amount
-    let coinbase2_b = Transaction::coinbase(2, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase2_b = Transaction::new_coinbase();
     let block2_b = create_test_block(2, block1.hash(), vec![coinbase2_b, spend_tx_b], 0x1d00ffff); // Higher difficulty
     
     // Adding block2_b should trigger reorg
@@ -255,7 +256,7 @@ async fn test_get_output_from_disconnected_block() -> Result<(), Box<dyn std::er
     let mut prev_block = genesis.clone();
     
     for i in 1..=10 {
-        let coinbase = Transaction::coinbase(i, vec![TransactionOutput::new(i * 10_00000000, vec![])]);
+        let coinbase = Transaction::new_coinbase();
         known_txs.push((i, coinbase.hash()));
         let block = create_test_block(i, prev_block.hash(), vec![coinbase], 0x207fffff);
         chain_state.add_block(&block).await?;
@@ -266,7 +267,7 @@ async fn test_get_output_from_disconnected_block() -> Result<(), Box<dyn std::er
     // This is private function, but tested indirectly through reorg
     
     // Trigger a small reorg to test output retrieval
-    let coinbase_alt = Transaction::coinbase(1, vec![TransactionOutput::new(100_00000000, vec![])]);
+    let coinbase_alt = Transaction::new_coinbase();
     let block1_alt = create_test_block(1, genesis.hash(), vec![coinbase_alt], 0x1d00ffff);
     chain_state.add_block(&block1_alt).await?;
     
@@ -287,12 +288,12 @@ async fn test_empty_block_reorg() -> Result<(), Box<dyn std::error::Error>> {
     chain_state.add_block(&genesis).await?;
     
     // Chain A: Empty blocks (only coinbase)
-    let coinbase1 = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase1 = Transaction::new_coinbase();
     let block1_a = create_test_block(1, genesis.hash(), vec![coinbase1], 0x207fffff);
     chain_state.add_block(&block1_a).await?;
     
     // Chain B: Competing block with higher difficulty
-    let coinbase1_b = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase1_b = Transaction::new_coinbase();
     let block1_b = create_test_block(1, genesis.hash(), vec![coinbase1_b], 0x1d00ffff);
     chain_state.add_block(&block1_b).await?;
     
@@ -313,26 +314,26 @@ async fn test_transaction_chain_reorg() -> Result<(), Box<dyn std::error::Error>
     chain_state.add_block(&genesis).await?;
     
     // Block 1: Create UTXO
-    let coinbase1 = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase1 = Transaction::new_coinbase();
     let block1 = create_test_block(1, genesis.hash(), vec![coinbase1.clone()], 0x207fffff);
     chain_state.add_block(&block1).await?;
     
     // Block 2: Spend the UTXO from block 1
     let spend_tx = create_test_transaction(coinbase1.hash(), 0, 49_99000000);
-    let coinbase2 = Transaction::coinbase(2, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase2 = Transaction::new_coinbase();
     let block2 = create_test_block(2, block1.hash(), vec![coinbase2, spend_tx.clone()], 0x207fffff);
     chain_state.add_block(&block2).await?;
     
     // Block 3: Spend output from block 2 transaction
     let spend_tx2 = create_test_transaction(spend_tx.hash(), 0, 49_98000000);
-    let coinbase3 = Transaction::coinbase(3, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase3 = Transaction::new_coinbase();
     let block3 = create_test_block(3, block2.hash(), vec![coinbase3, spend_tx2], 0x207fffff);
     chain_state.add_block(&block3).await?;
     
     assert_eq!(chain_state.get_height(), 3);
     
     // Create competing chain from genesis with higher difficulty
-    let coinbase1_alt = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase1_alt = Transaction::new_coinbase();
     let block1_alt = create_test_block(1, genesis.hash(), vec![coinbase1_alt], 0x1c000000); // Much higher difficulty
     chain_state.add_block(&block1_alt).await?;
     
@@ -362,7 +363,7 @@ async fn test_reorg_preserves_wallet_balance() -> Result<(), Box<dyn std::error:
     
     let mut prev_block = genesis.clone();
     for i in 1..=5 {
-        let coinbase = Transaction::coinbase(i, vec![TransactionOutput::new(50_00000000, vec![])]);
+        let coinbase = Transaction::new_coinbase();
         let block = create_test_block(i, prev_block.hash(), vec![coinbase], 0x207fffff);
         chain_state.add_block(&block).await?;
         expected_coinbase_outputs += 50_00000000;
@@ -372,7 +373,7 @@ async fn test_reorg_preserves_wallet_balance() -> Result<(), Box<dyn std::error:
     // Expected: 5 coinbase outputs = 250 coins
     
     // Trigger reorg that removes last 2 blocks
-    let coinbase1_alt = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase1_alt = Transaction::new_coinbase();
     let block1_alt = create_test_block(1, genesis.hash(), vec![coinbase1_alt], 0x1b000000);
     chain_state.add_block(&block1_alt).await?;
     
@@ -397,14 +398,14 @@ async fn test_reorg_exceeds_max_depth() -> Result<(), Box<dyn std::error::Error>
     // Create 101 blocks (assuming MAX_REORG_DEPTH = 100)
     let mut prev_block = genesis.clone();
     for i in 1..=101 {
-        let coinbase = Transaction::coinbase(i, vec![TransactionOutput::new(50_00000000, vec![])]);
+        let coinbase = Transaction::new_coinbase();
         let block = create_test_block(i, prev_block.hash(), vec![coinbase], 0x207fffff);
         chain_state.add_block(&block).await?;
         prev_block = block;
     }
     
     // Try to reorg all 101 blocks - should be rejected
-    let coinbase_alt = Transaction::coinbase(1, vec![TransactionOutput::new(50_00000000, vec![])]);
+    let coinbase_alt = Transaction::new_coinbase();
     let block1_alt = create_test_block(1, genesis.hash(), vec![coinbase_alt], 0x1a000000);
     
     // This should either reject the reorg or accept it if within limits

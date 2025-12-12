@@ -2,6 +2,8 @@
 // A command line tool that visualizes emissions data using ASCII/Unicode art charts
 // This demonstrates the use of the environmental module's emissions tracking capabilities
 
+extern crate supernova_core as btclib;
+
 use btclib::environmental::emissions::EmissionsTracker;
 use btclib::environmental::types::{HardwareType, Region};
 use chrono::{Duration, TimeZone, Utc};

@@ -13,6 +13,8 @@
 //! - Cross-implementation verification
 //! - Signature determinism/randomness as expected
 
+extern crate supernova_core as btclib;
+
 use btclib::crypto::quantum::{
     ClassicalScheme, QuantumError, QuantumKeyPair, QuantumParameters, QuantumScheme,
 };

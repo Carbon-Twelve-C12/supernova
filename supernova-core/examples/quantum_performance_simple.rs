@@ -3,6 +3,8 @@
 //! This example benchmarks the performance of Supernova's quantum signatures
 //! without relying on complex module structures.
 
+extern crate supernova_core as btclib;
+
 use btclib::crypto::quantum::{
     sign_quantum, verify_quantum_signature, QuantumKeyPair, QuantumParameters, QuantumScheme,
 };

@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::crypto::quantum::{ClassicalScheme, QuantumParameters, QuantumScheme};
 use btclib::crypto::zkp::{ZkpParams, ZkpType};
 use btclib::types::extended_transaction::{

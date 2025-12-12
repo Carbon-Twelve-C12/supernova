@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::util::ascii_art;
 use std::io;
 

@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -191,11 +193,7 @@ fn network_emissions_example() -> Result<(), EmissionsError> {
 
     // Calculate daily network emissions
     let hours = 24.0;
-    let tracker_clone = Arc::clone(&tracker);
-    let daily_emissions = tracker_clone
-        .lock()
-        .unwrap()
-        .calculate_network_emissions(hours)?;
+    let daily_emissions = tracker.lock().unwrap().calculate_network_emissions(hours)?;
 
     // Get regional breakdown
     let regional_breakdown = tracker

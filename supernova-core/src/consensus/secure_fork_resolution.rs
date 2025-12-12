@@ -887,12 +887,11 @@ mod tests {
         let resolver = SecureForkResolver::new(config);
 
         let tip_hash = [0x42; 32];
-        let mut header_count = 0;
+        let header_count = std::sync::atomic::AtomicUsize::new(0);
         
         // Create a header lookup that returns a header with invalid bits
-        let get_header = |hash: &[u8; 32]| -> Option<BlockHeader> {
-            if header_count == 0 {
-                header_count += 1;
+        let get_header = |_hash: &[u8; 32]| -> Option<BlockHeader> {
+            if header_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
                 // Return header with invalid difficulty bits
                 Some(create_test_header(1, [0; 32], 0x1d800000, 1000)) // Invalid mantissa
             } else {

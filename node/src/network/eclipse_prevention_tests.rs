@@ -197,7 +197,6 @@ mod eclipse_prevention_tests {
         let config = EclipsePreventionConfig {
             rotation_interval: Duration::from_millis(100), // Short for testing
             rotation_percentage: 0.25,                     // Rotate 25% of peers
-            enable_automatic_rotation: true,
             ..Default::default()
         };
 
@@ -237,7 +236,7 @@ mod eclipse_prevention_tests {
 
         // Verify anchor peers are not in rotation list
         for candidate in &candidates {
-            let connections = system.connections.read().await;
+            let connections = system.test_connections_snapshot().await;
             let info = connections.get(candidate).unwrap();
             assert!(!info.is_anchor);
         }
@@ -258,7 +257,7 @@ mod eclipse_prevention_tests {
 
         // Initial score should be 100
         {
-            let connections = system.connections.read().await;
+            let connections = system.test_connections_snapshot().await;
             let info = connections.get(&peer_id).unwrap();
             assert_eq!(info.behavior_score, 100.0);
         }
@@ -267,7 +266,7 @@ mod eclipse_prevention_tests {
         system.update_behavior_score(&peer_id, -20.0).await;
 
         {
-            let connections = system.connections.read().await;
+            let connections = system.test_connections_snapshot().await;
             let info = connections.get(&peer_id).unwrap();
             assert_eq!(info.behavior_score, 80.0);
         }
@@ -276,7 +275,7 @@ mod eclipse_prevention_tests {
         system.update_behavior_score(&peer_id, -75.0).await;
 
         // Peer should be banned
-        assert!(system.is_banned(&peer_id, &ip).await);
+        assert!(system.test_is_banned(&peer_id, &ip).await);
     }
 
     /// Test eclipse attack detection
@@ -328,8 +327,7 @@ mod eclipse_prevention_tests {
                 .unwrap();
         }
 
-        let connections = system.connections.read().await;
-        let diversity_score = system.calculate_diversity_score(&connections).await;
+        let diversity_score = system.test_diversity_score().await;
 
         // All from same subnet = low diversity
         assert!(diversity_score < 0.5);

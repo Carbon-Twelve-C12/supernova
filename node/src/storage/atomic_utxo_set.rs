@@ -775,7 +775,8 @@ mod tests {
                 // Each thread tries to spend UTXOs 0-9
                 for i in 0..10 {
                     let input = OutPoint::new([i; 32], 0);
-                    let (output_point, output) = create_test_utxo([100 + thread_id; 32], i, 900);
+                    let (output_point, output) =
+                        create_test_utxo([100 + thread_id; 32], i as u32, 900);
 
                     let result = utxo_set_clone
                         .begin_transaction()

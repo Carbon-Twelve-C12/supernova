@@ -4,6 +4,8 @@
 //! of Supernova's post-quantum signature schemes, inspired by the
 //! LaBRADOR signature aggregation research.
 
+extern crate supernova_core as btclib;
+
 use btclib::crypto::quantum::{QuantumParameters, QuantumScheme};
 use btclib::monitoring::quantum_signature_benchmarks::{BenchmarkResults, QuantumSignatureMonitor};
 use prometheus::Registry;

@@ -190,7 +190,7 @@ async fn test_submit_invalid_transaction() {
     let app = test::init_service(
         App::new()
             .app_data(dependencies.clone())
-            .configure(|cfg| create_app(cfg, dependencies.clone())),
+            .configure(|cfg| create_app(cfg)),
     )
     .await;
 
@@ -219,7 +219,7 @@ async fn test_openapi_spec_endpoint() {
     let app = test::init_service(
         App::new()
             .app_data(dependencies.clone())
-            .configure(|cfg| create_app(cfg, dependencies.clone())),
+            .configure(|cfg| create_app(cfg)),
     )
     .await;
 

@@ -3,6 +3,8 @@
 //! This example shows how to create and execute an atomic swap between
 //! Bitcoin and Supernova blockchains.
 
+extern crate supernova_core as btclib;
+
 use btclib::atomic_swap::bitcoin_adapter::{BitcoinHTLC, HTLCScriptType};
 use btclib::atomic_swap::crypto::{generate_secure_random_32, HashFunction, HashLock};
 use btclib::atomic_swap::htlc::FeeStructure;

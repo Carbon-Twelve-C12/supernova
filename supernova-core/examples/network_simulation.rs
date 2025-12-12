@@ -1,3 +1,5 @@
+extern crate supernova_core as btclib;
+
 use btclib::testnet::{
     config::{presets, NetworkSimulationConfig, TestNetConfig},
     test_harness::{
