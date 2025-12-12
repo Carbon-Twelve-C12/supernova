@@ -94,7 +94,7 @@ fn main() {
     let claim_sig = bob_key.sign(b"claim message placeholder");
 
     // Try with correct secret
-    let claim_valid = htlc.verify_claim(&secret, &claim_sig).unwrap();
+    let claim_valid = htlc.verify_claim(&secret, &claim_sig, 0).unwrap();
     println!(
         "   Claim with correct secret: {}",
         if claim_valid {
@@ -106,7 +106,7 @@ fn main() {
 
     // Try with wrong secret
     let wrong_secret = [0u8; 32];
-    let claim_invalid = htlc.verify_claim(&wrong_secret, &claim_sig).unwrap();
+    let claim_invalid = htlc.verify_claim(&wrong_secret, &claim_sig, 0).unwrap();
     println!(
         "   Claim with wrong secret: {}",
         if claim_invalid {

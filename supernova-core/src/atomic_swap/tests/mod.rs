@@ -18,6 +18,9 @@ pub mod performance_tests;
 #[cfg(test)]
 pub mod edge_case_tests;
 
+#[cfg(test)]
+pub mod hardening_tests;
+
 // Re-export common test utilities
 #[cfg(test)]
 pub mod test_utils;

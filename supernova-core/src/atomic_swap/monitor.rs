@@ -19,6 +19,9 @@ use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tokio::sync::RwLock;
 
+use std::future::Future;
+use std::time::Duration;
+
 /// Cross-chain monitoring service
 pub struct CrossChainMonitor {
     /// Active swap sessions being monitored
@@ -42,6 +45,27 @@ pub struct CrossChainMonitor {
 
     /// History of emitted events
     event_history: Arc<RwLock<LruCache<SwapEvent, ()>>>,
+}
+
+/// Retry/backoff configuration for unreliable cross-chain monitoring.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RetryConfig {
+    /// Base delay between retries.
+    pub base_delay: Duration,
+    /// Maximum backoff delay.
+    pub max_delay: Duration,
+    /// Maximum number of retries before failing.
+    pub max_retries: u32,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            base_delay: Duration::from_millis(250),
+            max_delay: Duration::from_secs(10),
+            max_retries: 5,
+        }
+    }
 }
 
 /// Monitoring configuration
@@ -71,6 +95,63 @@ impl Default for MonitorConfig {
             auto_claim: true,
             auto_refund: true,
             max_retries: 3,
+        }
+    }
+}
+
+/// A minimal reorg tracker for swap-critical transactions.
+///
+/// This does not attempt to resolve the reorg; it detects it and allows callers
+/// to transition swap state or rescan.
+#[derive(Debug, Clone)]
+pub struct ReorgTracker {
+    pub confirmed_height: u64,
+    pub confirmed_block_hash: [u8; 32],
+}
+
+impl ReorgTracker {
+    pub fn new(confirmed_height: u64, confirmed_block_hash: [u8; 32]) -> Self {
+        Self {
+            confirmed_height,
+            confirmed_block_hash,
+        }
+    }
+
+    /// Returns true if the block hash at `confirmed_height` no longer matches the recorded hash.
+    pub fn is_reorg(&self, current_block_hash_at_height: [u8; 32]) -> bool {
+        current_block_hash_at_height != self.confirmed_block_hash
+    }
+}
+
+/// Execute an async operation with bounded retries and exponential backoff.
+///
+/// This is used by cross-chain monitoring to tolerate intermittent RPC failures and
+/// temporary network partitions.
+pub(crate) async fn retry_with_backoff<T, F, Fut>(
+    retry: RetryConfig,
+    mut op: F,
+) -> Result<T, MonitorError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, MonitorError>>,
+{
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        match op().await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                if attempt >= retry.max_retries {
+                    return Err(e);
+                }
+                // Exponential backoff with cap.
+                let exp = 2u32.saturating_pow((attempt - 1).min(10));
+                let mut delay = retry.base_delay.saturating_mul(exp);
+                if delay > retry.max_delay {
+                    delay = retry.max_delay;
+                }
+                tokio::time::sleep(delay).await;
+            }
         }
     }
 }

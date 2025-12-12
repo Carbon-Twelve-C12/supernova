@@ -305,6 +305,18 @@ impl AtomicSwapRpcImpl {
         rng.fill(&mut id);
         id
     }
+
+    // ------------------------------------------------------------------------
+    // Test helpers (P1-009)
+    // ------------------------------------------------------------------------
+    #[cfg(test)]
+    pub(crate) async fn test_force_expire_swap(&self, swap_id: [u8; 32]) {
+        let mut swaps = self.swaps.write().await;
+        if let Some(swap) = swaps.get_mut(&swap_id) {
+            // Force expiry by setting timeout to the epoch.
+            swap.nova_htlc.time_lock.absolute_timeout = 1;
+        }
+    }
 }
 
 #[async_trait]
@@ -514,7 +526,7 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
 
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         Ok(SwapStatus {
@@ -543,6 +555,58 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             data: None,
         })?;
 
+        // State gating: allow claims only in active-ish states and prevent double-claim/refund
+        match &swap.state {
+            SwapState::Refunded => {
+                return Err(RpcError {
+                    code: -32602,
+                    message: "Swap already refunded".to_string(),
+                    data: None,
+                })
+            }
+            SwapState::Completed => {
+                return Err(RpcError {
+                    code: -32602,
+                    message: "Swap already completed".to_string(),
+                    data: None,
+                })
+            }
+            SwapState::Claimed | SwapState::BitcoinClaimed => {
+                return Err(RpcError {
+                    code: -32602,
+                    message: "Swap already claimed".to_string(),
+                    data: None,
+                })
+            }
+            SwapState::Active | SwapState::BothFunded | SwapState::NovaFunded => {}
+            SwapState::Failed(reason) => {
+                return Err(RpcError {
+                    code: -32602,
+                    message: format!("Swap failed: {}", reason),
+                    data: None,
+                })
+            }
+            SwapState::Initializing => {
+                return Err(RpcError {
+                    code: -32602,
+                    message: "Swap not ready to claim".to_string(),
+                    data: None,
+                })
+            }
+        }
+
+        // Prevent claiming after timeout expiry (safety)
+        if swap.nova_htlc.is_expired() {
+            return Err(RpcError {
+                code: -32602,
+                message: "Swap HTLC already expired; cannot claim".to_string(),
+                data: Some(serde_json::json!({
+                    "absolute_timeout": swap.nova_htlc.time_lock.absolute_timeout,
+                    "grace_period": swap.nova_htlc.time_lock.grace_period,
+                })),
+            });
+        }
+
         // Verify secret
         if !swap
             .nova_htlc
@@ -558,11 +622,11 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
         }
 
         // Update state
-        swap.state = SwapState::Claimed;
+        swap.state = SwapState::Completed;
         swap.secret = Some(secret);
         swap.updated_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         // Add claim event
@@ -633,6 +697,15 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             });
         }
 
+        // Validation 4: prevent refunding already-claimed swaps
+        if matches!(swap.state, SwapState::Claimed | SwapState::BitcoinClaimed) {
+            return Err(RpcError {
+                code: -32602,
+                message: "Swap already claimed; cannot refund".to_string(),
+                data: None,
+            });
+        }
+
         // TODO (Production): Actual refund implementation would:
         // 1. Generate refund transaction spending HTLC back to initiator
         // 2. Sign refund transaction with initiator's key
@@ -647,6 +720,18 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+
+        // Emit refund event for observability
+        self.add_event(
+            swap_id,
+            SwapEvent::SwapRefunded {
+                swap_id,
+                chain: crate::atomic_swap::monitor::Chain::Supernova,
+                refund_tx: format!("STUB_refund_{}", hex::encode(&swap_id[..8])),
+                reason: crate::atomic_swap::monitor::RefundReason::Timeout,
+            },
+        )
+        .await;
 
         // Log refund for audit trail
         log::info!(

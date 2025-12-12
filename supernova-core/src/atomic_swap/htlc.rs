@@ -9,6 +9,11 @@ use crate::crypto::{Hash256, MLDSAPublicKey, MLDSASignature};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Minimum HTLC amount to avoid dust-like outputs.
+///
+/// Note: This is a pragmatic default aligned with typical dust thresholds.
+pub const MIN_HTLC_AMOUNT: u64 = 546;
+
 /// Supernova HTLC contract with quantum-resistant signatures
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SupernovaHTLC {
@@ -69,6 +74,16 @@ pub struct FeeStructure {
     pub service_fee: Option<u64>,
 }
 
+impl Default for FeeStructure {
+    fn default() -> Self {
+        Self {
+            claim_fee: 1000,
+            refund_fee: 1000,
+            service_fee: None,
+        }
+    }
+}
+
 /// Current state of the HTLC
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum HTLCState {
@@ -109,15 +124,35 @@ impl SupernovaHTLC {
             ));
         }
 
-        // Validate timeout
+        if amount < MIN_HTLC_AMOUNT {
+            return Err(HTLCError::InvalidAmount(format!(
+                "Amount below dust threshold: {} < {}",
+                amount, MIN_HTLC_AMOUNT
+            )));
+        }
+
+        // Validate fee structure (reject zero-fee swaps for safety)
+        if fee_structure.claim_fee == 0 || fee_structure.refund_fee == 0 {
+            return Err(HTLCError::InvalidAmount(
+                "Fee structure invalid: claim_fee and refund_fee must be non-zero".to_string(),
+            ));
+        }
+
+        // Validate timeout (absolute timeout must be in the future if interpreted as unix time)
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         if time_lock.absolute_timeout <= current_time {
             return Err(HTLCError::InvalidTimeout);
         }
+
+        // Validate no overflow when accounting for fees
+        let _ = amount
+            .checked_add(fee_structure.claim_fee)
+            .and_then(|v| v.checked_add(fee_structure.service_fee.unwrap_or(0)))
+            .ok_or_else(|| HTLCError::InvalidAmount("Amount/fees overflow".to_string()))?;
 
         // Generate unique ID
         let mut htlc_id = [0u8; 32];
@@ -148,10 +183,14 @@ impl SupernovaHTLC {
         &self,
         preimage: &[u8; 32],
         signature: &MLDSASignature,
+        _current_height: u64,
     ) -> Result<bool, HTLCError> {
         // Check state
-        if self.state != HTLCState::Funded {
-            return Ok(false);
+        match self.state {
+            HTLCState::Funded => {}
+            HTLCState::Claimed => return Err(HTLCError::AlreadyClaimed),
+            HTLCState::Refunded => return Err(HTLCError::AlreadyRefunded),
+            _ => return Ok(false),
         }
 
         // Verify hash preimage
@@ -174,17 +213,20 @@ impl SupernovaHTLC {
     pub fn verify_refund(
         &self,
         signature: &MLDSASignature,
-        current_height: u64,
+        _current_height: u64,
     ) -> Result<bool, HTLCError> {
         // Check state
-        if self.state != HTLCState::Funded {
-            return Ok(false);
+        match self.state {
+            HTLCState::Funded => {}
+            HTLCState::Claimed => return Err(HTLCError::AlreadyClaimed),
+            HTLCState::Refunded => return Err(HTLCError::AlreadyRefunded),
+            _ => return Ok(false),
         }
 
         // Check timeout has passed
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         if current_time < self.time_lock.absolute_timeout {
@@ -202,7 +244,7 @@ impl SupernovaHTLC {
     }
 
     /// Create the message to be signed for a claim
-    fn create_claim_message(&self, preimage: &[u8; 32]) -> Result<Vec<u8>, HTLCError> {
+    pub(crate) fn create_claim_message(&self, preimage: &[u8; 32]) -> Result<Vec<u8>, HTLCError> {
         let message = format!(
             "CLAIM:{}:{}:{}",
             hex::encode(&self.htlc_id),
@@ -213,7 +255,11 @@ impl SupernovaHTLC {
     }
 
     /// Create the message to be signed for a refund
-    fn create_refund_message(&self) -> Result<Vec<u8>, HTLCError> {
+    pub(crate) fn create_refund_message(&self) -> Result<Vec<u8>, HTLCError> {
+        // Refunding after claim is never valid.
+        if self.state == HTLCState::Claimed {
+            return Err(HTLCError::AlreadyClaimed);
+        }
         let message = format!(
             "REFUND:{}:{}:{}",
             hex::encode(&self.htlc_id),
@@ -247,10 +293,17 @@ impl SupernovaHTLC {
     pub fn is_expired(&self) -> bool {
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         current_time >= self.time_lock.absolute_timeout + self.time_lock.grace_period as u64
+    }
+
+    /// Check if the HTLC is expired at a specific chain height (useful for tests/simulations).
+    ///
+    /// This treats `absolute_timeout` as an absolute height and applies the `grace_period`.
+    pub fn is_expired_at_height(&self, current_height: u64) -> bool {
+        current_height >= self.time_lock.absolute_timeout + self.time_lock.grace_period as u64
     }
 
     /// Create a funding transaction output for this HTLC
@@ -271,7 +324,9 @@ impl SupernovaHTLC {
 
     /// Calculate the total amount needed including fees
     pub fn total_amount_with_fees(&self) -> u64 {
-        self.amount + self.fee_structure.claim_fee + self.fee_structure.service_fee.unwrap_or(0)
+        self.amount
+            .saturating_add(self.fee_structure.claim_fee)
+            .saturating_add(self.fee_structure.service_fee.unwrap_or(0))
     }
 }
 
