@@ -361,7 +361,7 @@ mod tests {
     async fn test_mining_start_stop() {
         let mempool = Arc::new(MockMempool);
         let reward_address = vec![1, 2, 3, 4];
-        let (miner, mut rx) = Miner::new(1, u32::MAX, mempool, reward_address);
+        let (miner, mut rx) = Miner::new(1, 0x207fffff, mempool, reward_address);
 
         // Clone miner for the spawned task
         let mining_miner = miner.clone();

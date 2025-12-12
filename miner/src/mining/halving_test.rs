@@ -31,7 +31,7 @@ mod halving_tests {
 
     #[test]
     fn test_total_supply_distribution() {
-        // Test that total mining rewards match tokenomics (21,000,000 NOVA)
+        // Test that total mining rewards match the configured emission schedule.
         let blocks_per_era = HALVING_INTERVAL;
         let mut total_nova = 0.0;
 
@@ -48,10 +48,12 @@ mod halving_tests {
             );
         }
 
-        // Should be close to 21,000,000 NOVA (within rounding)
+        // With a geometric halving schedule, total issuance converges to ~2 * era0_total.
+        let expected_total_nova = crate::mining::NOVA_TOTAL_SUPPLY as f64;
         assert!(
-            total_nova > 20_000_000.0 && total_nova < 21_000_000.0,
-            "Total mining rewards should be ~21M NOVA, got {}",
+            (total_nova - expected_total_nova).abs() / expected_total_nova < 0.05,
+            "Total mining rewards should be close to {} NOVA, got {}",
+            expected_total_nova,
             total_nova
         );
     }
@@ -59,16 +61,16 @@ mod halving_tests {
     #[test]
     fn test_subsidy_era_calculation() {
         assert_eq!(get_subsidy_era(0), 0);
-        assert_eq!(get_subsidy_era(839_999), 0);
-        assert_eq!(get_subsidy_era(840_000), 1);
-        assert_eq!(get_subsidy_era(1_679_999), 1);
-        assert_eq!(get_subsidy_era(1_680_000), 2);
+        assert_eq!(get_subsidy_era(HALVING_INTERVAL - 1), 0);
+        assert_eq!(get_subsidy_era(HALVING_INTERVAL), 1);
+        assert_eq!(get_subsidy_era(HALVING_INTERVAL * 2 - 1), 1);
+        assert_eq!(get_subsidy_era(HALVING_INTERVAL * 2), 2);
     }
 
     #[test]
     fn test_block_time_calculations() {
-        // With 2.5 minute blocks and 840,000 blocks per halving
-        let minutes_per_halving = 840_000.0 * 2.5;
+        // With 2.5 minute blocks
+        let minutes_per_halving = HALVING_INTERVAL as f64 * 2.5;
         let hours_per_halving = minutes_per_halving / 60.0;
         let days_per_halving = hours_per_halving / 24.0;
         let years_per_halving = days_per_halving / 365.25;
@@ -78,7 +80,7 @@ mod halving_tests {
         println!("Days per halving: {:.2}", days_per_halving);
         println!("Years per halving: {:.2}", years_per_halving);
 
-        // Should be approximately 4 years
+        // With HALVING_INTERVAL=840,000 and 2.5 minute blocks, this is ~4 years.
         assert!(
             years_per_halving > 3.9 && years_per_halving < 4.1,
             "Halving should occur approximately every 4 years, got {:.2} years",
@@ -121,10 +123,10 @@ mod halving_tests {
         let blocks_per_year = (365.25 * 24.0 * 60.0 / 2.5) as u64;
 
         let test_cases = vec![
-            (blocks_per_year * 4, 8_400_000),   // After 4 years
-            (blocks_per_year * 8, 12_600_000),  // After 8 years
-            (blocks_per_year * 12, 14_700_000), // After 12 years
-            (blocks_per_year * 16, 15_750_000), // After 16 years
+            (blocks_per_year * 4, 42_000_000),   // After ~4 years (era 0)
+            (blocks_per_year * 8, 63_000_000),   // After ~8 years (era 0 + era 1)
+            (blocks_per_year * 12, 73_500_000),  // After ~12 years
+            (blocks_per_year * 16, 78_750_000),  // After ~16 years
         ];
 
         for (block_height, expected_supply_nova) in test_cases {

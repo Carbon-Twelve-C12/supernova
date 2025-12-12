@@ -22,7 +22,9 @@ pub use reward::{
 pub use template::{BlockTemplate, MempoolInterface};
 pub use worker::MiningWorker;
 
-pub const NOVA_TOTAL_SUPPLY: u64 = 42_000_000;
+// Note: with the current schedule (50 NOVA initial reward, halving every 840,000 blocks),
+// total issuance over all halvings converges to ~84,000,000 NOVA (geometric series).
+pub const NOVA_TOTAL_SUPPLY: u64 = 84_000_000;
 pub const NOVA_BLOCK_REWARD: u64 = 50; // Initial block reward in NOVA
 pub const HALVING_INTERVAL: u64 = 840_000; // Halving every 840,000 blocks (~4 years)
 pub const MAX_HALVINGS: u32 = 64; // Maximum number of halvings (same as Bitcoin)

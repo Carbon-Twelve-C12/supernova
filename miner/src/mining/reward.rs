@@ -33,12 +33,18 @@ pub struct MiningReward {
 /// Calculate the base block reward considering halvings
 pub fn calculate_base_reward(block_height: u64) -> u64 {
     // Calculate how many halvings have occurred
-    let halvings = (block_height / HALVING_INTERVAL) as u32;
+    //
+    // SECURITY: avoid narrowing u64 -> u32 before bounds checks. If we were to cast first,
+    // extremely large heights could wrap and bypass the MAX_HALVINGS guard, potentially
+    // causing an invalid/overflowing shift.
+    let halvings_u64 = block_height / HALVING_INTERVAL;
 
-    // Cap at maximum halvings to prevent underflow
-    if halvings >= MAX_HALVINGS {
+    // Cap at maximum halvings to prevent invalid shifts / underflow
+    if halvings_u64 >= MAX_HALVINGS as u64 {
         return 0;
     }
+
+    let halvings = halvings_u64 as u32;
 
     // Calculate reward: initial_reward / 2^halvings
     // Base units: 1 NOVA = 100_000_000 nova units

@@ -202,13 +202,9 @@ impl MiningWorker {
     }
 
     pub fn check_proof_of_work(&self, block: &Block) -> bool {
-        let block_header = self.get_block_header(block);
-        let hash = self.memory_hard_hash(&block_header);
-
-        let mut hash_value = [0u8; 8];
-        hash_value[..4].copy_from_slice(&hash[..4]);
-        let hash_value = u64::from_be_bytes(hash_value);
-        hash_value as u32 <= self.target.load(Ordering::Relaxed)
+        // IMPORTANT: mining must use the *same* PoW rule as consensus validation.
+        // Otherwise, mined blocks will fail `block.validate()`.
+        block.verify_proof_of_work()
     }
 
     // Extract block header for hashing
@@ -309,7 +305,7 @@ mod tests {
         let worker = MiningWorker::new(
             Arc::clone(&stop_signal),
             tx,
-            AtomicU32::new(u32::MAX), // Easiest possible target for fast test completion
+            AtomicU32::new(0x207fffff), // Easiest valid compact target for fast test completion
             0,
             mempool,
             Arc::new(AtomicU64::new(0)),

@@ -100,6 +100,10 @@ impl Default for EnvironmentalVerifier {
 }
 
 impl EnvironmentalVerifier {
+    fn normalize_issuer(issuer: &str) -> String {
+        issuer.trim().to_ascii_uppercase()
+    }
+
     pub fn new() -> Self {
         let fraud_config = FraudDetectionConfig::default();
 
@@ -204,10 +208,21 @@ impl EnvironmentalVerifier {
 
     /// Get a verified miner's environmental profile
     pub async fn get_verified_profile(&self, miner_id: &str) -> Option<EnvironmentalProfile> {
+        self.get_verified_profile_at(miner_id, current_timestamp()).await
+    }
+
+    /// Get a verified miner's environmental profile at a specific timestamp.
+    ///
+    /// This is primarily useful for tests/simulations that need deterministic time travel.
+    pub async fn get_verified_profile_at(
+        &self,
+        miner_id: &str,
+        now: u64,
+    ) -> Option<EnvironmentalProfile> {
         let miners = self.verified_miners.read().await;
         miners
             .get(miner_id)
-            .filter(|profile| profile.verification_expiry > current_timestamp())
+            .filter(|profile| profile.verification_expiry > now)
             .map(|profile| profile.environmental_profile.clone())
     }
 
@@ -221,7 +236,8 @@ impl EnvironmentalVerifier {
 
         for cert in certificates {
             // Check if issuer is trusted
-            if !registry.trusted_issuers.contains(&cert.issuer) {
+            let issuer_norm = Self::normalize_issuer(&cert.issuer);
+            if !registry.trusted_issuers.contains(&issuer_norm) {
                 continue;
             }
 
@@ -296,8 +312,9 @@ impl EnvironmentalVerifier {
     /// Register a trusted REC issuer
     pub async fn register_trusted_issuer(&self, issuer: String) {
         let mut registry = self.rec_registry.write().await;
-        if !registry.trusted_issuers.contains(&issuer) {
-            registry.trusted_issuers.push(issuer);
+        let issuer_norm = Self::normalize_issuer(&issuer);
+        if !registry.trusted_issuers.contains(&issuer_norm) {
+            registry.trusted_issuers.push(issuer_norm);
         }
     }
 

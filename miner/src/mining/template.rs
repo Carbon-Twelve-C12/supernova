@@ -407,11 +407,14 @@ mod tests {
             "Block should have 4 transactions (coinbase + 3 from mempool)"
         );
 
-        // Check that coinbase has the correct reward (50 NOVA at height 1)
+        // Coinbase output 0 is the miner payout (reward minus treasury allocation)
         let expected_reward = crate::mining::reward::calculate_base_reward(1);
+        let treasury_pct = TreasuryAllocationConfig::TREASURY_ALLOCATION_PERCENT / 100.0;
+        let expected_treasury = (expected_reward as f64 * treasury_pct) as u64;
+        let expected_miner_payout = expected_reward.saturating_sub(expected_treasury);
         assert_eq!(
             block.transactions()[0].outputs()[0].amount(),
-            expected_reward
+            expected_miner_payout
         );
     }
 
