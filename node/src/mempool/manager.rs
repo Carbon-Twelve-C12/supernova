@@ -84,7 +84,7 @@ impl EnhancedMempoolEntry {
 
         for ancestor_hash in &self.ancestors {
             if let Some(ancestor) = entries.get(ancestor_hash) {
-                total_fee += ancestor.fee;
+                total_fee = total_fee.saturating_add(ancestor.fee);
                 total_size += ancestor.size;
             }
         }
@@ -102,7 +102,7 @@ impl EnhancedMempoolEntry {
 
         for descendant_hash in &self.descendants {
             if let Some(descendant) = entries.get(descendant_hash) {
-                total_fee += descendant.fee;
+                total_fee = total_fee.saturating_add(descendant.fee);
                 total_size += descendant.size;
             }
         }
@@ -541,7 +541,9 @@ impl MempoolManager {
         let new_size = bincode::serialize(new_tx_arc.as_ref())
             .map_err(|e| MempoolError::SerializationError(e.to_string()))?
             .len();
-        let new_fee = new_fee_rate * new_size as u64;
+        let new_fee = new_fee_rate
+            .checked_mul(new_size as u64)
+            .ok_or_else(|| MempoolError::FeeOverflow("new_fee_rate * new_size overflow".to_string()))?;
 
         // Check RBF fee increase requirement
         let min_increase = 1.0 + (self.config.min_rbf_fee_increase / 100.0);

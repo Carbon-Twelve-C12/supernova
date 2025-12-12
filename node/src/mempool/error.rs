@@ -79,6 +79,9 @@ pub enum MempoolError {
 
     #[error("Transaction relay rate limit exceeded for peer {peer}")]
     RelayRateLimitExceeded { peer: String },
+
+    #[error("Fee overflow: {0}")]
+    FeeOverflow(String),
 }
 
 impl From<bincode::Error> for MempoolError {

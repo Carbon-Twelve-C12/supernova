@@ -135,8 +135,10 @@ impl PathHop {
     /// Calculate the fee for forwarding a payment through this channel
     pub fn channel_fee(&self, amount_msat: u64) -> u64 {
         // Fee calculation: base_fee + (amount * fee_rate / 1_000_000)
-        let proportional_fee = (amount_msat * self.fee_rate_millionths as u64) / 1_000_000;
-        self.base_fee_msat as u64 + proportional_fee
+        let proportional_fee = amount_msat
+            .saturating_mul(self.fee_rate_millionths as u64)
+            .saturating_div(1_000_000);
+        (self.base_fee_msat as u64).saturating_add(proportional_fee)
     }
 }
 

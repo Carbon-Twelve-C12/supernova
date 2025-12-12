@@ -246,9 +246,11 @@ impl RouteHop {
     /// Calculate fee for forwarding an amount through this hop
     pub fn channel_fee(&self, amount_msat: u64) -> u64 {
         // Base fee + proportional fee
-        let base_fee = 1000; // 1 sat base fee
-        let proportional_fee = (amount_msat * 100) / 1_000_000; // 0.01% proportional fee
-        base_fee + proportional_fee
+        let base_fee: u64 = 1000; // 1 sat base fee
+        let proportional_fee = amount_msat
+            .saturating_mul(100)
+            .saturating_div(1_000_000); // 0.01% proportional fee
+        base_fee.saturating_add(proportional_fee)
     }
 }
 

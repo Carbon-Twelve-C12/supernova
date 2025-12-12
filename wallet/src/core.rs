@@ -153,7 +153,9 @@ impl Wallet {
             .map_err(|_| WalletError::InvalidAddress(recipient.to_string()))?;
 
         // Calculate total amount needed
-        let total_needed = amount + fee;
+        let total_needed = amount
+            .checked_add(fee)
+            .ok_or(WalletError::InsufficientFunds(amount))?;
 
         // Select UTXOs to use as inputs
         let selected_utxos = self.select_utxos(total_needed)?;

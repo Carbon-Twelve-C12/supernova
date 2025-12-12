@@ -216,8 +216,8 @@ impl MEVProtection {
     fn calculate_transaction_fee(&self, tx: &Transaction) -> MempoolResult<u64> {
         // Calculate fee using a placeholder output getter
         // In production, this would use the actual UTXO set
-        let fee = tx.calculate_fee(|_tx_hash, _index| None).unwrap_or(0);
-        Ok(fee)
+        tx.calculate_fee(|_tx_hash, _index| None)
+            .ok_or_else(|| MempoolError::FeeOverflow("fee calculation failed".to_string()))
     }
 
     /// Get next batch of transactions for block assembly
@@ -251,7 +251,9 @@ impl MEVProtection {
         let mut fee_tiers: HashMap<u64, Vec<Transaction>> = HashMap::new();
 
         for tx in transactions.drain(..) {
-            let fee = tx.calculate_fee(|_tx_hash, _index| None).unwrap_or(0);
+            let fee = tx
+                .calculate_fee(|_tx_hash, _index| None)
+                .unwrap_or(0);
             let fee_tier = (fee / 1000) * 1000; // Round to nearest 1000
             fee_tiers.entry(fee_tier).or_default().push(tx);
         }
