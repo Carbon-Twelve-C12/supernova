@@ -157,7 +157,7 @@ pub enum ChannelState {
 }
 
 /// Channel configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelConfig {
     /// Whether to announce this channel on the network
     pub announce_channel: bool,
@@ -194,6 +194,15 @@ pub struct ChannelConfig {
 
     /// Maximum CLTV expiry delta for HTLCs
     pub max_cltv_expiry_delta: u16,
+
+    /// Maximum HTLCs per minute (rate limiting to prevent griefing)
+    pub max_htlcs_per_minute: u16,
+
+    /// Maximum failed HTLCs before temporary ban
+    pub max_failed_htlcs_before_ban: u16,
+
+    /// Temporary ban duration in seconds after griefing detection
+    pub griefing_ban_duration_seconds: u64,
 }
 
 impl Default for ChannelConfig {
@@ -211,6 +220,9 @@ impl Default for ChannelConfig {
             force_close_timeout_seconds: 86400, // 24 hours
             min_cltv_expiry_delta: 144,         // Minimum 1 day (assuming 10min blocks)
             max_cltv_expiry_delta: 2016,        // Maximum 2 weeks (assuming 10min blocks)
+            max_htlcs_per_minute: 30,           // Rate limit: max 30 HTLCs per minute
+            max_failed_htlcs_before_ban: 10,    // Ban after 10 failed HTLCs
+            griefing_ban_duration_seconds: 3600, // 1 hour ban for griefing
         }
     }
 }
@@ -279,6 +291,79 @@ struct CommitmentTx {
     htlcs: Vec<Htlc>,
 }
 
+/// HTLC rate tracker for preventing channel griefing attacks
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HtlcRateTracker {
+    /// Timestamps of recent HTLC additions (Unix timestamps)
+    pub htlc_timestamps: Vec<u64>,
+    /// Count of failed HTLCs in the current window
+    pub failed_htlc_count: u16,
+    /// Timestamp when ban expires (0 if not banned)
+    pub ban_expires_at: u64,
+}
+
+impl HtlcRateTracker {
+    /// Create a new rate tracker
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Check if rate limiting should block this HTLC
+    pub fn check_rate_limit(&mut self, max_per_minute: u16) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // Check if we're currently banned
+        if self.ban_expires_at > now {
+            return false;
+        }
+
+        // Remove timestamps older than 1 minute
+        let one_minute_ago = now.saturating_sub(60);
+        self.htlc_timestamps.retain(|&ts| ts > one_minute_ago);
+
+        // Check if we're over the rate limit
+        if self.htlc_timestamps.len() >= max_per_minute as usize {
+            return false;
+        }
+
+        // Record this HTLC
+        self.htlc_timestamps.push(now);
+        true
+    }
+
+    /// Record a failed HTLC
+    pub fn record_failed_htlc(&mut self, max_failed: u16, ban_duration_seconds: u64) {
+        self.failed_htlc_count = self.failed_htlc_count.saturating_add(1);
+
+        if self.failed_htlc_count >= max_failed {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            self.ban_expires_at = now + ban_duration_seconds;
+            self.failed_htlc_count = 0; // Reset after banning
+        }
+    }
+
+    /// Record a successful HTLC (resets failed counter)
+    pub fn record_successful_htlc(&mut self) {
+        // Successful HTLCs reduce the failed counter
+        self.failed_htlc_count = self.failed_htlc_count.saturating_sub(1);
+    }
+
+    /// Check if channel is currently banned
+    pub fn is_banned(&self) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.ban_expires_at > now
+    }
+}
+
 /// A Lightning Network payment channel
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Channel {
@@ -338,6 +423,14 @@ pub struct Channel {
 
     /// Last update timestamp
     pub last_update: u64,
+
+    /// HTLC rate tracker for griefing protection
+    #[serde(default)]
+    pub htlc_rate_tracker: HtlcRateTracker,
+
+    /// Channel configuration for rate limiting
+    #[serde(default)]
+    pub config: ChannelConfig,
 }
 
 impl Channel {
@@ -495,6 +588,8 @@ impl Channel {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            htlc_rate_tracker: HtlcRateTracker::new(),
+            config: ChannelConfig::default(),
         }
     }
 
@@ -687,6 +782,20 @@ impl Channel {
             return Err(ChannelError::InvalidState(
                 "Channel must be active to add HTLC".to_string(),
             ));
+        }
+
+        // SECURITY: Check rate limiting to prevent channel griefing attacks
+        if self.htlc_rate_tracker.is_banned() {
+            return Err(ChannelError::HtlcError(
+                "Channel temporarily banned due to suspected griefing attack".to_string(),
+            ));
+        }
+
+        if !self.htlc_rate_tracker.check_rate_limit(self.config.max_htlcs_per_minute) {
+            return Err(ChannelError::HtlcError(format!(
+                "HTLC rate limit exceeded: max {} per minute",
+                self.config.max_htlcs_per_minute
+            )));
         }
 
         // Check if we have enough balance
