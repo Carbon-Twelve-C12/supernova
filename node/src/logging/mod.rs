@@ -1,3 +1,14 @@
+//! Logging Infrastructure
+//!
+//! Provides structured logging, redaction of sensitive data, and
+//! async log aggregation for shipping to external backends.
+
+pub mod aggregation;
+
+pub use aggregation::{
+    LogAggregationConfig, LogAggregator, LogBackend, LogAggregatorStats, StructuredLogEntry,
+};
+
 use crate::api::types::LogEntry;
 use chrono::Utc;
 use std::collections::VecDeque;

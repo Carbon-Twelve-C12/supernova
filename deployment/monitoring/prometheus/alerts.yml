@@ -227,6 +227,208 @@ groups:
           description: "Local balance ratio is {{ $value | humanizePercentage }}. Consider rebalancing."
 
   # ==========================================================================
+  # Consensus & Chain Integrity Alerts (P0 - Critical)
+  # ==========================================================================
+  - name: supernova-consensus
+    rules:
+      # Consensus halt - no blocks for extended period
+      - alert: ConsensusHalt
+        expr: time() - supernova_last_block_timestamp > 1800
+        for: 5m
+        labels:
+          severity: critical
+          team: protocol
+        annotations:
+          summary: "CONSENSUS HALT: No blocks for 30+ minutes"
+          description: "The network has not produced a block in {{ $value | humanizeDuration }}. This indicates a consensus failure requiring immediate investigation."
+          runbook_url: "https://docs.supernova.io/runbooks/consensus-halt"
+
+      # Fork detected - competing chains
+      - alert: ForkDetected
+        expr: supernova_active_forks > 1
+        for: 2m
+        labels:
+          severity: critical
+          team: protocol
+        annotations:
+          summary: "Chain fork detected: {{ $value }} competing chains"
+          description: "Multiple competing chain tips detected. This may indicate a network partition or attack."
+          runbook_url: "https://docs.supernova.io/runbooks/fork-detection"
+
+      # UTXO set corruption indicator
+      - alert: UTXOSetCorruption
+        expr: supernova_utxo_verification_failures > 0
+        labels:
+          severity: critical
+          team: protocol
+        annotations:
+          summary: "UTXO set integrity failure detected"
+          description: "{{ $value }} UTXO verification failures. Database may be corrupted. Immediate investigation required."
+          runbook_url: "https://docs.supernova.io/runbooks/utxo-corruption"
+
+      # UTXO set size anomaly
+      - alert: UTXOSetSizeAnomaly
+        expr: abs(delta(supernova_utxo_set_size[1h])) > (avg_over_time(supernova_utxo_set_size[24h]) * 0.1)
+        for: 15m
+        labels:
+          severity: warning
+          team: protocol
+        annotations:
+          summary: "Unusual UTXO set size change"
+          description: "UTXO set size changed by more than 10% in the last hour. Current size: {{ $value }}"
+
+      # Chain tip divergence between nodes
+      - alert: ChainTipDivergence
+        expr: count(count by (tip_hash) (supernova_chain_tip_hash)) > 1
+        for: 5m
+        labels:
+          severity: critical
+          team: protocol
+        annotations:
+          summary: "Nodes have divergent chain tips"
+          description: "Multiple nodes are following different chain tips. Network may be partitioned."
+          runbook_url: "https://docs.supernova.io/runbooks/chain-divergence"
+
+  # ==========================================================================
+  # Database & Storage Alerts (P0 - Critical)
+  # ==========================================================================
+  - name: supernova-storage
+    rules:
+      # Database capacity warning (70%)
+      - alert: DatabaseCapacityWarning
+        expr: supernova_database_size_bytes / supernova_database_capacity_bytes > 0.7
+        for: 30m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Database approaching capacity on {{ $labels.instance }}"
+          description: "Database is at {{ $value | humanizePercentage }} capacity. Plan for expansion."
+
+      # Database capacity critical (90%)
+      - alert: DatabaseCapacityCritical
+        expr: supernova_database_size_bytes / supernova_database_capacity_bytes > 0.9
+        for: 10m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Database capacity critical on {{ $labels.instance }}"
+          description: "Database is at {{ $value | humanizePercentage }} capacity. Immediate action required."
+          runbook_url: "https://docs.supernova.io/runbooks/database-capacity"
+
+      # Database write latency
+      - alert: HighDatabaseWriteLatency
+        expr: histogram_quantile(0.99, rate(supernova_db_write_seconds_bucket[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "High database write latency on {{ $labels.instance }}"
+          description: "P99 write latency is {{ $value | humanizeDuration }}. Storage may be degraded."
+
+      # Database compaction issues
+      - alert: DatabaseCompactionStalled
+        expr: supernova_db_compaction_pending > 1000 and delta(supernova_db_compaction_pending[30m]) >= 0
+        for: 1h
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Database compaction may be stalled"
+          description: "{{ $value }} pending compaction jobs with no reduction. Check disk I/O."
+
+  # ==========================================================================
+  # Backup & Recovery Alerts (P0 - Critical)
+  # ==========================================================================
+  - name: supernova-backup
+    rules:
+      # Backup age threshold (24 hours)
+      - alert: BackupTooOld
+        expr: time() - supernova_last_backup_timestamp > 86400
+        for: 1h
+        labels:
+          severity: warning
+          team: operations
+        annotations:
+          summary: "Backup is more than 24 hours old"
+          description: "Last successful backup was {{ $value | humanizeDuration }} ago. Check backup system."
+          runbook_url: "https://docs.supernova.io/runbooks/backup-age"
+
+      # Backup age critical (48 hours)
+      - alert: BackupCriticallyOld
+        expr: time() - supernova_last_backup_timestamp > 172800
+        for: 30m
+        labels:
+          severity: critical
+          team: operations
+        annotations:
+          summary: "CRITICAL: No backup for 48+ hours"
+          description: "Last successful backup was {{ $value | humanizeDuration }} ago. Data loss risk is high."
+          runbook_url: "https://docs.supernova.io/runbooks/backup-age"
+
+      # Backup verification failure
+      - alert: BackupVerificationFailed
+        expr: supernova_backup_verification_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: operations
+        annotations:
+          summary: "Backup verification failed"
+          description: "Last backup failed integrity verification. Backup may be unusable for recovery."
+          runbook_url: "https://docs.supernova.io/runbooks/backup-verification"
+
+      # Backup size anomaly
+      - alert: BackupSizeAnomaly
+        expr: abs(supernova_backup_size_bytes - avg_over_time(supernova_backup_size_bytes[7d])) > (avg_over_time(supernova_backup_size_bytes[7d]) * 0.3)
+        for: 1m
+        labels:
+          severity: warning
+          team: operations
+        annotations:
+          summary: "Backup size anomaly detected"
+          description: "Backup size differs by >30% from 7-day average. Current: {{ $value | humanize1024 }}B"
+
+  # ==========================================================================
+  # Quantum Security Alerts
+  # ==========================================================================
+  - name: supernova-quantum-security
+    rules:
+      # Quantum canary triggered
+      - alert: QuantumCanaryTriggered
+        expr: supernova_quantum_canary_status == 0
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "QUANTUM THREAT: Canary system triggered"
+          description: "Quantum canary has detected potential quantum computing threat. Initiate emergency key rotation."
+          runbook_url: "https://docs.supernova.io/runbooks/quantum-emergency"
+
+      # Key rotation needed
+      - alert: KeyRotationOverdue
+        expr: time() - supernova_last_key_rotation_timestamp > 2592000
+        for: 1h
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Key rotation overdue (>30 days)"
+          description: "Keys have not been rotated in {{ $value | humanizeDuration }}. Schedule rotation."
+
+      # Classical signature detected (security regression)
+      - alert: ClassicalSignatureDetected
+        expr: increase(supernova_classical_signatures_total[1h]) > 0
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Classical (non-quantum) signature detected"
+          description: "{{ $value }} classical signatures in the last hour. All signatures should be quantum-resistant."
+
+  # ==========================================================================
   # Informational Alerts
   # ==========================================================================
   - name: supernova-info
