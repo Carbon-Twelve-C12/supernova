@@ -347,7 +347,7 @@ impl SignatureCache {
     /// Call this when a transaction is double-spent or otherwise invalidated.
     pub fn invalidate_tx(&self, txid: &[u8; 32]) {
         let mut cache = self.cache.write();
-        
+
         // LRU cache doesn't support efficient removal by prefix,
         // so we need to collect keys first
         let keys_to_remove: Vec<_> = cache
@@ -361,6 +361,64 @@ impl SignatureCache {
         }
 
         debug!("Invalidated cache entries for tx {:02x}{:02x}...", txid[0], txid[1]);
+    }
+
+    /// Invalidate entries for multiple transactions (used during reorg)
+    ///
+    /// SECURITY: This must be called during chain reorganizations with all
+    /// transaction IDs from reorged blocks. This prevents accepting transactions
+    /// with signatures that were only valid on the old chain.
+    pub fn invalidate_transactions(&self, txids: &[[u8; 32]]) {
+        if txids.is_empty() {
+            return;
+        }
+
+        let mut cache = self.cache.write();
+        let mut total_removed = 0;
+
+        for txid in txids {
+            let keys_to_remove: Vec<_> = cache
+                .iter()
+                .filter(|(k, _)| &k.txid == txid)
+                .map(|(k, _)| k.clone())
+                .collect();
+
+            total_removed += keys_to_remove.len();
+            for key in keys_to_remove {
+                cache.pop(&key);
+            }
+        }
+
+        debug!(
+            "Invalidated {} cache entries for {} transactions during reorg",
+            total_removed,
+            txids.len()
+        );
+    }
+
+    /// Handle chain reorganization
+    ///
+    /// SECURITY: Clears the entire cache during deep reorgs (>100 blocks).
+    /// For smaller reorgs, only invalidates specific transactions.
+    ///
+    /// # Arguments
+    /// * `reorg_depth` - Number of blocks being reorganized
+    /// * `reorged_txids` - Transaction IDs from the reorged blocks
+    pub fn on_chain_reorg(&self, reorg_depth: u64, reorged_txids: &[[u8; 32]]) {
+        // For deep reorgs (>100 blocks), clear entire cache for safety
+        // This is rare but provides a safety net
+        const DEEP_REORG_THRESHOLD: u64 = 100;
+
+        if reorg_depth > DEEP_REORG_THRESHOLD {
+            tracing::warn!(
+                "Deep reorganization ({} blocks) - clearing entire signature cache",
+                reorg_depth
+            );
+            self.clear();
+        } else if !reorged_txids.is_empty() {
+            // For smaller reorgs, only invalidate affected transactions
+            self.invalidate_transactions(reorged_txids);
+        }
     }
 
     /// Get current cache size
@@ -538,6 +596,74 @@ mod tests {
 
         // Entry 2, 3, 4 should still be there
         // Note: Checking changes LRU order
+    }
+
+    #[test]
+    fn test_invalidate_transactions() {
+        let cache = SignatureCache::new();
+
+        // Insert entries for multiple transactions
+        let txid1 = [1u8; 32];
+        let txid2 = [2u8; 32];
+        let txid3 = [3u8; 32];
+
+        cache.insert(txid1, 0, [0u8; 32], true);
+        cache.insert(txid1, 1, [0u8; 32], true);
+        cache.insert(txid2, 0, [0u8; 32], true);
+        cache.insert(txid3, 0, [0u8; 32], true);
+
+        assert_eq!(cache.len(), 4);
+
+        // Invalidate txid1 and txid2
+        cache.invalidate_transactions(&[txid1, txid2]);
+
+        // Only txid3 should remain
+        assert_eq!(cache.len(), 1);
+        assert!(cache.check(&txid1, 0, &[0u8; 32]).is_none());
+        assert!(cache.check(&txid2, 0, &[0u8; 32]).is_none());
+        assert!(cache.check(&txid3, 0, &[0u8; 32]).is_some());
+    }
+
+    #[test]
+    fn test_on_chain_reorg_small() {
+        let cache = SignatureCache::new();
+
+        // Insert entries
+        let txid1 = [1u8; 32];
+        let txid2 = [2u8; 32];
+
+        cache.insert(txid1, 0, [0u8; 32], true);
+        cache.insert(txid2, 0, [0u8; 32], true);
+
+        assert_eq!(cache.len(), 2);
+
+        // Small reorg (< 100 blocks) - only invalidate specific transactions
+        cache.on_chain_reorg(5, &[txid1]);
+
+        // Only txid2 should remain
+        assert_eq!(cache.len(), 1);
+        assert!(cache.check(&txid1, 0, &[0u8; 32]).is_none());
+        assert!(cache.check(&txid2, 0, &[0u8; 32]).is_some());
+    }
+
+    #[test]
+    fn test_on_chain_reorg_deep() {
+        let cache = SignatureCache::new();
+
+        // Insert entries
+        let txid1 = [1u8; 32];
+        let txid2 = [2u8; 32];
+
+        cache.insert(txid1, 0, [0u8; 32], true);
+        cache.insert(txid2, 0, [0u8; 32], true);
+
+        assert_eq!(cache.len(), 2);
+
+        // Deep reorg (> 100 blocks) - clears entire cache
+        cache.on_chain_reorg(150, &[txid1]);
+
+        // Cache should be empty
+        assert!(cache.is_empty());
     }
 }
 
