@@ -1918,42 +1918,30 @@ pub struct SyncStats {
     pub sync_duration: Option<u64>,
 }
 
-/// Extension methods for BlockHeader
+/// Extension methods for BlockHeader providing uniform interface for sync operations
 trait BlockHeaderExt {
-    fn prev_block_hash(&self) -> &[u8; 32];
-    fn hash(&self) -> [u8; 32];
-    fn target(&self) -> u32;
+    /// Get reference to the previous block hash
+    fn get_prev_block_hash(&self) -> &[u8; 32];
+    /// Calculate and return the block hash
+    fn calculate_hash(&self) -> [u8; 32];
+    /// Get the target difficulty bits
+    fn get_target_bits(&self) -> u32;
 }
 
-// TODO: The btclib BlockHeader doesn't have the fields we need
-// This would need to be implemented differently or use a different type
-/*
 impl BlockHeaderExt for BlockHeader {
-    fn prev_block_hash(&self) -> [u8; 32] {
-        self.prev_hash
+    fn get_prev_block_hash(&self) -> &[u8; 32] {
+        &self.prev_block_hash
     }
 
-    fn hash(&self) -> [u8; 32] {
-        // Calculate the hash of the header
-        let mut hasher = Sha256::new();
-        hasher.update(&self.version.to_le_bytes());
-        hasher.update(&self.prev_hash);
-        hasher.update(&self.merkle_root);
-        hasher.update(&self.timestamp.to_le_bytes());
-        hasher.update(&self.bits.to_le_bytes());
-        hasher.update(&self.nonce.to_le_bytes());
-        let result = hasher.finalize();
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        hash
+    fn calculate_hash(&self) -> [u8; 32] {
+        // Use the BlockHeader's built-in hash method
+        self.hash()
     }
 
-    fn target(&self) -> u32 {
-        // The bits field represents the target
+    fn get_target_bits(&self) -> u32 {
         self.bits
     }
 }
-*/
 
 #[cfg(test)]
 mod tests {
