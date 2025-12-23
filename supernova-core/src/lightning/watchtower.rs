@@ -5,10 +5,11 @@
 
 use crate::crypto::quantum::QuantumScheme;
 use crate::lightning::channel::ChannelId;
-use crate::types::transaction::Transaction;
+use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -586,6 +587,471 @@ pub enum WatchError {
 
     #[error("Network error: {0}")]
     NetworkError(String),
+
+    #[error("Monitoring error: {0}")]
+    MonitoringError(String),
+
+    #[error("Penalty transaction error: {0}")]
+    PenaltyTransactionError(String),
+
+    #[error("Lock poisoned")]
+    LockPoisoned,
+}
+
+/// Blockchain transaction for monitoring
+#[derive(Debug, Clone)]
+pub struct MonitoredTransaction {
+    /// Transaction hash
+    pub txid: [u8; 32],
+    /// The transaction
+    pub transaction: Transaction,
+    /// Block height where this was seen
+    pub block_height: u64,
+    /// Timestamp of observation
+    pub timestamp: u64,
+}
+
+/// Breach detection result
+#[derive(Debug, Clone)]
+pub struct BreachDetection {
+    /// Channel that was breached
+    pub channel_id: ChannelId,
+    /// Client ID
+    pub client_id: String,
+    /// The breaching transaction
+    pub breach_tx: Transaction,
+    /// Commitment number of the breach
+    pub commitment_number: u64,
+    /// Justice transaction to broadcast
+    pub justice_tx: Transaction,
+    /// Detection timestamp
+    pub detected_at: u64,
+    /// Block height of breach
+    pub breach_height: u64,
+}
+
+/// Penalty transaction builder
+pub struct PenaltyTransactionBuilder {
+    /// Revocation private key
+    revocation_privkey: Option<Vec<u8>>,
+    /// Delayed payment base point
+    delayed_payment_basepoint: Option<Vec<u8>>,
+    /// Per commitment point
+    per_commitment_point: Option<Vec<u8>>,
+    /// To-self delay (in blocks)
+    to_self_delay: u16,
+    /// Fee rate (satoshis per vbyte)
+    fee_rate: u64,
+}
+
+impl PenaltyTransactionBuilder {
+    /// Create a new builder
+    pub fn new() -> Self {
+        Self {
+            revocation_privkey: None,
+            delayed_payment_basepoint: None,
+            per_commitment_point: None,
+            to_self_delay: 144, // Default: ~1 day
+            fee_rate: 10,       // Default fee rate
+        }
+    }
+
+    /// Set revocation private key
+    pub fn with_revocation_key(mut self, key: Vec<u8>) -> Self {
+        self.revocation_privkey = Some(key);
+        self
+    }
+
+    /// Set delayed payment basepoint
+    pub fn with_delayed_payment_basepoint(mut self, point: Vec<u8>) -> Self {
+        self.delayed_payment_basepoint = Some(point);
+        self
+    }
+
+    /// Set per-commitment point
+    pub fn with_per_commitment_point(mut self, point: Vec<u8>) -> Self {
+        self.per_commitment_point = Some(point);
+        self
+    }
+
+    /// Set to-self delay
+    pub fn with_to_self_delay(mut self, delay: u16) -> Self {
+        self.to_self_delay = delay;
+        self
+    }
+
+    /// Set fee rate
+    pub fn with_fee_rate(mut self, rate: u64) -> Self {
+        self.fee_rate = rate;
+        self
+    }
+
+    /// Build the penalty (justice) transaction
+    pub fn build(
+        &self,
+        breach_tx: &Transaction,
+        to_local_output_index: usize,
+        sweep_address: Vec<u8>,
+    ) -> Result<Transaction, WatchError> {
+        // Validate inputs
+        if breach_tx.outputs().len() <= to_local_output_index {
+            return Err(WatchError::PenaltyTransactionError(
+                "Invalid to_local output index".to_string(),
+            ));
+        }
+
+        let to_local_output = &breach_tx.outputs()[to_local_output_index];
+        let breach_txid = breach_tx.hash();
+
+        // Calculate transaction size for fee estimation
+        // P2WPKH input: ~68 vbytes, P2WPKH output: ~31 vbytes
+        let estimated_size = 68 + 31;
+        let fee = self.fee_rate * estimated_size;
+
+        let output_value = to_local_output.amount().saturating_sub(fee);
+        if output_value == 0 {
+            return Err(WatchError::PenaltyTransactionError(
+                "Output value too low after fees".to_string(),
+            ));
+        }
+
+        // Create the spending input
+        let input = TransactionInput::new(
+            breach_txid,
+            to_local_output_index as u32,
+            Vec::new(), // Script sig (will be empty for witness)
+            0xFFFFFFFF, // Sequence
+        );
+
+        // Create the sweep output
+        let output = TransactionOutput::new(output_value, sweep_address);
+
+        // Build the transaction
+        let penalty_tx = Transaction::new(
+            2,            // Version 2 for RBF
+            vec![input],
+            vec![output],
+            0, // Locktime
+        );
+
+        info!(
+            "Built penalty transaction: input={}, output_value={}",
+            hex::encode(&breach_txid[..8]),
+            output_value
+        );
+
+        Ok(penalty_tx)
+    }
+}
+
+impl Default for PenaltyTransactionBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Blockchain monitor for watchtower
+pub struct BlockchainMonitor {
+    /// Channels being monitored (channel funding outpoint -> channel ID)
+    watched_outpoints: Arc<RwLock<HashMap<([u8; 32], u32), ChannelId>>>,
+    /// Recent transactions seen
+    recent_transactions: Arc<RwLock<Vec<MonitoredTransaction>>>,
+    /// Detected breaches
+    detected_breaches: Arc<RwLock<Vec<BreachDetection>>>,
+    /// Current block height
+    current_height: Arc<RwLock<u64>>,
+    /// Is monitoring active
+    is_running: Arc<RwLock<bool>>,
+}
+
+impl BlockchainMonitor {
+    /// Create a new blockchain monitor
+    pub fn new() -> Self {
+        Self {
+            watched_outpoints: Arc::new(RwLock::new(HashMap::new())),
+            recent_transactions: Arc::new(RwLock::new(Vec::new())),
+            detected_breaches: Arc::new(RwLock::new(Vec::new())),
+            current_height: Arc::new(RwLock::new(0)),
+            is_running: Arc::new(RwLock::new(false)),
+        }
+    }
+
+    /// Add an outpoint to watch for breaches
+    pub fn watch_outpoint(
+        &self,
+        txid: [u8; 32],
+        vout: u32,
+        channel_id: ChannelId,
+    ) -> Result<(), WatchError> {
+        let mut outpoints = self.watched_outpoints.write().map_err(|_| WatchError::LockPoisoned)?;
+        let channel_id_str = channel_id.to_string();
+        outpoints.insert((txid, vout), channel_id);
+        debug!(
+            "Now watching outpoint {}:{} for channel {}",
+            hex::encode(&txid[..8]),
+            vout,
+            channel_id_str
+        );
+        Ok(())
+    }
+
+    /// Remove an outpoint from watch list
+    pub fn unwatch_outpoint(&self, txid: [u8; 32], vout: u32) -> Result<(), WatchError> {
+        let mut outpoints = self.watched_outpoints.write().map_err(|_| WatchError::LockPoisoned)?;
+        outpoints.remove(&(txid, vout));
+        Ok(())
+    }
+
+    /// Process a new block
+    pub fn process_block(
+        &self,
+        height: u64,
+        transactions: Vec<Transaction>,
+        watchtower: &Watchtower,
+    ) -> Result<Vec<BreachDetection>, WatchError> {
+        // Update current height
+        {
+            let mut current = self.current_height.write().map_err(|_| WatchError::LockPoisoned)?;
+            *current = height;
+        }
+
+        let mut breaches = Vec::new();
+        let outpoints = self.watched_outpoints.read().map_err(|_| WatchError::LockPoisoned)?;
+
+        for tx in transactions {
+            // Check if any inputs spend a watched outpoint
+            for input in tx.inputs() {
+                let outpoint = (input.prev_tx_hash(), input.prev_output_index());
+
+                if let Some(channel_id) = outpoints.get(&outpoint) {
+                    // This transaction spends a watched outpoint!
+                    // Check if it's a breach
+                    if let Ok(Some(justice_tx)) = watchtower.check_for_breaches(channel_id, &tx) {
+                        let breach = BreachDetection {
+                            channel_id: channel_id.clone(),
+                            client_id: watchtower.channels.get(channel_id)
+                                .map(|c| c.client_id.clone())
+                                .unwrap_or_default(),
+                            breach_tx: tx.clone(),
+                            commitment_number: tx.lock_time() as u64,
+                            justice_tx,
+                            detected_at: SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or(Duration::ZERO)
+                                .as_secs(),
+                            breach_height: height,
+                        };
+
+                        warn!(
+                            "BREACH DETECTED on channel {} at height {}!",
+                            channel_id, height
+                        );
+
+                        breaches.push(breach.clone());
+
+                        // Store the breach
+                        let mut detected = self.detected_breaches.write()
+                            .map_err(|_| WatchError::LockPoisoned)?;
+                        detected.push(breach);
+                    }
+                }
+            }
+
+            // Store transaction for recent history
+            let monitored = MonitoredTransaction {
+                txid: tx.hash(),
+                transaction: tx,
+                block_height: height,
+                timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or(Duration::ZERO)
+                    .as_secs(),
+            };
+
+            let mut recent = self.recent_transactions.write().map_err(|_| WatchError::LockPoisoned)?;
+            recent.push(monitored);
+
+            // Keep only recent transactions (last 1000)
+            if recent.len() > 1000 {
+                recent.drain(0..100);
+            }
+        }
+
+        Ok(breaches)
+    }
+
+    /// Get current block height
+    pub fn get_height(&self) -> Result<u64, WatchError> {
+        let height = self.current_height.read().map_err(|_| WatchError::LockPoisoned)?;
+        Ok(*height)
+    }
+
+    /// Get detected breaches
+    pub fn get_breaches(&self) -> Result<Vec<BreachDetection>, WatchError> {
+        let breaches = self.detected_breaches.read().map_err(|_| WatchError::LockPoisoned)?;
+        Ok(breaches.clone())
+    }
+
+    /// Start monitoring
+    pub fn start(&self) -> Result<(), WatchError> {
+        let mut running = self.is_running.write().map_err(|_| WatchError::LockPoisoned)?;
+        *running = true;
+        info!("Blockchain monitor started");
+        Ok(())
+    }
+
+    /// Stop monitoring
+    pub fn stop(&self) -> Result<(), WatchError> {
+        let mut running = self.is_running.write().map_err(|_| WatchError::LockPoisoned)?;
+        *running = false;
+        info!("Blockchain monitor stopped");
+        Ok(())
+    }
+
+    /// Check if monitor is running
+    pub fn is_running(&self) -> Result<bool, WatchError> {
+        let running = self.is_running.read().map_err(|_| WatchError::LockPoisoned)?;
+        Ok(*running)
+    }
+
+    /// Get statistics
+    pub fn get_stats(&self) -> Result<MonitorStats, WatchError> {
+        let outpoints = self.watched_outpoints.read().map_err(|_| WatchError::LockPoisoned)?;
+        let breaches = self.detected_breaches.read().map_err(|_| WatchError::LockPoisoned)?;
+        let height = self.current_height.read().map_err(|_| WatchError::LockPoisoned)?;
+
+        Ok(MonitorStats {
+            watched_outpoints: outpoints.len(),
+            detected_breaches: breaches.len(),
+            current_height: *height,
+        })
+    }
+}
+
+impl Default for BlockchainMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Monitor statistics
+#[derive(Debug, Clone)]
+pub struct MonitorStats {
+    pub watched_outpoints: usize,
+    pub detected_breaches: usize,
+    pub current_height: u64,
+}
+
+/// Privacy-preserving blob storage for watchtower
+#[derive(Debug, Clone)]
+pub struct EncryptedBlobStorage {
+    /// Storage of encrypted blobs (blob_id -> encrypted data)
+    blobs: HashMap<[u8; 32], EncryptedBlob>,
+    /// Maximum storage per client
+    max_storage_per_client: usize,
+    /// Client storage usage
+    client_usage: HashMap<String, usize>,
+}
+
+/// Encrypted blob for privacy-preserving storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptedBlob {
+    /// Hint for locating the breach (hash of commitment tx)
+    pub hint: [u8; 32],
+    /// Encrypted remedy data (only client can decrypt)
+    pub encrypted_remedy: Vec<u8>,
+    /// Client ID
+    pub client_id: String,
+    /// Creation timestamp
+    pub created_at: u64,
+}
+
+impl EncryptedBlobStorage {
+    /// Create new blob storage
+    pub fn new(max_storage_per_client: usize) -> Self {
+        Self {
+            blobs: HashMap::new(),
+            max_storage_per_client,
+            client_usage: HashMap::new(),
+        }
+    }
+
+    /// Store an encrypted blob
+    pub fn store_blob(
+        &mut self,
+        client_id: &str,
+        hint: [u8; 32],
+        encrypted_remedy: Vec<u8>,
+    ) -> Result<[u8; 32], WatchError> {
+        // Check storage limit
+        let current_usage = self.client_usage.get(client_id).copied().unwrap_or(0);
+        if current_usage + encrypted_remedy.len() > self.max_storage_per_client {
+            return Err(WatchError::MonitoringError("Storage limit exceeded".to_string()));
+        }
+
+        // Generate blob ID from hint
+        let blob_id = hint; // Using hint as ID for simplicity
+
+        let blob = EncryptedBlob {
+            hint,
+            encrypted_remedy: encrypted_remedy.clone(),
+            client_id: client_id.to_string(),
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_secs(),
+        };
+
+        self.blobs.insert(blob_id, blob);
+        *self.client_usage.entry(client_id.to_string()).or_insert(0) += encrypted_remedy.len();
+
+        debug!("Stored encrypted blob {} for client {}", hex::encode(&blob_id[..8]), client_id);
+
+        Ok(blob_id)
+    }
+
+    /// Retrieve blob by hint
+    pub fn get_blob_by_hint(&self, hint: &[u8; 32]) -> Option<&EncryptedBlob> {
+        self.blobs.get(hint)
+    }
+
+    /// Delete blob
+    pub fn delete_blob(&mut self, blob_id: &[u8; 32]) -> Option<EncryptedBlob> {
+        if let Some(blob) = self.blobs.remove(blob_id) {
+            // Update client usage
+            if let Some(usage) = self.client_usage.get_mut(&blob.client_id) {
+                *usage = usage.saturating_sub(blob.encrypted_remedy.len());
+            }
+            Some(blob)
+        } else {
+            None
+        }
+    }
+
+    /// Get storage usage for client
+    pub fn get_client_usage(&self, client_id: &str) -> usize {
+        self.client_usage.get(client_id).copied().unwrap_or(0)
+    }
+
+    /// Clean up old blobs
+    pub fn cleanup_old_blobs(&mut self, max_age_secs: u64) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO)
+            .as_secs();
+
+        let cutoff = now.saturating_sub(max_age_secs);
+
+        let old_blobs: Vec<[u8; 32]> = self.blobs
+            .iter()
+            .filter(|(_, blob)| blob.created_at < cutoff)
+            .map(|(id, _)| *id)
+            .collect();
+
+        for blob_id in old_blobs {
+            self.delete_blob(&blob_id);
+        }
+    }
 }
 
 #[cfg(test)]
