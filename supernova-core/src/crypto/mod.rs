@@ -5,6 +5,7 @@
 pub mod falcon_real; // Using Falcon implementation
 pub mod hash;
 pub mod kem;
+pub mod key_rotation;
 pub mod quantum;
 pub mod signature;
 pub mod zkp;
@@ -37,6 +38,13 @@ pub use falcon_real::{
 // Legacy falcon exports removed - use RealFalcon* types instead
 
 pub use kem::{decapsulate, encapsulate, KemError, KemKeyPair};
+
+// Export key rotation types
+pub use key_rotation::{
+    KeyMigrationTransaction, KeyRotationError, KeyRotationManager, KeyRotationResult, KeyState,
+    ManagedKey, ManagedKeyMetadata, RotationEvent, RotationPolicy, RotationTrigger,
+    DEFAULT_GRACE_PERIOD_BLOCKS, DEFAULT_ROTATION_INTERVAL_BLOCKS,
+};
 
 // Re-export hash functions from parent module
 pub use crate::hash::{hash256, Hash256};
