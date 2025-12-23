@@ -388,15 +388,22 @@ impl WalletManager {
         {
             return Ok(Some(tx));
         }
-        
+
         // Then check blockchain database
-        // TODO: Implement blockchain transaction lookup
-        
+        match self.db.get_transaction(txid) {
+            Ok(Some(tx)) => return Ok(Some(tx)),
+            Ok(None) => { /* Transaction not in blockchain, continue checking */ }
+            Err(e) => {
+                // Log but don't fail - might still be in mempool
+                tracing::debug!("Error looking up transaction in blockchain: {}", e);
+            }
+        }
+
         // Check mempool as last resort
         if let Some(tx) = self.mempool.get_transaction(txid) {
             return Ok(Some(tx));
         }
-        
+
         Ok(None)
     }
     
