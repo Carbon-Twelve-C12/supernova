@@ -4,10 +4,12 @@
 // It provides payment channel creation, management, and routing capabilities.
 
 pub mod atomic_operations;
+pub mod backup;
 pub mod channel;
 pub mod green_routing;
 pub mod invoice;
 pub mod manager;
+pub mod multipath;
 pub mod onion;
 pub mod payment;
 pub mod quantum_channel;
@@ -47,6 +49,15 @@ pub use wallet::{LightningWallet, WalletError};
 pub use watchtower::{
     BreachRemedy, ChannelMonitor, EncryptedChannelState, WatchError, Watchtower, WatchtowerClient,
     WatchtowerConfig,
+};
+pub use multipath::{
+    CapacityPath, MultiPathConfig, MultiPathError, MultiPathPayment, MultiPathPaymentCoordinator,
+    MultiPathStats, PaymentShard, ShardState, SplitStrategy,
+};
+pub use backup::{
+    BackupError as ChannelBackupError, BackupProviderConfig, BackupProviderType, BackupStatus,
+    BackupTrigger, ChannelBackupConfig, ChannelBackupManager, ChannelBackupPackage,
+    EncryptedBackup, StaticChannelBackup,
 };
 
 pub use green_routing::{

@@ -11,6 +11,7 @@ pub mod governance;
 pub mod manual_verification;
 pub mod miner_reporting;
 pub mod oracle;
+pub mod oracle_registry;
 pub mod renewable_validation;
 pub mod score_validation;
 pub mod transparency;
@@ -33,6 +34,11 @@ pub use types::{
 };
 // pub use alerting::{AlertingSystem, Alert, AlertRule};  // Temporarily disabled for compilation
 pub use oracle::{EnvironmentalOracle, OracleError, OracleInfo, OracleSubmission};
+pub use oracle_registry::{
+    ApplicationStatus, GovernanceVote, OracleApplication, OracleRegistry, RegisteredOracle,
+    RegistryConfig, RegistryError, RegistryStats, SlashingCondition, SlashingConditionType,
+    SlashingProposal,
+};
 pub use verification::{CarbonOffset, RenewableCertificate, VerificationService};
 
 // New Phase 3 modules
