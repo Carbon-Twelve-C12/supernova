@@ -812,19 +812,31 @@ impl NodeConfig {
             )));
         }
 
-        // Production safety: refuse to start with default API key.
-        if matches!(self.node.environment, NetworkEnvironment::Production)
-            && self.api.enable_auth
-            && self
-                .api
-                .api_keys
-                .as_ref()
-                .map(|keys| keys.iter().any(|k| k.contains("CHANGE-ME")))
-                .unwrap_or(true)
-        {
-            return Err(NodeConfigValidationError::InvalidValue(
-                "api.enable_auth is true in production, but api.api_keys is missing or contains the default 'CHANGE-ME' key".to_string(),
-            ));
+        // Security: refuse to start with default API key in non-development environments.
+        // This prevents accidental deployment with insecure credentials.
+        let is_non_dev = matches!(
+            self.node.environment,
+            NetworkEnvironment::Production | NetworkEnvironment::Testnet
+        );
+        let has_default_key = self
+            .api
+            .api_keys
+            .as_ref()
+            .map(|keys| keys.iter().any(|k| k.contains("CHANGE-ME")))
+            .unwrap_or(true);
+
+        if is_non_dev && self.api.enable_auth && has_default_key {
+            let env_name = match self.node.environment {
+                NetworkEnvironment::Production => "production",
+                NetworkEnvironment::Testnet => "testnet",
+                NetworkEnvironment::Development => "development",
+            };
+            return Err(NodeConfigValidationError::InvalidValue(format!(
+                "api.enable_auth is true in {}, but api.api_keys is missing or contains \
+                 the default 'CHANGE-ME' key. Generate a secure key with: \
+                 supernova-node generate-api-key",
+                env_name
+            )));
         }
 
         Ok(())

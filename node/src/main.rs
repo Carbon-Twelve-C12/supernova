@@ -10,11 +10,10 @@
 #![warn(clippy::unreachable)]
 #![warn(clippy::indexing_slicing)]
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use node::config::NodeConfig;
 use node::Node;
 use node::shutdown::{ShutdownCoordinator, ShutdownConfig, ShutdownSignal, register_signal_handlers};
-use std::io::Write;
 use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, info, warn};
@@ -34,6 +33,54 @@ struct Args {
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
+
+    /// Subcommand to run
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Generate a secure API key for authentication
+    GenerateApiKey {
+        /// Number of bytes for the key (default: 32)
+        #[arg(short, long, default_value = "32")]
+        bytes: usize,
+    },
+}
+
+/// Generate a cryptographically secure API key
+fn generate_api_key(bytes: usize) {
+    use rand::RngCore;
+
+    // Validate byte count
+    if bytes < 16 {
+        eprintln!("Error: API key must be at least 16 bytes (128 bits) for security");
+        std::process::exit(1);
+    }
+    if bytes > 64 {
+        eprintln!("Error: API key cannot exceed 64 bytes");
+        std::process::exit(1);
+    }
+
+    // Generate random bytes
+    let mut key_bytes = vec![0u8; bytes];
+    rand::thread_rng().fill_bytes(&mut key_bytes);
+
+    // Encode as hex (more portable than base64 for config files)
+    let api_key = hex::encode(&key_bytes);
+
+    println!("Generated secure API key ({} bytes / {} bits):", bytes, bytes * 8);
+    println!();
+    println!("  {}", api_key);
+    println!();
+    println!("Add this to your config.toml:");
+    println!();
+    println!("  [api]");
+    println!("  enable_auth = true");
+    println!("  api_keys = [\"{}\"]", api_key);
+    println!();
+    println!("IMPORTANT: Keep this key secure and never commit it to version control.");
 }
 
 #[tokio::main]
@@ -41,7 +88,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command-line arguments
     let args = Args::parse();
 
-    // Initialize logging 
+    // Handle subcommands that don't require full node startup
+    if let Some(command) = &args.command {
+        match command {
+            Commands::GenerateApiKey { bytes } => {
+                generate_api_key(*bytes);
+                return Ok(());
+            }
+        }
+    }
+
+    // Initialize logging
     use tracing_subscriber::EnvFilter;
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| {
