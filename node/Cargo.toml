@@ -46,6 +46,7 @@ uuid = { version = "1.5", features = ["v4", "serde"] }
 sysinfo = "0.30"
 async-trait = "0.1"
 flate2 = "1.0"
+zstd = "0.13"
 tar = "0.4"
 notify = "6.0"
 void = "1.0"
