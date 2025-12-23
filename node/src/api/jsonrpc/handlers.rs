@@ -524,6 +524,42 @@ async fn get_transaction_rpc(
             data: None,
         })?;
     
+    // Calculate confirmations from blockchain
+    let confirmations = {
+        let db = node.storage();
+        let chain_state = node.chain_state();
+
+        // Get the block containing this transaction
+        match db.get_transaction_block(&txid) {
+            Ok(Some(block_hash)) => {
+                // Get block height
+                match db.get_block_height(&block_hash) {
+                    Ok(Some(tx_block_height)) => {
+                        // Get current chain height
+                        match chain_state.read() {
+                            Ok(state) => {
+                                let current_height = state.get_height();
+                                // Confirmations = current_height - tx_block_height + 1
+                                if current_height >= tx_block_height {
+                                    (current_height - tx_block_height + 1) as i64
+                                } else {
+                                    0i64
+                                }
+                            }
+                            Err(_) => 0i64,
+                        }
+                    }
+                    Ok(None) | Err(_) => 0i64,
+                }
+            }
+            Ok(None) => {
+                // Transaction not in a block yet (in mempool)
+                0i64
+            }
+            Err(_) => 0i64,
+        }
+    };
+
     // Format transaction as JSON
     Ok(json!({
         "txid": hex::encode(txid),
@@ -533,7 +569,7 @@ async fn get_transaction_rpc(
         "locktime": transaction.lock_time(),
         "vin": transaction.inputs().len(),
         "vout": transaction.outputs().len(),
-        "confirmations": 0, // TODO: Calculate from blockchain
+        "confirmations": confirmations,
     }))
 }
 
