@@ -2,11 +2,13 @@
 ///
 /// Provides algorithms and rules governing the blockchain consensus,
 /// including difficulty adjustment, block validation, and fork resolution.
+pub mod checkpoint;
 pub mod difficulty;
 pub mod fork_resolution_v2;
 pub mod secure_fork_resolution;
 pub mod time_warp_prevention;
 pub mod timestamp_validation;
+pub mod weak_subjectivity;
 
 #[cfg(test)]
 pub mod time_warp_tests;
@@ -18,6 +20,10 @@ mod fork_resolution_attack_tests;
 mod security_fix_tests;
 
 // Re-export key types
+pub use checkpoint::{
+    Checkpoint, CheckpointConfig, CheckpointError, CheckpointManager, CheckpointResult,
+    CheckpointSource,
+};
 pub use difficulty::{
     DifficultyAdjuster, DifficultyAdjustment, DifficultyAdjustmentConfig,
     DifficultyAdjustmentError, BLOCK_TIME_TARGET,
@@ -36,4 +42,10 @@ pub use secure_fork_resolution::{ChainMetrics, SecureForkConfig};
 pub use timestamp_validation::{
     TimestampValidationConfig, TimestampValidationError, TimestampValidator, MAX_FUTURE_TIME,
     MEDIAN_TIME_BLOCKS,
+};
+
+pub use weak_subjectivity::{
+    PeerChainInfo, WeakSubjectivityConfig, WeakSubjectivityError, WeakSubjectivityManager,
+    WeakSubjectivityResult, WeakSubjectivityState, DEFAULT_WS_PERIOD_BLOCKS,
+    DEFAULT_WS_PERIOD_SECONDS, MAX_WS_CHECKPOINT_AGE_SECONDS, MIN_WS_CONFIRMATIONS,
 };
