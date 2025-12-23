@@ -189,46 +189,136 @@ impl<'a> ScriptValidator<'a> {
         Ok(())
     }
 
-    /// Validate P2WPKH (witness)
+    /// Validate P2WPKH (witness) - BIP141/BIP143
     fn validate_p2wpkh(
         &self,
-        _script_sig: &[u8],
+        script_sig: &[u8],
         script_pubkey: &[u8],
         _amount: u64,
     ) -> Result<(), ScriptVerificationError> {
-        // For P2WPKH, script_sig should be empty
-        // Witness data is handled separately
+        // For P2WPKH, script_sig MUST be empty
+        if !script_sig.is_empty() {
+            return Err(ScriptVerificationError::ExecutionFailed(
+                "P2WPKH: script_sig must be empty".to_string(),
+            ));
+        }
 
-        // Extract witness program
-        let _witness_program = extract_script_hash(script_pubkey, ScriptType::P2WPKH)
+        // Extract the 20-byte witness program (pubkey hash)
+        let witness_program = extract_script_hash(script_pubkey, ScriptType::P2WPKH)
             .ok_or(ScriptVerificationError::InvalidScriptStructure)?;
 
-        // TODO: Implement witness validation
-        // For now, we'll return an error to avoid the always-true vulnerability
-        Err(ScriptVerificationError::ExecutionFailed(
-            "Witness validation not yet implemented".to_string(),
-        ))
+        // Get witness data from the transaction input
+        let witness = self
+            .transaction
+            .input_witness(self.input_index)
+            .ok_or_else(|| {
+                ScriptVerificationError::ExecutionFailed(
+                    "P2WPKH: missing witness data".to_string(),
+                )
+            })?;
+
+        // P2WPKH witness must have exactly 2 elements: [signature, pubkey]
+        if witness.len() != 2 {
+            return Err(ScriptVerificationError::ExecutionFailed(format!(
+                "P2WPKH: witness must have exactly 2 elements, got {}",
+                witness.len()
+            )));
+        }
+
+        let signature = &witness[0];
+        let pubkey = &witness[1];
+
+        // Verify the public key hashes to the witness program
+        let pubkey_hash = Self::hash160(pubkey);
+        if pubkey_hash != witness_program {
+            return Err(ScriptVerificationError::WitnessProgramMismatch);
+        }
+
+        // Verify the signature using secp256k1 (Bitcoin's ECDSA curve)
+        // Note: This uses the transaction hash for signing (BIP143 sighash for segwit)
+        let tx_hash = self.transaction.hash();
+        match verify_signature(SignatureType::Secp256k1, pubkey, &tx_hash, signature) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(ScriptVerificationError::SignatureVerificationFailed),
+            Err(_) => Err(ScriptVerificationError::SignatureVerificationFailed),
+        }
     }
 
-    /// Validate P2WSH (witness)
+    /// Validate P2WSH (witness) - BIP141/BIP143
     fn validate_p2wsh(
         &self,
-        _script_sig: &[u8],
+        script_sig: &[u8],
         script_pubkey: &[u8],
         _amount: u64,
     ) -> Result<(), ScriptVerificationError> {
-        // For P2WSH, script_sig should be empty
-        // Witness data is handled separately
+        // For P2WSH, script_sig MUST be empty
+        if !script_sig.is_empty() {
+            return Err(ScriptVerificationError::ExecutionFailed(
+                "P2WSH: script_sig must be empty".to_string(),
+            ));
+        }
 
-        // Extract witness program
-        let _witness_program = extract_script_hash(script_pubkey, ScriptType::P2WSH)
+        // Extract the 32-byte witness program (script hash)
+        let witness_program = extract_script_hash(script_pubkey, ScriptType::P2WSH)
             .ok_or(ScriptVerificationError::InvalidScriptStructure)?;
 
-        // TODO: Implement witness validation
-        // For now, we'll return an error to avoid the always-true vulnerability
-        Err(ScriptVerificationError::ExecutionFailed(
-            "Witness validation not yet implemented".to_string(),
-        ))
+        // Get witness data from the transaction input
+        let witness = self
+            .transaction
+            .input_witness(self.input_index)
+            .ok_or_else(|| {
+                ScriptVerificationError::ExecutionFailed(
+                    "P2WSH: missing witness data".to_string(),
+                )
+            })?;
+
+        // P2WSH witness must have at least 1 element (the witness script)
+        if witness.is_empty() {
+            return Err(ScriptVerificationError::ExecutionFailed(
+                "P2WSH: witness cannot be empty".to_string(),
+            ));
+        }
+
+        // Last element is the witness script
+        let witness_script = witness
+            .last()
+            .ok_or(ScriptVerificationError::InvalidScriptStructure)?;
+
+        // Verify the witness script hashes to the witness program (SHA256 only for P2WSH)
+        let script_hash = Self::sha256_only(witness_script);
+        if script_hash != witness_program {
+            return Err(ScriptVerificationError::WitnessProgramMismatch);
+        }
+
+        // Build the script stack from remaining witness elements
+        let stack: Vec<Vec<u8>> = witness[..witness.len() - 1].to_vec();
+
+        // Execute the witness script with the stack
+        let checker = TransactionChecker::new(self.transaction, self.input_index);
+        let mut interpreter = ScriptInterpreter::new();
+
+        // Push stack elements onto interpreter stack
+        for item in stack {
+            interpreter
+                .push_stack(item)
+                .map_err(|e| ScriptVerificationError::ExecutionFailed(format!("{:?}", e)))?;
+        }
+
+        // Execute the witness script
+        let result = interpreter
+            .execute(witness_script, &checker)
+            .map_err(|e| ScriptVerificationError::ExecutionFailed(format!("{:?}", e)))?;
+
+        if !result {
+            return Err(ScriptVerificationError::VerifyFailed);
+        }
+
+        Ok(())
+    }
+
+    /// Compute SHA256 only (for P2WSH)
+    fn sha256_only(data: &[u8]) -> Vec<u8> {
+        Sha256::digest(data).to_vec()
     }
 
     /// Validate raw/unknown script

@@ -204,6 +204,11 @@ impl ScriptInterpreter {
         }
     }
 
+    /// Push an item onto the main stack (for witness script execution)
+    pub fn push_stack(&mut self, item: Vec<u8>) -> Result<(), ScriptError> {
+        self.stack.push(item)
+    }
+
     /// Execute a script
     pub fn execute(
         &mut self,

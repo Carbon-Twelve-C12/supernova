@@ -96,6 +96,10 @@ pub struct TransactionInput {
     signature_script: Vec<u8>,
     /// Sequence number for replacement/locktime
     sequence: u32,
+    /// Witness data for SegWit transactions (BIP141)
+    /// Each element is a stack item (signature, pubkey, script, etc.)
+    #[serde(default)]
+    witness: Vec<Vec<u8>>,
 }
 
 /// Represents a transaction output with an amount and spending conditions
@@ -164,6 +168,24 @@ impl TransactionInput {
             prev_output_index,
             signature_script,
             sequence,
+            witness: Vec::new(),
+        }
+    }
+
+    /// Create a new input with witness data (for SegWit transactions)
+    pub fn new_with_witness(
+        prev_tx_hash: [u8; 32],
+        prev_output_index: u32,
+        signature_script: Vec<u8>,
+        sequence: u32,
+        witness: Vec<Vec<u8>>,
+    ) -> Self {
+        Self {
+            prev_tx_hash,
+            prev_output_index,
+            signature_script,
+            sequence,
+            witness,
         }
     }
 
@@ -174,6 +196,7 @@ impl TransactionInput {
             prev_output_index: 0xffffffff, // Special index for coinbase
             signature_script: coinbase_script,
             sequence: 0xffffffff,
+            witness: Vec::new(),
         }
     }
 
@@ -197,6 +220,21 @@ impl TransactionInput {
     /// Get the sequence number
     pub fn sequence(&self) -> u32 {
         self.sequence
+    }
+
+    /// Get the witness data for this input
+    pub fn witness(&self) -> &[Vec<u8>] {
+        &self.witness
+    }
+
+    /// Set the witness data for this input
+    pub fn set_witness(&mut self, witness: Vec<Vec<u8>>) {
+        self.witness = witness;
+    }
+
+    /// Check if this input has witness data
+    pub fn has_witness(&self) -> bool {
+        !self.witness.is_empty()
     }
 
     /// Set the quantum signature for this input
@@ -321,9 +359,24 @@ impl Transaction {
         &self.inputs
     }
 
+    /// Get mutable reference to inputs
+    pub fn inputs_mut(&mut self) -> &mut [TransactionInput] {
+        &mut self.inputs
+    }
+
     /// Get reference to outputs
     pub fn outputs(&self) -> &[TransactionOutput] {
         &self.outputs
+    }
+
+    /// Get witness data for a specific input
+    pub fn input_witness(&self, index: usize) -> Option<&[Vec<u8>]> {
+        self.inputs.get(index).map(|input| input.witness())
+    }
+
+    /// Check if this transaction has any witness data
+    pub fn has_witness(&self) -> bool {
+        self.inputs.iter().any(|input| input.has_witness())
     }
 
     /// Calculate the total input amount (requires access to previous transactions)
