@@ -78,10 +78,11 @@ pub async fn initialize_network(
     // Initialize P2P network with the keypair
     let (mut network, command_tx, event_rx) =
         crate::network::p2p::P2PNetwork::new(
-            Some(keypair), 
-            genesis_hash, 
+            Some(keypair),
+            genesis_hash,
             &config.network_id,
             Some(config.listen_addr.clone()), // Pass listen address
+            Some(config.pubsub_config.validation_mode.clone()), // Gossipsub validation mode
         ).await?;
 
     // Add bootstrap nodes if configured

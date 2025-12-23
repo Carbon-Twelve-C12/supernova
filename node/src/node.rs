@@ -209,10 +209,11 @@ impl Node {
             .get_genesis_hash();
         let (mut network, command_tx, event_rx) =
             P2PNetwork::new(
-                Some(keypair), 
-                genesis_hash, 
+                Some(keypair),
+                genesis_hash,
                 &config.node.chain_id,
                 Some(config.network.listen_addr.clone()), // Pass configured listen address
+                Some(config.network.pubsub_config.validation_mode.clone()), // Gossipsub validation mode
             ).await?;
         
         // Add bootstrap nodes from config

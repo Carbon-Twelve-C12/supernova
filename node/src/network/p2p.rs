@@ -374,6 +374,8 @@ pub struct P2PNetwork {
     trusted_peers: Arc<RwLock<HashSet<PeerId>>>,
     /// Network ID
     network_id: String,
+    /// Gossipsub validation mode (Strict, Permissive, Anonymous)
+    gossipsub_validation_mode: gossipsub::ValidationMode,
     /// Peer manager
     peer_manager: Arc<PeerManager>,
     /// Challenge difficulty for identity verification
@@ -468,6 +470,7 @@ impl P2PNetwork {
         _genesis_hash: [u8; 32],
         network_id: &str,
         listen_addr: Option<String>,
+        gossipsub_validation_mode: Option<String>,
     ) -> Result<
         (
             Self,
@@ -494,6 +497,26 @@ impl P2PNetwork {
         let storage: Arc<dyn crate::storage::Storage> =
             Arc::new(crate::storage::MemoryStorage::new());
 
+        // Parse gossipsub validation mode from config (default to Strict for security)
+        let validation_mode = match gossipsub_validation_mode.as_deref() {
+            Some("Permissive") => {
+                warn!("Gossipsub using Permissive validation mode - NOT recommended for production");
+                gossipsub::ValidationMode::Permissive
+            }
+            Some("Anonymous") => {
+                warn!("Gossipsub using Anonymous validation mode - NOT recommended for production");
+                gossipsub::ValidationMode::Anonymous
+            }
+            Some("Strict") | None => {
+                info!("Gossipsub using Strict validation mode (recommended)");
+                gossipsub::ValidationMode::Strict
+            }
+            Some(other) => {
+                warn!("Unknown gossipsub validation mode '{}', defaulting to Strict", other);
+                gossipsub::ValidationMode::Strict
+            }
+        };
+
         Ok((
             Self {
                 local_peer_id,
@@ -514,6 +537,7 @@ impl P2PNetwork {
                 banned_peers: Arc::new(RwLock::new(HashMap::new())),
                 trusted_peers: Arc::new(RwLock::new(HashSet::new())),
                 network_id: network_id.to_string(),
+                gossipsub_validation_mode: validation_mode,
                 peer_manager: Arc::new(PeerManager::new(
                     storage.clone(),
                     ConnectionLimits::default(),
@@ -676,11 +700,9 @@ impl P2PNetwork {
             // Build transport
             let transport = build_transport(id_keys.clone())?;
 
-            // Create individual behaviours
-            // NOTE: Using Permissive validation temporarily for testing
-            // TODO: Fix message signing and switch back to Strict mode
+            // Create individual behaviours with configured validation mode
             let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .validation_mode(gossipsub::ValidationMode::Permissive)
+                .validation_mode(self.gossipsub_validation_mode.clone())
                 // Mesh parameters optimized for blockchain network scalability
                 // Constraint: mesh_outbound_min <= mesh_n_low <= mesh_n <= mesh_n_high
                 .mesh_n_low(1)      // Minimum 1 peer (allows 2-node testing)
@@ -2633,6 +2655,7 @@ impl P2PNetwork {
             banned_peers: Arc::new(RwLock::new(HashMap::new())),
             trusted_peers: Arc::new(RwLock::new(HashSet::new())),
             network_id: "supernova".to_string(),
+            gossipsub_validation_mode: gossipsub::ValidationMode::Strict,
             peer_manager: Arc::new(PeerManager::new(
                 storage.clone(),
                 ConnectionLimits::default(),
@@ -2839,7 +2862,7 @@ mod tests {
     // A basic test for network creation
     #[tokio::test]
     async fn test_network_creation() {
-        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test", None)
+        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test", None, None)
             .await
             .unwrap();
 
@@ -2896,7 +2919,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_management() {
-        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test", None)
+        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test", None, None)
             .await
             .unwrap();
 

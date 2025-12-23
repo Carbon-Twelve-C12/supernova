@@ -54,7 +54,9 @@ mod tests {
         let (network, command_tx, mut event_rx) = P2PNetwork::new(
             None, // no custom keypair
             [0u8; 32], // genesis hash
-            "test" // network ID
+            "test", // network ID
+            None, // listen address
+            None, // validation mode (defaults to Strict)
         ).await.unwrap();
 
         // Wait briefly

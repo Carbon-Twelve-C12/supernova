@@ -208,6 +208,8 @@ async fn test_secure_p2p_network() {
         None, // Generate keypair
         [0u8; 32], // Genesis hash
         "test-network", // Network ID
+        None, // Listen address
+        None, // Validation mode (defaults to Strict)
     ).await.unwrap();
 
     // Configure security settings

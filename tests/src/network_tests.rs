@@ -17,7 +17,9 @@ mod tests {
         let (network, command_tx, event_rx) = P2PNetwork::new(
             None,
             [0u8; 32],
-            "test_network"
+            "test_network",
+            None, // listen address
+            None, // validation mode (defaults to Strict)
         ).await.unwrap();
 
         // Simple assertion to verify creation
