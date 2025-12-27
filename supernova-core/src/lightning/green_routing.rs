@@ -245,8 +245,10 @@ impl GreenLightningRouter {
         &self,
         preferences: EnvironmentalRoutingPreferences,
     ) -> Result<(), RoutingError> {
-
-        let mut params = self.routing_params.write().unwrap();
+        let mut params = self
+            .routing_params
+            .write()
+            .map_err(|e| RoutingError::LockPoisoned(format!("routing_params: {}", e)))?;
 
         // Update weights based on preferences
         match preferences.priority {
@@ -287,8 +289,10 @@ impl GreenLightningRouter {
 
     /// Incentivize green Lightning nodes
     pub fn incentivize_green_lightning_nodes(&self) -> GreenIncentiveProgram {
-
-        let graph = self.network_graph.read().unwrap();
+        let graph = match self.network_graph.read() {
+            Ok(g) => g,
+            Err(_) => return self.default_incentive_program(),
+        };
 
         // Calculate network-wide stats
         let total_nodes = graph.nodes.len();
@@ -330,7 +334,7 @@ impl GreenLightningRouter {
                 green_nodes,
                 carbon_negative_nodes,
                 average_renewable_percentage: avg_renewable,
-                total_carbon_saved: self.metrics.read().unwrap().total_carbon_saved,
+                total_carbon_saved: self.metrics.read().map(|m| m.total_carbon_saved).unwrap_or(0.0),
             },
         };
 
@@ -376,8 +380,14 @@ impl GreenLightningRouter {
         &self,
         time_period: TimePeriod,
     ) -> EnvironmentalSavingsReport {
-        let metrics = self.metrics.read().unwrap();
-        let graph = self.network_graph.read().unwrap();
+        let metrics = match self.metrics.read() {
+            Ok(m) => m,
+            Err(_) => return self.default_savings_report(time_period),
+        };
+        let graph = match self.network_graph.read() {
+            Ok(g) => g,
+            Err(_) => return self.default_savings_report(time_period),
+        };
 
         // Calculate period savings
         let total_payments = metrics.total_routes_calculated;
@@ -441,8 +451,14 @@ impl GreenLightningRouter {
 
     /// Publish environmental Lightning statistics
     pub fn publish_environmental_lightning_stats(&self) -> EnvironmentalLightningStats {
-        let metrics = self.metrics.read().unwrap();
-        let graph = self.network_graph.read().unwrap();
+        let metrics = match self.metrics.read() {
+            Ok(m) => m,
+            Err(_) => return self.default_lightning_stats(),
+        };
+        let graph = match self.network_graph.read() {
+            Ok(g) => g,
+            Err(_) => return self.default_lightning_stats(),
+        };
 
         // Calculate zone statistics
         let mut zone_stats = Vec::new();
@@ -482,8 +498,14 @@ impl GreenLightningRouter {
         destination: NodeId,
         amount_sats: u64,
     ) -> Result<GreenLightningRoute, RoutingError> {
-        let graph = self.network_graph.read().unwrap();
-        let params = self.routing_params.read().unwrap();
+        let graph = self
+            .network_graph
+            .read()
+            .map_err(|e| RoutingError::LockPoisoned(format!("network_graph: {}", e)))?;
+        let params = self
+            .routing_params
+            .read()
+            .map_err(|e| RoutingError::LockPoisoned(format!("routing_params: {}", e)))?;
 
         // Use modified Dijkstra's algorithm with environmental weights
         let mut distances: HashMap<NodeId, f64> = HashMap::new();
@@ -680,7 +702,10 @@ impl GreenLightningRouter {
     }
 
     fn get_cached_route(&self, key: &RouteCacheKey) -> Option<GreenLightningRoute> {
-        let cache = self.route_cache.read().unwrap();
+        let cache = match self.route_cache.read() {
+            Ok(c) => c,
+            Err(_) => return None, // Cache miss on lock failure is acceptable
+        };
 
         if let Some(cached) = cache.get(key) {
             if cached.expires_at > Utc::now() {
@@ -692,7 +717,10 @@ impl GreenLightningRouter {
     }
 
     fn cache_route(&self, key: RouteCacheKey, route: GreenLightningRoute) {
-        let mut cache = self.route_cache.write().unwrap();
+        let mut cache = match self.route_cache.write() {
+            Ok(c) => c,
+            Err(_) => return, // Silently skip caching on lock failure
+        };
 
         cache.insert(
             key,
@@ -705,7 +733,10 @@ impl GreenLightningRouter {
     }
 
     fn update_routing_metrics(&self, route: &GreenLightningRoute) {
-        let mut metrics = self.metrics.write().unwrap();
+        let mut metrics = match self.metrics.write() {
+            Ok(m) => m,
+            Err(_) => return, // Silently skip metrics update on lock failure
+        };
 
         metrics.total_routes_calculated += 1;
 
@@ -763,6 +794,67 @@ impl GreenLightningRouter {
         hasher.update(impact.total_carbon_kg.to_string().as_bytes());
         hasher.update(impact.renewable_percentage.to_string().as_bytes());
         hex::encode(hasher.finalize())
+    }
+
+    /// Returns a default incentive program when lock acquisition fails
+    fn default_incentive_program(&self) -> GreenIncentiveProgram {
+        GreenIncentiveProgram {
+            base_tier: GreenIncentiveTier {
+                name: "Green Starter".to_string(),
+                min_renewable: 50.0,
+                fee_discount: 5.0,
+                routing_preference: 1.1,
+                badge: "🌱".to_string(),
+            },
+            silver_tier: GreenIncentiveTier {
+                name: "Renewable Champion".to_string(),
+                min_renewable: 75.0,
+                fee_discount: 10.0,
+                routing_preference: 1.25,
+                badge: "⚡".to_string(),
+            },
+            gold_tier: GreenIncentiveTier {
+                name: "Carbon Negative Hero".to_string(),
+                min_renewable: 100.0,
+                fee_discount: 20.0,
+                routing_preference: 1.5,
+                badge: "🌍".to_string(),
+            },
+            network_stats: NetworkGreenStats {
+                total_nodes: 0,
+                green_nodes: 0,
+                carbon_negative_nodes: 0,
+                average_renewable_percentage: 0.0,
+                total_carbon_saved: 0.0,
+            },
+        }
+    }
+
+    /// Returns a default savings report when lock acquisition fails
+    fn default_savings_report(&self, time_period: TimePeriod) -> EnvironmentalSavingsReport {
+        EnvironmentalSavingsReport {
+            time_period,
+            total_payments: 0,
+            green_payments: 0,
+            carbon_negative_payments: 0,
+            total_carbon_saved_kg: 0.0,
+            average_carbon_per_payment: 0.0,
+            network_renewable_percentage: 0.0,
+            environmental_milestones: Vec::new(),
+        }
+    }
+
+    /// Returns default lightning stats when lock acquisition fails
+    fn default_lightning_stats(&self) -> EnvironmentalLightningStats {
+        EnvironmentalLightningStats {
+            timestamp: Utc::now(),
+            total_green_routes: 0,
+            total_carbon_saved_kg: 0.0,
+            carbon_negative_routes_percentage: 0.0,
+            network_renewable_average: 0.0,
+            top_green_nodes: Vec::new(),
+            zone_statistics: Vec::new(),
+        }
     }
 
     fn get_top_green_nodes(
@@ -954,6 +1046,7 @@ pub enum RoutingError {
     MaxCarbonExceeded,
     MinRenewableNotMet,
     NetworkError(String),
+    LockPoisoned(String),
 }
 
 /// Public API functions
