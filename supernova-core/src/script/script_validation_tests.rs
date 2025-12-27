@@ -52,7 +52,8 @@ mod tests {
 
         // Create an invalid P2PKH script (wrong pubkey hash)
         let fake_pubkey_hash = vec![0xFF; 20];
-        let script_pubkey = ScriptBuilder::pay_to_pubkey_hash(&fake_pubkey_hash);
+        let script_pubkey = ScriptBuilder::pay_to_pubkey_hash(&fake_pubkey_hash)
+            .expect("Valid pubkey hash length");
 
         // Create a script sig with a different pubkey
         let real_pubkey = vec![0x02; 33]; // Compressed pubkey
@@ -87,7 +88,8 @@ mod tests {
 
         // Create a P2SH script with a specific hash
         let script_hash = vec![0xAA; 20];
-        let script_pubkey = ScriptBuilder::pay_to_script_hash(&script_hash);
+        let script_pubkey = ScriptBuilder::pay_to_script_hash(&script_hash)
+            .expect("Valid script hash length");
 
         // Create a script sig with wrong redeem script
         let wrong_redeem_script = vec![0x51]; // OP_1
@@ -115,7 +117,8 @@ mod tests {
 
         // Test P2WPKH
         let witness_program = vec![0xBB; 20];
-        let p2wpkh_script = ScriptBuilder::pay_to_witness_pubkey_hash(&witness_program);
+        let p2wpkh_script = ScriptBuilder::pay_to_witness_pubkey_hash(&witness_program)
+            .expect("Valid witness program length");
 
         let validator = ScriptValidator::new(&tx, 0, ScriptFlags::default());
         let result = validator.validate(&[], &p2wpkh_script, 0);
@@ -125,7 +128,8 @@ mod tests {
 
         // Test P2WSH
         let witness_script_hash = vec![0xCC; 32];
-        let p2wsh_script = ScriptBuilder::pay_to_witness_script_hash(&witness_script_hash);
+        let p2wsh_script = ScriptBuilder::pay_to_witness_script_hash(&witness_script_hash)
+            .expect("Valid witness script hash length");
 
         let result2 = validator.validate(&[], &p2wsh_script, 0);
 

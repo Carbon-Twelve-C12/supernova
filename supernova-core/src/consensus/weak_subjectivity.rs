@@ -536,7 +536,7 @@ mod tests {
     use crate::consensus::checkpoint::CheckpointConfig;
 
     fn create_test_checkpoint_manager() -> Arc<CheckpointManager> {
-        Arc::new(CheckpointManager::new(CheckpointConfig::default()))
+        Arc::new(CheckpointManager::new())
     }
 
     fn create_test_checkpoint(height: u64) -> Checkpoint {

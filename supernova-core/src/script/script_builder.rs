@@ -4,7 +4,28 @@
 
 use crate::script::opcodes::Opcode;
 use ripemd::{Digest as RipemdDigest, Ripemd160};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
+use thiserror::Error;
+
+/// Errors that can occur when building scripts
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum ScriptBuilderError {
+    /// Invalid pubkey hash length (expected 20 bytes)
+    #[error("Invalid pubkey hash length: expected 20 bytes, got {0}")]
+    InvalidPubkeyHashLength(usize),
+
+    /// Invalid script hash length (expected 20 or 32 bytes)
+    #[error("Invalid script hash length: expected {expected} bytes, got {actual}")]
+    InvalidScriptHashLength { expected: usize, actual: usize },
+
+    /// Invalid multisig threshold
+    #[error("Invalid multisig threshold: {threshold} must be > 0 and <= {pubkey_count}")]
+    InvalidMultisigThreshold { threshold: u8, pubkey_count: usize },
+
+    /// Too many pubkeys for multisig
+    #[error("Too many pubkeys for multisig: {0} (max 16)")]
+    TooManyPubkeys(usize),
+}
 
 /// Script builder
 #[derive(Debug, Clone)]
@@ -93,65 +114,90 @@ impl ScriptBuilder {
     }
 
     /// Create a P2PKH script
-    pub fn pay_to_pubkey_hash(pubkey_hash: &[u8]) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// Returns `ScriptBuilderError::InvalidPubkeyHashLength` if pubkey_hash is not 20 bytes
+    pub fn pay_to_pubkey_hash(pubkey_hash: &[u8]) -> Result<Vec<u8>, ScriptBuilderError> {
         if pubkey_hash.len() != 20 {
-            panic!("Invalid pubkey hash length");
+            return Err(ScriptBuilderError::InvalidPubkeyHashLength(pubkey_hash.len()));
         }
 
-        Self::new()
+        Ok(Self::new()
             .push_opcode(Opcode::OP_DUP)
             .push_opcode(Opcode::OP_HASH160)
             .push_data(pubkey_hash)
             .push_opcode(Opcode::OP_EQUALVERIFY)
             .push_opcode(Opcode::OP_CHECKSIG)
-            .build()
+            .build())
     }
 
     /// Create a P2SH script
-    pub fn pay_to_script_hash(script_hash: &[u8]) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// Returns `ScriptBuilderError::InvalidScriptHashLength` if script_hash is not 20 bytes
+    pub fn pay_to_script_hash(script_hash: &[u8]) -> Result<Vec<u8>, ScriptBuilderError> {
         if script_hash.len() != 20 {
-            panic!("Invalid script hash length");
+            return Err(ScriptBuilderError::InvalidScriptHashLength {
+                expected: 20,
+                actual: script_hash.len(),
+            });
         }
 
-        Self::new()
+        Ok(Self::new()
             .push_opcode(Opcode::OP_HASH160)
             .push_data(script_hash)
             .push_opcode(Opcode::OP_EQUAL)
-            .build()
+            .build())
     }
 
     /// Create a P2WPKH script
-    pub fn pay_to_witness_pubkey_hash(pubkey_hash: &[u8]) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// Returns `ScriptBuilderError::InvalidPubkeyHashLength` if pubkey_hash is not 20 bytes
+    pub fn pay_to_witness_pubkey_hash(pubkey_hash: &[u8]) -> Result<Vec<u8>, ScriptBuilderError> {
         if pubkey_hash.len() != 20 {
-            panic!("Invalid pubkey hash length");
+            return Err(ScriptBuilderError::InvalidPubkeyHashLength(pubkey_hash.len()));
         }
 
-        Self::new()
+        Ok(Self::new()
             .push_opcode(Opcode::OP_0)
             .push_data(pubkey_hash)
-            .build()
+            .build())
     }
 
     /// Create a P2WSH script
-    pub fn pay_to_witness_script_hash(script_hash: &[u8]) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// Returns `ScriptBuilderError::InvalidScriptHashLength` if script_hash is not 32 bytes
+    pub fn pay_to_witness_script_hash(script_hash: &[u8]) -> Result<Vec<u8>, ScriptBuilderError> {
         if script_hash.len() != 32 {
-            panic!("Invalid script hash length");
+            return Err(ScriptBuilderError::InvalidScriptHashLength {
+                expected: 32,
+                actual: script_hash.len(),
+            });
         }
 
-        Self::new()
+        Ok(Self::new()
             .push_opcode(Opcode::OP_0)
             .push_data(script_hash)
-            .build()
+            .build())
     }
 
     /// Create a multisig script
-    pub fn multisig(threshold: u8, pubkeys: &[Vec<u8>]) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// - Returns `ScriptBuilderError::InvalidMultisigThreshold` if threshold is 0 or > pubkey count
+    /// - Returns `ScriptBuilderError::TooManyPubkeys` if more than 16 pubkeys provided
+    pub fn multisig(threshold: u8, pubkeys: &[Vec<u8>]) -> Result<Vec<u8>, ScriptBuilderError> {
         if threshold == 0 || threshold > pubkeys.len() as u8 {
-            panic!("Invalid multisig threshold");
+            return Err(ScriptBuilderError::InvalidMultisigThreshold {
+                threshold,
+                pubkey_count: pubkeys.len(),
+            });
         }
 
         if pubkeys.len() > 16 {
-            panic!("Too many pubkeys for multisig");
+            return Err(ScriptBuilderError::TooManyPubkeys(pubkeys.len()));
         }
 
         let mut builder = Self::new();
@@ -168,7 +214,7 @@ impl ScriptBuilder {
         builder = builder.push_number(pubkeys.len() as i64);
 
         // Push CHECKMULTISIG
-        builder.push_opcode(Opcode::OP_CHECKMULTISIG).build()
+        Ok(builder.push_opcode(Opcode::OP_CHECKMULTISIG).build())
     }
 
     /// Hash a public key to get pubkey hash
@@ -200,15 +246,19 @@ fn encode_script_number(num: i64) -> Vec<u8> {
 
     // If the most significant byte has the high bit set,
     // add an extra byte to indicate sign
-    if bytes.last().unwrap() & 0x80 != 0 {
-        if neg {
-            bytes.push(0x80);
-        } else {
-            bytes.push(0);
+    // Safety: bytes is never empty here since we only reach this code when num != 0
+    // and the while loop above guarantees at least one byte is pushed
+    if let Some(&last_byte) = bytes.last() {
+        if last_byte & 0x80 != 0 {
+            if neg {
+                bytes.push(0x80);
+            } else {
+                bytes.push(0);
+            }
+        } else if neg {
+            let last = bytes.len() - 1;
+            bytes[last] |= 0x80;
         }
-    } else if neg {
-        let last = bytes.len() - 1;
-        bytes[last] |= 0x80;
     }
 
     bytes
@@ -221,7 +271,7 @@ mod tests {
     #[test]
     fn test_p2pkh_script() {
         let pubkey_hash = vec![0u8; 20];
-        let script = ScriptBuilder::pay_to_pubkey_hash(&pubkey_hash);
+        let script = ScriptBuilder::pay_to_pubkey_hash(&pubkey_hash).unwrap();
 
         assert_eq!(script[0], 0x76); // OP_DUP
         assert_eq!(script[1], 0xa9); // OP_HASH160
@@ -229,6 +279,42 @@ mod tests {
         assert_eq!(&script[3..23], &pubkey_hash[..]);
         assert_eq!(script[23], 0x88); // OP_EQUALVERIFY
         assert_eq!(script[24], 0xac); // OP_CHECKSIG
+    }
+
+    #[test]
+    fn test_p2pkh_invalid_length() {
+        let pubkey_hash = vec![0u8; 19]; // Wrong length
+        let result = ScriptBuilder::pay_to_pubkey_hash(&pubkey_hash);
+        assert!(matches!(
+            result,
+            Err(ScriptBuilderError::InvalidPubkeyHashLength(19))
+        ));
+    }
+
+    #[test]
+    fn test_p2sh_invalid_length() {
+        let script_hash = vec![0u8; 21]; // Wrong length
+        let result = ScriptBuilder::pay_to_script_hash(&script_hash);
+        assert!(matches!(
+            result,
+            Err(ScriptBuilderError::InvalidScriptHashLength {
+                expected: 20,
+                actual: 21
+            })
+        ));
+    }
+
+    #[test]
+    fn test_p2wsh_invalid_length() {
+        let script_hash = vec![0u8; 20]; // Wrong length for P2WSH (needs 32)
+        let result = ScriptBuilder::pay_to_witness_script_hash(&script_hash);
+        assert!(matches!(
+            result,
+            Err(ScriptBuilderError::InvalidScriptHashLength {
+                expected: 32,
+                actual: 20
+            })
+        ));
     }
 
     #[test]
@@ -246,7 +332,7 @@ mod tests {
     fn test_multisig_script() {
         let pubkey1 = vec![0x02; 33];
         let pubkey2 = vec![0x03; 33];
-        let script = ScriptBuilder::multisig(2, &[pubkey1.clone(), pubkey2.clone()]);
+        let script = ScriptBuilder::multisig(2, &[pubkey1.clone(), pubkey2.clone()]).unwrap();
 
         assert_eq!(script[0], 0x52); // OP_2
         assert_eq!(script[1], 33); // Push 33 bytes
@@ -255,5 +341,41 @@ mod tests {
         assert_eq!(&script[36..69], &pubkey2[..]);
         assert_eq!(script[69], 0x52); // OP_2
         assert_eq!(script[70], 0xae); // OP_CHECKMULTISIG
+    }
+
+    #[test]
+    fn test_multisig_invalid_threshold_zero() {
+        let pubkey1 = vec![0x02; 33];
+        let result = ScriptBuilder::multisig(0, &[pubkey1]);
+        assert!(matches!(
+            result,
+            Err(ScriptBuilderError::InvalidMultisigThreshold {
+                threshold: 0,
+                pubkey_count: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn test_multisig_invalid_threshold_too_high() {
+        let pubkey1 = vec![0x02; 33];
+        let result = ScriptBuilder::multisig(3, &[pubkey1]);
+        assert!(matches!(
+            result,
+            Err(ScriptBuilderError::InvalidMultisigThreshold {
+                threshold: 3,
+                pubkey_count: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn test_multisig_too_many_pubkeys() {
+        let pubkeys: Vec<Vec<u8>> = (0..17).map(|i| vec![i as u8; 33]).collect();
+        let result = ScriptBuilder::multisig(1, &pubkeys);
+        assert!(matches!(
+            result,
+            Err(ScriptBuilderError::TooManyPubkeys(17))
+        ));
     }
 }

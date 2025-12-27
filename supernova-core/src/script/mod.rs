@@ -12,7 +12,7 @@ pub mod script_validator;
 
 pub use interpreter::{ExecutionStack, ScriptError, ScriptInterpreter};
 pub use opcodes::{Opcode, ALL_OPCODES};
-pub use script_builder::ScriptBuilder;
+pub use script_builder::{ScriptBuilder, ScriptBuilderError};
 pub use script_validator::{ScriptFlags, ScriptValidator};
 
 /// Standard script types supported by Supernova
