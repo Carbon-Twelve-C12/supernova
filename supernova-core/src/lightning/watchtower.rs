@@ -137,7 +137,7 @@ impl Watchtower {
             channel_count: 0,
             last_update: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(Duration::ZERO)
                 .as_secs(),
             quantum_enabled,
         };
@@ -182,7 +182,7 @@ impl Watchtower {
             breach_remedies: HashMap::new(),
             last_update: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(Duration::ZERO)
                 .as_secs(),
             quantum_secured: client.quantum_enabled && self.config.quantum_monitoring,
         };
@@ -191,7 +191,7 @@ impl Watchtower {
         client.channel_count += 1;
         client.last_update = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(Duration::ZERO)
             .as_secs();
 
         info!("Registered channel {} for client {}", channel_id, client_id);
@@ -223,14 +223,14 @@ impl Watchtower {
         channel_info.latest_commitment_number = commitment_number;
         channel_info.last_update = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(Duration::ZERO)
             .as_secs();
 
         // Update client last update time
         if let Some(client) = self.clients.get_mut(&channel_info.client_id) {
             client.last_update = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(Duration::ZERO)
                 .as_secs();
         }
 
@@ -306,7 +306,7 @@ impl Watchtower {
             client.channel_count = client.channel_count.saturating_sub(1);
             client.last_update = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(Duration::ZERO)
                 .as_secs();
         }
 
@@ -340,7 +340,7 @@ impl Watchtower {
         if let Some(channel_info) = self.channels.get_mut(channel_id) {
             let current_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(Duration::ZERO)
                 .as_secs();
             let cutoff_time = current_time.saturating_sub(self.config.remedy_retention_period);
 
@@ -399,7 +399,7 @@ impl Watchtower {
     pub fn perform_maintenance(&mut self) {
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(Duration::ZERO)
             .as_secs();
 
         // Clean up old breach remedies for all channels
@@ -524,7 +524,7 @@ impl ChannelMonitor {
             breach_remedies: HashMap::new(),
             last_update: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(Duration::ZERO)
                 .as_secs(),
             quantum_secured: self.quantum_scheme.is_some(),
         };
