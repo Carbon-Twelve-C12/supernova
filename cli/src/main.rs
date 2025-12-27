@@ -220,7 +220,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Initialize logger
+    // SECURITY: Debug mode is off by default. When enabled, verbose logging
+    // may include sensitive information. Only use for development/troubleshooting.
     let env = if cli.debug {
+        #[cfg(not(debug_assertions))]
+        eprintln!(
+            "{} Debug mode enabled. Verbose logging may include sensitive information.",
+            "⚠".yellow().bold()
+        );
         Env::default().default_filter_or("debug")
     } else {
         Env::default().default_filter_or("info")

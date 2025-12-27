@@ -576,15 +576,15 @@ impl ScriptInterpreter {
             }
             Opcode::OP_HASH256 => {
                 let data = self.stack.pop()?;
-                // Double SHA256
-                let mut sha1 = Sha256::new();
-                sha1.update(&data);
-                let result1 = sha1.finalize();
+                // Double SHA256 (hash256 = sha256(sha256(data)))
+                let mut first_sha256 = Sha256::new();
+                first_sha256.update(&data);
+                let first_hash = first_sha256.finalize();
 
-                let mut sha2 = Sha256::new();
-                sha2.update(result1);
-                let result2 = sha2.finalize();
-                self.stack.push(result2.to_vec())?;
+                let mut second_sha256 = Sha256::new();
+                second_sha256.update(first_hash);
+                let final_hash = second_sha256.finalize();
+                self.stack.push(final_hash.to_vec())?;
                 Ok(())
             }
 

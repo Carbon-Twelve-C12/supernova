@@ -73,4 +73,10 @@ endpoint = "/metrics"
 enabled = true
 swagger_enabled = true
 cors_enabled = true
-cors_origins = ["*"] 
+cors_origins = [
+    "https://explorer.supernovanetwork.xyz",
+    "https://dashboard.supernovanetwork.xyz",
+    "https://faucet.supernovanetwork.xyz",
+    "https://api.supernovanetwork.xyz"
+]
+# For local development, add: "http://localhost:3000", "http://localhost:8080" 
