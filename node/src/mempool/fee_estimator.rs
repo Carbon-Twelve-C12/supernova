@@ -126,7 +126,10 @@ impl FeeEstimator {
         avg_fee_rate: u64,
         environmental_score: f64,
     ) {
-        let mut history = self.fee_history.write().unwrap();
+        let mut history = match self.fee_history.write() {
+            Ok(h) => h,
+            Err(_) => return, // Silently skip update on lock failure
+        };
         
         let block_data = BlockFeeData {
             height,
@@ -146,13 +149,26 @@ impl FeeEstimator {
 
     /// Update current mempool size for congestion calculation
     pub fn update_mempool_size(&self, size: usize) {
-        *self.mempool_size.write().unwrap() = size;
+        if let Ok(mut mempool) = self.mempool_size.write() {
+            *mempool = size;
+        }
+        // Silently skip update on lock failure
     }
 
     /// Estimate fee for a given priority level
     pub fn estimate_fee(&self, priority: FeePriority) -> u64 {
-        let history = self.fee_history.read().unwrap();
-        
+        let history = match self.fee_history.read() {
+            Ok(h) => h,
+            Err(_) => {
+                // Return default fees on lock failure
+                return match priority {
+                    FeePriority::Economy => self.config.min_relay_fee,
+                    FeePriority::Standard => self.config.min_relay_fee * 2,
+                    FeePriority::Priority => self.config.min_relay_fee * 5,
+                };
+            }
+        };
+
         if history.is_empty() {
             // No history, return minimum fee scaled by priority
             return match priority {
@@ -221,18 +237,23 @@ impl FeeEstimator {
 
     /// Get fee distribution histogram
     pub fn get_fee_distribution(&self) -> FeeDistribution {
-        let history = self.fee_history.read().unwrap();
+        let default_distribution = FeeDistribution {
+            p25: self.config.min_relay_fee,
+            p50: self.config.min_relay_fee * 2,
+            p75: self.config.min_relay_fee * 3,
+            p90: self.config.min_relay_fee * 5,
+            min: self.config.min_relay_fee,
+            max: self.config.min_relay_fee * 10,
+            avg: self.config.min_relay_fee * 2,
+        };
+
+        let history = match self.fee_history.read() {
+            Ok(h) => h,
+            Err(_) => return default_distribution,
+        };
 
         if history.is_empty() {
-            return FeeDistribution {
-                p25: self.config.min_relay_fee,
-                p50: self.config.min_relay_fee * 2,
-                p75: self.config.min_relay_fee * 3,
-                p90: self.config.min_relay_fee * 5,
-                min: self.config.min_relay_fee,
-                max: self.config.min_relay_fee * 10,
-                avg: self.config.min_relay_fee * 2,
-            };
+            return default_distribution;
         }
 
         let mut fee_rates: Vec<u64> = history.iter().map(|d| d.median_fee_rate).collect();
@@ -243,8 +264,8 @@ impl FeeEstimator {
         let p50 = fee_rates[len / 2];
         let p75 = fee_rates[(len * 3) / 4];
         let p90 = fee_rates[(len * 9) / 10];
-        let min = *fee_rates.first().unwrap();
-        let max = *fee_rates.last().unwrap();
+        let min = fee_rates.first().copied().unwrap_or(self.config.min_relay_fee);
+        let max = fee_rates.last().copied().unwrap_or(self.config.min_relay_fee * 10);
         let avg = fee_rates.iter().sum::<u64>() / len as u64;
 
         FeeDistribution {
@@ -283,7 +304,11 @@ impl FeeEstimator {
 
     /// Calculate congestion multiplier based on mempool size
     fn calculate_congestion_multiplier(&self) -> f64 {
-        let mempool_size = *self.mempool_size.read().unwrap();
+        let mempool_size = self
+            .mempool_size
+            .read()
+            .map(|s| *s)
+            .unwrap_or(0); // Assume no congestion on lock failure
 
         if mempool_size < self.config.congestion_low_threshold {
             // Low congestion - discount
@@ -299,7 +324,7 @@ impl FeeEstimator {
 
     /// Get current fee history length
     pub fn history_length(&self) -> usize {
-        self.fee_history.read().unwrap().len()
+        self.fee_history.read().map(|h| h.len()).unwrap_or(0)
     }
 }
 
