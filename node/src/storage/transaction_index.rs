@@ -22,6 +22,8 @@ pub enum TransactionIndexError {
     Io(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
     Serialization(String),
+    #[error("Lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 /// Block location information
@@ -309,13 +311,15 @@ impl TransactionIndexer {
 
         // Update hash index
         {
-            let mut hash_idx = self.tx_hash_index.write().unwrap();
+            let mut hash_idx = self.tx_hash_index.write()
+                .map_err(|e| TransactionIndexError::LockPoisoned(format!("tx_hash_index: {}", e)))?;
             hash_idx.insert(tx_hash, indexed_tx.clone());
         }
 
         // Update address index
         if self.config.enable_address_index {
-            let mut addr_idx = self.address_index.write().unwrap();
+            let mut addr_idx = self.address_index.write()
+                .map_err(|e| TransactionIndexError::LockPoisoned(format!("address_index: {}", e)))?;
             for output in tx.outputs() {
                 let address = Self::extract_address_from_output(output);
                 if let Some(addr) = address {
@@ -326,14 +330,16 @@ impl TransactionIndexer {
 
         // Update height index
         {
-            let mut height_idx = self.height_index.write().unwrap();
+            let mut height_idx = self.height_index.write()
+                .map_err(|e| TransactionIndexError::LockPoisoned(format!("height_index: {}", e)))?;
             height_idx.add_transaction(height, tx_hash);
         }
 
         // Update green index
         if self.config.enable_green_index {
             if let Some(score) = environmental_score {
-                let mut green_idx = self.green_index.write().unwrap();
+                let mut green_idx = self.green_index.write()
+                    .map_err(|e| TransactionIndexError::LockPoisoned(format!("green_index: {}", e)))?;
                 green_idx.add_transaction(score, tx_hash);
             }
         }
@@ -341,7 +347,8 @@ impl TransactionIndexer {
         // Update Lightning index
         if self.config.enable_lightning_index {
             if let Some(channel_id) = lightning_channel_id {
-                let mut lightning_idx = self.lightning_index.write().unwrap();
+                let mut lightning_idx = self.lightning_index.write()
+                    .map_err(|e| TransactionIndexError::LockPoisoned(format!("lightning_index: {}", e)))?;
                 lightning_idx.add_transaction(channel_id, tx_hash);
             }
         }
@@ -354,7 +361,8 @@ impl TransactionIndexer {
         &self,
         tx_hash: &[u8; 32],
     ) -> Result<IndexedTransaction, TransactionIndexError> {
-        let hash_idx = self.tx_hash_index.read().unwrap();
+        let hash_idx = self.tx_hash_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("tx_hash_index: {}", e)))?;
         hash_idx
             .get(tx_hash)
             .cloned()
@@ -368,7 +376,8 @@ impl TransactionIndexer {
         limit: Option<usize>,
         offset: usize,
     ) -> Result<Vec<[u8; 32]>, TransactionIndexError> {
-        let addr_idx = self.address_index.read().unwrap();
+        let addr_idx = self.address_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("address_index: {}", e)))?;
         let mut txs = addr_idx
             .get_transactions(address)
             .cloned()
@@ -387,7 +396,8 @@ impl TransactionIndexer {
 
     /// Get transactions by block height
     pub fn get_transactions_by_height(&self, height: u64) -> Result<Vec<[u8; 32]>, TransactionIndexError> {
-        let height_idx = self.height_index.read().unwrap();
+        let height_idx = self.height_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("height_index: {}", e)))?;
         Ok(height_idx
             .get_transactions(height)
             .cloned()
@@ -395,9 +405,10 @@ impl TransactionIndexer {
     }
 
     /// Get green transactions (with minimum environmental score)
-    pub fn get_green_transactions(&self, min_score: f64) -> Vec<[u8; 32]> {
-        let green_idx = self.green_index.read().unwrap();
-        green_idx.get_transactions(min_score)
+    pub fn get_green_transactions(&self, min_score: f64) -> Result<Vec<[u8; 32]>, TransactionIndexError> {
+        let green_idx = self.green_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("green_index: {}", e)))?;
+        Ok(green_idx.get_transactions(min_score))
     }
 
     /// Get transactions for a Lightning channel
@@ -405,7 +416,8 @@ impl TransactionIndexer {
         &self,
         channel_id: &[u8; 32],
     ) -> Result<Vec<[u8; 32]>, TransactionIndexError> {
-        let lightning_idx = self.lightning_index.read().unwrap();
+        let lightning_idx = self.lightning_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("lightning_index: {}", e)))?;
         Ok(lightning_idx
             .get_transactions(channel_id)
             .cloned()
@@ -419,7 +431,8 @@ impl TransactionIndexer {
 
         // Remove from hash index
         {
-            let mut hash_idx = self.tx_hash_index.write().unwrap();
+            let mut hash_idx = self.tx_hash_index.write()
+                .map_err(|e| TransactionIndexError::LockPoisoned(format!("tx_hash_index: {}", e)))?;
             hash_idx.remove(tx_hash);
         }
 
@@ -432,14 +445,16 @@ impl TransactionIndexer {
 
         // Remove from height index
         {
-            let mut height_idx = self.height_index.write().unwrap();
+            let mut height_idx = self.height_index.write()
+                .map_err(|e| TransactionIndexError::LockPoisoned(format!("height_index: {}", e)))?;
             height_idx.remove_transaction(indexed_tx.location.height, tx_hash);
         }
 
         // Remove from green index (would need to rebuild)
         // Remove from Lightning index
         if let Some(channel_id) = indexed_tx.lightning_channel_id {
-            let mut lightning_idx = self.lightning_index.write().unwrap();
+            let mut lightning_idx = self.lightning_index.write()
+                .map_err(|e| TransactionIndexError::LockPoisoned(format!("lightning_index: {}", e)))?;
             lightning_idx.remove_transaction(&channel_id, tx_hash);
         }
 
@@ -456,7 +471,8 @@ impl TransactionIndexer {
         let mut pruned = 0;
 
         // Get transactions to prune from height index
-        let mut height_idx = self.height_index.write().unwrap();
+        let mut height_idx = self.height_index.write()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("height_index: {}", e)))?;
         let heights_to_prune: Vec<u64> = height_idx
             .index
             .range(..=threshold)
@@ -465,7 +481,8 @@ impl TransactionIndexer {
 
         for height in heights_to_prune {
             if let Some(txs) = height_idx.index.remove(&height) {
-                let mut hash_idx = self.tx_hash_index.write().unwrap();
+                let mut hash_idx = self.tx_hash_index.write()
+                    .map_err(|e| TransactionIndexError::LockPoisoned(format!("tx_hash_index: {}", e)))?;
                 for tx_hash in &txs {
                     if hash_idx.remove(tx_hash) {
                         pruned += 1;
@@ -478,20 +495,25 @@ impl TransactionIndexer {
     }
 
     /// Get statistics about the index
-    pub fn get_statistics(&self) -> IndexStatistics {
-        let hash_idx = self.tx_hash_index.read().unwrap();
-        let addr_idx = self.address_index.read().unwrap();
-        let height_idx = self.height_index.read().unwrap();
-        let green_idx = self.green_index.read().unwrap();
-        let lightning_idx = self.lightning_index.read().unwrap();
+    pub fn get_statistics(&self) -> Result<IndexStatistics, TransactionIndexError> {
+        let hash_idx = self.tx_hash_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("tx_hash_index: {}", e)))?;
+        let addr_idx = self.address_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("address_index: {}", e)))?;
+        let height_idx = self.height_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("height_index: {}", e)))?;
+        let green_idx = self.green_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("green_index: {}", e)))?;
+        let lightning_idx = self.lightning_index.read()
+            .map_err(|e| TransactionIndexError::LockPoisoned(format!("lightning_index: {}", e)))?;
 
-        IndexStatistics {
+        Ok(IndexStatistics {
             total_transactions: hash_idx.len(),
             indexed_addresses: addr_idx.index.len(),
             indexed_heights: height_idx.index.len(),
             green_transaction_count: green_idx.index.values().map(|v| v.len()).sum(),
             lightning_channel_count: lightning_idx.index.len(),
-        }
+        })
     }
 
     /// Extract address from transaction output
@@ -599,10 +621,10 @@ mod tests {
             .index_transaction(&tx, block_hash, 100, 0, Some(85.5), None)
             .unwrap();
 
-        let green_txs = indexer.get_green_transactions(80.0);
+        let green_txs = indexer.get_green_transactions(80.0).unwrap();
         assert!(green_txs.contains(&tx_hash));
 
-        let very_green_txs = indexer.get_green_transactions(90.0);
+        let very_green_txs = indexer.get_green_transactions(90.0).unwrap();
         assert!(!very_green_txs.contains(&tx_hash));
     }
 
@@ -641,7 +663,7 @@ mod tests {
             .index_transaction(&tx2, block_hash, 100, 1, None, None)
             .unwrap();
 
-        let stats = indexer.get_statistics();
+        let stats = indexer.get_statistics().unwrap();
         assert_eq!(stats.total_transactions, 2);
         assert_eq!(stats.indexed_heights, 1);
     }
@@ -670,7 +692,7 @@ mod tests {
             handle.join().unwrap();
         }
 
-        let stats = indexer.get_statistics();
+        let stats = indexer.get_statistics().unwrap();
         assert_eq!(stats.total_transactions, 10);
     }
 
