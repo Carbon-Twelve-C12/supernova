@@ -718,19 +718,15 @@ impl Channel {
             ));
         }
 
-        if self.funding_outpoint.is_none() {
-            return Err(ChannelError::FundingError(
-                "No funding outpoint".to_string(),
-            ));
-        }
+        let funding_outpoint = self.funding_outpoint.as_ref().ok_or_else(|| {
+            ChannelError::FundingError("No funding outpoint".to_string())
+        })?;
 
         // In a real implementation, this would:
         // 1. Create a transaction spending from the funding transaction's 2-of-2 output
         // 2. Create outputs for each side based on the current balance
         // 3. Add outputs for any pending HTLCs
         // 4. Set proper sequence numbers for timelocks
-
-        let funding_outpoint = self.funding_outpoint.as_ref().unwrap();
 
         let commitment_tx = Transaction::new(
             2, // version
