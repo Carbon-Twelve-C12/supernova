@@ -108,6 +108,8 @@ pub enum ManagerError {
     RouterError(String),
     #[error("Watchtower error: {0}")]
     WatchtowerError(String),
+    #[error("Lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 // Response types for API compatibility
@@ -517,9 +519,18 @@ impl LightningManager {
 
     /// Get Lightning Network information
     pub fn get_info(&self) -> Result<LightningInfo, ManagerError> {
-        let channels = self.channels.read().unwrap();
-        let pending_channels = self.pending_channels.read().unwrap();
-        let peers = self.peers.read().unwrap();
+        let channels = self
+            .channels
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("channels: {}", e)))?;
+        let pending_channels = self
+            .pending_channels
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("pending_channels: {}", e)))?;
+        let peers = self
+            .peers
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("peers: {}", e)))?;
 
         let active_channels: Vec<_> = channels
             .values()
@@ -598,20 +609,26 @@ impl LightningManager {
         let mut result = Vec::new();
 
         // Add active/inactive channels
-        let channels = self.channels.read().unwrap();
+        let channels = self
+            .channels
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("channels: {}", e)))?;
         for channel in channels.values() {
             if let Ok(info) = channel.get_channel_info() {
                 if include_inactive || info.state == ChannelState::Active {
-                    result.push(self.channel_to_lightning_channel(channel));
+                    result.push(self.channel_to_lightning_channel(channel)?);
                 }
             }
         }
 
         // Add pending channels
         if include_pending {
-            let pending_channels = self.pending_channels.read().unwrap();
+            let pending_channels = self
+                .pending_channels
+                .read()
+                .map_err(|e| ManagerError::LockPoisoned(format!("pending_channels: {}", e)))?;
             for channel in pending_channels.values() {
-                result.push(self.channel_to_lightning_channel(channel));
+                result.push(self.channel_to_lightning_channel(channel)?);
             }
         }
 
@@ -623,14 +640,20 @@ impl LightningManager {
         let channel_id = ChannelId::from_hex(channel_id)
             .map_err(|_| ManagerError::InvalidPaymentRequest("Invalid channel ID".to_string()))?;
 
-        let channels = self.channels.read().unwrap();
+        let channels = self
+            .channels
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("channels: {}", e)))?;
         if let Some(channel) = channels.get(&channel_id) {
-            return Ok(Some(self.channel_to_lightning_channel(channel)));
+            return Ok(Some(self.channel_to_lightning_channel(channel)?));
         }
 
-        let pending_channels = self.pending_channels.read().unwrap();
+        let pending_channels = self
+            .pending_channels
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("pending_channels: {}", e)))?;
         if let Some(channel) = pending_channels.get(&channel_id) {
-            return Ok(Some(self.channel_to_lightning_channel(channel)));
+            return Ok(Some(self.channel_to_lightning_channel(channel)?));
         }
 
         Ok(None)
@@ -664,7 +687,10 @@ impl LightningManager {
         }
 
         // Check wallet balance
-        let wallet = self.wallet.lock().unwrap();
+        let wallet = self
+            .wallet
+            .lock()
+            .map_err(|e| ManagerError::LockPoisoned(format!("wallet: {}", e)))?;
         let available_balance = wallet.get_balance();
         if available_balance < local_funding_amount {
             return Err(ManagerError::InsufficientBalance {
@@ -704,7 +730,10 @@ impl LightningManager {
 
         // Add to pending channels
         {
-            let mut pending_channels = self.pending_channels.write().unwrap();
+            let mut pending_channels = self
+                .pending_channels
+                .write()
+                .map_err(|e| ManagerError::LockPoisoned(format!("pending_channels: {}", e)))?;
             pending_channels.insert(channel_id.clone(), atomic_channel);
         }
 
@@ -729,7 +758,10 @@ impl LightningManager {
 
         // Find channel
         let atomic_channel = {
-            let mut channels = self.channels.write().unwrap();
+            let mut channels = self
+                .channels
+                .write()
+                .map_err(|e| ManagerError::LockPoisoned(format!("channels: {}", e)))?;
             channels.remove(&channel_id)
         };
 
@@ -788,7 +820,10 @@ impl LightningManager {
         max_payments: u64,
         include_pending: bool,
     ) -> Result<Vec<LightningPayment>, ManagerError> {
-        let payments = self.payments.read().unwrap();
+        let payments = self
+            .payments
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("payments: {}", e)))?;
 
         let mut result: Vec<_> = payments
             .values()
@@ -857,7 +892,7 @@ impl LightningManager {
             status: PaymentStatus::Pending,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs(),
             completed_at: None,
             fee_mnova: route.total_fee_mnova,
@@ -880,7 +915,10 @@ impl LightningManager {
 
         // Store payment with original request
         {
-            let mut payments = self.payments.write().unwrap();
+            let mut payments = self
+                .payments
+                .write()
+                .map_err(|e| ManagerError::LockPoisoned(format!("payments: {}", e)))?;
             payments.insert(payment_hash, payment);
         }
 
@@ -889,14 +927,17 @@ impl LightningManager {
 
         // Update payment status
         {
-            let mut payments = self.payments.write().unwrap();
+            let mut payments = self
+                .payments
+                .write()
+                .map_err(|e| ManagerError::LockPoisoned(format!("payments: {}", e)))?;
             if let Some(payment) = payments.get_mut(&payment_hash) {
                 payment.status = PaymentStatus::Succeeded;
                 payment.payment_preimage = Some(preimage);
                 payment.completed_at = Some(
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_secs(),
                 );
             }
@@ -918,7 +959,7 @@ impl LightningManager {
             value_mnova: amount,
             creation_time_ns: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos() as u64,
         })
     }
@@ -930,7 +971,10 @@ impl LightningManager {
         index_offset: u64,
         num_max_invoices: u64,
     ) -> Result<Vec<LightningInvoice>, ManagerError> {
-        let invoices = self.invoices.read().unwrap();
+        let invoices = self
+            .invoices
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("invoices: {}", e)))?;
 
         let result: Vec<_> = invoices
             .values()
@@ -966,13 +1010,19 @@ impl LightningManager {
 
         // Store invoice using payment module types
         {
-            let mut invoices = self.invoices.write().unwrap();
+            let mut invoices = self
+                .invoices
+                .write()
+                .map_err(|e| ManagerError::LockPoisoned(format!("invoices: {}", e)))?;
             invoices.insert(payment_hash, invoice.clone());
         }
 
         // Convert HTLCs from invoice (if any pending)
         let _htlcs = {
-            let channels = self.channels.read().unwrap();
+            let channels = self
+                .channels
+                .read()
+                .map_err(|e| ManagerError::LockPoisoned(format!("channels: {}", e)))?;
             let mut invoice_htlcs = vec![];
 
             for atomic_channel in channels.values() {
@@ -1019,17 +1069,17 @@ impl LightningManager {
     fn channel_to_lightning_channel(
         &self,
         atomic_channel: &Arc<AtomicChannel>,
-    ) -> LightningChannel {
+    ) -> Result<LightningChannel, ManagerError> {
         // Get channel info atomically
-        let channel_info = atomic_channel
-            .get_channel_info()
-            .unwrap_or_else(|_| panic!("Failed to get channel info"));
+        let channel_info = atomic_channel.get_channel_info().map_err(|e| {
+            ManagerError::ChannelError(format!("Failed to get channel info: {}", e))
+        })?;
 
         // Get the underlying channel for detailed info
         let channel = atomic_channel
             .channel
             .lock()
-            .unwrap_or_else(|_| panic!("Failed to lock channel"));
+            .map_err(|e| ManagerError::LockPoisoned(format!("channel: {}", e)))?;
 
         // Calculate actual statistics from channel data
         let total_novas_sent = channel
@@ -1051,11 +1101,11 @@ impl LightningManager {
         // Calculate uptime
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
         let uptime = current_time - channel_info.last_operation_time;
 
-        LightningChannel {
+        Ok(LightningChannel {
             channel_id: hex::encode(channel_info.channel_id),
             remote_pubkey: hex::encode(channel.remote_node_id.serialize()),
             capacity: channel_info.capacity_novas,
@@ -1114,7 +1164,7 @@ impl LightningManager {
                 min_htlc_mnova: channel.min_htlc_value_novas * 1000,
                 max_accepted_htlcs: channel.max_accepted_htlcs as u32,
             },
-        }
+        })
     }
 
     fn payment_to_lightning_payment(&self, payment: &Payment) -> LightningPayment {
@@ -1210,7 +1260,10 @@ impl LightningManager {
     fn invoice_to_lightning_invoice(&self, invoice: &Invoice) -> LightningInvoice {
         // Get HTLCs for this invoice
         let htlcs = {
-            let channels = self.channels.read().unwrap();
+            let channels = match self.channels.read() {
+                Ok(c) => c,
+                Err(_) => return self.default_lightning_invoice(invoice),
+            };
             let mut invoice_htlcs = vec![];
 
             for (channel_id, atomic_channel) in channels.iter() {
@@ -1298,12 +1351,69 @@ impl LightningManager {
         }
     }
 
+    fn default_lightning_invoice(&self, invoice: &Invoice) -> LightningInvoice {
+        let payment_request = self.encode_payment_request(invoice).unwrap_or_default();
+        let add_index = self
+            .invoice_index
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let settle_index = if invoice.is_settled() { add_index } else { 0 };
+
+        LightningInvoice {
+            memo: invoice.description().to_string(),
+            r_preimage: invoice.payment_preimage().as_bytes().to_vec(),
+            r_hash: invoice.payment_hash().as_bytes().to_vec(),
+            value: invoice.amount_mnova() / 1000,
+            value_mnova: invoice.amount_mnova(),
+            settled: invoice.is_settled(),
+            creation_date: invoice.created_at(),
+            settle_date: invoice.settled_at().unwrap_or(0),
+            payment_request,
+            description_hash: vec![],
+            expiry: invoice.expiry_seconds() as u64,
+            fallback_addr: "".to_string(),
+            cltv_expiry: invoice.min_final_cltv_expiry() as u64,
+            route_hints: vec![],
+            private: invoice.is_private(),
+            add_index,
+            settle_index,
+            amt_paid: if invoice.is_settled() {
+                invoice.amount_mnova() / 1000
+            } else {
+                0
+            },
+            amt_paid_nova_units: if invoice.is_settled() {
+                invoice.amount_mnova() / 1000
+            } else {
+                0
+            },
+            amt_paid_mnova: if invoice.is_settled() {
+                invoice.amount_mnova()
+            } else {
+                0
+            },
+            state: if invoice.is_settled() {
+                "SETTLED".to_string()
+            } else {
+                "OPEN".to_string()
+            },
+            htlcs: vec![],
+            features: HashMap::new(),
+            is_keysend: false,
+            payment_addr: vec![],
+            is_amp: false,
+            amp_invoice_state: HashMap::new(),
+        }
+    }
+
     async fn create_funding_transaction(
         &self,
         amount: u64,
         channel_id: &ChannelId,
     ) -> Result<Transaction, ManagerError> {
-        let wallet = self.wallet.lock().unwrap();
+        let wallet = self
+            .wallet
+            .lock()
+            .map_err(|e| ManagerError::LockPoisoned(format!("wallet: {}", e)))?;
         wallet
             .create_funding_transaction(amount, channel_id)
             .map_err(|e| ManagerError::WalletError(e.to_string()))
@@ -1401,7 +1511,10 @@ impl LightningManager {
             Ok(route) => {
                 if route.total_fee_mnova <= fee_limit_mnova {
                     // Get channel capacities for each hop
-                    let channels = self.channels.read().unwrap();
+                    let channels = self
+                        .channels
+                        .read()
+                        .map_err(|e| ManagerError::LockPoisoned(format!("channels: {}", e)))?;
 
                     Ok(Some(Route {
                         total_time_lock: route
@@ -1480,7 +1593,10 @@ impl LightningManager {
 
         let payment_hash_obj = crate::lightning::payment::PaymentHash::new(hash_array);
 
-        let payments = self.payments.read().unwrap();
+        let payments = self
+            .payments
+            .read()
+            .map_err(|e| ManagerError::LockPoisoned(format!("payments: {}", e)))?;
         let payment = payments
             .get(&payment_hash_obj)
             .ok_or_else(|| ManagerError::PaymentNotFound("Payment not found".to_string()))?;
