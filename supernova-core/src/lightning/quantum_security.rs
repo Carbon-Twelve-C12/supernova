@@ -214,7 +214,7 @@ impl QuantumChannelSecurity {
             level: channel_state.security_level,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs(),
             entropy_source: "quantum_rng".to_string(),
             pq_proof: None, // Could add zero-knowledge proofs here
@@ -320,7 +320,9 @@ impl QuantumRng {
     pub fn fill_bytes(&self, dest: &mut [u8]) -> Result<(), QuantumSecurityError> {
         // In a real implementation, this would use quantum entropy sources
         // For now, use cryptographically secure PRNG
-        let mut rng = self.rng.lock().unwrap();
+        let mut rng = self.rng.lock().map_err(|e| {
+            QuantumSecurityError::QuantumRngError(format!("Lock poisoned: {}", e))
+        })?;
         rng.fill_bytes(dest);
         Ok(())
     }

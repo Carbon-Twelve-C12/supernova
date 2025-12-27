@@ -1170,8 +1170,14 @@ impl Router {
         let amount_mnova = path.total_amount_mnova;
 
         // Get start and end nodes
-        let _source = &path.hops.first().unwrap().node_id;
-        let destination = &path.hops.last().unwrap().node_id;
+        let _source = match path.hops.first() {
+            Some(hop) => &hop.node_id,
+            None => return Ok(path.clone()),
+        };
+        let destination = match path.hops.last() {
+            Some(hop) => &hop.node_id,
+            None => return Ok(path.clone()),
+        };
 
         // Create modified preferences that optimize for fees
         let fee_preferences = self.preferences.clone();
@@ -1458,7 +1464,9 @@ impl MultiPathPaymentCoordinator {
         let mut tracker = PaymentTracker::new(payment_hash, amount_mnova);
 
         // Get the router
-        let router = self.router.read().unwrap();
+        let router = self.router.read().map_err(|_| {
+            RoutingError::GraphError("Router lock poisoned".to_string())
+        })?;
 
         // Split the payment across multiple routes
         let split_payment = router.split_payment(destination, amount_mnova, &[], num_parts)?;
@@ -1539,7 +1547,9 @@ impl MultiPathPaymentCoordinator {
         let mut retried_parts = Vec::new();
 
         // Get the router
-        let router = self.router.read().unwrap();
+        let router = self.router.read().map_err(|_| {
+            RoutingError::GraphError("Router lock poisoned".to_string())
+        })?;
 
         for (amount_mnova, path) in failed_part_data {
             // Try to find a new route for this part

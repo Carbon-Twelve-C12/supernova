@@ -249,8 +249,9 @@ impl PeerDiscovery {
 
                     // Add to known peers
                     {
-                        let mut known_peers = self.known_peers.lock().unwrap();
-                        known_peers.entry(peer_id).or_default().push(addr.clone());
+                        if let Ok(mut known_peers) = self.known_peers.lock() {
+                            known_peers.entry(peer_id).or_default().push(addr.clone());
+                        }
                     }
 
                     // Add to Kademlia routing table if available
@@ -279,7 +280,10 @@ impl PeerDiscovery {
 
                     // Remove address from known peers
                     {
-                        let mut known_peers = self.known_peers.lock().unwrap();
+                        let mut known_peers = match self.known_peers.lock() {
+                            Ok(kp) => kp,
+                            Err(_) => continue, // Skip on lock failure
+                        };
                         if let Some(addresses) = known_peers.get_mut(&peer_id) {
                             addresses.retain(|a| a != &addr);
                             if addresses.is_empty() {
@@ -319,8 +323,10 @@ impl PeerDiscovery {
 
     /// Get known peers with their addresses
     pub fn get_known_peers(&self) -> HashMap<PeerId, Vec<Multiaddr>> {
-        let known_peers = self.known_peers.lock().unwrap();
-        known_peers.clone()
+        match self.known_peers.lock() {
+            Ok(known_peers) => known_peers.clone(),
+            Err(_) => HashMap::new(), // Return empty map on lock failure
+        }
     }
 
     /// Get verified peers

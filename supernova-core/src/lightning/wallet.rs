@@ -470,7 +470,15 @@ impl LightningWallet {
         }
 
         // Create a payment record for the received payment
-        let invoice = self.invoices.get(&hash).unwrap();
+        // Safe: we just verified contains_key above
+        let invoice = match self.invoices.get(&hash) {
+            Some(inv) => inv,
+            None => {
+                return Err(WalletError::InvoiceError(InvoiceError::InvalidHash(
+                    "Invoice not found".to_string(),
+                )));
+            }
+        };
         let payment = Payment {
             hash,
             amount_mnova: invoice.amount_mnova(),

@@ -293,7 +293,7 @@ impl PaymentProcessor {
             status: PaymentStatus::Pending,
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs(),
             completed_at: None,
             fee_mnova: 0,
@@ -372,7 +372,7 @@ impl PaymentProcessor {
             payment.completed_at = Some(
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_secs(),
             );
             payment.payment_preimage = Some(preimage_obj);
@@ -403,7 +403,7 @@ impl PaymentProcessor {
             payment.completed_at = Some(
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_secs(),
             );
             payment.failure_reason = Some(reason.to_string());

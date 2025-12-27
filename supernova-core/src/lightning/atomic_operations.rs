@@ -326,7 +326,7 @@ impl AtomicChannel {
         self.state.last_operation_time.store(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
             Ordering::SeqCst,
         );
@@ -430,7 +430,7 @@ impl AtomicChannel {
         self.state.last_operation_time.store(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
             Ordering::SeqCst,
         );
@@ -525,7 +525,7 @@ impl AtomicChannel {
         self.state.last_operation_time.store(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
             Ordering::SeqCst,
         );

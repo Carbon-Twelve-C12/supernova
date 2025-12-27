@@ -450,9 +450,22 @@ impl OnionRouter {
         let payload_bytes = &routing_info[..PER_HOP_PAYLOAD_SIZE];
 
         // Deserialize (simplified)
-        let amount_mnova = u64::from_be_bytes(payload_bytes[0..8].try_into().unwrap());
-        let outgoing_cltv_value = u32::from_be_bytes(payload_bytes[8..12].try_into().unwrap());
-        let short_channel_id = u64::from_be_bytes(payload_bytes[12..20].try_into().unwrap());
+        // Safe: we verified payload_bytes.len() >= PER_HOP_PAYLOAD_SIZE (65) above
+        let amount_mnova = u64::from_be_bytes(
+            payload_bytes[0..8]
+                .try_into()
+                .map_err(|_| OnionError::InvalidPayload)?,
+        );
+        let outgoing_cltv_value = u32::from_be_bytes(
+            payload_bytes[8..12]
+                .try_into()
+                .map_err(|_| OnionError::InvalidPayload)?,
+        );
+        let short_channel_id = u64::from_be_bytes(
+            payload_bytes[12..20]
+                .try_into()
+                .map_err(|_| OnionError::InvalidPayload)?,
+        );
 
         Ok(PerHopPayload {
             amount_mnova,

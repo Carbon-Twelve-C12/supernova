@@ -319,7 +319,7 @@ impl BlockPropagationManager {
         // Check timestamp (not too far in future)
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
         if header.timestamp() > current_time + 7200 {
             // More than 2 hours in future

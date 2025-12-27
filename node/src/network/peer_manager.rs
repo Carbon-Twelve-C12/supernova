@@ -118,7 +118,7 @@ impl PeerManager {
         let mut peer_scores: Vec<(PeerId, f64)> =
             scores.iter().map(|(id, score)| (*id, *score)).collect();
 
-        peer_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        peer_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         peer_scores
             .into_iter()
             .take(count)
@@ -255,7 +255,7 @@ impl PeerManager {
             .map(|(id, score)| (*id, *score))
             .collect();
 
-        peer_scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        peer_scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         peer_scores
             .into_iter()
             .take(count)
