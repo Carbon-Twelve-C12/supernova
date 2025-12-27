@@ -571,7 +571,13 @@ impl UtxoSet {
     /// Get all UTXOs for a list of addresses
     pub fn get_utxos_for_addresses(&self, addresses: &[QuantumAddress]) -> Vec<UtxoEntry> {
         let mut utxos = Vec::new();
-        let cache = self.cache.read().unwrap();
+        let cache = match self.cache.read() {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Failed to read UTXO cache for addresses: {}", e);
+                return utxos; // Return empty vec on error
+            }
+        };
         // let address_scripts: Vec<ScriptBuf> = addresses.iter().filter_map(|a| {
         //     Address::from_str(&a.address).ok().map(|addr| {
         //         // Assume network for the address - using a default network
@@ -589,7 +595,13 @@ impl UtxoSet {
 
     /// Get the count of UTXOs in the set
     pub fn get_count(&self) -> usize {
-        self.cache.read().unwrap().len()
+        match self.cache.read() {
+            Ok(cache) => cache.len(),
+            Err(e) => {
+                error!("Failed to read UTXO cache for count: {}", e);
+                0
+            }
+        }
     }
 }
 
