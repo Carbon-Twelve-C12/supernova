@@ -204,7 +204,11 @@ prometheus:
 
 grafana:
   enabled: true
-  adminPassword: "supernova-admin-password"
+  # SECURITY: Admin password MUST be set via Kubernetes Secret
+  # Create secret: kubectl create secret generic grafana-admin-prod --from-literal=password=YOUR_SECURE_PASSWORD -n supernova
+  # Reference in deployment with existingSecret: grafana-admin-prod
+  adminPassword: ""  # DO NOT hardcode - use existingSecret below
+  # existingSecret: grafana-admin-prod  # Uncomment and create secret before deployment
   service:
     type: ClusterIP
     port: 3000

@@ -14,8 +14,12 @@ enabled = true
 host = "0.0.0.0"
 port = 8332
 max_connections = 200
-username = "supernova"
-password = "testnet123"
+
+# RPC authentication - SECURITY: Set credentials via environment variables
+# Export before running: export SUPERNOVA_RPC_USERNAME=your_username
+#                        export SUPERNOVA_RPC_PASSWORD=your_secure_password
+username = "${SUPERNOVA_RPC_USERNAME}"
+password = "${SUPERNOVA_RPC_PASSWORD}"
 
 [blockchain]
 target_block_time = 150

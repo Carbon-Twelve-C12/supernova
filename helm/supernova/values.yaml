@@ -137,9 +137,11 @@ prometheus:
 # Grafana dashboard
 grafana:
   enabled: true
-  
-  # Admin password
-  adminPassword: "supernova"
+
+  # Admin password - MUST be set via Kubernetes Secret or environment variable
+  # Set via: kubectl create secret generic grafana-admin --from-literal=password=YOUR_SECURE_PASSWORD
+  # Or set GRAFANA_ADMIN_PASSWORD environment variable before deployment
+  adminPassword: ""  # DO NOT hardcode - use existingSecret or env var
   
   # Storage configuration  
   persistence:

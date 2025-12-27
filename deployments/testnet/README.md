@@ -123,7 +123,7 @@ Once the testnet is running, you can access the following services:
 - **Faucet Web Interface**: http://localhost:8080
   - **Note**: Web interfaces have been moved to [supernova-web](https://github.com/Carbon-Twelve-C12/supernova-web) repository
 - **Prometheus**: http://localhost:9090
-- **Grafana**: http://localhost:3000 (username: admin, password: supernova)
+- **Grafana**: http://localhost:3000 (username: admin, password: set via GRAFANA_ADMIN_PASSWORD env var)
 - **Node RPC**:
   - Seed Node 1: http://localhost:9332
   - Seed Node 2: http://localhost:9335

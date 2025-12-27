@@ -66,7 +66,7 @@ The following table lists the configurable parameters of the Supernova chart and
 | `alertManager.receivers.email.enabled`    | Enable email alerts                                | `true`                               |
 | `alertManager.receivers.slack.enabled`    | Enable Slack alerts                                | `true`                               |
 | `grafana.enabled`                         | Deploy Grafana dashboard                           | `true`                               |
-| `grafana.adminPassword`                   | Admin password for Grafana                         | `supernova-admin-password`           |
+| `grafana.adminPassword`                   | Admin password for Grafana (use K8s Secret)        | `""` (set via existingSecret)        |
 | `backupManager.enabled`                   | Enable automated backups                           | `true`                               |
 | `backupManager.schedule`                  | Backup schedule (cron format)                      | `"0 0 * * *"` (daily at midnight)    |
 | `backupManager.retentionDays`             | Number of days to retain backups                   | `30`                                 |

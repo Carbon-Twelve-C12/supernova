@@ -17,9 +17,13 @@ host = "0.0.0.0"
 port = 8332
 # Maximum concurrent RPC connections
 max_connections = 100
-# RPC authentication (should be changed in production)
-username = "supernova"
-password = "testnet123"
+
+# RPC authentication - SECURITY: Set credentials via environment variables
+# Export before running: export SUPERNOVA_RPC_USERNAME=your_username
+#                        export SUPERNOVA_RPC_PASSWORD=your_secure_password
+# Or create a local override file: testnet-node.local.toml (gitignored)
+username = "${SUPERNOVA_RPC_USERNAME}"
+password = "${SUPERNOVA_RPC_PASSWORD}"
 
 [blockchain]
 # Target block time in seconds (2.5 minutes)
@@ -98,6 +102,12 @@ endpoint = "/metrics"
 enabled = true
 # API documentation
 swagger_enabled = true
-# CORS settings
+# CORS settings - SECURITY: Restrict to known origins only
 cors_enabled = true
-cors_origins = ["*"] 
+cors_origins = [
+    "https://explorer.supernovanetwork.xyz",
+    "https://dashboard.supernovanetwork.xyz",
+    "https://faucet.supernovanetwork.xyz",
+    "https://api.supernovanetwork.xyz"
+]
+# For local development, add: "http://localhost:3000", "http://localhost:8080" 
