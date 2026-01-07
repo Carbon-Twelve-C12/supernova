@@ -70,7 +70,7 @@ impl Default for ValidationConfig {
             dust_threshold: 546, // Similar to Bitcoin's dust threshold
             allow_zero_value: false,
             min_fee_rate: 1,
-            max_fee_rate: 1_000_000, // Very high to effectively disable the check
+            max_fee_rate: 100, // Prevents fee sniping attacks (100 sats/byte max)
         }
     }
 }
