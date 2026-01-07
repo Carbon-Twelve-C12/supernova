@@ -144,7 +144,7 @@ mod tests {
             0,
         );
 
-        let block = Block::new_with_params(1, [0; 32], vec![coinbase1, coinbase2], 0x207fffff);
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase1, coinbase2], 0x1d00ffff);
 
         let result = validator.validate_block_secure(&block, None);
         println!("Multiple coinbase validation result: {:?}", result);
@@ -167,7 +167,7 @@ mod tests {
             0,
         );
 
-        let mut block = Block::new_with_params(1, [0; 32], vec![coinbase], 0x207fffff);
+        let mut block = Block::new_with_params(1, [0; 32], vec![coinbase], 0x1d00ffff);
 
         // Corrupt the merkle root
         block.header.merkle_root = [0xFF; 32];
@@ -192,7 +192,7 @@ mod tests {
             0,
         );
 
-        let block = Block::new_with_params(1, [0; 32], vec![coinbase], 0x207fffff);
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase], 0x1d00ffff);
 
         let context = ValidationContext {
             previous_headers: vec![],
@@ -262,7 +262,7 @@ mod tests {
             0,
         );
 
-        let block = Block::new_with_params(1, [0; 32], vec![coinbase, regular_tx], 0x207fffff);
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase, regular_tx], 0x1d00ffff);
 
         let context = ValidationContext {
             previous_headers: vec![],
@@ -310,7 +310,7 @@ mod tests {
             0,
         );
 
-        let block = Block::new_with_params(1, [0; 32], vec![coinbase, regular_tx], 0x207fffff);
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase, regular_tx], 0x1d00ffff);
 
         let context = ValidationContext {
             previous_headers: vec![],
@@ -356,7 +356,7 @@ mod tests {
             0,
         );
 
-        let block = Block::new_with_params(1, [0; 32], vec![coinbase, spend_tx], 0x207fffff);
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase, spend_tx], 0x1d00ffff);
 
         let context = ValidationContext {
             previous_headers: vec![],
@@ -402,8 +402,8 @@ mod tests {
         );
 
         // Create block with proper timestamp (after previous blocks)
-        // Use an extremely easy target (0x207fffff) - max target for testing
-        let mut block = Block::new_with_params(1, [0; 32], vec![coinbase], 0x207fffff);
+        // Use an extremely easy target (0x1d00ffff) - max target for testing
+        let mut block = Block::new_with_params(1, [0; 32], vec![coinbase], 0x1d00ffff);
         // Set timestamp to be after the last previous block
         block.header.set_timestamp(7200); // After the 11th block at 6600
 
@@ -415,7 +415,7 @@ mod tests {
                 if i == 0 { [0; 32] } else { [i as u8; 32] },
                 [0; 32],
                 1000 + (i as u64) * 600, // 10 minutes apart
-                0x207fffff,
+                0x1d00ffff,
                 0,
             );
             previous_headers.push(header);

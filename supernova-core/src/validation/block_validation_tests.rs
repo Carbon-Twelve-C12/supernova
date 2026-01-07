@@ -19,7 +19,7 @@ mod tests {
 
         let mut header = BlockHeader::new(
             version, prev_hash, [0; 32], // Merkle root will be calculated
-            timestamp, 0x207fffff, // Test difficulty - max target
+            timestamp, 0x1d00ffff, // Test difficulty within valid bounds
             0,
         );
         header.set_height(height);

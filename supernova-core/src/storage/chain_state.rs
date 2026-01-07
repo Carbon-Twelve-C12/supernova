@@ -1269,8 +1269,9 @@ mod tests {
         let coinbase_tx = Transaction::new(1, vec![coinbase_input], vec![coinbase_output], 0);
 
         // Use a test-friendly target if target is u32::MAX
+        // 0x1d00ffff is within valid bounds [0x1b00ffff, 0x1e0fffff]
         let safe_target = if target == u32::MAX {
-            0x207fffff
+            0x1d00ffff
         } else {
             target
         };

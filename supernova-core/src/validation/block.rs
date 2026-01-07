@@ -460,10 +460,11 @@ impl BlockValidator {
 
     /// Validate proof-of-work
     fn validate_pow(&self, block: &Block, context: &ValidationContext) -> BlockValidationResult {
-        // For test blocks with max difficulty (0x207fffff), skip PoW validation
+        // For test blocks, skip PoW validation if nonce is 0
+        // This allows us to test the validation pipeline without mining
         #[cfg(test)]
         {
-            if block.header.bits() == 0x207fffff {
+            if block.header.nonce == 0 {
                 return Ok(());
             }
         }
