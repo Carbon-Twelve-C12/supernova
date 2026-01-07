@@ -231,13 +231,13 @@ mod tests {
         };
         let pool = TransactionPool::new(config);
 
-        // Add original transaction
+        // Add original transaction (fee rate >= 1000 for rate limiter)
         let tx1 = create_test_transaction([1u8; 32], 50_000);
-        pool.add_transaction(tx1, 10).unwrap();
+        pool.add_transaction(tx1, 10000).unwrap();
 
-        // Try RBF with only 5% increase - should fail
-        let tx2 = create_test_transaction([1u8; 32], 50_000); // Same input
-        let result = pool.replace_transaction(tx2, 10); // Same fee rate
+        // Try RBF with same fee rate - should fail (need 10% more)
+        let tx2 = create_test_transaction([1u8; 32], 50_001); // Different output, same input
+        let result = pool.replace_transaction(tx2, 10000); // Same fee rate
 
         assert!(matches!(result, Err(MempoolError::FeeTooLow { .. })));
 
@@ -254,15 +254,15 @@ mod tests {
         };
         let pool = TransactionPool::new(config);
 
-        // Add original transaction
+        // Add original transaction (fee rate >= 1000 for rate limiter)
         let tx1 = create_test_transaction([1u8; 32], 50_000);
         let tx1_hash = tx1.hash();
-        pool.add_transaction(tx1, 10).unwrap();
+        pool.add_transaction(tx1, 10000).unwrap();
 
         // RBF with 50% increase - should succeed
         let tx2 = create_test_transaction([1u8; 32], 49_000); // Different output, same input
         let tx2_hash = tx2.hash();
-        let result = pool.replace_transaction(tx2, 15); // 50% higher fee rate
+        let result = pool.replace_transaction(tx2, 15000); // 50% higher fee rate
 
         assert!(result.is_ok());
         assert!(pool.get_transaction(&tx1_hash).is_none(), "Original tx should be removed");

@@ -26,6 +26,10 @@ pub enum MempoolError {
     #[error("Fee too low: required {required}, provided {provided}")]
     FeeTooLow { required: u64, provided: u64 },
 
+    // SECURITY (P1-002): Fee sniping protection
+    #[error("Fee too high: max allowed {max_allowed}, provided {provided} (prevents fee sniping attacks)")]
+    FeeTooHigh { max_allowed: u64, provided: u64 },
+
     #[error("Double spend detected: {0}")]
     DoubleSpend(String),
 

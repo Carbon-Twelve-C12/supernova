@@ -275,6 +275,7 @@ fn test_eviction_policy() {
         max_size: 5,  // Small pool for testing
         max_age: 3600,
         min_fee_rate: 100,
+        max_fee_rate: 10000, // High enough for test fee rates
         enable_rbf: true,
         min_rbf_fee_increase: 10.0,
     };

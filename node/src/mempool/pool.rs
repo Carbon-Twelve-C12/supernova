@@ -20,6 +20,9 @@ pub struct MempoolConfig {
     pub max_age: u64,
     /// Minimum fee rate (novas per byte) for acceptance
     pub min_fee_rate: u64,
+    /// Maximum fee rate (novas per byte) for acceptance
+    /// SECURITY (P1-002): Prevents fee sniping attacks and protects users from excessive fees
+    pub max_fee_rate: u64,
     /// Whether Replace-By-Fee is enabled
     pub enable_rbf: bool,
     /// Minimum fee increase required for RBF (as a percentage)
@@ -32,6 +35,7 @@ impl From<config::MempoolConfig> for MempoolConfig {
             max_size: config.max_size,
             max_age: config.transaction_timeout.as_secs(),
             min_fee_rate: config.min_fee_rate as u64,
+            max_fee_rate: config.max_fee_rate as u64, // SECURITY (P1-002): Wire max_fee_rate
             enable_rbf: config.enable_rbf,
             min_rbf_fee_increase: config.min_rbf_fee_increase,
         }
@@ -44,6 +48,7 @@ impl Default for MempoolConfig {
             max_size: 5000,             // Default to 5000 transactions
             max_age: 72 * 3600,         // 72 hours in seconds
             min_fee_rate: 1,            // 1 nova per byte
+            max_fee_rate: 100000,       // SECURITY (P1-002): 100K novas/byte max prevents fee sniping
             enable_rbf: true,           // Enable RBF by default
             min_rbf_fee_increase: 10.0, // 10% minimum fee increase
         }
@@ -127,6 +132,15 @@ impl TransactionPool {
         if fee_rate < self.config.min_fee_rate {
             return Err(MempoolError::FeeTooLow {
                 required: self.config.min_fee_rate,
+                provided: fee_rate,
+            });
+        }
+
+        // SECURITY (P1-002): Check maximum fee rate to prevent fee sniping attacks
+        // This protects users from accidentally paying excessive fees
+        if fee_rate > self.config.max_fee_rate {
+            return Err(MempoolError::FeeTooHigh {
+                max_allowed: self.config.max_fee_rate,
                 provided: fee_rate,
             });
         }
@@ -746,7 +760,8 @@ mod tests {
         let tx = create_test_transaction([1u8; 32], 50_000_000);
         let tx_hash = tx.hash();
 
-        assert!(pool.add_transaction(tx.clone(), 2).is_ok());
+        // Fee rate must be >= 1000 (rate limiter MIN_FEE_RATE)
+        assert!(pool.add_transaction(tx.clone(), 2000).is_ok());
 
         // Compare transaction hashes instead of transactions directly
         let tx_from_pool = pool.get_transaction(&tx_hash).unwrap();
@@ -758,9 +773,9 @@ mod tests {
         let config = MempoolConfig::default();
         let pool = TransactionPool::new(config);
 
-        // Add first transaction
+        // Add first transaction (fee rate >= 1000 for rate limiter)
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
-        assert!(pool.add_transaction(tx1, 2).is_ok());
+        assert!(pool.add_transaction(tx1, 2000).is_ok());
 
         // Try to add second transaction spending same output
         let tx2 = create_test_transaction([1u8; 32], 40_000_000);
@@ -779,8 +794,9 @@ mod tests {
         let tx1_hash = tx1.hash();
         let tx2_hash = tx2.hash();
 
-        pool.add_transaction(tx1.clone(), 1).unwrap();
-        pool.add_transaction(tx2.clone(), 2).unwrap();
+        // Fee rates must be >= 1000 (rate limiter MIN_FEE_RATE)
+        pool.add_transaction(tx1.clone(), 1000).unwrap();
+        pool.add_transaction(tx2.clone(), 2000).unwrap();
 
         let sorted = pool.get_sorted_transactions();
 
@@ -798,17 +814,17 @@ mod tests {
         };
         let pool = TransactionPool::new(config);
 
-        // Add first transaction with low fee
+        // Add first transaction with low fee (>= 1000 for rate limiter)
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
         let tx1_hash = tx1.hash();
-        pool.add_transaction(tx1.clone(), 1).unwrap();
+        pool.add_transaction(tx1.clone(), 1000).unwrap();
 
-        // Create replacement transaction with same inputs but higher fee
-        let tx2 = create_test_transaction([1u8; 32], 50_000_000);
+        // Create replacement transaction with same inputs but DIFFERENT output (different hash)
+        let tx2 = create_test_transaction([1u8; 32], 50_000_001); // Different value
         let tx2_hash = tx2.hash();
 
         // Replace should succeed with higher fee rate
-        assert!(pool.replace_transaction(tx2.clone(), 2).is_ok());
+        assert!(pool.replace_transaction(tx2.clone(), 2000).is_ok());
 
         // Original transaction should be gone
         assert!(pool.get_transaction(&tx1_hash).is_none());
@@ -825,16 +841,16 @@ mod tests {
         };
         let pool = TransactionPool::new(config);
 
-        // Add first transaction
+        // Add first transaction (fee rate >= 1000 for rate limiter)
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
-        pool.add_transaction(tx1.clone(), 1).unwrap();
+        pool.add_transaction(tx1.clone(), 1000).unwrap();
 
         // Create replacement transaction
         let tx2 = create_test_transaction([1u8; 32], 50_000_000);
 
         // RBF should fail when disabled
         assert!(matches!(
-            pool.replace_transaction(tx2, 2),
+            pool.replace_transaction(tx2, 2000),
             Err(MempoolError::InvalidTransaction(_))
         ));
     }
@@ -848,20 +864,21 @@ mod tests {
         };
         let pool = TransactionPool::new(config);
 
-        // Add first transaction
+        // Add first transaction (fee rate >= 1000 for rate limiter)
         let tx1 = create_test_transaction([1u8; 32], 50_000_000);
-        pool.add_transaction(tx1.clone(), 10).unwrap();
+        pool.add_transaction(tx1.clone(), 10000).unwrap();
 
-        // Create replacement transaction with not enough fee increase
-        let tx2 = create_test_transaction([1u8; 32], 50_000_000);
+        // Create replacement transaction with DIFFERENT output (different hash)
+        let tx2 = create_test_transaction([1u8; 32], 50_000_001);
+        let tx3 = create_test_transaction([1u8; 32], 50_000_002);
 
-        // 10% increase is not enough
+        // 10% increase (11000) is not enough for 50% RBF requirement
         assert!(matches!(
-            pool.replace_transaction(tx2.clone(), 11),
+            pool.replace_transaction(tx2.clone(), 11000),
             Err(MempoolError::FeeTooLow { .. })
         ));
 
-        // 60% increase should work
-        assert!(pool.replace_transaction(tx2, 16).is_ok());
+        // 60% increase (16000) should work
+        assert!(pool.replace_transaction(tx3, 16000).is_ok());
     }
 }

@@ -85,6 +85,9 @@ pub struct MempoolConfig {
     #[serde(with = "duration_serde")]
     pub transaction_timeout: Duration,
     pub min_fee_rate: f64,
+    /// Maximum fee rate in sats/byte (prevents fee sniping attacks)
+    /// SECURITY (P1-002): Protects users from accidentally paying excessive fees
+    pub max_fee_rate: f64,
     pub max_per_address: usize,
     pub max_orphan_transactions: usize,
     pub enable_rbf: bool,
@@ -414,6 +417,17 @@ impl MempoolConfig {
                 "mempool.min_fee_rate must be non-negative".to_string(),
             ));
         }
+        // SECURITY (P1-002): Validate max_fee_rate
+        if self.max_fee_rate <= 0.0 {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "mempool.max_fee_rate must be positive".to_string(),
+            ));
+        }
+        if self.max_fee_rate < self.min_fee_rate {
+            return Err(NodeConfigValidationError::InvalidValue(
+                "mempool.max_fee_rate must be >= mempool.min_fee_rate".to_string(),
+            ));
+        }
         if self.max_orphan_transactions == 0 {
             return Err(NodeConfigValidationError::InvalidValue(
                 "mempool.max_orphan_transactions must be > 0".to_string(),
@@ -541,6 +555,7 @@ impl Default for MempoolConfig {
             max_size: 5000,
             transaction_timeout: Duration::from_secs(1800), // 30 minutes (reduced for faster blocks)
             min_fee_rate: 1.0,
+            max_fee_rate: 100000.0, // SECURITY (P1-002): 100K novas/byte max prevents fee sniping
             max_per_address: 100,
             max_orphan_transactions: 100,
             enable_rbf: true,
