@@ -285,15 +285,14 @@ impl QuantumP2PConfig {
         use rand::{rngs::OsRng, RngCore};
         OsRng.fill_bytes(&mut id);
 
-        // Generate ephemeral symmetric key
-        let mut symmetric_key = [0u8; 32];
-        OsRng.fill_bytes(&mut symmetric_key);
-
-        // Encapsulate symmetric key using peer's KEM public key
+        // SECURITY FIX: Use KEM shared secret for encryption
+        // Encapsulate creates a shared secret that only the peer can recover
+        // by decapsulating with their secret key. This is the standard KEM usage
+        // pattern for hybrid encryption (KEM + symmetric cipher).
         let (ciphertext_key, shared_secret) = encapsulate(&peer_info.kem_pubkey)?;
 
-        // Encrypt message with symmetric key
-        let ciphertext = self.symmetric_encrypt(data, &symmetric_key)?;
+        // Encrypt message with the KEM-derived shared secret (32 bytes, matches ChaCha20)
+        let ciphertext = self.symmetric_encrypt(data, &shared_secret)?;
 
         // Sign the message
         let mut message_data = Vec::new();
