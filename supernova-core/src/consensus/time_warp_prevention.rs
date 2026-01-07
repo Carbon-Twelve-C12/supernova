@@ -22,6 +22,11 @@ pub enum TimeValidationError {
 
     #[error("Invalid timestamp: {0}")]
     InvalidTimestamp(u64),
+
+    /// SECURITY FIX (P1-006): Proper error for system time failures
+    /// instead of silently returning 0 (epoch time)
+    #[error("System time error: {0}")]
+    SystemTimeError(String),
 }
 
 /// Result type for time validation
@@ -101,7 +106,11 @@ impl TimeWarpPrevention {
         current_time: Option<u64>,   // For testing
     ) -> TimeValidationResult<()> {
         let timestamp = block_header.timestamp();
-        let current_time = current_time.unwrap_or_else(Self::current_time);
+        // SECURITY FIX (P1-006): Properly handle system time errors instead of defaulting to 0
+        let current_time = match current_time {
+            Some(t) => t,
+            None => Self::current_time()?,
+        };
 
         // SECURITY FIX (P1-002): Clock drift tolerance - allow slight drift for honest nodes
         let adjusted_current_time = current_time.saturating_add(self.config.max_clock_drift);
@@ -436,11 +445,17 @@ impl TimeWarpPrevention {
     }
 
     /// Get current system time
-    fn current_time() -> u64 {
+    ///
+    /// SECURITY FIX (P1-006): Returns Result instead of silently defaulting to 0.
+    /// A system time error should halt validation rather than proceed with
+    /// an invalid timestamp of 0 (Unix epoch).
+    fn current_time() -> TimeValidationResult<u64> {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
+            .map(|d| d.as_secs())
+            .map_err(|e| TimeValidationError::SystemTimeError(
+                format!("System clock error: {}. Clock may be set before Unix epoch.", e)
+            ))
     }
 }
 
