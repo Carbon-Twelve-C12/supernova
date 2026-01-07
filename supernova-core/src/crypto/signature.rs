@@ -1,7 +1,11 @@
 use crate::crypto::quantum::{ClassicalScheme, QuantumError, QuantumParameters, QuantumScheme};
+use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use hex;
+use pqcrypto_sphincsplus::{
+    sphincsshake128fsimple, sphincsshake192fsimple, sphincsshake256fsimple,
+};
+use pqcrypto_traits::sign::{DetachedSignature, PublicKey as PqPublicKey};
 use rand;
-use rayon::prelude::*;
 use secp256k1::ecdsa::Signature as Secp256k1Signature;
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
@@ -247,8 +251,7 @@ impl SignatureScheme for Ed25519Scheme {
         message: &[u8],
         signature: &[u8],
     ) -> Result<bool, SignatureError> {
-        // The actual implementation would use ed25519-dalek to verify the signature
-
+        // Validate public key length
         if public_key.len() != 32 {
             return Err(SignatureError::InvalidKey(format!(
                 "Invalid Ed25519 public key length: expected 32, got {}",
@@ -256,6 +259,7 @@ impl SignatureScheme for Ed25519Scheme {
             )));
         }
 
+        // Validate signature length
         if signature.len() != 64 {
             return Err(SignatureError::InvalidSignature(format!(
                 "Invalid Ed25519 signature length: expected 64, got {}",
@@ -263,10 +267,28 @@ impl SignatureScheme for Ed25519Scheme {
             )));
         }
 
-        // In a real implementation, this would perform actual verification
-        // using ed25519-dalek's verify function
+        // Convert public key bytes to fixed-size array
+        let pk_bytes: [u8; 32] = public_key
+            .try_into()
+            .map_err(|_| SignatureError::InvalidKey("Failed to convert public key".to_string()))?;
 
-        Ok(true) // Placeholder
+        // Convert signature bytes to fixed-size array
+        let sig_bytes: [u8; 64] = signature
+            .try_into()
+            .map_err(|_| SignatureError::InvalidSignature("Failed to convert signature".to_string()))?;
+
+        // Create verifying key from bytes
+        let verifying_key = VerifyingKey::from_bytes(&pk_bytes)
+            .map_err(|e| SignatureError::InvalidKey(format!("Invalid Ed25519 key: {}", e)))?;
+
+        // Create signature from bytes
+        let sig = Ed25519Signature::from_bytes(&sig_bytes);
+
+        // Verify using strict verification (rejects malleable signatures)
+        match verifying_key.verify_strict(message, &sig) {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false), // Invalid signature returns false, not error
+        }
     }
 
     // For Ed25519, we'll use the default batch_verify implementation
@@ -393,11 +415,54 @@ impl SignatureScheme for SphincsScheme {
         message: &[u8],
         signature: &[u8],
     ) -> Result<bool, SignatureError> {
-        // For now, return unsupported error
-        // This will be implemented with the actual SPHINCS+ code
-        Err(SignatureError::CryptoOperationFailed(
-            "SPHINCS+ verification not yet implemented".to_string(),
-        ))
+        // Verify using the appropriate SPHINCS+ variant based on security level
+        match self.security_level {
+            1 => {
+                // Low/128-bit security: SPHINCS+-SHAKE-128f-simple
+                let pk = sphincsshake128fsimple::PublicKey::from_bytes(public_key).map_err(
+                    |_| SignatureError::InvalidKey("Invalid SPHINCS+ public key".to_string()),
+                )?;
+                let sig =
+                    sphincsshake128fsimple::DetachedSignature::from_bytes(signature).map_err(
+                        |_| {
+                            SignatureError::InvalidSignature(
+                                "Invalid SPHINCS+ signature".to_string(),
+                            )
+                        },
+                    )?;
+                Ok(sphincsshake128fsimple::verify_detached_signature(&sig, message, &pk).is_ok())
+            }
+            2 => {
+                // Medium/192-bit security: SPHINCS+-SHAKE-192f-simple
+                let pk = sphincsshake192fsimple::PublicKey::from_bytes(public_key).map_err(
+                    |_| SignatureError::InvalidKey("Invalid SPHINCS+ public key".to_string()),
+                )?;
+                let sig =
+                    sphincsshake192fsimple::DetachedSignature::from_bytes(signature).map_err(
+                        |_| {
+                            SignatureError::InvalidSignature(
+                                "Invalid SPHINCS+ signature".to_string(),
+                            )
+                        },
+                    )?;
+                Ok(sphincsshake192fsimple::verify_detached_signature(&sig, message, &pk).is_ok())
+            }
+            3 | _ => {
+                // High/256-bit security (default): SPHINCS+-SHAKE-256f-simple
+                let pk = sphincsshake256fsimple::PublicKey::from_bytes(public_key).map_err(
+                    |_| SignatureError::InvalidKey("Invalid SPHINCS+ public key".to_string()),
+                )?;
+                let sig =
+                    sphincsshake256fsimple::DetachedSignature::from_bytes(signature).map_err(
+                        |_| {
+                            SignatureError::InvalidSignature(
+                                "Invalid SPHINCS+ signature".to_string(),
+                            )
+                        },
+                    )?;
+                Ok(sphincsshake256fsimple::verify_detached_signature(&sig, message, &pk).is_ok())
+            }
+        }
     }
 
     // Using the default batch_verify implementation from the trait
@@ -433,18 +498,53 @@ impl SignatureScheme for HybridScheme {
         message: &[u8],
         signature: &[u8],
     ) -> Result<bool, SignatureError> {
-        // A hybrid signature combines a classical and quantum signature
-        // The public key and signature need to be split into classical and quantum parts
+        // Hybrid signature format: [classical_sig_len: 2 bytes BE][classical_sig][quantum_sig]
+        // Hybrid public key format: [classical_pk_len: 2 bytes BE][classical_pk][quantum_pk]
 
-        // This is a placeholder implementation - in reality it would:
-        // 1. Split the signature into classical and quantum parts
-        // 2. Split the public key into classical and quantum parts
-        // 3. Verify both signatures
-        // 4. Return true only if both verify successfully
+        // Parse signature: extract classical and quantum parts
+        if signature.len() < 2 {
+            return Err(SignatureError::InvalidSignature(
+                "Hybrid signature too short: missing length prefix".to_string(),
+            ));
+        }
+        let classical_sig_len = u16::from_be_bytes([signature[0], signature[1]]) as usize;
+        if signature.len() < 2 + classical_sig_len {
+            return Err(SignatureError::InvalidSignature(format!(
+                "Hybrid signature too short: expected {} bytes for classical sig, got {}",
+                classical_sig_len,
+                signature.len() - 2
+            )));
+        }
+        let classical_sig = &signature[2..2 + classical_sig_len];
+        let quantum_sig = &signature[2 + classical_sig_len..];
 
-        Err(SignatureError::CryptoOperationFailed(
-            "Hybrid verification not yet implemented".to_string(),
-        ))
+        // Parse public key: extract classical and quantum parts
+        if public_key.len() < 2 {
+            return Err(SignatureError::InvalidKey(
+                "Hybrid public key too short: missing length prefix".to_string(),
+            ));
+        }
+        let classical_pk_len = u16::from_be_bytes([public_key[0], public_key[1]]) as usize;
+        if public_key.len() < 2 + classical_pk_len {
+            return Err(SignatureError::InvalidKey(format!(
+                "Hybrid public key too short: expected {} bytes for classical pk, got {}",
+                classical_pk_len,
+                public_key.len() - 2
+            )));
+        }
+        let classical_pk = &public_key[2..2 + classical_pk_len];
+        let quantum_pk = &public_key[2 + classical_pk_len..];
+
+        // Verify both signatures - both must pass for hybrid to be valid
+        let classical_valid = self
+            .classical_scheme
+            .verify(classical_pk, message, classical_sig)?;
+        let quantum_valid = self
+            .quantum_scheme
+            .verify(quantum_pk, message, quantum_sig)?;
+
+        // Both signatures must be valid
+        Ok(classical_valid && quantum_valid)
     }
 
     // For the hybrid scheme, we use the default implementation
