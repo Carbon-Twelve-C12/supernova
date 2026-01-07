@@ -57,6 +57,11 @@ pub struct EclipsePreventionConfig {
 
     /// Ban duration for malicious peers
     pub ban_duration: Duration,
+
+    /// SECURITY FIX (P1-008): Maximum connection history size
+    /// Prevents memory exhaustion via connection flooding attacks.
+    /// Default: 10000 events (approximately 1MB memory)
+    pub max_connection_history: usize,
 }
 
 impl Default for EclipsePreventionConfig {
@@ -75,6 +80,7 @@ impl Default for EclipsePreventionConfig {
             min_connections_for_diversity: 8,
             max_region_percentage: 0.4, // Max 40% from same region
             ban_duration: Duration::from_secs(86400), // 24 hours
+            max_connection_history: 10_000, // SECURITY FIX (P1-008): Bounded history
         }
     }
 }
@@ -729,8 +735,9 @@ impl EclipsePreventionSystem {
             timestamp: Instant::now(),
         });
 
-        // Keep only recent history
-        while history.len() > 1000 {
+        // SECURITY FIX (P1-008): Keep only recent history with configurable bound
+        // Prevents memory exhaustion via connection flooding attacks
+        while history.len() > self.config.max_connection_history {
             history.pop_front();
         }
     }
