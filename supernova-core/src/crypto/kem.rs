@@ -8,9 +8,10 @@
 //! for P2P communication layer.
 
 use pqcrypto_kyber::kyber768;
-use pqcrypto_traits::kem::{PublicKey, SecretKey, Ciphertext, SharedSecret};
+use pqcrypto_traits::kem::{Ciphertext, PublicKey, SecretKey, SharedSecret};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// KEM errors
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -32,9 +33,15 @@ pub enum KemError {
 }
 
 /// KEM key pair
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// SECURITY FIX (P1-001): Added Zeroize and ZeroizeOnDrop to ensure
+/// secret key material is securely erased from memory when dropped.
+#[derive(Debug, Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct KemKeyPair {
+    /// Public key - can be safely shared
+    #[zeroize(skip)]
     pub public_key: Vec<u8>,
+    /// Secret key - will be zeroized on drop
     pub secret_key: Vec<u8>,
 }
 

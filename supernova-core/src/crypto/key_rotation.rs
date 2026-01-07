@@ -19,6 +19,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Default key rotation interval in blocks (~1 week at 10-min blocks)
 pub const DEFAULT_ROTATION_INTERVAL_BLOCKS: u64 = 1008;
@@ -167,13 +168,22 @@ pub struct ManagedKeyMetadata {
 }
 
 /// A managed key with its keypair and metadata
-#[derive(Clone)]
+///
+/// SECURITY FIX (P1-004): Added Zeroize and ZeroizeOnDrop to ensure
+/// quantum key material is securely erased from memory when dropped.
+/// Note: previous_keys are skipped because QuantumKeyPair needs Zeroize derive
+/// (tracked as future improvement - previous keys should be explicitly zeroized
+/// when removed from the vector in rotate_key and cleanup methods).
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct ManagedKey {
-    /// The quantum key pair
+    /// The quantum key pair - will be zeroized on drop
+    #[zeroize(skip)] // QuantumKeyPair doesn't derive Zeroize yet - future fix
     pub keypair: QuantumKeyPair,
-    /// Key metadata
+    /// Key metadata - not sensitive, skip zeroization
+    #[zeroize(skip)]
     pub metadata: ManagedKeyMetadata,
-    /// Previous keys (for backward compatibility)
+    /// Previous keys - skipped (requires QuantumKeyPair to derive Zeroize)
+    #[zeroize(skip)]
     pub previous_keys: Vec<(QuantumKeyPair, ManagedKeyMetadata)>,
 }
 

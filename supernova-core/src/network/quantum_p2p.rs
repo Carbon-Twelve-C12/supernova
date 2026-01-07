@@ -11,6 +11,7 @@ use libp2p::{core::transport::Transport, identity, noise, tcp, yamux, PeerId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Quantum-safe P2P configuration
 #[derive(Debug, Clone)]
@@ -95,15 +96,21 @@ pub struct QuantumMessage {
 }
 
 /// Quantum session keys derived from KEM exchange
-#[derive(Debug, Clone)]
+///
+/// SECURITY FIX (P1-007): Added Zeroize and ZeroizeOnDrop to ensure
+/// session keys are securely erased from memory when the session ends.
+/// This prevents key material from lingering in memory after use.
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub struct QuantumSession {
-    /// Ciphertext to send to peer for key derivation
+    /// Ciphertext to send to peer for key derivation (public, skip zeroization)
+    #[zeroize(skip)]
     pub ciphertext: Vec<u8>,
-    /// Encryption key for message confidentiality
+    /// Encryption key for message confidentiality - will be zeroized
     pub encryption_key: [u8; 32],
-    /// MAC key for message authenticity
+    /// MAC key for message authenticity - will be zeroized
     pub mac_key: [u8; 32],
-    /// Session establishment timestamp
+    /// Session establishment timestamp (not sensitive, skip)
+    #[zeroize(skip)]
     pub established_at: u64,
 }
 

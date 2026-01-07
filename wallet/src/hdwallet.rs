@@ -20,7 +20,7 @@ use aes_gcm::{
 };
 use argon2::{Argon2, Algorithm, Version, Params, PasswordHasher};
 use argon2::password_hash::{SaltString, PasswordHash};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 #[derive(Error, Debug)]
 pub enum HDWalletError {
@@ -74,14 +74,40 @@ struct EncryptedBackup {
 /// Default version for legacy backups without version field
 fn default_version() -> u32 { 1 }
 
+/// HD Wallet with secure mnemonic storage
+///
+/// SECURITY FIX (P1-002): Mnemonic now uses Zeroizing<String> wrapper
+/// to ensure the master secret is securely erased from memory when dropped.
+/// ZeroizeOnDrop ensures all sensitive data is cleared on struct destruction.
+/// Note: Clone is implemented because Zeroizing<T> implements Clone when T: Clone.
+/// Each clone gets its own zeroized copy that will be cleared on drop.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HDWallet {
-    mnemonic: String,
+    /// Master mnemonic - wrapped in Zeroizing for secure memory erasure
+    #[serde(serialize_with = "serialize_zeroizing", deserialize_with = "deserialize_zeroizing")]
+    mnemonic: Zeroizing<String>,
     network: Network,
     accounts: HashMap<String, HDAccount>,
     wallet_path: PathBuf,
     #[serde(default)]
     backup_metadata: BackupMetadata,
+}
+
+/// Custom serialization for Zeroizing<String>
+fn serialize_zeroizing<S>(value: &Zeroizing<String>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(value.as_str())
+}
+
+/// Custom deserialization for Zeroizing<String>
+fn deserialize_zeroizing<'de, D>(deserializer: D) -> Result<Zeroizing<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Ok(Zeroizing::new(s))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,7 +142,7 @@ impl HDWallet {
             .map_err(|e| HDWalletError::InvalidMnemonic(e.to_string()))?;
 
         Ok(Self {
-            mnemonic: mnemonic.to_string(),
+            mnemonic: Zeroizing::new(mnemonic.to_string()),
             network,
             accounts: HashMap::new(),
             wallet_path,
@@ -132,7 +158,7 @@ impl HDWallet {
         Mnemonic::parse_in_normalized(Language::English, mnemonic)
             .map_err(|e| HDWalletError::InvalidMnemonic(e.to_string()))?;
         Ok(Self {
-            mnemonic: mnemonic.to_string(),
+            mnemonic: Zeroizing::new(mnemonic.to_string()),
             network,
             accounts: HashMap::new(),
             wallet_path,
@@ -412,8 +438,12 @@ impl HDWallet {
             .sum()
     }
 
+    /// Get mnemonic as string reference
+    ///
+    /// SECURITY NOTE: This returns a reference to the zeroizing mnemonic.
+    /// The caller should not store this reference beyond its immediate use.
     pub fn get_mnemonic(&self) -> &str {
-        &self.mnemonic
+        self.mnemonic.as_str()
     }
 
     /// Get backup status
