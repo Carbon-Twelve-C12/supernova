@@ -504,55 +504,37 @@ impl SecureForkResolver {
             return Ok(u128::MAX);
         }
 
-        // Convert compact format to target value
-        // Target = mantissa * 256^(exponent-3)
-        // For u128 calculation, we'll use a simplified approach that preserves ordering
+        // SECURITY FIX (P1-007): Correct work calculation
+        // Work should be inversely proportional to difficulty target
+        // Lower target (harder difficulty) = more work
+        //
+        // Bitcoin formula: work = 2^256 / (target + 1)
+        // For u128: work = 2^128 / (scaled_target + 1)
+        //
+        // We use a simplified approach that preserves ordering:
+        // work = (2^64) / mantissa * 2^(256 - 8*exponent)
+        // Simplified to avoid overflow: work_bits = (exponent_max - exponent) * 2^24 + (2^24 / mantissa)
         
-        // Calculate target as a u128 value
-        // Lower target = higher difficulty = more work
-        let target = if exponent <= 3 {
-            // Special case: exponent <= 3, mantissa fits directly
-            let shift = 8 * (3 - exponent);
-            (mantissa >> shift) as u128
-        } else {
-            // Standard case: mantissa * 256^(exponent-3)
-            // For u128, we need to be careful about overflow
-            let power = exponent.saturating_sub(3);
-            
-            // Calculate mantissa * 256^power
-            // Use saturating multiplication to prevent overflow
-            let mut result = mantissa as u128;
-            
-            // Multiply by 256^power using bit shifts where possible
-            // For large powers, we'll saturate to prevent overflow
-            if power <= 15 {
-                // 256^15 fits in u128, use bit shifts
-                result = result.saturating_mul(1u128 << (8 * power));
-            } else {
-                // For very large powers, target approaches zero (maximum work)
-                // In practice, this means extremely high difficulty
-                return Ok(u128::MAX);
-            }
-            
-            result
-        };
-
-        // SECURITY FIX (P1-007): Calculate work as inversely proportional to target
-        // Work = MAX_VALUE / (target + 1)
-        // For comparison purposes, we use: work ≈ MAX_VALUE - target
-        // This maintains correct ordering: lower target = more work
-        let max_work = u128::MAX;
+        // Calculate work as a function of inverse difficulty
+        // Higher exponent = easier difficulty = less work
+        // Higher mantissa = easier difficulty = less work (for same exponent)
         
-        // Avoid division by zero
-        if target == 0 {
-            return Ok(max_work);
-        }
-
-        // Calculate work inversely proportional to target
-        // Lower target = higher difficulty = more work
-        // Use saturating subtraction to prevent underflow
-        let work = max_work.saturating_sub(target);
-
+        // Use a logarithmic scale approach
+        // work ≈ (max_exponent - exponent) * scale + (max_mantissa / mantissa)
+        const MAX_EXPONENT: u128 = 34;
+        const SCALE_FACTOR: u128 = 0x1000000; // 2^24 to give enough resolution
+        
+        // Calculate exponent contribution (main component)
+        let exponent_work = (MAX_EXPONENT - exponent as u128).saturating_mul(SCALE_FACTOR);
+        
+        // Calculate mantissa contribution (fine-grained adjustment)
+        // Invert mantissa: higher mantissa = less work
+        // Use 2^24 / mantissa to keep values reasonable
+        let mantissa_work = SCALE_FACTOR.saturating_div(mantissa as u128);
+        
+        // Combine both components
+        let work = exponent_work.saturating_add(mantissa_work);
+        
         // Ensure minimum work of 1 for any valid block
         Ok(work.max(1))
     }

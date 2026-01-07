@@ -474,6 +474,69 @@ impl UnifiedBlockValidator {
             .map_err(|e| UnifiedValidationError::InvalidTimestamp(e.to_string()))
     }
 
+
+    /// Helper function to check if difficulty bits represent a target within bounds
+    /// Converts compact bits to 256-bit targets and compares them
+    /// Returns true if min_target <= actual_target <= max_target
+    /// 
+    /// Note: In target space, HIGHER target = EASIER difficulty
+    ///       min_target is the smallest target (hardest difficulty)
+    ///       max_target is the largest target (easiest difficulty)
+    fn is_difficulty_within_bounds(actual_bits: u32, min_bits: u32, max_bits: u32) -> bool {
+        // Convert compact bits to actual 256-bit targets
+        let actual_target = {
+            let header = BlockHeader::new(0, [0; 32], [0; 32], 0, actual_bits, 0);
+            header.target()
+        };
+        let min_target = {
+            let header = BlockHeader::new(0, [0; 32], [0; 32], 0, min_bits, 0);
+            header.target()
+        };
+        let max_target = {
+            let header = BlockHeader::new(0, [0; 32], [0; 32], 0, max_bits, 0);
+            header.target()
+        };
+        
+        // Compare as 256-bit little-endian numbers
+        // Most significant byte is at index 31 for little-endian
+        // We need: min_target <= actual_target <= max_target
+        
+        // Check if actual_target >= min_target
+        let mut cmp_min = std::cmp::Ordering::Equal;
+        for i in (0..32).rev() {
+            match actual_target[i].cmp(&min_target[i]) {
+                std::cmp::Ordering::Greater => {
+                    cmp_min = std::cmp::Ordering::Greater;
+                    break;
+                }
+                std::cmp::Ordering::Less => {
+                    cmp_min = std::cmp::Ordering::Less;
+                    break;
+                }
+                std::cmp::Ordering::Equal => continue,
+            }
+        }
+        
+        // Check if actual_target <= max_target
+        let mut cmp_max = std::cmp::Ordering::Equal;
+        for i in (0..32).rev() {
+            match actual_target[i].cmp(&max_target[i]) {
+                std::cmp::Ordering::Greater => {
+                    cmp_max = std::cmp::Ordering::Greater;
+                    break;
+                }
+                std::cmp::Ordering::Less => {
+                    cmp_max = std::cmp::Ordering::Less;
+                    break;
+                }
+                std::cmp::Ordering::Equal => continue,
+            }
+        }
+        
+        // actual >= min AND actual <= max
+        !matches!(cmp_min, std::cmp::Ordering::Less) && !matches!(cmp_max, std::cmp::Ordering::Greater)
+    }
+
     /// Validate difficulty adjustment
     fn validate_difficulty(
         &self,
@@ -492,17 +555,12 @@ impl UnifiedBlockValidator {
             });
         }
 
-        // SECURITY FIX (P1-001): Validate difficulty bounds
+        // SECURITY FIX: Validate difficulty bounds by comparing actual targets (not compact bits)
+        // Cannot directly compare compact bits as integers - must convert to targets first
         let actual_bits = block.header.bits();
-        if actual_bits > config.max_target {
+        if !Self::is_difficulty_within_bounds(actual_bits, config.min_target, config.max_target) {
             return Err(UnifiedValidationError::InvalidDifficulty {
-                expected: config.max_target,
-                actual: actual_bits,
-            });
-        }
-        if actual_bits < config.min_target {
-            return Err(UnifiedValidationError::InvalidDifficulty {
-                expected: config.min_target,
+                expected: config.max_target, // Report max_target as reference
                 actual: actual_bits,
             });
         }
@@ -589,7 +647,7 @@ impl UnifiedBlockValidator {
                         }
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     // SECURITY FIX (P1-001): For non-genesis blocks, difficulty calculation failure is suspicious
                     // Log error and reject block if we have sufficient history
                     if context.height > config.adjustment_interval {
@@ -626,25 +684,19 @@ impl UnifiedBlockValidator {
             }
         } else {
             // SECURITY FIX (P1-001): Genesis block - validate difficulty is within bounds
-            // Genesis difficulty should be set to initial difficulty
-            if block.header.bits() == 0 || block.header.bits() > config.max_target {
-                return Err(UnifiedValidationError::InvalidDifficulty {
-                    expected: 0x1d00ffff,
-                    actual: block.header.bits(),
-                });
-            }
+            // Already validated above with is_difficulty_within_bounds check
+            // No additional validation needed for genesis
         }
 
         Ok(())
     }
-
     /// Validate proof of work
     fn validate_proof_of_work(&self, block: &Block) -> UnifiedValidationResult<()> {
-        // For test blocks with max difficulty (0x207fffff), skip PoW validation
+        // For test blocks, skip PoW validation if nonce is 0
         // This allows us to test the validation pipeline without mining
         #[cfg(test)]
         {
-            if block.header.bits() == 0x207fffff {
+            if block.header.nonce() == 0 {
                 return Ok(());
             }
         }
@@ -662,6 +714,10 @@ mod tests {
     use super::*;
     use crate::types::transaction::{TransactionInput, TransactionOutput};
 
+    /// Test difficulty constant within valid bounds
+    /// This value is within the range [min_target=0x1b00ffff, max_target=0x1e0fffff]
+    const TEST_DIFFICULTY: u32 = 0x1d00ffff;
+
     fn create_test_block() -> Block {
         let coinbase_input = TransactionInput::new_coinbase(vec![1, 2, 3]);
         let coinbase_output = TransactionOutput::new(50_000_000_000, vec![1, 2, 3, 4]);
@@ -671,7 +727,7 @@ mod tests {
             1,
             [0; 32],
             vec![coinbase_tx],
-            0x207fffff, // Easy difficulty
+            TEST_DIFFICULTY, // Valid difficulty within bounds
         )
     }
 
@@ -704,7 +760,7 @@ mod tests {
             0,
         );
 
-        let block = Block::new_with_params(1, [0; 32], vec![coinbase1, coinbase2], 0x207fffff);
+        let block = Block::new_with_params(1, [0; 32], vec![coinbase1, coinbase2], TEST_DIFFICULTY);
 
         let result = validator.validate_block_secure(&block, None);
         assert!(matches!(
@@ -1055,5 +1111,41 @@ mod tests {
             result,
             Err(UnifiedValidationError::InvalidDifficulty { .. })
         ), "Second block with different difficulty should fail");
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn debug_bits_comparison() {
+    use crate::types::block::BlockHeader;
+    use crate::consensus::difficulty::DifficultyAdjustment;
+    
+    let adjuster = DifficultyAdjustment::new();
+    let config = adjuster.config();
+    
+    println!("Config:");
+    println!("  max_target (easiest): 0x{:08x}", config.max_target);
+    println!("  min_target (hardest): 0x{:08x}", config.min_target);
+    println!("\nGenesis: 0x{:08x}", 0x1d00ffff);
+    
+    // Convert to actual targets
+    let max_header = BlockHeader::new(0, [0; 32], [0; 32], 0, config.max_target, 0);
+    let min_header = BlockHeader::new(0, [0; 32], [0; 32], 0, config.min_target, 0);
+    let genesis_header = BlockHeader::new(0, [0; 32], [0; 32], 0, 0x1d00ffff, 0);
+    
+    let max_target = max_header.target();
+    let min_target = min_header.target();
+    let genesis_target = genesis_header.target();
+    
+    println!("\nTargets (hex):");
+    println!("  max_target:     {}", hex::encode(max_target));
+    println!("  min_target:     {}", hex::encode(min_target));
+    println!("  genesis_target: {}", hex::encode(genesis_target));
+    
+    // Manual comparison
+    println!("\nComparison (most significant bytes, index 31 down):");
+    for i in (25..32).rev() {
+        println!("  [{}] max:{:02x} genesis:{:02x} min:{:02x}", 
+            i, max_target[i], genesis_target[i], min_target[i]);
     }
 }

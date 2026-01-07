@@ -161,23 +161,23 @@ impl Region {
         }
     }
 
-    /// Get ISO country code for region
-    pub fn to_string(&self) -> String {
+    /// Get region code (e.g., "NA", "EU", "APAC")
+    pub fn as_code(&self) -> &'static str {
         match self {
-            Self::NorthAmerica => "NA".to_string(),
-            Self::Europe => "EU".to_string(),
-            Self::AsiaPacific => "APAC".to_string(),
-            Self::SouthAmerica => "SA".to_string(),
-            Self::Africa => "AF".to_string(),
-            Self::MiddleEast => "ME".to_string(),
-            Self::Global => "GLOBAL".to_string(),
+            Self::NorthAmerica => "NA",
+            Self::Europe => "EU",
+            Self::AsiaPacific => "APAC",
+            Self::SouthAmerica => "SA",
+            Self::Africa => "AF",
+            Self::MiddleEast => "ME",
+            Self::Global => "GLOBAL",
         }
     }
 }
 
 impl fmt::Display for Region {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self.as_code())
     }
 }
 

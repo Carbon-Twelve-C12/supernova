@@ -162,3 +162,11 @@ supernova-core/src/crypto/SECURITY_ASSUMPTIONS.md
 docs/*AUDIT*.md
 MEDIUM_VULNERABILITY_FIXES.md
 SUPERNOVA_SECURITY_AUDIT_V2.md
+supernova-readiness-report.md
+.claude/
+AUDIT_REPORT*.md
+PROGRESS*.md
+GIT_COMMANDS*.md
+BLOCKERS.md
+ralph-loop.sh
+.claude/logs/
