@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt;
 use thiserror::Error;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // Log security warning on first use
 use std::sync::Once;
@@ -68,13 +69,19 @@ pub struct QuantumParameters {
 }
 
 /// A quantum-resistant key pair
-#[derive(Clone, Serialize, Deserialize)]
+///
+/// SECURITY: Implements ZeroizeOnDrop to securely erase secret key material
+/// from memory when the key pair is dropped.
+#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct QuantumKeyPair {
     /// The public key
+    #[zeroize(skip)]
     pub public_key: Vec<u8>,
     /// The private key (sensitive information)
+    /// SECURITY: Zeroized on drop to prevent memory leakage
     pub secret_key: Vec<u8>,
     /// Parameters used for this key pair
+    #[zeroize(skip)]
     pub parameters: QuantumParameters,
 }
 
@@ -101,6 +108,9 @@ pub enum QuantumPublicKey {
 }
 
 /// Secret key variants for different quantum schemes
+///
+/// SECURITY: Implements Drop with zeroization to securely erase secret keys
+/// from memory when dropped.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum QuantumSecretKey {
     /// Dilithium secret key
@@ -111,6 +121,20 @@ pub enum QuantumSecretKey {
     Sphincs(Vec<u8>),
     /// Hybrid secret key (classical + quantum)
     Hybrid(ClassicalScheme, Vec<u8>, Vec<u8>),
+}
+
+impl Drop for QuantumSecretKey {
+    fn drop(&mut self) {
+        match self {
+            Self::Dilithium(ref mut key) => key.zeroize(),
+            Self::Falcon(ref mut key) => key.zeroize(),
+            Self::Sphincs(ref mut key) => key.zeroize(),
+            Self::Hybrid(_, ref mut classical, ref mut quantum) => {
+                classical.zeroize();
+                quantum.zeroize();
+            }
+        }
+    }
 }
 
 /// ML-DSA (Module-Lattice Digital Signature Algorithm) public key
@@ -128,9 +152,14 @@ pub struct MLDSASignature {
 }
 
 /// ML-DSA private key
-#[derive(Clone, Serialize, Deserialize)]
+///
+/// SECURITY: Implements ZeroizeOnDrop to securely erase secret key material
+/// from memory when dropped.
+#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct MLDSAPrivateKey {
+    /// SECURITY: Zeroized on drop
     secret_bytes: Vec<u8>,
+    #[zeroize(skip)]
     public_key: MLDSAPublicKey,
 }
 
@@ -284,11 +313,16 @@ pub struct DilithiumPublicKey {
 }
 
 /// Dilithium secret key wrapper
-#[derive(Clone, Serialize, Deserialize)]
+///
+/// SECURITY: Implements ZeroizeOnDrop to securely erase key material
+/// from memory when dropped.
+#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct DilithiumSecretKey {
     /// The raw bytes of the secret key
+    /// SECURITY: Zeroized on drop
     pub bytes: Vec<u8>,
     /// Security level
+    #[zeroize(skip)]
     pub security_level: u8,
 }
 
@@ -663,14 +697,11 @@ impl QuantumKeyPair {
                     bytes: pk.as_bytes().to_vec(),
                     security_level,
                 };
-                let secret_key = DilithiumSecretKey {
-                    bytes: sk.as_bytes().to_vec(),
-                    security_level,
-                };
-
+                // SECURITY: Don't wrap in DilithiumSecretKey to avoid move issues
+                // The secret_key field of QuantumKeyPair is zeroized on drop
                 Ok(Self {
                     public_key: public_key.bytes,
-                    secret_key: secret_key.bytes,
+                    secret_key: sk.as_bytes().to_vec(),
                     parameters: QuantumParameters {
                         scheme: QuantumScheme::Dilithium,
                         security_level,
@@ -683,14 +714,10 @@ impl QuantumKeyPair {
                     bytes: pk.as_bytes().to_vec(),
                     security_level,
                 };
-                let secret_key = DilithiumSecretKey {
-                    bytes: sk.as_bytes().to_vec(),
-                    security_level,
-                };
 
                 Ok(Self {
                     public_key: public_key.bytes,
-                    secret_key: secret_key.bytes,
+                    secret_key: sk.as_bytes().to_vec(),
                     parameters: QuantumParameters {
                         scheme: QuantumScheme::Dilithium,
                         security_level,
@@ -703,14 +730,10 @@ impl QuantumKeyPair {
                     bytes: pk.as_bytes().to_vec(),
                     security_level,
                 };
-                let secret_key = DilithiumSecretKey {
-                    bytes: sk.as_bytes().to_vec(),
-                    security_level,
-                };
 
                 Ok(Self {
                     public_key: public_key.bytes,
-                    secret_key: secret_key.bytes,
+                    secret_key: sk.as_bytes().to_vec(),
                     parameters: QuantumParameters {
                         scheme: QuantumScheme::Dilithium,
                         security_level,

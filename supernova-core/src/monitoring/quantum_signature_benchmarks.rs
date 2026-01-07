@@ -178,7 +178,8 @@ impl QuantumSignatureMonitor {
             let signature = sign_quantum(&keypair, &message).unwrap();
             total_sign_time += sign_start.elapsed();
 
-            signatures.push((keypair.public_key, message, signature));
+            // SECURITY: Clone to avoid moving out of keypair (implements ZeroizeOnDrop)
+            signatures.push((keypair.public_key.clone(), message, signature));
         }
 
         // Benchmark batch verification
