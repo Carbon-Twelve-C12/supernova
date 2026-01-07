@@ -1,12 +1,16 @@
 // Quantum Key Management System
 // Secure storage and management of ML-DSA keypairs
 
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use pqcrypto_dilithium::dilithium5;
 use pqcrypto_traits::sign::{
     DetachedSignature, PublicKey as PqPublicKey, SecretKey as PqSecretKey,
 };
+use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
-use sha3::{Digest, Sha3_512};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
@@ -154,24 +158,28 @@ impl Keystore {
     
     /// Initialize keystore with passphrase
     pub fn initialize(&mut self, passphrase: &str) -> Result<(), KeystoreError> {
-        // Hash passphrase using SHA3-512
-        let mut hasher = Sha3_512::new();
-        hasher.update(passphrase.as_bytes());
-        self.passphrase_hash = Some(hasher.finalize().to_vec());
-        
+        // Hash passphrase using Argon2id (memory-hard, resistant to GPU/ASIC attacks)
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let password_hash = argon2
+            .hash_password(passphrase.as_bytes(), &salt)
+            .map_err(|e| KeystoreError::EncryptionError(format!("Password hashing failed: {}", e)))?;
+
+        // Store the full PHC string (includes algorithm, params, salt, and hash)
+        self.passphrase_hash = Some(password_hash.to_string().into_bytes());
+
         // Generate master seed
         // SECURITY FIX (P0-006): Use OsRng instead of thread_rng for cryptographic entropy
-        use rand::rngs::OsRng;
         use rand::RngCore;
         let mut seed = vec![0u8; 64];
         OsRng.fill_bytes(&mut seed);
         self.master_seed = Some(seed);
-        
+
         // Unlock keystore
-        *self.locked.write().map_err(|_| 
+        *self.locked.write().map_err(|_|
             KeystoreError::EncryptionError("Lock poisoned".to_string())
         )? = false;
-        
+
         Ok(())
     }
     
@@ -185,20 +193,28 @@ impl Keystore {
     
     /// Unlock the keystore
     pub fn unlock(&self, passphrase: &str) -> Result<(), KeystoreError> {
-        // Verify passphrase
-        let mut hasher = Sha3_512::new();
-        hasher.update(passphrase.as_bytes());
-        let hash = hasher.finalize().to_vec();
-        
-        match &self.passphrase_hash {
-            Some(stored_hash) if stored_hash == &hash => {
-                *self.locked.write().map_err(|_| 
-                    KeystoreError::EncryptionError("Lock poisoned".to_string())
-                )? = false;
-                Ok(())
-            }
-            Some(_) => Err(KeystoreError::InvalidPassphrase),
-            None => Err(KeystoreError::InvalidPassphrase),
+        // Retrieve stored Argon2 hash
+        let stored_hash_bytes = self.passphrase_hash
+            .as_ref()
+            .ok_or(KeystoreError::InvalidPassphrase)?;
+
+        // Convert stored bytes back to PHC string
+        let hash_str = String::from_utf8(stored_hash_bytes.clone())
+            .map_err(|_| KeystoreError::InvalidPassphrase)?;
+
+        // Parse the PHC string to get the PasswordHash
+        let password_hash = PasswordHash::new(&hash_str)
+            .map_err(|_| KeystoreError::InvalidPassphrase)?;
+
+        // Verify passphrase using Argon2
+        let argon2 = Argon2::default();
+        if argon2.verify_password(passphrase.as_bytes(), &password_hash).is_ok() {
+            *self.locked.write().map_err(|_|
+                KeystoreError::EncryptionError("Lock poisoned".to_string())
+            )? = false;
+            Ok(())
+        } else {
+            Err(KeystoreError::InvalidPassphrase)
         }
     }
     
