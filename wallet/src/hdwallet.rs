@@ -60,11 +60,19 @@ pub enum HDWalletError {
 struct EncryptedBackup {
     /// Salt for Argon2 key derivation (base64 encoded)
     salt: String,
+    /// Random nonce for AES256-GCM (12 bytes, base64 encoded)
+    /// SECURITY: Must be unique per encryption - never reuse with same key
+    #[serde(default)]
+    nonce: String,
     /// AES256-GCM encrypted wallet data
     ciphertext: Vec<u8>,
-    /// Backup format version
+    /// Backup format version (2 = random nonce)
+    #[serde(default = "default_version")]
     version: u32,
 }
+
+/// Default version for legacy backups without version field
+fn default_version() -> u32 { 1 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HDWallet {
@@ -187,21 +195,27 @@ impl HDWallet {
         let mut key = [0u8; 32];
         key.copy_from_slice(&hash_output.as_bytes()[..32]);
         
-        // Step 4: Create cipher and encrypt
+        // Step 4: Create cipher and encrypt with random nonce
         let cipher = Aes256Gcm::new_from_slice(&key)
             .map_err(|e| HDWalletError::EncryptionError(e.to_string()))?;
-        
-        let nonce = AesNonce::from_slice(b"unique nonce"); // In production, use random nonce
-        
+
+        // SECURITY: Generate cryptographically random 12-byte nonce
+        // AES-GCM requires unique nonce per encryption - reuse breaks security
+        let mut nonce_bytes = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = AesNonce::from_slice(&nonce_bytes);
+
         let ciphertext = cipher
             .encrypt(nonce, plaintext)
             .map_err(|e| HDWalletError::EncryptionError(e.to_string()))?;
-        
-        // Step 5: Package encrypted data with salt
+
+        // Step 5: Package encrypted data with salt and nonce
+        use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
         let encrypted_backup = EncryptedBackup {
             salt: salt.to_string(),
+            nonce: BASE64.encode(nonce_bytes),
             ciphertext,
-            version: 1,
+            version: 2,  // Version 2: random nonce
         };
         
         // Step 6: Write encrypted backup to disk
@@ -251,15 +265,27 @@ impl HDWallet {
         let mut key = [0u8; 32];
         key.copy_from_slice(&hash_output.as_bytes()[..32]);
         
-        // Step 3: Decrypt
+        // Step 3: Decrypt using stored nonce
         let cipher = Aes256Gcm::new_from_slice(&key)
             .map_err(|e| HDWalletError::DecryptionError(e.to_string()))?;
-        
-        let nonce = AesNonce::from_slice(b"unique nonce");
-        
+
+        // SECURITY: Decode nonce from backup (version 2+)
+        // For backwards compatibility with version 1 (hardcoded nonce)
+        use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+        let nonce_bytes: Vec<u8> = if encrypted_backup.version >= 2 {
+            BASE64.decode(&encrypted_backup.nonce)
+                .map_err(|e| HDWalletError::DecryptionError(
+                    format!("Invalid nonce encoding: {}", e)
+                ))?
+        } else {
+            // Legacy version 1 compatibility (deprecated hardcoded nonce)
+            b"unique nonce".to_vec()
+        };
+        let nonce = AesNonce::from_slice(&nonce_bytes);
+
         let plaintext = cipher
             .decrypt(nonce, encrypted_backup.ciphertext.as_ref())
-            .map_err(|e| HDWalletError::DecryptionError(
+            .map_err(|_| HDWalletError::DecryptionError(
                 "Decryption failed - wrong password or corrupted backup".to_string()
             ))?;
         

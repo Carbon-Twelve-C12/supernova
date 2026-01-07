@@ -32,8 +32,8 @@ fn test_encrypted_save_and_load() {
     wallet.create_account("test_account".to_string(), AccountType::NativeSegWit)
         .expect("Failed to create account");
     
-    // Save with encryption
-    let password = "SecurePassword123!@#";
+    // Save with encryption (quantum-resistant: 128+ bits, mixed charset)
+    let password = "Correct-Horse-Battery-Staple-123!@#Extra$%^";
     wallet.save_encrypted(password)
         .expect("Failed to save encrypted wallet");
     
@@ -61,12 +61,13 @@ fn test_wrong_password_rejected() {
     let wallet = HDWallet::new(Network::Testnet, wallet_path.clone())
         .expect("Failed to create wallet");
     
-    let correct_password = "CorrectPassword123";
+    // Quantum-resistant password (128+ bits, mixed charset)
+    let correct_password = "Correct-Horse-Battery-Staple-456!@#Pass$%^";
     wallet.save_encrypted(correct_password)
         .expect("Failed to save");
-    
-    // Try to load with wrong password
-    let wrong_password = "WrongPassword456";
+
+    // Try to load with wrong password (also quantum-resistant for consistency)
+    let wrong_password = "Wrong-Donkey-Electric-Fence-789!@#Other$%^";
     let result = HDWallet::load_encrypted(wallet_path, wrong_password);
     
     assert!(result.is_err(), "Wrong password should fail");
@@ -93,7 +94,7 @@ fn test_backup_not_plaintext() {
     
     let mnemonic = wallet.get_mnemonic().to_string();
     
-    wallet.save_encrypted("TestPassword123")
+    wallet.save_encrypted("Correct-Horse-Battery-Staple-789!@#Plain$%^")
         .expect("Failed to save");
     
     // Read the file as text
@@ -173,10 +174,11 @@ fn test_corrupted_backup_rejected() {
     let wallet = HDWallet::new(Network::Testnet, wallet_path.clone())
         .expect("Failed to create wallet");
     
-    let password = "TestPassword123";
+    // Quantum-resistant password (128+ bits, mixed charset)
+    let password = "Correct-Horse-Battery-Staple-321!@#Corrupt$%^";
     wallet.save_encrypted(password)
         .expect("Failed to save");
-    
+
     // Corrupt the backup file
     let mut backup_data = std::fs::read_to_string(&wallet_path)
         .expect("Failed to read");
@@ -233,8 +235,9 @@ fn test_salt_uniqueness() {
     let wallet2 = HDWallet::new(Network::Testnet, wallet2_path.clone())
         .expect("Failed to create wallet 2");
     
-    let password = "SamePassword123";
-    
+    // Quantum-resistant password (same for both to test salt uniqueness)
+    let password = "Correct-Horse-Battery-Staple-654!@#Same$%^Both";
+
     wallet1.save_encrypted(password).expect("Failed to save wallet 1");
     wallet2.save_encrypted(password).expect("Failed to save wallet 2");
     
