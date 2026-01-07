@@ -779,9 +779,11 @@ mod tests {
         // Create UTXO set with capacity of 5
         let utxo_set = UtxoSet::new_in_memory(5);
 
-        // Add 10 UTXOs (exceeds capacity)
+        // Add 10 UTXOs with unique identifiers using full 64-char hex txids
         for i in 0..10 {
-            let utxo = create_test_utxo(&format!("tx{}", i), i, 1000 * (i as u64 + 1));
+            // Create a proper 64-character hex txid
+            let hex_txid = format!("{:064x}", i);
+            let utxo = create_test_utxo(&hex_txid, i, 1000 * (i as u64 + 1));
             assert!(utxo_set.add(utxo).is_ok());
         }
 
@@ -789,19 +791,19 @@ mod tests {
         let stats = utxo_set.get_stats().unwrap();
         assert_eq!(stats.entries, 5);
 
-        // The last 5 UTXOs should be in cache
+        // The last 5 UTXOs should be in cache (vout 5-9)
         for i in 5..10 {
             let mut txid_bytes = [0u8; 32];
-            hex::decode_to_slice(&format!("{:064x}", i), &mut txid_bytes).unwrap_or_else(|_| {
-                // If hex decode fails, use a simple pattern
-                txid_bytes[0] = i as u8;
-            });
+            hex::decode_to_slice(&format!("{:064x}", i), &mut txid_bytes).unwrap();
             let outpoint = OutPoint {
                 txid: txid_bytes,
                 vout: i,
             };
             // These should be in cache (most recently added)
-            assert!(utxo_set.contains(&outpoint).unwrap() || utxo_set.get(&outpoint).unwrap().is_some());
+            assert!(
+                utxo_set.contains(&outpoint).unwrap() || utxo_set.get(&outpoint).unwrap().is_some(),
+                "UTXO {} should be in cache", i
+            );
         }
     }
 }

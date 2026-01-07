@@ -1550,16 +1550,18 @@ mod tests {
     #[test]
     fn test_balance_overflow_protection() {
         let mut channel = create_test_channel();
-        
-        // Set up channel with maximum balances
+
+        // Set up channel with balances that actually overflow when added
+        // u64::MAX / 2 + 2 + u64::MAX / 2 + 2 = u64::MAX + 3 (overflows)
         channel.capacity_novas = u64::MAX;
-        channel.local_balance_novas = u64::MAX / 2;
-        channel.remote_balance_novas = u64::MAX / 2 + 1; // This would overflow
-        
+        channel.local_balance_novas = u64::MAX / 2 + 2;
+        channel.remote_balance_novas = u64::MAX / 2 + 2;
+
         channel.create_funding_transaction(vec![], None, 1000).unwrap();
         channel.sign_funding().unwrap();
-        
+
         // Activation should fail due to overflow
-        assert!(channel.activate().is_err());
+        let result = channel.activate();
+        assert!(result.is_err(), "Activation should fail due to balance overflow: {:?}", result);
     }
 }

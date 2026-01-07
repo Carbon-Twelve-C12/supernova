@@ -1171,17 +1171,21 @@ mod tests {
         
         // Test with large but reasonable balance
         let large_fees = 1_000_000_000_000u64; // 1 trillion
-        treasury.process_transaction_fees(large_fees).unwrap();
-        
+        let allocated = treasury.process_transaction_fees(large_fees).unwrap();
+
+        // Get balance before distribution (only fee_allocation_percentage goes to treasury)
+        let balance_before = treasury.get_balance(None);
+        assert_eq!(balance_before, allocated, "Balance should match allocated amount");
+
         let result = treasury.distribute_funds();
         // Should succeed with checked arithmetic
         assert!(result.is_ok());
-        
+
         let distribution = result.unwrap();
         // Verify total_spent doesn't exceed balance
-        assert!(distribution.total_amount <= large_fees);
-        // Verify remaining_funds is calculated correctly
-        assert!(distribution.remaining_funds == large_fees - distribution.total_amount);
+        assert!(distribution.total_amount <= balance_before);
+        // Verify remaining_funds is calculated correctly (based on actual balance, not large_fees)
+        assert_eq!(distribution.remaining_funds, balance_before - distribution.total_amount);
     }
 
     /// SECURITY FIX [P1-009]: Test distribution rounding errors

@@ -1261,22 +1261,41 @@ mod tests {
     use super::*;
     use crate::test_common::*;
 
-    // Helper function to create a test block
+    // Helper function to create a test block with valid PoW
     fn create_test_block(prev_hash: [u8; 32], height: u32, target: u32) -> Block {
         // Create a proper block with coinbase transaction
-        let coinbase_input = TransactionInput::new_coinbase(height.to_le_bytes().to_vec());
+        // Include random data to ensure unique blocks
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos();
+        let mut coinbase_data = height.to_le_bytes().to_vec();
+        coinbase_data.extend_from_slice(&nanos.to_le_bytes());
+        let coinbase_input = TransactionInput::new_coinbase(coinbase_data);
         let coinbase_output = TransactionOutput::new(50_000_000_000, vec![1, 2, 3, 4]);
         let coinbase_tx = Transaction::new(1, vec![coinbase_input], vec![coinbase_output], 0);
 
-        // Use a test-friendly target if target is u32::MAX
-        // 0x1d00ffff is within valid bounds [0x1b00ffff, 0x1e0fffff]
+        // Use a trivially easy test target (0x20ffffff) for instant mining
+        // This creates a target with all high bytes set to 0xff, accepting nearly any hash
         let safe_target = if target == u32::MAX {
-            0x1d00ffff
+            0x20ffffff  // Trivially easy target for testing
         } else {
             target
         };
 
-        Block::new_with_params(height, prev_hash, vec![coinbase_tx], safe_target)
+        let mut block = Block::new_with_params(height, prev_hash, vec![coinbase_tx], safe_target);
+
+        // Mine the block by finding a valid nonce (should be quick with easy target)
+        while !block.header.meets_target() {
+            block.header.nonce = block.header.nonce.wrapping_add(1);
+            if block.header.nonce == 0 {
+                // Overflow protection - shouldn't happen with easy target
+                break;
+            }
+        }
+
+        block
     }
 
     #[test]
@@ -1341,9 +1360,9 @@ mod tests {
             .initialize_with_genesis(genesis.clone())
             .unwrap();
 
-        // Create two competing blocks
+        // Create two competing blocks (both use u32::MAX to get easy target)
         let block1a = create_test_block(genesis.hash(), 1, u32::MAX);
-        let block1b = create_test_block(genesis.hash(), 1, u32::MAX - 1);
+        let block1b = create_test_block(genesis.hash(), 1, u32::MAX);
 
         // Process first block
         chain_state.process_block(block1a.clone()).unwrap();

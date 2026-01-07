@@ -1616,19 +1616,19 @@ mod tests {
         assert_eq!(result.unwrap(), large_fee * 1000);
         
         // Test with overflow case
+        // u64::MAX / 2 + 1 + u64::MAX / 2 + 1 = u64::MAX + 1 (actually overflows)
         let mut overflow_fees = Vec::new();
-        overflow_fees.push(u64::MAX / 2);
-        overflow_fees.push(u64::MAX / 2);
-        overflow_fees.push(1); // This will overflow
-        
+        overflow_fees.push(u64::MAX / 2 + 1);
+        overflow_fees.push(u64::MAX / 2 + 1);
+
         let overflow_result = overflow_fees.iter().try_fold(0u64, |acc, &fee| {
             acc.checked_add(fee)
                 .ok_or_else(|| MiningError::SerializationError(
                     format!("Fee calculation overflow")
                 ))
         });
-        
-        assert!(overflow_result.is_err());
+
+        assert!(overflow_result.is_err(), "Should detect overflow: {:?}", overflow_result);
     }
 
     /// SECURITY FIX [P1-008]: Test size calculation overflow protection

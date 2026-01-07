@@ -103,24 +103,29 @@ mod tests {
         let config = TimeWarpConfig::default();
         let mut prevention = TimeWarpPrevention::new(config);
 
-        // Previous 11 blocks (newest first)
+        // Create a scenario where MTP > previous[0] (simulates post-time-warp chain)
+        // Previous 11 blocks (newest first) - newest block has anomalously low timestamp
         let previous_timestamps = vec![
-            1100, 1090, 1080, 1070, 1060, 1050, 1040, 1030, 1020, 1010, 1000,
+            1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000,
         ];
 
-        // Median is 1050 (6th element when sorted)
-        // New timestamp must be > 1050
+        // Sorted: [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000]
+        // Median is 1500 (6th element, index 5)
+        // A timestamp that is > previous[0] (1000) but <= mtp (1500) will trigger MTP violation
 
+        // Test timestamp = 1050 which:
+        // 1. Passes rollback check (1050 > 1000)
+        // 2. Fails MTP check (1050 <= 1500)
         let header = BlockHeader::new(12, [0; 32], [0; 32], 1050, 0x1d00ffff, 0);
-        let result = prevention.validate_timestamp(&header, &previous_timestamps, Some(2000));
+        let result = prevention.validate_timestamp(&header, &previous_timestamps, Some(2500));
 
         assert!(result.is_err());
         match result {
             Err(TimeValidationError::MedianTimePastViolation(ts, mtp)) => {
                 assert_eq!(ts, 1050);
-                assert_eq!(mtp, 1050);
+                assert_eq!(mtp, 1500);
             }
-            _ => panic!("Expected MedianTimePastViolation"),
+            _ => panic!("Expected MedianTimePastViolation, got {:?}", result),
         }
     }
 

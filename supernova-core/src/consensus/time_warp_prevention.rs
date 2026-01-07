@@ -482,14 +482,16 @@ mod tests {
     #[test]
     fn test_future_time_validation() {
         let config = TimeWarpConfig::default();
+        let max_clock_drift = config.max_clock_drift;
         let mut prevention = TimeWarpPrevention::new(config);
 
         let current_time = 1_000_000;
+        let future_offset = 10_000u64;
         let header = BlockHeader::new(
             1,
             [0; 32],
             [0; 32],
-            current_time + 10_000, // 10,000 seconds in future
+            current_time + future_offset, // 10,000 seconds in future
             0x1d00ffff,
             0,
         );
@@ -499,7 +501,10 @@ mod tests {
 
         match result {
             Err(TimeValidationError::TooFarInFuture(ahead)) => {
-                assert_eq!(ahead, 10_000); // Total time ahead
+                // The 'ahead' value is calculated as timestamp - (current_time + max_clock_drift)
+                // So 10,000 - 300 = 9,700 when max_clock_drift is 300
+                let expected_ahead = (future_offset - max_clock_drift) as i64;
+                assert_eq!(ahead, expected_ahead);
             }
             _ => panic!("Expected TooFarInFuture error"),
         }
@@ -513,8 +518,12 @@ mod tests {
 
         // Create alternating timestamp pattern (classic time warp)
         // Previous timestamps in reverse order (newest first)
+        // Pattern shows alternating high-low-high-low timestamps
         let previous = vec![2200, 900, 2100, 1000, 2000];
-        let new_timestamp = 800; // Continues the pattern
+        // Use timestamp > previous[0] to pass rollback check, but continues alternating pattern
+        // check_timestamps will be [2300, 2200, 900, 2100, 1000, 2000]
+        // Pattern: up, down, up, down, up - clear alternation
+        let new_timestamp = 2300;
 
         let header = BlockHeader::new(6, [0; 32], [0; 32], new_timestamp, 0x1d00ffff, 0);
         let result = prevention.validate_timestamp(&header, &previous, Some(3000));
@@ -524,7 +533,7 @@ mod tests {
             Err(TimeValidationError::ManipulationDetected(msg)) => {
                 assert!(msg.contains("Alternating timestamp pattern"));
             }
-            _ => panic!("Expected ManipulationDetected error"),
+            _ => panic!("Expected ManipulationDetected error, got {:?}", result),
         }
     }
 
@@ -593,13 +602,17 @@ mod tests {
         let config = TimeWarpConfig::default();
         let mut prevention = TimeWarpPrevention::new(config);
 
-        // Create timestamps with clear median
-        let previous_timestamps = vec![1500, 1400, 1300, 1200, 1100, 1000, 900, 800, 700, 600, 500];
+        // Create a scenario where MTP > previous[0] (newest block)
+        // This represents a chain where a time warp already occurred (newest block has low timestamp)
+        // Previous timestamps in reverse order (newest first)
+        let previous_timestamps = vec![1000, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400];
         let mtp = prevention.calculate_median_time_past(&previous_timestamps).unwrap();
-        assert_eq!(mtp, 1000, "Median should be middle value");
+        assert_eq!(mtp, 1900, "Median should be middle value");
 
-        // Test timestamp that violates MTP rule
-        let violating_timestamp = mtp - 1; // Below median
+        // Test timestamp that:
+        // 1. Passes rollback check (> previous[0] = 1000)
+        // 2. Violates MTP rule (<= mtp = 1900)
+        let violating_timestamp = 1001; // > 1000 but <= 1900
         let header = BlockHeader::new(
             1,
             [0; 32],
@@ -609,14 +622,14 @@ mod tests {
             0,
         );
 
-        let result = prevention.validate_timestamp(&header, &previous_timestamps, Some(2000));
+        let result = prevention.validate_timestamp(&header, &previous_timestamps, Some(3000));
         assert!(result.is_err(), "Timestamp below median time past should fail");
         match result {
             Err(TimeValidationError::MedianTimePastViolation(ts, mtp_val)) => {
                 assert_eq!(ts, violating_timestamp);
                 assert_eq!(mtp_val, mtp);
             }
-            _ => panic!("Expected MedianTimePastViolation error"),
+            _ => panic!("Expected MedianTimePastViolation error, got {:?}", result),
         }
     }
 
