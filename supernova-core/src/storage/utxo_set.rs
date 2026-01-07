@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use dashmap::{DashMap, DashSet};
 use lru::LruCache;
 use memmap2::{MmapMut, MmapOptions};
 use serde::{Deserialize, Serialize};
@@ -72,15 +73,16 @@ pub struct UtxoCacheStats {
 }
 
 /// Advanced UTXO set implementation optimized for performance
+/// Uses DashMap for lock-free concurrent access to index and spent outpoints
 pub struct UtxoSet {
     /// LRU cache of UTXOs for fast access with automatic eviction
     cache: Arc<RwLock<LruCache<OutPoint, UtxoEntry>>>,
     /// Memory-mapped file for the UTXO database
     mmap: Option<Arc<Mutex<MmapMut>>>,
-    /// Index mapping outpoints to file locations
-    index: Arc<RwLock<HashMap<OutPoint, u64>>>,
-    /// Set of recently spent outpoints
-    spent_outpoints: Arc<RwLock<HashSet<OutPoint>>>,
+    /// Index mapping outpoints to file locations (sharded for concurrency)
+    index: Arc<DashMap<OutPoint, u64>>,
+    /// Set of recently spent outpoints (sharded for concurrency)
+    spent_outpoints: Arc<DashSet<OutPoint>>,
     /// Current UTXO commitment
     commitment: Arc<RwLock<UtxoCommitment>>,
     /// Statistics for monitoring
@@ -108,8 +110,8 @@ impl UtxoSet {
                 std::num::NonZeroUsize::new(cache_capacity.max(1)).unwrap()
             ))),
             mmap: None,
-            index: Arc::new(RwLock::new(HashMap::new())),
-            spent_outpoints: Arc::new(RwLock::new(HashSet::new())),
+            index: Arc::new(DashMap::new()),
+            spent_outpoints: Arc::new(DashSet::new()),
             commitment: Arc::new(RwLock::new(initial_commitment)),
             stats: Arc::new(RwLock::new(UtxoCacheStats::default())),
             cache_capacity,
@@ -136,8 +138,8 @@ impl UtxoSet {
                 std::num::NonZeroUsize::new(cache_capacity.max(1)).unwrap()
             ))),
             mmap: None,
-            index: Arc::new(RwLock::new(HashMap::new())),
-            spent_outpoints: Arc::new(RwLock::new(HashSet::new())),
+            index: Arc::new(DashMap::new()),
+            spent_outpoints: Arc::new(DashSet::new()),
             commitment: Arc::new(RwLock::new(initial_commitment)),
             stats: Arc::new(RwLock::new(UtxoCacheStats::default())),
             cache_capacity,
@@ -200,11 +202,8 @@ impl UtxoSet {
             }
         }
 
-        // Remove from spent outpoints if present
-        {
-            let mut spent = self.spent_outpoints.write().map_err(|e| e.to_string())?;
-            spent.remove(&entry.outpoint);
-        }
+        // Remove from spent outpoints if present (lock-free with DashSet)
+        self.spent_outpoints.remove(&entry.outpoint);
 
         // Add to cache (LRU automatically handles eviction if at capacity)
         {
@@ -256,11 +255,8 @@ impl UtxoSet {
             // For simplicity, we'll just return None
         }
 
-        // Add to spent outpoints
-        {
-            let mut spent = self.spent_outpoints.write().map_err(|e| e.to_string())?;
-            spent.insert(outpoint.clone());
-        }
+        // Add to spent outpoints (lock-free with DashSet)
+        self.spent_outpoints.insert(outpoint.clone());
 
         // Update commitment if we removed something
         if let Some(entry) = &result {
@@ -281,12 +277,9 @@ impl UtxoSet {
     pub fn get(&self, outpoint: &OutPoint) -> Result<Option<UtxoEntry>, String> {
         let start_time = Instant::now();
 
-        // Check if recently spent
-        {
-            let spent = self.spent_outpoints.read().map_err(|e| e.to_string())?;
-            if spent.contains(outpoint) {
-                return Ok(None);
-            }
+        // Check if recently spent (lock-free with DashSet)
+        if self.spent_outpoints.contains(outpoint) {
+            return Ok(None);
         }
 
         // Look in cache first (LRU get promotes entry to most recently used)
@@ -303,20 +296,15 @@ impl UtxoSet {
             }
         }
 
-        // If not in cache and using mmap, check disk
-        if self.use_mmap {
-            // Look up in index
-            let index = self.index.read().map_err(|e| e.to_string())?;
+        // If not in cache and using mmap, check disk (lock-free with DashMap)
+        if self.use_mmap && self.index.contains_key(outpoint) {
+            // In a real implementation, we would:
+            // 1. Get the offset from the index
+            // 2. Load from mmap at that offset
+            // 3. Deserialize the entry
 
-            if index.contains_key(outpoint) {
-                // In a real implementation, we would:
-                // 1. Get the offset from the index
-                // 2. Load from mmap at that offset
-                // 3. Deserialize the entry
-
-                // For the stub implementation, we just return None
-                // Note: In a real implementation, this would add the entry to cache
-            }
+            // For the stub implementation, we just return None
+            // Note: In a real implementation, this would add the entry to cache
         }
 
         // Update miss statistics
@@ -331,12 +319,9 @@ impl UtxoSet {
 
     /// Check if the set contains a UTXO
     pub fn contains(&self, outpoint: &OutPoint) -> Result<bool, String> {
-        // Check if recently spent
-        {
-            let spent = self.spent_outpoints.read().map_err(|e| e.to_string())?;
-            if spent.contains(outpoint) {
-                return Ok(false);
-            }
+        // Check if recently spent (lock-free with DashSet)
+        if self.spent_outpoints.contains(outpoint) {
+            return Ok(false);
         }
 
         // Check cache (peek doesn't promote to MRU)
@@ -347,10 +332,9 @@ impl UtxoSet {
             }
         }
 
-        // Check index if using persistent storage
+        // Check index if using persistent storage (lock-free with DashMap)
         if self.use_mmap {
-            let index = self.index.read().map_err(|e| e.to_string())?;
-            return Ok(index.contains_key(outpoint));
+            return Ok(self.index.contains_key(outpoint));
         }
 
         Ok(false)
@@ -534,17 +518,11 @@ impl UtxoSet {
             cache.clear();
         }
 
-        // Clear index
-        {
-            let mut index = self.index.write().map_err(|e| e.to_string())?;
-            index.clear();
-        }
+        // Clear index (lock-free with DashMap)
+        self.index.clear();
 
-        // Clear spent outpoints
-        {
-            let mut spent = self.spent_outpoints.write().map_err(|e| e.to_string())?;
-            spent.clear();
-        }
+        // Clear spent outpoints (lock-free with DashSet)
+        self.spent_outpoints.clear();
 
         // Reset commitment
         {

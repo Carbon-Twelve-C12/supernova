@@ -477,6 +477,15 @@ impl DynamicBackupProvider for LocalFileProvider {
 }
 
 /// S3-compatible backup provider (works with AWS S3, MinIO, etc.)
+///
+/// # Implementation Status
+/// This provider stores configuration but S3 operations require the `aws-sdk-s3` crate.
+/// For production use, add `aws-sdk-s3` to Cargo.toml and implement the async operations.
+///
+/// # Future Implementation Notes
+/// - Use `aws_sdk_s3::Client` for S3 operations
+/// - Consider using `tokio::runtime::Handle::current().block_on()` for sync trait
+/// - Or refactor `DynamicBackupProvider` trait to be async
 pub struct S3Provider {
     name: String,
     bucket: String,
@@ -524,44 +533,66 @@ impl S3Provider {
 
 impl DynamicBackupProvider for S3Provider {
     fn store(&self, backup: &EncryptedBackup, backup_id: &str) -> BackupResult<()> {
-        // In production, use AWS SDK or compatible S3 client
-        // For now, provide stub implementation
+        // Serialize backup data for upload
         let _data = bincode::serialize(backup)
             .map_err(|e| BackupError::StorageError(e.to_string()))?;
 
-        // TODO: Implement actual S3 upload using aws-sdk-s3 crate
-        // let client = aws_sdk_s3::Client::new(&config);
-        // client.put_object()
-        //     .bucket(&self.bucket)
-        //     .key(format!("backups/{}.backup", backup_id))
-        //     .body(data.into())
-        //     .send()
-        //     .await?;
+        // STUB: S3 upload requires aws-sdk-s3 crate
+        // Production implementation should use:
+        //   let client = aws_sdk_s3::Client::new(&config);
+        //   let key = format!("backups/{}.backup", backup_id);
+        //   client.put_object().bucket(&self.bucket).key(&key).body(data.into()).send().await?;
 
-        info!(
-            "S3 backup {} to bucket {} (region: {})",
-            backup_id, self.bucket, self.region
+        tracing::warn!(
+            "S3 backup stub: would store {} to s3://{}/{} (requires aws-sdk-s3)",
+            backup_id, self.bucket, format!("backups/{}.backup", backup_id)
         );
 
         Ok(())
     }
 
     fn retrieve(&self, backup_id: &str) -> BackupResult<EncryptedBackup> {
-        // TODO: Implement actual S3 download
+        // STUB: S3 download requires aws-sdk-s3 crate
+        // Production implementation should use:
+        //   let client = aws_sdk_s3::Client::new(&config);
+        //   let resp = client.get_object().bucket(&self.bucket).key(&key).send().await?;
+        //   let data = resp.body.collect().await?.into_bytes();
+        //   bincode::deserialize(&data)
+
         Err(BackupError::ProviderError {
             provider: "S3".to_string(),
-            message: format!("S3 retrieve not implemented for {}", backup_id),
+            message: format!(
+                "S3 retrieve for {} requires aws-sdk-s3 crate (not yet integrated)",
+                backup_id
+            ),
         })
     }
 
     fn list_backups(&self) -> BackupResult<Vec<String>> {
-        // TODO: Implement S3 list objects
+        // STUB: S3 list requires aws-sdk-s3 crate
+        // Production implementation should use:
+        //   let client = aws_sdk_s3::Client::new(&config);
+        //   let resp = client.list_objects_v2().bucket(&self.bucket).prefix("backups/").send().await?;
+
+        tracing::warn!(
+            "S3 list_backups stub: would list s3://{}/backups/ (requires aws-sdk-s3)",
+            self.bucket
+        );
+
         Ok(Vec::new())
     }
 
     fn delete(&self, backup_id: &str) -> BackupResult<()> {
-        // TODO: Implement S3 delete
-        info!("Would delete S3 backup: {}", backup_id);
+        // STUB: S3 delete requires aws-sdk-s3 crate
+        // Production implementation should use:
+        //   let client = aws_sdk_s3::Client::new(&config);
+        //   client.delete_object().bucket(&self.bucket).key(&key).send().await?;
+
+        tracing::warn!(
+            "S3 delete stub: would delete s3://{}/backups/{}.backup (requires aws-sdk-s3)",
+            self.bucket, backup_id
+        );
+
         Ok(())
     }
 
