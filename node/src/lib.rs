@@ -1,13 +1,13 @@
 // Supernova Node Library
 // Node implementation for the Supernova blockchain
 
-// Enforce panic-free code in production
-#![cfg_attr(not(test), warn(clippy::unwrap_used))]
-#![cfg_attr(not(test), warn(clippy::expect_used))]
-#![cfg_attr(not(test), warn(clippy::panic))]
-#![cfg_attr(not(test), warn(clippy::unimplemented))]
-#![cfg_attr(not(test), warn(clippy::todo))]
-#![cfg_attr(not(test), warn(clippy::unreachable))]
+// Enforce panic-free code in production (SECURITY: deny panics for reliability)
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+#![cfg_attr(not(test), deny(clippy::expect_used))]
+#![cfg_attr(not(test), deny(clippy::panic))]
+#![cfg_attr(not(test), deny(clippy::unimplemented))]
+#![cfg_attr(not(test), deny(clippy::todo))]
+#![cfg_attr(not(test), deny(clippy::unreachable))]
 // Allow certain warnings for pragmatic reasons
 #![allow(dead_code)] // Many functions are exposed as library API
 #![allow(clippy::too_many_arguments)] // Complex blockchain functions need many params
