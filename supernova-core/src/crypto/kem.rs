@@ -100,7 +100,8 @@ pub fn encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, Vec<u8>), KemError> {
         .map_err(|e| KemError::InvalidPublicKey(format!("Failed to parse public key: {:?}", e)))?;
 
     // Encapsulate shared secret
-    let (ciphertext, shared_secret) = kyber768::encapsulate(&pk);
+    // SECURITY FIX: pqcrypto returns (SharedSecret, Ciphertext) - correct order
+    let (shared_secret, ciphertext) = kyber768::encapsulate(&pk);
 
     Ok((
         ciphertext.as_bytes().to_vec(),
