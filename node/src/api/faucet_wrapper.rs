@@ -83,8 +83,21 @@ impl FaucetWrapper {
         })
     }
 
-    /// Distribute coins to an address
+    /// Distribute coins to an address (legacy entry point without IP context).
     pub async fn distribute_coins(&self, address: &str) -> Result<DistributionResult, FaucetError> {
+        self.distribute_coins_with_client(address, None).await
+    }
+
+    /// Distribute coins with the client's peer IP for rate-limit enforcement.
+    ///
+    /// `client_ip` should be the string form of the TCP peer's address
+    /// (e.g. `"203.0.113.5"`); pass `None` only for non-HTTP callers that
+    /// have already performed their own gating.
+    pub async fn distribute_coins_with_client(
+        &self,
+        address: &str,
+        client_ip: Option<&str>,
+    ) -> Result<DistributionResult, FaucetError> {
         // Check balance
         {
             let balance = self
@@ -96,13 +109,13 @@ impl FaucetWrapper {
             }
         }
 
-        // Use inner faucet to handle cooldown and validation
+        // Use inner faucet to handle cooldown, per-IP limit, and validation
         let amount = {
             let mut faucet = self
                 .inner
                 .lock()
                 .map_err(|e| FaucetError::Internal(format!("Lock poisoned: {}", e)))?;
-            faucet.distribute_coins(address)?
+            faucet.distribute_coins_with_client(address, client_ip)?
         };
 
         // Deduct from balance

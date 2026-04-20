@@ -1,5 +1,6 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse};
 use chrono::{DateTime, Utc};
+use metrics::counter;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::debug;
@@ -8,6 +9,13 @@ use utoipa::ToSchema;
 use crate::api::error::ApiError;
 use crate::node::Node;
 use supernova_core::testnet::faucet::FaucetError;
+
+/// Extract the peer IP for rate-limit attribution. Uses the TCP peer address
+/// (Actix-Web's `HttpRequest::peer_addr`) rather than `X-Forwarded-For`; reverse
+/// proxies should terminate at a trusted hop and rewrite the peer address.
+fn client_ip(req: &HttpRequest) -> Option<String> {
+    req.peer_addr().map(|addr| addr.ip().to_string())
+}
 
 /// Faucet status response
 #[derive(Debug, Serialize, ToSchema)]
@@ -144,13 +152,20 @@ pub async fn get_faucet_status(
     tag = "faucet"
 )]
 pub async fn request_tokens(
+    req: HttpRequest,
     node: web::Data<Arc<Node>>,
     request: web::Json<FaucetRequest>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    debug!("Processing faucet request for address: {}", request.address);
+    counter!("faucet_requests_total", 1);
+    let ip = client_ip(&req);
+    debug!(
+        "Processing faucet request for address: {} (client_ip={:?})",
+        request.address, ip
+    );
 
     // Validate request
     if request.address.is_empty() {
+        counter!("faucet_rejections_total", 1, "reason" => "empty_address");
         return Ok(HttpResponse::BadRequest()
             .json(ApiError::bad_request("Recipient address cannot be empty")));
     }
@@ -159,52 +174,88 @@ pub async fn request_tokens(
     let faucet = match node.get_faucet() {
         Ok(Some(f)) => f,
         Ok(None) => {
+            counter!("faucet_rejections_total", 1, "reason" => "disabled");
             return Ok(
                 HttpResponse::ServiceUnavailable().json(ApiError::service_unavailable(
                     "Faucet is not enabled on this node",
                 )),
-            )
+            );
         }
         Err(e) => {
+            counter!("faucet_rejections_total", 1, "reason" => "lookup_error");
             return Ok(
                 HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
                     "Failed to get faucet: {}",
                     e
                 ))),
-            )
+            );
         }
     };
 
-    // Request tokens
-    match faucet.request_faucet_coins(&request.address).await {
-        Ok(result) => Ok(HttpResponse::Ok().json(FaucetResponse {
-            txid: result.txid,
-            amount: result.amount,
-            recipient: request.address.clone(),
-            timestamp: result.timestamp,
-        })),
+    // Request tokens with client IP context for per-IP rate limiting.
+    match faucet
+        .request_faucet_coins_with_client(&request.address, ip.as_deref())
+        .await
+    {
+        Ok(result) => {
+            counter!("faucet_claims_total", 1);
+            Ok(HttpResponse::Ok().json(FaucetResponse {
+                txid: result.txid,
+                amount: result.amount,
+                recipient: request.address.clone(),
+                timestamp: result.timestamp,
+            }))
+        }
         Err(e) => match e {
-            FaucetError::CooldownPeriod { remaining_time } => Ok(HttpResponse::TooManyRequests()
-                .json(ApiError::rate_limited(format!(
+            FaucetError::CooldownPeriod { remaining_time } => {
+                counter!("faucet_rejections_total", 1, "reason" => "address_cooldown");
+                Ok(HttpResponse::TooManyRequests().json(ApiError::rate_limited(format!(
                     "Please wait {} seconds before requesting again",
                     remaining_time
-                )))),
-            FaucetError::DailyLimitExceeded => Ok(HttpResponse::TooManyRequests().json(
-                ApiError::rate_limited("Daily distribution limit reached for this address/IP"),
-            )),
-            FaucetError::InsufficientFunds => Ok(HttpResponse::ServiceUnavailable().json(
-                ApiError::service_unavailable("Faucet has insufficient funds"),
-            )),
+                ))))
+            }
+            FaucetError::IpRateLimitExceeded {
+                limit,
+                window,
+                remaining_time,
+            } => {
+                counter!("faucet_rejections_total", 1, "reason" => "ip_limit");
+                Ok(HttpResponse::TooManyRequests().json(ApiError::rate_limited(format!(
+                    "Per-IP limit of {} claims per {}s reached; retry in {}s",
+                    limit, window, remaining_time
+                ))))
+            }
+            FaucetError::DailyLimitExceeded => {
+                counter!("faucet_rejections_total", 1, "reason" => "daily_limit");
+                Ok(HttpResponse::TooManyRequests().json(ApiError::rate_limited(
+                    "Daily distribution limit reached for this address/IP",
+                )))
+            }
+            FaucetError::InsufficientFunds => {
+                counter!("faucet_rejections_total", 1, "reason" => "insufficient_funds");
+                Ok(HttpResponse::ServiceUnavailable().json(ApiError::service_unavailable(
+                    "Faucet has insufficient funds",
+                )))
+            }
             FaucetError::InvalidAddress(_) => {
+                counter!("faucet_rejections_total", 1, "reason" => "invalid_address");
                 Ok(HttpResponse::BadRequest()
                     .json(ApiError::bad_request("Invalid recipient address")))
             }
-            _ => Ok(
-                HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
-                    "Failed to distribute coins: {}",
-                    e
-                ))),
-            ),
+            FaucetError::PowChallengeInvalid => {
+                counter!("faucet_rejections_total", 1, "reason" => "pow_invalid");
+                Ok(HttpResponse::BadRequest()
+                    .json(ApiError::bad_request("Invalid proof-of-work solution")))
+            }
+            _ => {
+                counter!("faucet_rejections_total", 1, "reason" => "internal");
+                Ok(
+                    HttpResponse::InternalServerError().json(ApiError::internal_error(format!(
+                        "Failed to distribute coins: {}",
+                        e
+                    ))),
+                )
+            }
         },
     }
 }

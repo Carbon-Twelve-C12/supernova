@@ -197,17 +197,27 @@ impl NodeTestnetManager {
         Ok(())
     }
 
-    /// Request coins from the faucet
+    /// Request coins from the faucet (legacy — no IP context).
     pub async fn request_faucet_coins(
         &self,
         recipient: &str,
+    ) -> Result<FaucetDistributionResult, FaucetError> {
+        self.request_faucet_coins_with_client(recipient, None).await
+    }
+
+    /// Request coins from the faucet with the client's peer IP for per-IP
+    /// rate-limit enforcement. The HTTP layer passes the TCP peer address here.
+    pub async fn request_faucet_coins_with_client(
+        &self,
+        recipient: &str,
+        client_ip: Option<&str>,
     ) -> Result<FaucetDistributionResult, FaucetError> {
         let faucet = self.faucet.as_ref().ok_or(FaucetError::FaucetDisabled)?;
 
         let mut faucet_guard = faucet
             .lock()
             .map_err(|_| FaucetError::Internal("Faucet lock poisoned".to_string()))?;
-        let amount = faucet_guard.distribute_coins(recipient)?;
+        let amount = faucet_guard.distribute_coins_with_client(recipient, client_ip)?;
 
         // Update statistics
         if let Ok(mut stats) = self.stats.lock() {
@@ -219,9 +229,10 @@ impl NodeTestnetManager {
         let txid = format!("test_{}", chrono::Utc::now().timestamp_nanos());
 
         info!(
-            "Faucet distributed {} NOVA to {}",
+            "Faucet distributed {} NOVA to {} (client_ip={:?})",
             amount as f64 / 100_000_000.0,
-            recipient
+            recipient,
+            client_ip,
         );
 
         Ok(FaucetDistributionResult {
