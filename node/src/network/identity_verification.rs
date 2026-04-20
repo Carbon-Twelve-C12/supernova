@@ -1,4 +1,5 @@
 use libp2p::PeerId;
+use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -22,10 +23,15 @@ pub struct IdentityChallenge {
 }
 
 impl IdentityChallenge {
-    /// Create a new identity challenge
+    /// Create a new identity challenge.
+    ///
+    /// Fills the challenge nonce from the OS CSPRNG. `OsRng::fill_bytes` is
+    /// infallible at the API level: if the kernel entropy source is
+    /// unreachable the rand crate aborts internally, which for a P2P handshake
+    /// is the desired behavior (we refuse to operate with predictable nonces).
     pub fn new(difficulty: u8) -> Self {
         let mut nonce = [0u8; 32];
-        getrandom::getrandom(&mut nonce).expect("Failed to generate random nonce");
+        OsRng.fill_bytes(&mut nonce);
 
         Self {
             nonce,

@@ -403,9 +403,17 @@ impl EclipsePreventionSystem {
             .filter(|(peer_id, _)| !anchor_peers.contains(peer_id))
             .collect();
 
-        // Sort by behavior score and connection time
+        // Sort by behavior score and connection time.
+        //
+        // `behavior_score` is a finite f64 in [0, 1] maintained by the scoring
+        // subsystem; NaN would indicate an upstream bug. Treat any NaN
+        // comparison as Equal to keep the sort total rather than panicking.
         candidates.sort_by(|a, b| {
-            let score_cmp = a.1.behavior_score.partial_cmp(&b.1.behavior_score).unwrap();
+            let score_cmp = a
+                .1
+                .behavior_score
+                .partial_cmp(&b.1.behavior_score)
+                .unwrap_or(std::cmp::Ordering::Equal);
             if score_cmp == std::cmp::Ordering::Equal {
                 a.1.connected_at.cmp(&b.1.connected_at)
             } else {
