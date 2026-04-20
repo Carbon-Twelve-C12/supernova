@@ -1,6 +1,7 @@
 use crate::mining::reward::EnvironmentalProfile;
 use crate::mining::template::BlockTemplate;
 use crate::mining::MempoolInterface;
+use supernova_core::config::NetworkType;
 use supernova_core::types::block::Block;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -84,6 +85,7 @@ pub struct MiningWorker {
     pub pause_signal: Arc<AtomicBool>,
     pub(crate) current_height: Arc<AtomicU64>,
     pub(crate) environmental_profile: Option<EnvironmentalProfile>,
+    pub(crate) network: NetworkType,
 }
 
 impl MiningWorker {
@@ -95,6 +97,7 @@ impl MiningWorker {
         mempool: Arc<dyn MempoolInterface + Send + Sync>,
         current_height: Arc<AtomicU64>,
         environmental_profile: Option<EnvironmentalProfile>,
+        network: NetworkType,
     ) -> Self {
         Self {
             stop_signal,
@@ -106,6 +109,7 @@ impl MiningWorker {
             pause_signal: Arc::new(AtomicBool::new(false)),
             current_height,
             environmental_profile,
+            network,
         }
     }
 
@@ -138,6 +142,7 @@ impl MiningWorker {
             self.mempool.as_ref(),
             block_height,
             env_profile,
+            self.network,
         )
         .await;
 
@@ -192,6 +197,7 @@ impl MiningWorker {
                     self.mempool.as_ref(),
                     block_height,
                     env_profile,
+                    self.network,
                 )
                 .await;
                 block = template.create_block();
@@ -283,6 +289,7 @@ impl MiningWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use supernova_core::config::NetworkType;
     use supernova_core::types::transaction::Transaction;
     use std::sync::Arc;
     use tokio::sync::mpsc;
@@ -310,6 +317,7 @@ mod tests {
             mempool,
             Arc::new(AtomicU64::new(0)),
             None,
+            NetworkType::Regtest,
         );
 
         let mining_handle = tokio::spawn(async move {
@@ -346,6 +354,7 @@ mod tests {
             mempool,
             Arc::new(AtomicU64::new(0)),
             None,
+            NetworkType::Regtest,
         );
 
         let metrics = worker.get_metrics();

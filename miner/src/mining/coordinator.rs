@@ -1,6 +1,7 @@
 use super::reward::EnvironmentalProfile;
 use super::template::{BlockTemplate, MempoolInterface};
 use super::worker::MiningWorker;
+use supernova_core::config::NetworkType;
 use supernova_core::types::block::Block;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -78,6 +79,7 @@ pub struct Miner {
     template_refresh_signal: Arc<AtomicBool>,
     environmental_profile: Option<EnvironmentalProfile>,
     current_height: Arc<AtomicU64>,
+    network: NetworkType,
 }
 
 impl Miner {
@@ -86,6 +88,7 @@ impl Miner {
         initial_target: u32,
         mempool: Arc<dyn MempoolInterface + Send + Sync>,
         reward_address: Vec<u8>,
+        network: NetworkType,
     ) -> (Self, mpsc::Receiver<Block>) {
         let (tx, rx) = mpsc::channel(100);
         let stop_signal = Arc::new(AtomicBool::new(false));
@@ -103,6 +106,7 @@ impl Miner {
                 Arc::clone(&mempool),
                 Arc::clone(&current_height),
                 None, // environmental_profile will be set later
+                network,
             )));
         }
 
@@ -120,6 +124,7 @@ impl Miner {
                 template_refresh_signal,
                 environmental_profile: None,
                 current_height,
+                network,
             },
             rx,
         )
@@ -151,6 +156,7 @@ impl Miner {
             self.mempool.as_ref(),
             _current_height,
             self.environmental_profile.as_ref(),
+            self.network,
         )
         .await;
         let shared_template = Arc::new(tokio::sync::Mutex::new(template));
@@ -352,7 +358,13 @@ mod tests {
     async fn test_miner_creation() {
         let mempool = Arc::new(MockMempool);
         let reward_address = vec![1, 2, 3, 4];
-        let (miner, _rx) = Miner::new(4, 0x1d00ffff, mempool, reward_address);
+        let (miner, _rx) = Miner::new(
+            4,
+            0x1d00ffff,
+            mempool,
+            reward_address,
+            NetworkType::Regtest,
+        );
         assert_eq!(miner.num_threads, 4);
         assert_eq!(miner.get_current_target(), 0x1d00ffff);
     }
@@ -361,7 +373,13 @@ mod tests {
     async fn test_mining_start_stop() {
         let mempool = Arc::new(MockMempool);
         let reward_address = vec![1, 2, 3, 4];
-        let (miner, mut rx) = Miner::new(1, 0x207fffff, mempool, reward_address);
+        let (miner, mut rx) = Miner::new(
+            1,
+            0x207fffff,
+            mempool,
+            reward_address,
+            NetworkType::Regtest,
+        );
 
         // Clone miner for the spawned task
         let mining_miner = miner.clone();
@@ -385,7 +403,13 @@ mod tests {
     async fn test_difficulty_adjustment() {
         let mempool = Arc::new(MockMempool);
         let reward_address = vec![1, 2, 3, 4];
-        let (miner, _rx) = Miner::new(1, 0x1d00ffff, mempool, reward_address);
+        let (miner, _rx) = Miner::new(
+            1,
+            0x1d00ffff,
+            mempool,
+            reward_address,
+            NetworkType::Regtest,
+        );
         let initial_target = miner.get_current_target();
 
         // Test difficulty update (simulating node calling with new target)
@@ -398,7 +422,13 @@ mod tests {
     async fn test_mining_metrics() {
         let mempool = Arc::new(MockMempool);
         let reward_address = vec![1, 2, 3, 4];
-        let (miner, _rx) = Miner::new(2, u32::MAX, mempool, reward_address);
+        let (miner, _rx) = Miner::new(
+            2,
+            u32::MAX,
+            mempool,
+            reward_address,
+            NetworkType::Regtest,
+        );
 
         let metrics = miner.get_metrics();
         let initial_stats = metrics.get_stats();

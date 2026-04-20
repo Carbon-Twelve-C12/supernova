@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use supernova_core::config::NetworkType;
 use supernova_core::types::transaction::Transaction;
 use miner::mining::Miner;
 use std::sync::Arc;
@@ -24,7 +25,13 @@ async fn main() {
     let reward_address = vec![1, 2, 3, 4]; // Simple test address
 
     // Create miner with 4 threads and initial target
-    let (miner, mut block_rx) = Miner::new(4, 0x1d00ffff, mempool, reward_address);
+    let (miner, mut block_rx) = Miner::new(
+        4,
+        0x1d00ffff,
+        mempool,
+        reward_address,
+        NetworkType::Testnet,
+    );
 
     // Start mining
     let _mining_task = tokio::spawn({

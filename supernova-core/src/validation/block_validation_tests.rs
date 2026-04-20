@@ -46,6 +46,7 @@ mod tests {
             median_time_past: prev_timestamp.saturating_sub(3600), // 1 hour before previous block
             current_difficulty: 0x1d00ffff,
             utxo_provider: None,
+            network: crate::config::NetworkType::Regtest,
         }
     }
 
@@ -291,6 +292,7 @@ mod tests {
             median_time_past: 0,
             current_difficulty: 0x1d00ffff,
             utxo_provider: None,
+            network: crate::config::NetworkType::Regtest,
         };
 
         // Create a block that doesn't meet PoW requirements

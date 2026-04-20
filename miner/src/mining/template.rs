@@ -1,5 +1,10 @@
 use super::reward::{calculate_mining_reward, EnvironmentalProfile};
 use async_trait::async_trait;
+use supernova_core::config::NetworkType;
+use supernova_core::governance::{
+    treasury_script_pubkey, validate_treasury_script, TreasuryError,
+    TREASURY_ALLOCATION_PERCENT as GOVERNANCE_TREASURY_PERCENT,
+};
 use supernova_core::types::block::Block;
 use supernova_core::types::transaction::{Transaction, TransactionInput, TransactionOutput};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,22 +18,15 @@ use std::time::{Duration, Instant};
 pub struct TreasuryAllocationConfig;
 
 impl TreasuryAllocationConfig {
-    /// Treasury allocation percentage
-    /// 
+    /// Treasury allocation percentage (whole percent).
+    ///
     /// SECURITY FIX (P2-010): 5% of block reward goes to environmental treasury.
-    /// This is a consensus rule and must be enforced in block validation.
-    pub const TREASURY_ALLOCATION_PERCENT: f64 = 5.0;
-    
-    /// Treasury address (multisig controlled by governance)
-    /// 
-    /// SECURITY: In production, this should be a multisig address controlled
-    /// by decentralized governance, not a single address.
-    /// 
-    /// TODO: Replace with actual governance-controlled multisig address
-    pub const TREASURY_ADDRESS_PLACEHOLDER: &'static [u8] = b"TREASURY_PLACEHOLDER_ADDRESS";
-    
-    /// Minimum treasury output amount (prevents dust)
-    pub const MIN_TREASURY_OUTPUT: u64 = 1000; // 1000 nova units minimum
+    /// Mirrors [`supernova_core::governance::TREASURY_ALLOCATION_PERCENT`];
+    /// kept here for convenience in miner code paths.
+    pub const TREASURY_ALLOCATION_PERCENT: u64 = GOVERNANCE_TREASURY_PERCENT;
+
+    /// Minimum treasury output amount (prevents dust).
+    pub const MIN_TREASURY_OUTPUT: u64 = 1000;
 }
 
 pub const BLOCK_MAX_SIZE: usize = 4_000_000; // 4MB (increased for 2.5-minute blocks)
@@ -59,6 +57,7 @@ pub struct BlockTemplate {
     creation_time: Instant,
     needs_refresh: AtomicBool,
     block_height: u64, // Add block height for reward calculation
+    network: NetworkType,
 }
 
 impl BlockTemplate {
@@ -70,14 +69,18 @@ impl BlockTemplate {
         mempool: &dyn MempoolInterface,
         block_height: u64, // Add block height parameter
         environmental_profile: Option<&EnvironmentalProfile>, // Add environmental profile
+        network: NetworkType,
     ) -> Self {
         // Calculate reward based on block height and environmental profile
         let env_profile = environmental_profile.cloned().unwrap_or_default();
         let mining_reward = calculate_mining_reward(block_height, &env_profile);
 
         // Create coinbase transaction with calculated reward
-        let coinbase =
-            Self::create_coinbase_transaction(mining_reward.total_reward, reward_address.clone());
+        let coinbase = Self::create_coinbase_transaction(
+            mining_reward.total_reward,
+            reward_address.clone(),
+            network,
+        );
 
         // Get prioritized transactions from mempool
         let coinbase_size = bincode::serialize(&coinbase).unwrap().len();
@@ -93,6 +96,7 @@ impl BlockTemplate {
             creation_time: Instant::now(),
             needs_refresh: AtomicBool::new(false),
             block_height,
+            network,
         }
     }
 
@@ -205,7 +209,11 @@ impl BlockTemplate {
     ///
     /// # Returns
     /// Transaction with miner and treasury outputs
-    fn create_coinbase_transaction(reward: u64, reward_address: Vec<u8>) -> Transaction {
+    fn create_coinbase_transaction(
+        reward: u64,
+        reward_address: Vec<u8>,
+        network: NetworkType,
+    ) -> Transaction {
         let coinbase_input = TransactionInput::new(
             [0u8; 32],  // Previous transaction hash is zero for coinbase
             0xffffffff, // Previous output index is max value for coinbase
@@ -213,23 +221,24 @@ impl BlockTemplate {
             0,          // Sequence
         );
 
-        // SECURITY: Calculate treasury allocation
-        let treasury_percentage = TreasuryAllocationConfig::TREASURY_ALLOCATION_PERCENT / 100.0;
-        let treasury_amount = (reward as f64 * treasury_percentage) as u64;
+        // SECURITY: Integer-arithmetic treasury split. Must match the
+        // validator's `total * 5 / 100` rounding in block.rs to avoid
+        // off-by-one consensus splits.
+        let treasury_amount = reward.saturating_mul(GOVERNANCE_TREASURY_PERCENT) / 100;
         let miner_amount = reward.saturating_sub(treasury_amount);
-        
+
         // Create outputs: [miner, treasury]
         let mut outputs = Vec::new();
-        
+
         // Output 0: Miner reward (95%)
         outputs.push(TransactionOutput::new(miner_amount, reward_address));
-        
+
         // Output 1: Treasury allocation (5%)
         // SECURITY: Only add if amount meets minimum threshold
         if treasury_amount >= TreasuryAllocationConfig::MIN_TREASURY_OUTPUT {
             outputs.push(TransactionOutput::new(
                 treasury_amount,
-                TreasuryAllocationConfig::TREASURY_ADDRESS_PLACEHOLDER.to_vec(),
+                treasury_script_pubkey(network),
             ));
         } else {
             // If treasury amount too small, give it to miner
@@ -260,18 +269,19 @@ impl BlockTemplate {
     pub fn validate_coinbase_treasury(
         coinbase: &Transaction,
         expected_reward: u64,
+        network: NetworkType,
     ) -> Result<(), String> {
         let outputs = coinbase.outputs();
-        
+
         // Validation 1: Must have at least 1 output (miner)
         if outputs.is_empty() {
             return Err("Coinbase has no outputs".to_string());
         }
-        
-        // Validation 2: Calculate expected treasury amount
-        let treasury_percentage = TreasuryAllocationConfig::TREASURY_ALLOCATION_PERCENT / 100.0;
-        let expected_treasury = (expected_reward as f64 * treasury_percentage) as u64;
-        
+
+        // Validation 2: Expected treasury amount (integer, matches miner).
+        let expected_treasury =
+            expected_reward.saturating_mul(GOVERNANCE_TREASURY_PERCENT) / 100;
+
         // Validation 3: If treasury amount significant, must have treasury output
         if expected_treasury >= TreasuryAllocationConfig::MIN_TREASURY_OUTPUT {
             if outputs.len() < 2 {
@@ -280,34 +290,35 @@ impl BlockTemplate {
                     expected_treasury
                 ));
             }
-            
-            // Validation 4: Verify treasury output amount
+
+            // Validation 4: Treasury script must match governance script
+            // for the active network.
+            validate_treasury_script(&outputs[1].pub_key_script, network).map_err(
+                |e: TreasuryError| format!("Treasury script rejected: {}", e),
+            )?;
+
+            // Validation 5: Verify treasury output amount within 1% tolerance
             let actual_treasury = outputs[1].amount();
-            
-            // Allow 1% tolerance for rounding
             let tolerance = expected_treasury / 100;
-            if actual_treasury < expected_treasury.saturating_sub(tolerance) 
-                || actual_treasury > expected_treasury + tolerance {
+            if actual_treasury < expected_treasury.saturating_sub(tolerance)
+                || actual_treasury > expected_treasury.saturating_add(tolerance)
+            {
                 return Err(format!(
                     "Treasury output amount incorrect: expected {}, got {}",
-                    expected_treasury,
-                    actual_treasury
+                    expected_treasury, actual_treasury
                 ));
             }
-            
-            // Validation 5: Verify miner doesn't get full reward
-            let miner_output = outputs[0].amount();
+
+            // Validation 6: Total outputs must not exceed reward.
             let total_outputs: u64 = outputs.iter().map(|o| o.amount()).sum();
-            
             if total_outputs > expected_reward {
                 return Err(format!(
                     "Total coinbase outputs {} exceed expected reward {}",
-                    total_outputs,
-                    expected_reward
+                    total_outputs, expected_reward
                 ));
             }
         }
-        
+
         Ok(())
     }
 
@@ -396,7 +407,17 @@ mod tests {
     async fn test_block_template_creation() {
         let mempool = MockMempool;
         let template =
-            BlockTemplate::new(1, [0u8; 32], u32::MAX, vec![1, 2, 3, 4], &mempool, 1, None).await;
+            BlockTemplate::new(
+                1,
+                [0u8; 32],
+                u32::MAX,
+                vec![1, 2, 3, 4],
+                &mempool,
+                1,
+                None,
+                NetworkType::Regtest,
+            )
+            .await;
 
         let block = template.create_block();
         // The MockMempool implementation returns 3 transactions,
@@ -409,8 +430,8 @@ mod tests {
 
         // Coinbase output 0 is the miner payout (reward minus treasury allocation)
         let expected_reward = crate::mining::reward::calculate_base_reward(1);
-        let treasury_pct = TreasuryAllocationConfig::TREASURY_ALLOCATION_PERCENT / 100.0;
-        let expected_treasury = (expected_reward as f64 * treasury_pct) as u64;
+        let expected_treasury =
+            expected_reward.saturating_mul(GOVERNANCE_TREASURY_PERCENT) / 100;
         let expected_miner_payout = expected_reward.saturating_sub(expected_treasury);
         assert_eq!(
             block.transactions()[0].outputs()[0].amount(),
@@ -438,7 +459,17 @@ mod tests {
     async fn test_template_refresh() {
         let mempool = MockMempool;
         let mut template =
-            BlockTemplate::new(1, [0u8; 32], u32::MAX, vec![1, 2, 3, 4], &mempool, 1, None).await;
+            BlockTemplate::new(
+                1,
+                [0u8; 32],
+                u32::MAX,
+                vec![1, 2, 3, 4],
+                &mempool,
+                1,
+                None,
+                NetworkType::Regtest,
+            )
+            .await;
 
         assert!(!template.needs_refresh());
 

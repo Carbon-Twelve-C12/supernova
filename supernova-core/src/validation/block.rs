@@ -1,6 +1,8 @@
 // Block validation - comprehensive security implementation for Supernova
 
+use crate::config::NetworkType;
 use crate::consensus::difficulty::calculate_required_work;
+use crate::governance::{TreasuryError, TREASURY_ALLOCATION_PERCENT, TREASURY_SCRIPT_LEN};
 use crate::types::block::Block;
 use crate::types::transaction::Transaction;
 use crate::validation::transaction::TransactionValidator;
@@ -90,6 +92,16 @@ pub enum BlockValidationError {
     /// Invalid block header
     #[error("Invalid block header: {0}")]
     InvalidHeader(String),
+
+    /// Coinbase treasury allocation is missing or malformed
+    #[error("Invalid treasury output: {0}")]
+    InvalidTreasuryOutput(String),
+}
+
+impl From<TreasuryError> for BlockValidationError {
+    fn from(err: TreasuryError) -> Self {
+        BlockValidationError::InvalidTreasuryOutput(err.to_string())
+    }
 }
 
 /// Type for validation results
@@ -190,6 +202,8 @@ pub struct ValidationContext {
     pub current_difficulty: u32,
     /// UTXO set accessor (for script validation)
     pub utxo_provider: Option<Box<dyn Fn(&[u8; 32], u32) -> Option<Vec<u8>>>>,
+    /// Active network — consensus-critical for treasury script lookup.
+    pub network: NetworkType,
 }
 
 /// Block validator
@@ -576,6 +590,75 @@ impl BlockValidator {
                 expected_subsidy,
                 actual_subsidy,
             ));
+        }
+
+        self.validate_coinbase_treasury(coinbase, context.network)?;
+
+        Ok(())
+    }
+
+    /// Enforce the consensus rule that every coinbase with a non-trivial
+    /// reward pays [`TREASURY_ALLOCATION_PERCENT`] of its total outputs
+    /// to the network-canonical treasury P2WSH script.
+    ///
+    /// The total-output denominator is taken from the coinbase itself so
+    /// the rule is self-consistent regardless of how the miner computes
+    /// fees or environmental bonuses.
+    fn validate_coinbase_treasury(
+        &self,
+        coinbase: &Transaction,
+        network: NetworkType,
+    ) -> BlockValidationResult {
+        let outputs = coinbase.outputs();
+        if outputs.is_empty() {
+            return Err(BlockValidationError::InvalidTreasuryOutput(
+                "coinbase has no outputs".to_string(),
+            ));
+        }
+
+        let total: u64 = outputs.iter().map(|o| o.value()).sum();
+
+        // Rounding note: construction uses floor(total * pct / 100); the
+        // validator must use the same rounding mode so `miner == validator`.
+        let expected_treasury = total
+            .saturating_mul(TREASURY_ALLOCATION_PERCENT)
+            / 100;
+
+        // If the whole-percent cut rounds to zero, no treasury output is
+        // required (dust-avoidance; matches miner-side logic).
+        if expected_treasury == 0 {
+            return Ok(());
+        }
+
+        if outputs.len() < 2 {
+            return Err(BlockValidationError::InvalidTreasuryOutput(format!(
+                "coinbase missing treasury output (expected {} for total {})",
+                expected_treasury, total
+            )));
+        }
+
+        let treasury_out = &outputs[1];
+        if treasury_out.pub_key_script.len() != TREASURY_SCRIPT_LEN {
+            return Err(BlockValidationError::InvalidTreasuryOutput(format!(
+                "treasury script length {} != {}",
+                treasury_out.pub_key_script.len(),
+                TREASURY_SCRIPT_LEN
+            )));
+        }
+
+        crate::governance::validate_treasury_script(&treasury_out.pub_key_script, network)?;
+
+        // Allow 1% tolerance on the amount to absorb floating-point drift
+        // from the miner's f64 reward computation.
+        let tolerance = expected_treasury / 100;
+        let lower = expected_treasury.saturating_sub(tolerance);
+        let upper = expected_treasury.saturating_add(tolerance);
+        let actual = treasury_out.value();
+        if actual < lower || actual > upper {
+            return Err(BlockValidationError::InvalidTreasuryOutput(format!(
+                "treasury amount {} outside [{}, {}] for total {}",
+                actual, lower, upper, total
+            )));
         }
 
         Ok(())

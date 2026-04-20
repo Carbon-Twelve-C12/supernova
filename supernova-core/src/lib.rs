@@ -35,6 +35,7 @@ pub mod environmental;
 pub mod error;
 pub mod errors;
 pub mod freeze;
+pub mod governance;
 pub mod hash;
 pub mod journal;
 pub mod lightning;
@@ -75,7 +76,11 @@ pub use crate::validation::ValidationError;
 
 // Re-export public API
 pub use crate::api::{Api, ApiConfig};
-pub use crate::config::SupernovaConfig;
+pub use crate::config::{NetworkType, SupernovaConfig};
+pub use crate::governance::{
+    treasury_script_pubkey, validate_treasury_script, TreasuryError,
+    MAINNET_TREASURY_PENDING_GENESIS, TREASURY_ALLOCATION_PERCENT, TREASURY_SCRIPT_LEN,
+};
 pub use crate::consensus::{DifficultyAdjustment, DifficultyAdjustmentConfig};
 pub use crate::consensus_verification::{
     ConsensusProperty, ConsensusVerificationFramework, VerificationReport,

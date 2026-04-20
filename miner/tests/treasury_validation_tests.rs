@@ -1,239 +1,242 @@
-//! Treasury Output Validation Security Tests
+//! Treasury Output Validation — consensus-critical end-to-end tests
 //!
-//! Tests for treasury output validation
-//! 
-//! This test suite validates the fix for the treasury output validation vulnerability.
-//! It ensures that coinbase transactions include proper treasury allocation (5% of reward)
-//! and that fund diversion attacks are prevented through validation.
+//! P1-mainnet-blocker A1. Verifies that:
+//! * the miner attaches a well-formed P2WSH treasury output to every
+//!   coinbase whose 5% share clears the dust threshold,
+//! * the validator's [`BlockTemplate::validate_coinbase_treasury`] accepts
+//!   canonical coinbases and rejects every attack we can think of:
+//!     - full reward diverted to the miner,
+//!     - treasury amount skewed outside the 1% tolerance,
+//!     - treasury output carrying the wrong P2WSH script (wrong network,
+//!       legacy ASCII placeholder, garbage bytes),
+//!     - total outputs exceeding the reward (inflation).
 //!
-//! Test Coverage:
-//! - Treasury allocation percentage (5%)
-//! - Coinbase output structure validation
-//! - Fund diversion prevention
-//! - Minimum treasury output threshold
-//! - Tolerance-based validation
+//! The legacy-string placeholder `b"TREASURY_PLACEHOLDER_ADDRESS"` is
+//! rejected at every network because it is not a valid P2WSH script.
 
-use miner::mining::template::{BlockTemplate, TreasuryAllocationConfig};
+use async_trait::async_trait;
+use miner::mining::template::{BlockTemplate, MempoolInterface, TreasuryAllocationConfig};
+use supernova_core::config::NetworkType;
+use supernova_core::governance::{
+    treasury_script_pubkey, MAINNET_TREASURY_PENDING_GENESIS, TREASURY_ALLOCATION_PERCENT,
+    TREASURY_SCRIPT_LEN,
+};
+use supernova_core::types::transaction::{
+    Transaction, TransactionInput, TransactionOutput,
+};
+
+struct EmptyMempool;
+
+#[async_trait]
+impl MempoolInterface for EmptyMempool {
+    async fn get_transactions(&self, _max_size: usize) -> Vec<Transaction> {
+        Vec::new()
+    }
+}
+
+fn coinbase_input() -> TransactionInput {
+    TransactionInput::new([0u8; 32], 0xffffffff, vec![], 0)
+}
+
+fn build_coinbase(miner_amount: u64, treasury_amount: u64, treasury_script: Vec<u8>) -> Transaction {
+    let outputs = vec![
+        TransactionOutput::new(miner_amount, vec![0x01, 0x02, 0x03]),
+        TransactionOutput::new(treasury_amount, treasury_script),
+    ];
+    Transaction::new(1, vec![coinbase_input()], outputs, 0)
+}
 
 #[test]
-fn test_treasury_allocation_constants() {
-    // SECURITY TEST: Verify treasury allocation constants
-    
+fn treasury_allocation_constant_matches_governance() {
     assert_eq!(
         TreasuryAllocationConfig::TREASURY_ALLOCATION_PERCENT,
-        5.0,
-        "Treasury should get 5% of block reward"
+        TREASURY_ALLOCATION_PERCENT,
+        "miner and governance must use the same percent constant",
     );
-    
+    assert_eq!(TreasuryAllocationConfig::MIN_TREASURY_OUTPUT, 1000);
+}
+
+#[tokio::test]
+async fn miner_builds_canonical_treasury_output() {
+    // Rewards here are deterministic for block 1.
+    let template = BlockTemplate::new(
+        1,
+        [0u8; 32],
+        u32::MAX,
+        vec![0xAA, 0xBB, 0xCC],
+        &EmptyMempool,
+        1,
+        None,
+        NetworkType::Regtest,
+    )
+    .await;
+
+    let block = template.create_block();
+    let coinbase = &block.transactions()[0];
+    let outputs = coinbase.outputs();
+    assert_eq!(outputs.len(), 2, "coinbase must have miner + treasury outputs");
+
+    let script = &outputs[1].pub_key_script;
+    assert_eq!(script.len(), TREASURY_SCRIPT_LEN, "P2WSH is 34 bytes");
+    assert_eq!(script[0], 0x00, "witness version 0");
+    assert_eq!(script[1], 0x20, "push 32 bytes");
     assert_eq!(
-        TreasuryAllocationConfig::MIN_TREASURY_OUTPUT,
-        1000,
-        "Minimum treasury output should be 1000 satoshis"
+        script,
+        &treasury_script_pubkey(NetworkType::Regtest),
+        "must equal regtest governance script",
     );
-    
-    println!("✓ Treasury allocation: 5% of block reward");
+
+    let total: u64 = outputs.iter().map(|o| o.amount()).sum();
+    let expected_treasury = total.saturating_mul(TREASURY_ALLOCATION_PERCENT) / 100;
+    assert_eq!(outputs[1].amount(), expected_treasury);
 }
 
 #[test]
-fn test_95_5_split_calculation() {
-    // SECURITY TEST: Verify 95/5 split between miner and treasury
-    
-    let total_reward = 5_000_000_000u64; // 50 NOVA
-    let treasury_percent = TreasuryAllocationConfig::TREASURY_ALLOCATION_PERCENT / 100.0;
-    
-    let treasury_amount = (total_reward as f64 * treasury_percent) as u64;
-    let miner_amount = total_reward - treasury_amount;
-    
-    assert_eq!(treasury_amount, 250_000_000, "Treasury should get 2.5 NOVA (5%)");
-    assert_eq!(miner_amount, 4_750_000_000, "Miner should get 47.5 NOVA (95%)");
-    
-    let total = miner_amount + treasury_amount;
-    assert_eq!(total, total_reward, "Split should sum to total reward");
-    
-    println!("✓ 95/5 split: Miner gets {} sats, Treasury gets {} sats", 
-             miner_amount, treasury_amount);
-}
-
-#[test]
-fn test_treasury_validation_documentation() {
-    // SECURITY TEST: Document validation requirements
-    
-    println!("\n=== Treasury Output Validation ===");
-    println!("SECURITY FIX (P2-010): Coinbase validation prevents fund diversion");
-    println!("");
-    println!("Validation Layer 1: Output Count");
-    println!("  - Must have ≥1 output (miner)");
-    println!("  - Must have 2 outputs if treasury ≥ MIN_TREASURY_OUTPUT");
-    println!("");
-    println!("Validation Layer 2: Treasury Amount");
-    println!("  - Calculate: reward × 5%");
-    println!("  - Compare with actual output[1]");
-    println!("  - Allow 1% tolerance for rounding");
-    println!("");
-    println!("Validation Layer 3: Total Output Check");
-    println!("  - Sum all outputs");
-    println!("  - Must not exceed expected_reward");
-    println!("  - Prevents value creation");
-    println!("");
-    println!("Validation Layer 4: Miner Can't Get Full Reward");
-    println!("  - Verify output[0] < expected_reward");
-    println!("  - Treasury must receive allocation");
-    println!("");
-    println!("Validation Layer 5: Minimum Threshold");
-    println!("  - If treasury < 1000 sats, optional");
-    println!("  - Prevents dust outputs");
-    println!("  - Gives small amounts to miner");
-    println!("====================================\n");
-    
-    println!("✓ Treasury validation framework documented");
-}
-
-#[test]
-fn test_minimum_treasury_threshold() {
-    // SECURITY TEST: Small rewards handled correctly
-    
-    let small_reward = 500u64; // Below MIN_TREASURY_OUTPUT threshold
-    let min_threshold = TreasuryAllocationConfig::MIN_TREASURY_OUTPUT;
-    
-    assert!(small_reward < min_threshold, "Test reward should be below threshold");
-    
-    let treasury_5_percent = (small_reward as f64 * 0.05) as u64;
-    
-    println!("Small reward scenario:");
-    println!("  Total reward: {} sats", small_reward);
-    println!("  5% treasury: {} sats", treasury_5_percent);
-    println!("  Minimum threshold: {} sats", min_threshold);
-    println!("  Decision: Give full reward to miner (treasury too small)");
-    
-    assert!(treasury_5_percent < min_threshold, "Treasury amount below threshold");
-    
-    println!("✓ Minimum threshold prevents dust treasury outputs");
-}
-
-#[test]
-fn test_attack_scenario_full_reward_theft() {
-    // SECURITY TEST: Malicious miner trying to take full reward
-    
-    println!("\n=== Treasury Theft Attack Scenario ===");
-    
-    let reward = 5_000_000_000u64; // 50 NOVA
-    let expected_treasury = (reward as f64 * 0.05) as u64;
-    let expected_miner = reward - expected_treasury;
-    
-    println!("Legitimate Coinbase:");
-    println!("  Output[0]: {} sats (miner - 95%)", expected_miner);
-    println!("  Output[1]: {} sats (treasury - 5%)", expected_treasury);
-    println!("  Total: {} sats", reward);
-    println!("");
-    println!("ATTACK: Malicious Miner");
-    println!("  Output[0]: {} sats (miner - 100%)", reward);
-    println!("  Output[1]: MISSING ❌");
-    println!("  Total: {} sats", reward);
-    println!("");
-    println!("Validation: validate_coinbase_treasury()");
-    println!("  Check: outputs.len() < 2");
-    println!("  Error: 'Coinbase missing treasury output'");
-    println!("  Result: Block REJECTED ✓");
-    println!("=======================================\n");
-    
-    println!("✓ Full reward theft attack would be detected");
-}
-
-#[test]
-fn test_tolerance_based_validation() {
-    // SECURITY TEST: 1% tolerance for rounding errors
-    
+fn validator_accepts_canonical_coinbase() {
     let reward = 5_000_000_000u64;
-    let expected_treasury = (reward as f64 * 0.05) as u64; // 250,000,000
-    let tolerance = expected_treasury / 100; // 2,500,000 (1%)
-    
-    println!("\n=== Tolerance-Based Validation ===");
-    println!("Expected treasury: {} sats", expected_treasury);
-    println!("Tolerance (1%): {} sats", tolerance);
-    println!("");
-    println!("Valid Range:");
-    println!("  Minimum: {} sats", expected_treasury - tolerance);
-    println!("  Maximum: {} sats", expected_treasury + tolerance);
-    println!("");
-    println!("Accepts:");
-    println!("  {} sats ✓ (within tolerance)", expected_treasury);
-    println!("  {} sats ✓ (slightly under)", expected_treasury - tolerance / 2);
-    println!("  {} sats ✓ (slightly over)", expected_treasury + tolerance / 2);
-    println!("");
-    println!("Rejects:");
-    println!("  {} sats ✗ (too low)", expected_treasury - tolerance - 1);
-    println!("  {} sats ✗ (too high)", expected_treasury + tolerance + 1);
-    println!("==================================\n");
-    
-    println!("✓ 1% tolerance handles rounding without false positives");
+    let treasury = reward * TREASURY_ALLOCATION_PERCENT / 100;
+    let miner = reward - treasury;
+    let coinbase = build_coinbase(miner, treasury, treasury_script_pubkey(NetworkType::Testnet));
+    assert!(
+        BlockTemplate::validate_coinbase_treasury(&coinbase, reward, NetworkType::Testnet).is_ok(),
+    );
 }
 
 #[test]
-fn test_production_governance_requirement() {
-    // SECURITY TEST: Document production treasury address requirements
-    
-    println!("\n=== Production Treasury Address ===");
-    println!("CURRENT:");
-    println!("  TREASURY_ADDRESS_PLACEHOLDER");
-    println!("  ⚠️ NOT for production use");
-    println!("");
-    println!("PRODUCTION REQUIREMENTS:");
-    println!("  1. Multi-signature address (e.g., 3-of-5)");
-    println!("  2. Keys held by elected governance committee");
-    println!("  3. Address rotation mechanism");
-    println!("  4. On-chain governance for changes");
-    println!("  5. Timelock for withdrawals");
-    println!("  6. Audit trail for all disbursements");
-    println!("");
-    println!("Security Properties:");
-    println!("  - No single point of failure");
-    println!("  - Transparent governance");
-    println!("  - Community oversight");
-    println!("  - Theft-resistant");
-    println!("====================================\n");
-    
-    println!("✓ Production governance requirements documented");
+fn validator_rejects_full_reward_theft() {
+    // Attacker keeps 100% for themselves — no treasury output at all.
+    let reward = 5_000_000_000u64;
+    let coinbase = Transaction::new(
+        1,
+        vec![coinbase_input()],
+        vec![TransactionOutput::new(reward, vec![0x01])],
+        0,
+    );
+    let err = BlockTemplate::validate_coinbase_treasury(&coinbase, reward, NetworkType::Testnet)
+        .expect_err("missing treasury must be rejected");
+    assert!(err.contains("missing treasury"), "unexpected error: {}", err);
 }
 
 #[test]
-fn test_documentation() {
-    // This test exists to document the security fix
-    
-    println!("\n=== SECURITY FIX DOCUMENTATION ===");
-    println!("Vulnerability: P2-010 Treasury Output Validation");
-    println!("Impact: Treasury fund diversion, environmental system failure");
-    println!("Fix: Coinbase treasury output + validation");
-    println!("");
-    println!("Changes:");
-    println!("  1. create_coinbase_transaction(): Added treasury output");
-    println!("  2. 95/5 split: Miner gets 95%, Treasury gets 5%");
-    println!("  3. validate_coinbase_treasury(): New validation method");
-    println!("  4. 5-layer validation for coinbase structure");
-    println!("");
-    println!("Coinbase Structure:");
-    println!("  Output[0]: Miner reward (95% of total)");
-    println!("  Output[1]: Treasury allocation (5% of total)");
-    println!("");
-    println!("Validation Checks:");
-    println!("  ✓ At least 1 output exists");
-    println!("  ✓ Treasury output present if significant");
-    println!("  ✓ Treasury amount within 1% tolerance");
-    println!("  ✓ Total outputs ≤ expected reward");
-    println!("  ✓ Miner doesn't get 100%");
-    println!("");
-    println!("Attack Prevention:");
-    println!("  ✗ Miner takes full reward → Rejected");
-    println!("  ✗ Treasury output missing → Rejected");
-    println!("  ✗ Treasury amount too low → Rejected");
-    println!("  ✓ Proper 95/5 split → Accepted");
-    println!("");
-    println!("Production TODO:");
-    println!("  ⚠️ Replace TREASURY_ADDRESS_PLACEHOLDER");
-    println!("  ⚠️ Implement multisig governance");
-    println!("  ⚠️ Add on-chain treasury address updates");
-    println!("");
-    println!("Test Coverage: 8 security-focused test cases");
-    println!("Status: VALIDATION ADDED - Treasury protected");
-    println!("=====================================\n");
+fn validator_rejects_legacy_placeholder_script() {
+    // Pre-governance placeholder was 28 ASCII bytes, not a P2WSH script.
+    let reward = 5_000_000_000u64;
+    let treasury = reward * TREASURY_ALLOCATION_PERCENT / 100;
+    let miner = reward - treasury;
+    let legacy_script = b"TREASURY_PLACEHOLDER_ADDRESS".to_vec();
+    let coinbase = build_coinbase(miner, treasury, legacy_script);
+    let err = BlockTemplate::validate_coinbase_treasury(&coinbase, reward, NetworkType::Testnet)
+        .expect_err("legacy placeholder must be rejected");
+    assert!(
+        err.contains("Treasury script rejected"),
+        "unexpected error: {}",
+        err
+    );
 }
 
+#[test]
+fn validator_rejects_wrong_network_script() {
+    // Miner on Testnet, validator on Regtest — scripts must not match.
+    let reward = 5_000_000_000u64;
+    let treasury = reward * TREASURY_ALLOCATION_PERCENT / 100;
+    let miner = reward - treasury;
+    let coinbase = build_coinbase(miner, treasury, treasury_script_pubkey(NetworkType::Testnet));
+    let err = BlockTemplate::validate_coinbase_treasury(&coinbase, reward, NetworkType::Regtest)
+        .expect_err("cross-network scripts must be rejected");
+    assert!(
+        err.contains("Treasury script rejected"),
+        "unexpected error: {}",
+        err
+    );
+}
+
+#[test]
+fn validator_rejects_amount_outside_tolerance() {
+    let reward = 5_000_000_000u64;
+    let canonical_treasury = reward * TREASURY_ALLOCATION_PERCENT / 100; // 250_000_000
+    let tolerance = canonical_treasury / 100; // 2_500_000
+
+    // Well below the lower bound.
+    let skewed_treasury = canonical_treasury - tolerance - 1;
+    let miner = reward - skewed_treasury;
+    let coinbase = build_coinbase(
+        miner,
+        skewed_treasury,
+        treasury_script_pubkey(NetworkType::Testnet),
+    );
+    let err = BlockTemplate::validate_coinbase_treasury(&coinbase, reward, NetworkType::Testnet)
+        .expect_err("below-tolerance amount must be rejected");
+    assert!(
+        err.contains("Treasury output amount incorrect"),
+        "unexpected error: {}",
+        err
+    );
+}
+
+#[test]
+fn validator_accepts_amount_inside_tolerance() {
+    let reward = 5_000_000_000u64;
+    let canonical_treasury = reward * TREASURY_ALLOCATION_PERCENT / 100;
+    let tolerance = canonical_treasury / 100;
+    // Within tolerance — half the band above canonical.
+    let near_treasury = canonical_treasury + tolerance / 2;
+    let miner = reward - near_treasury;
+    let coinbase = build_coinbase(
+        miner,
+        near_treasury,
+        treasury_script_pubkey(NetworkType::Testnet),
+    );
+    assert!(
+        BlockTemplate::validate_coinbase_treasury(&coinbase, reward, NetworkType::Testnet).is_ok(),
+    );
+}
+
+#[test]
+fn validator_rejects_inflated_total() {
+    // Total outputs exceed the advertised reward — classic value creation.
+    let reward = 5_000_000_000u64;
+    let treasury = reward * TREASURY_ALLOCATION_PERCENT / 100;
+    let miner_inflated = reward; // takes the full reward, treasury output is "extra"
+    let coinbase = build_coinbase(
+        miner_inflated,
+        treasury,
+        treasury_script_pubkey(NetworkType::Testnet),
+    );
+    let err = BlockTemplate::validate_coinbase_treasury(&coinbase, reward, NetworkType::Testnet)
+        .expect_err("inflation must be rejected");
+    assert!(
+        err.contains("exceed expected reward"),
+        "unexpected error: {}",
+        err
+    );
+}
+
+#[test]
+fn validator_tolerates_dust_rewards() {
+    // For rewards below the dust threshold, the 5% share rounds below
+    // MIN_TREASURY_OUTPUT; validator and miner agree the treasury output
+    // is optional.
+    let dust_reward = 500u64;
+    let expected_treasury = dust_reward * TREASURY_ALLOCATION_PERCENT / 100;
+    assert!(expected_treasury < TreasuryAllocationConfig::MIN_TREASURY_OUTPUT);
+
+    let coinbase = Transaction::new(
+        1,
+        vec![coinbase_input()],
+        vec![TransactionOutput::new(dust_reward, vec![0xAA])],
+        0,
+    );
+    assert!(
+        BlockTemplate::validate_coinbase_treasury(&coinbase, dust_reward, NetworkType::Testnet)
+            .is_ok(),
+    );
+}
+
+#[test]
+fn mainnet_pending_sentinel_script_is_distinct() {
+    // Sanity check: any future replacement must update this constant.
+    let mainnet = treasury_script_pubkey(NetworkType::Mainnet);
+    assert_eq!(&mainnet[2..], &MAINNET_TREASURY_PENDING_GENESIS);
+    assert_ne!(mainnet, treasury_script_pubkey(NetworkType::Testnet));
+    assert_ne!(mainnet, treasury_script_pubkey(NetworkType::Regtest));
+}
