@@ -45,8 +45,6 @@ pub mod telemetry; // Distributed tracing (OpenTelemetry)
 pub mod validation; // High-performance block validation (P1-004)
 pub mod wallet_manager; // Quantum wallet integration
 pub mod testnet;
-pub mod thread_safety_fix;
-pub mod thread_safety_test;
 
 // Re-exports for convenience
 pub use crate::config::NodeConfig;

@@ -81,12 +81,17 @@ pub struct ApiServer {
 }
 
 impl ApiServer {
-    /// Create a new API server instance
-    pub fn new(node: Arc<Node>, bind_address: &str, port: u16) -> Self {
-        // Create thread-safe facade
-        let node_facade = Arc::new(ApiFacade::new(&node));
+    /// Create a new API server instance.
+    ///
+    /// Returns an error if the underlying `ApiFacade` cannot be constructed
+    /// (e.g. a missing wallet manager whose fallback initialization fails).
+    pub fn new(
+        node: Arc<Node>,
+        bind_address: &str,
+        port: u16,
+    ) -> Result<Self, crate::node::NodeError> {
+        let node_facade = Arc::new(ApiFacade::new(&node)?);
 
-        // Warn about default API key usage
         let config = ApiConfig::default();
         if config
             .api_keys
@@ -97,13 +102,13 @@ impl ApiServer {
             warn!("SECURITY WARNING: Using default API key. Change this in production!");
         }
 
-        Self {
+        Ok(Self {
             node_facade,
             config,
             bind_address: bind_address.to_string(),
             port,
             metrics: Arc::new(ApiMetrics::new()),
-        }
+        })
     }
 
     /// Set API server configuration

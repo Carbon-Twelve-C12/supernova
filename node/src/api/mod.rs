@@ -29,17 +29,22 @@ pub use server::{ApiConfig, ApiServer};
 pub use types::*;
 pub use rate_limiter::{ApiRateLimiter, ApiRateLimitConfig, ApiRateLimitStats};
 
-// Re-export thread safety types
-pub use crate::thread_safety_fix::{NodeApiFacade, ThreadSafeNode};
-
 use crate::node::Node;
 use std::sync::Arc;
 
 /// API version
 pub const API_VERSION: &str = "v1";
 
-/// Creates a new API server instance
-pub fn create_api_server(node: Arc<Node>, bind_address: &str, port: u16) -> ApiServer {
+/// Creates a new API server instance.
+///
+/// Returns an error when the `ApiFacade` cannot be constructed (for example
+/// when the node lacks a wallet manager and the fallback initialization
+/// fails). Callers surface this up the startup chain.
+pub fn create_api_server(
+    node: Arc<Node>,
+    bind_address: &str,
+    port: u16,
+) -> std::result::Result<ApiServer, crate::node::NodeError> {
     ApiServer::new(node, bind_address, port)
 }
 

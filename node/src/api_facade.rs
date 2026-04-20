@@ -36,18 +36,25 @@ pub struct ApiFacade {
     wallet_manager: Arc<StdRwLock<WalletManager>>,
 }
 
-// Ensure ApiFacade is Send + Sync
-// TODO: Re-enable after fixing thread safety issues
-// static_assertions::assert_impl_all!(ApiFacade: Send, Sync);
+// Ensure ApiFacade is Send + Sync. If this fails to compile, a newly added
+// field is not Send+Sync — wrap it in `Arc<Mutex<_>>` or `Arc<RwLock<_>>`.
+static_assertions::assert_impl_all!(ApiFacade: Send, Sync);
 
 impl ApiFacade {
-    /// Create a new API facade from a Node
-    pub fn new(node: &Node) -> Self {
-        // Use wallet manager from node if available
-        let wallet_manager = node.get_wallet_manager()
-            .unwrap_or_else(|| {
-                tracing::warn!("Node has no wallet manager, creating fallback");
-                // Create fallback wallet manager
+    /// Create a new API facade from a Node.
+    ///
+    /// Returns an error instead of panicking if the node is missing a wallet
+    /// manager and a fallback cannot be created (for example, when the
+    /// filesystem for the fallback wallet path is unavailable). Callers —
+    /// typically `ApiServer::new` → the node bootstrap path in `main.rs` —
+    /// are responsible for translating this into a non-zero exit code.
+    pub fn new(node: &Node) -> Result<Self, NodeError> {
+        let wallet_manager = match node.get_wallet_manager() {
+            Some(wm) => wm,
+            None => {
+                tracing::warn!(
+                    "Node has no wallet manager — initializing fallback at ./wallet_fallback"
+                );
                 let wallet_path = std::path::PathBuf::from("./wallet_fallback");
                 let wm = WalletManager::new(
                     wallet_path,
@@ -55,13 +62,15 @@ impl ApiFacade {
                     node.chain_state(),
                     node.mempool(),
                     node.network_proxy(),
-                ).unwrap_or_else(|e| {
-                    panic!("Critical: Cannot create wallet manager: {}", e);
-                });
+                )
+                .map_err(|e| {
+                    NodeError::General(format!("fallback wallet manager init failed: {e}"))
+                })?;
                 Arc::new(StdRwLock::new(wm))
-            });
-        
-        Self {
+            }
+        };
+
+        Ok(Self {
             config: node.config(),
             db: node.db(),
             chain_state: node.chain_state(),
@@ -71,7 +80,7 @@ impl ApiFacade {
             start_time: node.start_time,
             lightning_manager: node.lightning(),
             wallet_manager,
-        }
+        })
     }
 
     /// Get storage (blockchain database)

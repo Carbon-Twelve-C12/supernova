@@ -172,11 +172,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Starting API server on {}:{}",
             "0.0.0.0", config.api.port
         );
-        let api_server = node::api::create_api_server(
+        let api_server = match node::api::create_api_server(
             Arc::clone(&node),
             "0.0.0.0", // Listen on all interfaces for external access
             config.api.port,
-        );
+        ) {
+            Ok(server) => server,
+            Err(e) => {
+                error!("Failed to build API server: {}", e);
+                return Ok(());
+            }
+        };
 
         // Start the API server and get the server handle
         match api_server.start().await {
