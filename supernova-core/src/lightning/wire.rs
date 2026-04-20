@@ -101,6 +101,18 @@ pub enum MessageType {
 
     /// Request gossip messages
     GossipTimestampFilter,
+
+    /// Store an encrypted channel backup on the receiving peer.
+    BackupStore,
+
+    /// Acknowledgment of a received `BackupStore`.
+    BackupStoreAck,
+
+    /// Request a previously stored backup from a peer.
+    BackupRequest,
+
+    /// Response returning the requested backup (or absence).
+    BackupResponse,
 }
 
 /// Main message structure for Lightning Network

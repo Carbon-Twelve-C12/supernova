@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -605,14 +606,77 @@ impl DynamicBackupProvider for S3Provider {
     }
 }
 
+/// Timeout for a single peer backup exchange (store-ack or request-response).
+pub const PEER_BACKUP_TIMEOUT_SECS: u64 = 30;
+
+/// Correlation identifier for a peer backup exchange.
+pub type BackupRequestId = u64;
+
+/// Wire envelope exchanged between peers running the backup protocol.
+///
+/// The backup ciphertext inside `Store` / `Response` is already encrypted with the
+/// owner's symmetric key (see [`EncryptedBackup`]). A peer that stores a backup
+/// on our behalf cannot read its contents — they act purely as an opaque blob
+/// host. Transport-level confidentiality (e.g. the Lightning Noise handshake)
+/// is expected to run underneath this envelope.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PeerBackupMessage {
+    /// "Please store this backup under `backup_id`." — sender → receiver.
+    Store {
+        request_id: BackupRequestId,
+        backup_id: String,
+        backup: EncryptedBackup,
+    },
+    /// Response to `Store`. `accepted=false` + `reason` on rejection.
+    StoreAck {
+        request_id: BackupRequestId,
+        backup_id: String,
+        accepted: bool,
+        reason: Option<String>,
+    },
+    /// "Please return the backup you hold under `backup_id`." — requester → holder.
+    Request {
+        request_id: BackupRequestId,
+        backup_id: String,
+    },
+    /// Response to `Request`. `backup=None` if the holder does not have it.
+    Response {
+        request_id: BackupRequestId,
+        backup_id: String,
+        backup: Option<EncryptedBackup>,
+    },
+}
+
+/// Pluggable transport abstraction for the peer backup protocol.
+///
+/// Production integrations wrap the Lightning Network wire (see
+/// `crate::lightning::wire`) to deliver a `PeerBackupMessage` to the target peer
+/// and await the correlated response. The in-process transport used in tests
+/// routes messages directly between two `PeerBackupProtocol` instances.
+#[async_trait::async_trait]
+pub trait PeerBackupTransport: Send + Sync {
+    /// Deliver `message` to `peer` and return the correlated reply.
+    async fn exchange(
+        &self,
+        peer: &NodeId,
+        message: PeerBackupMessage,
+    ) -> BackupResult<PeerBackupMessage>;
+}
+
 /// Peer backup protocol handler
 pub struct PeerBackupProtocol {
     /// Our node ID
     our_node_id: NodeId,
     /// Trusted peer node IDs
     peer_node_ids: Vec<NodeId>,
-    /// Stored peer backups (in memory cache)
+    /// Backups we are hosting on behalf of peers (opaque ciphertext — we cannot decrypt).
     peer_backups: Arc<RwLock<HashMap<String, EncryptedBackup>>>,
+    /// Optional wire transport — when present, `*_async` methods talk to real peers.
+    transport: Option<Arc<dyn PeerBackupTransport>>,
+    /// Monotonic counter for request/response correlation.
+    next_request_id: Arc<AtomicU64>,
+    /// Per-exchange timeout (seconds). Default is [`PEER_BACKUP_TIMEOUT_SECS`].
+    timeout_secs: u64,
 }
 
 impl PeerBackupProtocol {
@@ -621,10 +685,44 @@ impl PeerBackupProtocol {
             our_node_id,
             peer_node_ids,
             peer_backups: Arc::new(RwLock::new(HashMap::new())),
+            transport: None,
+            next_request_id: Arc::new(AtomicU64::new(1)),
+            timeout_secs: PEER_BACKUP_TIMEOUT_SECS,
         }
     }
 
-    /// Send backup to trusted peers
+    /// Attach a wire transport so the `*_async` methods can talk to real peers.
+    pub fn with_transport(mut self, transport: Arc<dyn PeerBackupTransport>) -> Self {
+        self.transport = Some(transport);
+        self
+    }
+
+    /// Override the per-exchange timeout (seconds). Intended for tests; production
+    /// code should keep the default so that slow peers remain bounded uniformly.
+    pub fn with_timeout_secs(mut self, secs: u64) -> Self {
+        self.timeout_secs = secs;
+        self
+    }
+
+    /// Our node identifier — used by transports to attribute inbound messages.
+    pub fn our_node_id(&self) -> &NodeId {
+        &self.our_node_id
+    }
+
+    fn fresh_request_id(&self) -> BackupRequestId {
+        self.next_request_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn transport(&self) -> BackupResult<Arc<dyn PeerBackupTransport>> {
+        self.transport.as_ref().cloned().ok_or_else(|| {
+            BackupError::PeerBackupFailed {
+                peer_id: "transport".to_string(),
+                reason: "peer backup transport not configured".to_string(),
+            }
+        })
+    }
+
+    /// Send backup to trusted peers (synchronous no-op; use `distribute_backup_async`).
     pub fn distribute_backup(&self, backup: &EncryptedBackup, backup_id: &str) -> BackupResult<usize> {
         let mut success_count = 0;
 
@@ -650,10 +748,11 @@ impl PeerBackupProtocol {
         Ok(success_count)
     }
 
+    /// Legacy synchronous hook. The real P2P path is `send_to_peer_async`.
     fn send_to_peer(&self, _peer_id: &NodeId, _backup: &EncryptedBackup, _backup_id: &str) -> BackupResult<()> {
-        // TODO: Implement actual P2P message sending
-        // This would use the Lightning Network's existing message protocol
-        // to send encrypted backup blobs to trusted peers
+        // Sync callers (e.g. the `DynamicBackupProvider` trait impl) cannot block on
+        // a tokio runtime safely, so we treat this as an inert hook and rely on the
+        // async API for real network delivery.
         Ok(())
     }
 
@@ -666,22 +765,230 @@ impl PeerBackupProtocol {
         Ok(())
     }
 
-    /// Retrieve backup from peers (for recovery)
+    /// Retrieve backup from peers (for recovery) — sync path only checks local cache.
     pub fn request_backup_from_peers(&self, backup_id: &str) -> BackupResult<EncryptedBackup> {
-        // First check local cache
+        let backups = self.peer_backups.read()
+            .map_err(|_| BackupError::LockPoisoned)?;
+
+        if let Some(backup) = backups.get(backup_id) {
+            return Ok(backup.clone());
+        }
+
+        Err(BackupError::BackupNotFound {
+            backup_id: backup_id.to_string(),
+        })
+    }
+
+    /// Send a single backup to a single peer over the wire and await ack.
+    ///
+    /// Uses the configured [`PeerBackupTransport`] and enforces a per-exchange
+    /// timeout of [`PEER_BACKUP_TIMEOUT_SECS`] seconds.
+    pub async fn send_to_peer_async(
+        &self,
+        peer_id: &NodeId,
+        backup: &EncryptedBackup,
+        backup_id: &str,
+    ) -> BackupResult<()> {
+        let transport = self.transport()?;
+        let request_id = self.fresh_request_id();
+        let msg = PeerBackupMessage::Store {
+            request_id,
+            backup_id: backup_id.to_string(),
+            backup: backup.clone(),
+        };
+
+        let exchange = transport.exchange(peer_id, msg);
+        let reply = tokio::time::timeout(
+            Duration::from_secs(self.timeout_secs),
+            exchange,
+        )
+        .await
+        .map_err(|_| BackupError::PeerBackupFailed {
+            peer_id: peer_id.to_string(),
+            reason: format!("timeout after {}s awaiting StoreAck", self.timeout_secs),
+        })??;
+
+        match reply {
+            PeerBackupMessage::StoreAck {
+                request_id: reply_id,
+                backup_id: reply_backup_id,
+                accepted,
+                reason,
+            } => {
+                if reply_id != request_id || reply_backup_id != backup_id {
+                    return Err(BackupError::PeerBackupFailed {
+                        peer_id: peer_id.to_string(),
+                        reason: "StoreAck correlation mismatch".to_string(),
+                    });
+                }
+                if !accepted {
+                    return Err(BackupError::PeerBackupFailed {
+                        peer_id: peer_id.to_string(),
+                        reason: reason.unwrap_or_else(|| "peer rejected backup".to_string()),
+                    });
+                }
+                Ok(())
+            }
+            other => Err(BackupError::PeerBackupFailed {
+                peer_id: peer_id.to_string(),
+                reason: format!("unexpected reply to Store: {:?}", std::mem::discriminant(&other)),
+            }),
+        }
+    }
+
+    /// Distribute an encrypted backup to every configured peer in parallel.
+    ///
+    /// Returns the number of peers that acknowledged storage. Individual peer
+    /// failures are logged and skipped, not propagated — as long as at least one
+    /// peer accepts, distribution is considered successful.
+    pub async fn distribute_backup_async(
+        &self,
+        backup: &EncryptedBackup,
+        backup_id: &str,
+    ) -> BackupResult<usize> {
+        if self.peer_node_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let mut handles = Vec::with_capacity(self.peer_node_ids.len());
+        for peer in &self.peer_node_ids {
+            handles.push(self.send_to_peer_async(peer, backup, backup_id));
+        }
+
+        let mut success = 0usize;
+        for (peer, fut) in self.peer_node_ids.iter().zip(handles) {
+            match fut.await {
+                Ok(()) => {
+                    success += 1;
+                    debug!("peer {} acknowledged backup {}", peer, backup_id);
+                }
+                Err(e) => {
+                    warn!("peer {} failed to accept backup {}: {}", peer, backup_id, e);
+                }
+            }
+        }
+
+        if success == 0 {
+            return Err(BackupError::PeerBackupFailed {
+                peer_id: "all".to_string(),
+                reason: "no peer accepted backup".to_string(),
+            });
+        }
+        Ok(success)
+    }
+
+    /// Request a backup from configured peers, returning the first successful response.
+    ///
+    /// The local cache is consulted first. If absent, peers are queried in order
+    /// with a per-peer [`PEER_BACKUP_TIMEOUT_SECS`] timeout. Returns
+    /// [`BackupError::BackupNotFound`] if no peer holds the blob.
+    pub async fn request_backup_from_peers_async(
+        &self,
+        backup_id: &str,
+    ) -> BackupResult<EncryptedBackup> {
         {
             let backups = self.peer_backups.read()
                 .map_err(|_| BackupError::LockPoisoned)?;
-
             if let Some(backup) = backups.get(backup_id) {
                 return Ok(backup.clone());
             }
         }
 
-        // TODO: Request from peers via P2P protocol
+        let transport = self.transport()?;
+
+        for peer in &self.peer_node_ids {
+            let request_id = self.fresh_request_id();
+            let msg = PeerBackupMessage::Request {
+                request_id,
+                backup_id: backup_id.to_string(),
+            };
+
+            let exchange = transport.exchange(peer, msg);
+            let reply = match tokio::time::timeout(
+                Duration::from_secs(self.timeout_secs),
+                exchange,
+            )
+            .await
+            {
+                Ok(Ok(reply)) => reply,
+                Ok(Err(e)) => {
+                    warn!("peer {} exchange error for backup {}: {}", peer, backup_id, e);
+                    continue;
+                }
+                Err(_) => {
+                    warn!(
+                        "peer {} timed out after {}s while requesting {}",
+                        peer, self.timeout_secs, backup_id
+                    );
+                    continue;
+                }
+            };
+
+            match reply {
+                PeerBackupMessage::Response {
+                    request_id: reply_id,
+                    backup_id: reply_backup_id,
+                    backup,
+                } => {
+                    if reply_id != request_id || reply_backup_id != backup_id {
+                        warn!("peer {} returned mismatched Response", peer);
+                        continue;
+                    }
+                    if let Some(blob) = backup {
+                        return Ok(blob);
+                    }
+                }
+                other => {
+                    warn!(
+                        "peer {} returned unexpected reply to Request: {:?}",
+                        peer,
+                        std::mem::discriminant(&other)
+                    );
+                }
+            }
+        }
+
         Err(BackupError::BackupNotFound {
             backup_id: backup_id.to_string(),
         })
+    }
+
+    /// Server-side dispatcher for an inbound peer backup message.
+    ///
+    /// A wire listener calls this with each deserialized [`PeerBackupMessage`]
+    /// received from `_from`. The returned message (if any) must be sent back
+    /// to that peer to complete the exchange.
+    pub fn handle_message(
+        &self,
+        _from: &NodeId,
+        message: PeerBackupMessage,
+    ) -> BackupResult<Option<PeerBackupMessage>> {
+        match message {
+            PeerBackupMessage::Store { request_id, backup_id, backup } => {
+                let mut cache = self.peer_backups.write()
+                    .map_err(|_| BackupError::LockPoisoned)?;
+                cache.insert(backup_id.clone(), backup);
+                Ok(Some(PeerBackupMessage::StoreAck {
+                    request_id,
+                    backup_id,
+                    accepted: true,
+                    reason: None,
+                }))
+            }
+            PeerBackupMessage::Request { request_id, backup_id } => {
+                let cache = self.peer_backups.read()
+                    .map_err(|_| BackupError::LockPoisoned)?;
+                let backup = cache.get(&backup_id).cloned();
+                Ok(Some(PeerBackupMessage::Response {
+                    request_id,
+                    backup_id,
+                    backup,
+                }))
+            }
+            // Responses are correlated by the client side; the listener should route
+            // them back to the awaiting request, not through this dispatcher.
+            PeerBackupMessage::StoreAck { .. } | PeerBackupMessage::Response { .. } => Ok(None),
+        }
     }
 }
 

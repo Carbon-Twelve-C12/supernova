@@ -55,9 +55,10 @@ pub use multipath::{
     MultiPathStats, PaymentShard, ShardState, SplitStrategy,
 };
 pub use backup::{
-    BackupError as ChannelBackupError, BackupProviderConfig, BackupProviderType, BackupStatus,
-    BackupTrigger, ChannelBackupConfig, ChannelBackupManager, ChannelBackupPackage,
-    EncryptedBackup, StaticChannelBackup,
+    BackupError as ChannelBackupError, BackupProviderConfig, BackupProviderType, BackupRequestId,
+    BackupStatus, BackupTrigger, ChannelBackupConfig, ChannelBackupManager, ChannelBackupPackage,
+    EncryptedBackup, PeerBackupMessage, PeerBackupProtocol, PeerBackupTransport,
+    StaticChannelBackup, PEER_BACKUP_TIMEOUT_SECS,
 };
 
 pub use green_routing::{

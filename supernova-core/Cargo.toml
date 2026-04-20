@@ -105,3 +105,7 @@ tonic-build = "0.10.2"
 [[bench]]
 name = "comprehensive_benchmarks"
 harness = false
+
+[[test]]
+name = "lightning_backup_integration_tests"
+path = "tests/lightning_backup_integration_tests.rs"
