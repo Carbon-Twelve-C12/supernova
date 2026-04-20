@@ -333,24 +333,33 @@ impl BulletproofRangeProof {
     }
 }
 
-/// Creates a range proof that a committed value is within a range
+/// Creates a range proof that a committed value is within a range.
+///
+/// Returns [`ZkpError::UnsupportedProofType`] if `params.proof_type` is not one of
+/// [`ZkpType::RangeProof`] or [`ZkpType::Bulletproof`]; Schnorr and zk-SNARK proof
+/// types are not valid range-proof schemes.
 pub fn create_range_proof<R: CryptoRng + RngCore>(
     value: u64,
     blinding_factor: &[u8],
     range_bits: u8, // Proves value is in [0, 2^range_bits)
     params: ZkpParams,
     rng: &mut R,
-) -> ZeroKnowledgeProof {
+) -> Result<ZeroKnowledgeProof, ZkpError> {
     match params.proof_type {
-        ZkpType::RangeProof => create_simple_range_proof(value, blinding_factor, range_bits, rng),
-        ZkpType::Bulletproof => create_bulletproof(
+        ZkpType::RangeProof => Ok(create_simple_range_proof(
+            value,
+            blinding_factor,
+            range_bits,
+            rng,
+        )),
+        ZkpType::Bulletproof => Ok(create_bulletproof(
             value,
             blinding_factor,
             range_bits,
             params.security_level,
             rng,
-        ),
-        _ => panic!("Unsupported proof type for range proofs"),
+        )),
+        ZkpType::Schnorr | ZkpType::ZkSnark => Err(ZkpError::UnsupportedProofType),
     }
 }
 
@@ -518,7 +527,7 @@ pub fn create_confidential_transaction<R: CryptoRng + RngCore>(
     outputs: &[(Vec<u8>, u64)], // (recipient_pubkey, amount)
     params: ZkpParams,
     rng: &mut R,
-) -> (Vec<Commitment>, Vec<ZeroKnowledgeProof>, Vec<u8>) {
+) -> Result<(Vec<Commitment>, Vec<ZeroKnowledgeProof>, Vec<u8>), ZkpError> {
     // (commitments, proofs, transaction)
     // In a real implementation, this would create a transaction with hidden amounts
     // For demo purposes, we'll create commitments and proofs
@@ -539,7 +548,7 @@ pub fn create_confidential_transaction<R: CryptoRng + RngCore>(
             64, // Prove amount is in [0, 2^64)
             params.clone(),
             rng,
-        );
+        )?;
 
         commitments.push(commitment);
         proofs.push(range_proof);
@@ -562,7 +571,7 @@ pub fn create_confidential_transaction<R: CryptoRng + RngCore>(
         transaction.extend_from_slice(&commitment.value);
     }
 
-    (commitments, proofs, transaction)
+    Ok((commitments, proofs, transaction))
 }
 
 /// A zero-knowledge proof that two commitments commit to the same value
@@ -766,7 +775,8 @@ mod tests {
             security_level: 128,
         };
 
-        let proof = create_range_proof(value, &blinding, 64, params, &mut rng);
+        let proof = create_range_proof(value, &blinding, 64, params, &mut rng)
+            .expect("bulletproof range proof is supported");
         assert_eq!(proof.proof_type, ZkpType::Bulletproof);
 
         let valid = verify_range_proof(&commitment, &proof, 64);
@@ -793,7 +803,8 @@ mod tests {
         let params = ZkpParams::default();
 
         let (commitments, proofs, transaction) =
-            create_confidential_transaction(&inputs, &outputs, params, &mut rng);
+            create_confidential_transaction(&inputs, &outputs, params, &mut rng)
+                .expect("confidential transaction with bulletproof params succeeds");
 
         assert_eq!(commitments.len(), 2);
         assert_eq!(proofs.len(), 2);

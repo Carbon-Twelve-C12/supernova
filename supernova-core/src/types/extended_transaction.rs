@@ -985,7 +985,8 @@ impl ConfidentialTransactionBuilder {
                 64, // 64-bit range proof (0 to 2^64-1)
                 self.zkp_params.clone(),
                 rng,
-            );
+            )
+            .map_err(|_| "Unsupported ZKP proof type for range proofs")?;
 
             // Create the confidential output
             let conf_output = ConfidentialOutput::new(commitment, range_proof, pub_key_script);

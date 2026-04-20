@@ -52,7 +52,8 @@ fn test_range_proofs() {
                 security_level: 128,
             };
 
-            let proof = create_range_proof(value, &blinding, bits, params, &mut rng);
+            let proof = create_range_proof(value, &blinding, bits, params, &mut rng)
+                .expect("bulletproof range proof is supported");
             assert_eq!(proof.proof_type, ZkpType::Bulletproof);
 
             let valid = verify_range_proof(&commitment, &proof, bits);
@@ -68,7 +69,8 @@ fn test_range_proofs() {
                 security_level: 128,
             };
 
-            let proof = create_range_proof(value, &blinding, bits, params, &mut rng);
+            let proof = create_range_proof(value, &blinding, bits, params, &mut rng)
+                .expect("simple range proof is supported");
             assert_eq!(proof.proof_type, ZkpType::RangeProof);
 
             let valid = verify_range_proof(&commitment, &proof, bits);
@@ -114,7 +116,8 @@ fn test_confidential_transactions() {
         let params = ZkpParams::default();
 
         let (commitments, proofs, transaction) =
-            create_confidential_transaction(inputs, outputs, params, &mut rng);
+            create_confidential_transaction(inputs, outputs, params, &mut rng)
+                .expect("default bulletproof params produce a valid confidential transaction");
 
         // Check that we have the right number of commitments and proofs
         assert_eq!(commitments.len(), outputs.len());
@@ -259,7 +262,8 @@ fn test_invalid_range_proofs() {
         security_level: 128,
     };
 
-    let valid_proof = create_range_proof(value, &blinding, range_bits, params, &mut rng);
+    let valid_proof = create_range_proof(value, &blinding, range_bits, params, &mut rng)
+        .expect("bulletproof range proof is supported");
 
     // Test with wrong commitment
     let (wrong_commitment, _) = commit_pedersen(value + 1, &mut rng);

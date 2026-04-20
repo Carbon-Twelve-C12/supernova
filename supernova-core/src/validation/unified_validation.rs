@@ -192,10 +192,8 @@ impl UnifiedBlockValidator {
             seen_txids.insert(txid, idx);
 
             // Validate individual transaction
-            if !tx.is_coinbase() && context.is_some() {
+            if let (false, Some(ctx)) = (tx.is_coinbase(), context.as_ref()) {
                 // SECURITY FIX (P0-005): Implement full transaction validation
-                let ctx = context.as_ref().unwrap();
-                
                 // Check basic structure
                 if tx.inputs().is_empty() {
                     return Err(UnifiedValidationError::InvalidTransaction(
