@@ -167,23 +167,30 @@ pub struct ManagedKeyMetadata {
     pub owner_id: String,
 }
 
+// Metadata contains no secret material (heights, counters, public identifiers,
+// an owner label). A no-op Zeroize impl lets `ManagedKey` and `Vec<(QuantumKeyPair,
+// ManagedKeyMetadata)>` participate in the ZeroizeOnDrop cascade without
+// derive-level `#[zeroize(skip)]` attributes that would silently exempt the
+// enclosing tuple's secret keypair.
+impl Zeroize for ManagedKeyMetadata {
+    fn zeroize(&mut self) {}
+}
+
 /// A managed key with its keypair and metadata
 ///
-/// SECURITY FIX (P1-004): Added Zeroize and ZeroizeOnDrop to ensure
-/// quantum key material is securely erased from memory when dropped.
-/// Note: previous_keys are skipped because QuantumKeyPair needs Zeroize derive
-/// (tracked as future improvement - previous keys should be explicitly zeroized
-/// when removed from the vector in rotate_key and cleanup methods).
+/// SECURITY (P1-004): Derives `ZeroizeOnDrop` so quantum secret-key material
+/// — both in the active `keypair` and in `previous_keys` retained for the
+/// grace-period verification window — is wiped from memory when dropped.
+/// `QuantumKeyPair` itself implements `Zeroize`/`ZeroizeOnDrop` and carries
+/// `#[zeroize(skip)]` on its non-secret fields, so this cascade is sufficient.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct ManagedKey {
-    /// The quantum key pair - will be zeroized on drop
-    #[zeroize(skip)] // QuantumKeyPair doesn't derive Zeroize yet - future fix
+    /// Active quantum key pair — secret bytes zeroed on drop.
     pub keypair: QuantumKeyPair,
-    /// Key metadata - not sensitive, skip zeroization
-    #[zeroize(skip)]
+    /// Key metadata — no secret material; zeroize is a no-op.
     pub metadata: ManagedKeyMetadata,
-    /// Previous keys - skipped (requires QuantumKeyPair to derive Zeroize)
-    #[zeroize(skip)]
+    /// Previously rotated keys retained for grace-period verification.
+    /// Each `QuantumKeyPair` in the vector is zeroed when the vector drops.
     pub previous_keys: Vec<(QuantumKeyPair, ManagedKeyMetadata)>,
 }
 
@@ -982,5 +989,75 @@ mod tests {
 
         let migrations = manager.process_pending_rotations().unwrap();
         assert_eq!(migrations.len(), 2);
+    }
+
+    fn sample_keypair(secret_fill: u8) -> QuantumKeyPair {
+        QuantumKeyPair {
+            public_key: vec![0xAAu8; 32],
+            secret_key: vec![secret_fill; 128],
+            parameters: QuantumParameters {
+                scheme: QuantumScheme::Dilithium,
+                security_level: 3,
+            },
+        }
+    }
+
+    fn sample_metadata(scheme: QuantumScheme) -> ManagedKeyMetadata {
+        ManagedKeyMetadata {
+            key_id: [1u8; 32],
+            state: KeyState::Active,
+            created_height: 0,
+            created_timestamp: 0,
+            last_rotation_height: None,
+            grace_period_end_height: None,
+            scheme,
+            rotation_count: 0,
+            owner_id: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn quantum_keypair_is_zeroize_on_drop() {
+        fn assert_zod<T: ZeroizeOnDrop>() {}
+        assert_zod::<QuantumKeyPair>();
+        assert_zod::<ManagedKey>();
+    }
+
+    #[test]
+    fn quantum_keypair_zeroize_clears_secret_bytes() {
+        let mut keypair = sample_keypair(0xDE);
+        Zeroize::zeroize(&mut keypair);
+        assert!(
+            keypair.secret_key.iter().all(|&b| b == 0),
+            "secret_key bytes must all be zero after zeroize"
+        );
+        // public_key is #[zeroize(skip)] and must be preserved.
+        assert_eq!(keypair.public_key, vec![0xAAu8; 32]);
+    }
+
+    #[test]
+    fn managed_key_zeroize_cascades_to_previous_keys() {
+        let metadata = sample_metadata(QuantumScheme::Dilithium);
+        let mut mk = ManagedKey {
+            keypair: sample_keypair(0xDE),
+            metadata: metadata.clone(),
+            previous_keys: vec![
+                (sample_keypair(0xAB), metadata.clone()),
+                (sample_keypair(0xCD), metadata),
+            ],
+        };
+
+        Zeroize::zeroize(&mut mk);
+
+        assert!(
+            mk.keypair.secret_key.iter().all(|&b| b == 0),
+            "active keypair secret_key must be zeroed"
+        );
+        for (idx, (prev_keypair, _)) in mk.previous_keys.iter().enumerate() {
+            assert!(
+                prev_keypair.secret_key.iter().all(|&b| b == 0),
+                "previous_keys[{idx}] secret_key must be zeroed"
+            );
+        }
     }
 }
