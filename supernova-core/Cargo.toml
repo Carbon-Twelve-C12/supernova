@@ -9,6 +9,10 @@ autotests = false
 default = []
 lightning = []  # Re-enabled - core blockchain is production-ready
 atomic-swap = ["bitcoin", "bitcoincore-rpc", "bulletproofs", "curve25519-dalek-ng", "bellman", "bls12_381", "ff"]
+# Enable real AWS S3 backup provider for Lightning channel backups.
+# When disabled, S3Provider construction returns a descriptive error so builds
+# that don't need S3 don't pull the AWS SDK dep tree.
+s3-backup = ["aws-config", "aws-sdk-s3", "aws-credential-types", "aws-smithy-types"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -83,6 +87,10 @@ curve25519-dalek-ng = { version = "4.1", optional = true }
 bellman = { version = "0.14", optional = true }
 bls12_381 = { version = "0.8", optional = true }
 ff = { version = "0.13", optional = true }
+aws-config = { version = "1", optional = true, default-features = false, features = ["behavior-version-latest", "rt-tokio"] }
+aws-sdk-s3 = { version = "1", optional = true, default-features = false, features = ["rt-tokio"] }
+aws-credential-types = { version = "1", optional = true }
+aws-smithy-types = { version = "1", optional = true }
 
 [dependencies.prost]
 version = "0.12"

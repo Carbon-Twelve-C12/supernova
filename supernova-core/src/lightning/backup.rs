@@ -251,6 +251,51 @@ impl EncryptedBackup {
     }
 }
 
+/// On-wire S3 envelope. Wraps an `EncryptedBackup` with an optional ML-DSA
+/// signature so we can detect tampering even when the underlying bucket is
+/// compromised.
+///
+/// # Verification
+/// If `signer_pubkey` is present the verifier must check `signature` over
+/// `bincode(backup)` using `verify_quantum_signature` with the configured
+/// parameters. Missing fields mean "unsigned" — only acceptable when the
+/// caller explicitly opted out of signing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedBackup {
+    /// Version tag for forward-compat.
+    pub version: u16,
+    /// The encrypted backup blob.
+    pub backup: EncryptedBackup,
+    /// Signature over bincode(backup). Empty if unsigned.
+    #[serde(default, with = "serde_bytes")]
+    pub signature: Vec<u8>,
+    /// Public key bytes of the signer (matches one of the caller-trusted
+    /// keys). Empty if unsigned.
+    #[serde(default, with = "serde_bytes")]
+    pub signer_pubkey: Vec<u8>,
+}
+
+impl SignedBackup {
+    /// Current envelope format version.
+    pub const VERSION: u16 = 1;
+
+    /// Wrap an encrypted backup without signing (e.g. signing keypair absent).
+    pub fn unsigned(backup: EncryptedBackup) -> Self {
+        Self {
+            version: Self::VERSION,
+            backup,
+            signature: Vec::new(),
+            signer_pubkey: Vec::new(),
+        }
+    }
+
+    /// Returns `true` when this envelope carries a non-empty signature and
+    /// matching public key.
+    pub fn is_signed(&self) -> bool {
+        !self.signature.is_empty() && !self.signer_pubkey.is_empty()
+    }
+}
+
 /// Backup provider type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BackupProviderType {
@@ -291,6 +336,21 @@ pub struct BackupProviderConfig {
     pub peer_node_ids: Vec<NodeId>,
     /// Enable this provider
     pub enabled: bool,
+    /// KMS key id / alias for SSE-KMS (S3 only). When set, objects are uploaded with
+    /// `server-side encryption = aws:kms` using this key, so AWS manages rest-encryption
+    /// on top of our own ChaCha20Poly1305 layer (defense in depth).
+    #[serde(default)]
+    pub kms_key_id: Option<String>,
+    /// Object key prefix under the bucket (S3 only). Defaults to `"backups/"`.
+    #[serde(default)]
+    pub prefix: Option<String>,
+    /// Optional public key bytes used to verify backup signatures on retrieve.
+    /// When set together with a signing keypair on the provider, S3 objects are
+    /// wrapped in a `SignedBackup` envelope and verified on the way out — this
+    /// protects against ciphertext tampering at rest even if the bucket itself
+    /// is compromised.
+    #[serde(default)]
+    pub signing_public_key: Option<Vec<u8>>,
 }
 
 impl Default for BackupProviderConfig {
@@ -307,6 +367,9 @@ impl Default for BackupProviderConfig {
             webhook_url: None,
             peer_node_ids: Vec::new(),
             enabled: true,
+            kms_key_id: None,
+            prefix: None,
+            signing_public_key: None,
         }
     }
 }
@@ -477,29 +540,96 @@ impl DynamicBackupProvider for LocalFileProvider {
     }
 }
 
-/// S3-compatible backup provider (works with AWS S3, MinIO, etc.)
+/// Abstract S3-style object store so the provider is unit-testable without
+/// hitting AWS. The trait is async-native; `S3Provider` drives it through a
+/// cached `tokio::runtime::Handle` so the synchronous
+/// `DynamicBackupProvider` trait keeps working unchanged.
+#[async_trait::async_trait]
+pub trait S3ObjectStore: Send + Sync {
+    /// Upload an object. `kms_key_id`, when Some, triggers SSE-KMS.
+    async fn put_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        body: Vec<u8>,
+        kms_key_id: Option<&str>,
+    ) -> BackupResult<()>;
+
+    /// Fetch an object's body.
+    async fn get_object(&self, bucket: &str, key: &str) -> BackupResult<Vec<u8>>;
+
+    /// List keys under a prefix (returns full object keys).
+    async fn list_objects(&self, bucket: &str, prefix: &str) -> BackupResult<Vec<String>>;
+
+    /// Delete an object.
+    async fn delete_object(&self, bucket: &str, key: &str) -> BackupResult<()>;
+}
+
+/// Borrow on a quantum keypair used to sign backup envelopes before upload.
+/// Kept as a trait so callers can plug in HSM-backed signers later.
+pub trait BackupSigner: Send + Sync {
+    /// Sign `message` and return the raw signature bytes.
+    fn sign(&self, message: &[u8]) -> BackupResult<Vec<u8>>;
+
+    /// Return the signer's public key bytes (embedded in the envelope).
+    fn public_key(&self) -> Vec<u8>;
+}
+
+/// ML-DSA / Dilithium signer wrapper around `QuantumKeyPair`.
+pub struct QuantumBackupSigner {
+    keypair: Arc<crate::crypto::quantum::QuantumKeyPair>,
+}
+
+impl QuantumBackupSigner {
+    pub fn new(keypair: Arc<crate::crypto::quantum::QuantumKeyPair>) -> Self {
+        Self { keypair }
+    }
+}
+
+impl BackupSigner for QuantumBackupSigner {
+    fn sign(&self, message: &[u8]) -> BackupResult<Vec<u8>> {
+        self.keypair
+            .sign(message)
+            .map_err(|e| BackupError::EncryptionError(format!("sign backup: {e}")))
+    }
+
+    fn public_key(&self) -> Vec<u8> {
+        self.keypair.public_key.clone()
+    }
+}
+
+/// S3-compatible backup provider (AWS S3, MinIO, LocalStack, etc.).
 ///
-/// # Implementation Status
-/// This provider stores configuration but S3 operations require the `aws-sdk-s3` crate.
-/// For production use, add `aws-sdk-s3` to Cargo.toml and implement the async operations.
+/// Objects are stored as `bincode(SignedBackup)` under `{prefix}{backup_id}.backup`.
+/// When configured with a signing key the envelope carries an ML-DSA signature
+/// over the ciphertext, which is re-verified on retrieve — this protects
+/// against bucket tampering even if AWS credentials leak.
 ///
-/// # Future Implementation Notes
-/// - Use `aws_sdk_s3::Client` for S3 operations
-/// - Consider using `tokio::runtime::Handle::current().block_on()` for sync trait
-/// - Or refactor `DynamicBackupProvider` trait to be async
+/// # Feature flag
+/// The real AWS backend is behind the `s3-backup` feature. Without it, this
+/// provider is still usable via [`S3Provider::with_store`] for tests or for
+/// plugging a custom S3-compatible client.
 pub struct S3Provider {
     name: String,
     bucket: String,
-    region: String,
-    endpoint: Option<String>,
-    #[allow(dead_code)]
-    access_key_id: String,
-    #[allow(dead_code)]
-    secret_access_key: String,
+    prefix: String,
+    kms_key_id: Option<String>,
+    store: Arc<dyn S3ObjectStore>,
+    signer: Option<Arc<dyn BackupSigner>>,
+    trusted_signer_pubkey: Option<Vec<u8>>,
+    signer_parameters: Option<crate::crypto::quantum::QuantumParameters>,
+    runtime: tokio::runtime::Handle,
 }
 
 impl S3Provider {
-    pub fn new(config: &BackupProviderConfig) -> BackupResult<Self> {
+    /// Construct a provider backed by an arbitrary `S3ObjectStore`. Primarily
+    /// useful for tests and for plugging in non-AWS S3-compatible services.
+    pub fn with_store(
+        config: &BackupProviderConfig,
+        store: Arc<dyn S3ObjectStore>,
+        signer: Option<Arc<dyn BackupSigner>>,
+        runtime: tokio::runtime::Handle,
+    ) -> BackupResult<Self> {
         let bucket = config.bucket.clone().ok_or_else(|| {
             BackupError::ProviderError {
                 provider: "S3".to_string(),
@@ -507,94 +637,225 @@ impl S3Provider {
             }
         })?;
 
-        let access_key_id = config.access_key_id.clone().ok_or_else(|| {
-            BackupError::ProviderError {
-                provider: "S3".to_string(),
-                message: "Access key ID required".to_string(),
-            }
-        })?;
+        let prefix = Self::normalize_prefix(config.prefix.as_deref());
+        let trusted_signer_pubkey = config.signing_public_key.clone();
 
-        let secret_access_key = config.secret_access_key.clone().ok_or_else(|| {
-            BackupError::ProviderError {
-                provider: "S3".to_string(),
-                message: "Secret access key required".to_string(),
-            }
-        })?;
+        // Currently we only bundle Dilithium-based signing for the backup
+        // envelope; downstream callers can override by plugging in another
+        // `BackupSigner` impl — but verify needs explicit parameters.
+        let signer_parameters = trusted_signer_pubkey
+            .as_ref()
+            .map(|_| crate::crypto::quantum::QuantumParameters::new(
+                crate::crypto::quantum::QuantumScheme::Dilithium,
+            ));
 
         Ok(Self {
             name: config.name.clone(),
             bucket,
-            region: config.region.clone().unwrap_or_else(|| "us-east-1".to_string()),
-            endpoint: config.endpoint.clone(),
-            access_key_id,
-            secret_access_key,
+            prefix,
+            kms_key_id: config.kms_key_id.clone(),
+            store,
+            signer,
+            trusted_signer_pubkey,
+            signer_parameters,
+            runtime,
         })
+    }
+
+    /// Build the real AWS-backed provider. Requires the `s3-backup` feature.
+    ///
+    /// The AWS `SharedConfig` is loaded through the standard provider chain
+    /// (env vars → profile → IMDS). Explicit `access_key_id` /
+    /// `secret_access_key` override the chain. A non-empty `endpoint` is used
+    /// as-is with path-style addressing so this works against LocalStack,
+    /// MinIO, and other S3-compatible services.
+    #[cfg(feature = "s3-backup")]
+    pub fn new_aws(
+        config: &BackupProviderConfig,
+        signer: Option<Arc<dyn BackupSigner>>,
+        runtime: tokio::runtime::Handle,
+    ) -> BackupResult<Self> {
+        let region = config
+            .region
+            .clone()
+            .unwrap_or_else(|| "us-east-1".to_string());
+
+        let store: Arc<dyn S3ObjectStore> = {
+            let endpoint = config.endpoint.clone();
+            let access_key_id = config.access_key_id.clone();
+            let secret_access_key = config.secret_access_key.clone();
+            let region_cloned = region.clone();
+
+            let client = runtime.block_on(async move {
+                let region_provider = aws_sdk_s3::config::Region::new(region_cloned);
+                let mut loader = aws_config::defaults(
+                    aws_config::BehaviorVersion::latest(),
+                )
+                .region(region_provider);
+
+                if let (Some(ak), Some(sk)) = (access_key_id, secret_access_key) {
+                    let creds = aws_credential_types::Credentials::new(
+                        ak,
+                        sk,
+                        None,
+                        None,
+                        "supernova-backup",
+                    );
+                    loader = loader.credentials_provider(creds);
+                }
+
+                let shared = loader.load().await;
+                let mut s3_conf = aws_sdk_s3::config::Builder::from(&shared);
+                if let Some(ep) = endpoint {
+                    s3_conf = s3_conf.endpoint_url(ep).force_path_style(true);
+                }
+                aws_sdk_s3::Client::from_conf(s3_conf.build())
+            });
+
+            Arc::new(AwsS3Store::new(client))
+        };
+
+        let mut cfg = config.clone();
+        cfg.region = Some(region);
+        Self::with_store(&cfg, store, signer, runtime)
+    }
+
+    fn normalize_prefix(raw: Option<&str>) -> String {
+        let base = raw.unwrap_or("backups/").to_string();
+        if base.ends_with('/') || base.is_empty() {
+            base
+        } else {
+            format!("{base}/")
+        }
+    }
+
+    fn object_key(&self, backup_id: &str) -> String {
+        format!("{}{}.backup", self.prefix, backup_id)
+    }
+
+    fn strip_key(&self, key: &str) -> Option<String> {
+        key.strip_prefix(&self.prefix)
+            .and_then(|k| k.strip_suffix(".backup"))
+            .map(|s| s.to_string())
+    }
+
+    /// Wrap `backup` in a `SignedBackup` envelope (optionally signing) and
+    /// return the bincoded bytes ready to upload.
+    fn encode_envelope(&self, backup: &EncryptedBackup) -> BackupResult<Vec<u8>> {
+        let blob = bincode::serialize(backup)
+            .map_err(|e| BackupError::StorageError(format!("serialize backup: {e}")))?;
+
+        let envelope = match self.signer.as_ref() {
+            Some(signer) => {
+                let signature = signer.sign(&blob)?;
+                SignedBackup {
+                    version: SignedBackup::VERSION,
+                    backup: backup.clone(),
+                    signature,
+                    signer_pubkey: signer.public_key(),
+                }
+            }
+            None => SignedBackup::unsigned(backup.clone()),
+        };
+
+        bincode::serialize(&envelope)
+            .map_err(|e| BackupError::StorageError(format!("serialize envelope: {e}")))
+    }
+
+    /// Decode an envelope pulled from S3 and (if configured) verify its
+    /// signature against the trusted public key before returning the
+    /// ciphertext.
+    fn decode_envelope(&self, bytes: &[u8]) -> BackupResult<EncryptedBackup> {
+        let envelope: SignedBackup = bincode::deserialize(bytes)
+            .map_err(|e| BackupError::InvalidBackup(format!("decode envelope: {e}")))?;
+
+        if let Some(trusted) = self.trusted_signer_pubkey.as_ref() {
+            if !envelope.is_signed() {
+                return Err(BackupError::InvalidBackup(
+                    "S3 envelope was not signed but signing was required".to_string(),
+                ));
+            }
+            if envelope.signer_pubkey.as_slice() != trusted.as_slice() {
+                return Err(BackupError::InvalidBackup(
+                    "S3 envelope signer does not match trusted public key".to_string(),
+                ));
+            }
+            let parameters = self.signer_parameters.ok_or_else(|| {
+                BackupError::InvalidBackup(
+                    "trusted pubkey configured but signer parameters missing".to_string(),
+                )
+            })?;
+            let blob = bincode::serialize(&envelope.backup)
+                .map_err(|e| BackupError::InvalidBackup(format!("re-serialize backup: {e}")))?;
+            let ok = crate::crypto::quantum::verify_quantum_signature(
+                &envelope.signer_pubkey,
+                &blob,
+                &envelope.signature,
+                parameters,
+            )
+            .map_err(|e| BackupError::InvalidBackup(format!("verify signature: {e}")))?;
+            if !ok {
+                return Err(BackupError::InvalidBackup(
+                    "S3 envelope signature verification failed".to_string(),
+                ));
+            }
+        }
+
+        Ok(envelope.backup)
     }
 }
 
 impl DynamicBackupProvider for S3Provider {
     fn store(&self, backup: &EncryptedBackup, backup_id: &str) -> BackupResult<()> {
-        // Serialize backup data for upload
-        let _data = bincode::serialize(backup)
-            .map_err(|e| BackupError::StorageError(e.to_string()))?;
-
-        // STUB: S3 upload requires aws-sdk-s3 crate
-        // Production implementation should use:
-        //   let client = aws_sdk_s3::Client::new(&config);
-        //   let key = format!("backups/{}.backup", backup_id);
-        //   client.put_object().bucket(&self.bucket).key(&key).body(data.into()).send().await?;
-
-        tracing::warn!(
-            "S3 backup stub: would store {} to s3://{}/{} (requires aws-sdk-s3)",
-            backup_id, self.bucket, format!("backups/{}.backup", backup_id)
+        let bytes = self.encode_envelope(backup)?;
+        if bytes.len() > MAX_BACKUP_SIZE {
+            return Err(BackupError::StorageError(format!(
+                "backup {} too large: {} > {}",
+                backup_id,
+                bytes.len(),
+                MAX_BACKUP_SIZE,
+            )));
+        }
+        let key = self.object_key(backup_id);
+        let bucket = self.bucket.clone();
+        let kms = self.kms_key_id.clone();
+        let store = Arc::clone(&self.store);
+        self.runtime.block_on(async move {
+            store.put_object(&bucket, &key, bytes, kms.as_deref()).await
+        })?;
+        debug!(
+            "Stored backup {} to s3://{}/{}{}.backup",
+            backup_id, self.bucket, self.prefix, backup_id
         );
-
         Ok(())
     }
 
     fn retrieve(&self, backup_id: &str) -> BackupResult<EncryptedBackup> {
-        // STUB: S3 download requires aws-sdk-s3 crate
-        // Production implementation should use:
-        //   let client = aws_sdk_s3::Client::new(&config);
-        //   let resp = client.get_object().bucket(&self.bucket).key(&key).send().await?;
-        //   let data = resp.body.collect().await?.into_bytes();
-        //   bincode::deserialize(&data)
-
-        Err(BackupError::ProviderError {
-            provider: "S3".to_string(),
-            message: format!(
-                "S3 retrieve for {} requires aws-sdk-s3 crate (not yet integrated)",
-                backup_id
-            ),
-        })
+        let key = self.object_key(backup_id);
+        let bucket = self.bucket.clone();
+        let store = Arc::clone(&self.store);
+        let bytes = self
+            .runtime
+            .block_on(async move { store.get_object(&bucket, &key).await })?;
+        self.decode_envelope(&bytes)
     }
 
     fn list_backups(&self) -> BackupResult<Vec<String>> {
-        // STUB: S3 list requires aws-sdk-s3 crate
-        // Production implementation should use:
-        //   let client = aws_sdk_s3::Client::new(&config);
-        //   let resp = client.list_objects_v2().bucket(&self.bucket).prefix("backups/").send().await?;
-
-        tracing::warn!(
-            "S3 list_backups stub: would list s3://{}/backups/ (requires aws-sdk-s3)",
-            self.bucket
-        );
-
-        Ok(Vec::new())
+        let prefix = self.prefix.clone();
+        let bucket = self.bucket.clone();
+        let store = Arc::clone(&self.store);
+        let keys = self
+            .runtime
+            .block_on(async move { store.list_objects(&bucket, &prefix).await })?;
+        Ok(keys.into_iter().filter_map(|k| self.strip_key(&k)).collect())
     }
 
     fn delete(&self, backup_id: &str) -> BackupResult<()> {
-        // STUB: S3 delete requires aws-sdk-s3 crate
-        // Production implementation should use:
-        //   let client = aws_sdk_s3::Client::new(&config);
-        //   client.delete_object().bucket(&self.bucket).key(&key).send().await?;
-
-        tracing::warn!(
-            "S3 delete stub: would delete s3://{}/backups/{}.backup (requires aws-sdk-s3)",
-            self.bucket, backup_id
-        );
-
-        Ok(())
+        let key = self.object_key(backup_id);
+        let bucket = self.bucket.clone();
+        let store = Arc::clone(&self.store);
+        self.runtime
+            .block_on(async move { store.delete_object(&bucket, &key).await })
     }
 
     fn name(&self) -> &str {
@@ -603,6 +864,106 @@ impl DynamicBackupProvider for S3Provider {
 
     fn provider_type(&self) -> BackupProviderType {
         BackupProviderType::S3
+    }
+}
+
+/// Real AWS-backed `S3ObjectStore` implementation. Only available with the
+/// `s3-backup` feature enabled so builds that don't need S3 don't pull the
+/// AWS SDK dependency tree.
+#[cfg(feature = "s3-backup")]
+pub struct AwsS3Store {
+    client: aws_sdk_s3::Client,
+}
+
+#[cfg(feature = "s3-backup")]
+impl AwsS3Store {
+    pub fn new(client: aws_sdk_s3::Client) -> Self {
+        Self { client }
+    }
+}
+
+#[cfg(feature = "s3-backup")]
+#[async_trait::async_trait]
+impl S3ObjectStore for AwsS3Store {
+    async fn put_object(
+        &self,
+        bucket: &str,
+        key: &str,
+        body: Vec<u8>,
+        kms_key_id: Option<&str>,
+    ) -> BackupResult<()> {
+        let mut req = self
+            .client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(aws_sdk_s3::primitives::ByteStream::from(body));
+
+        if let Some(kms) = kms_key_id {
+            req = req
+                .server_side_encryption(aws_sdk_s3::types::ServerSideEncryption::AwsKms)
+                .ssekms_key_id(kms);
+        }
+
+        req.send().await.map_err(|e| BackupError::ProviderError {
+            provider: "S3".to_string(),
+            message: format!("put_object failed: {e}"),
+        })?;
+        Ok(())
+    }
+
+    async fn get_object(&self, bucket: &str, key: &str) -> BackupResult<Vec<u8>> {
+        let resp = self
+            .client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|_| BackupError::BackupNotFound {
+                backup_id: key.to_string(),
+            })?;
+        let bytes = resp
+            .body
+            .collect()
+            .await
+            .map_err(|e| BackupError::StorageError(format!("read body: {e}")))?
+            .into_bytes();
+        Ok(bytes.to_vec())
+    }
+
+    async fn list_objects(&self, bucket: &str, prefix: &str) -> BackupResult<Vec<String>> {
+        let resp = self
+            .client
+            .list_objects_v2()
+            .bucket(bucket)
+            .prefix(prefix)
+            .send()
+            .await
+            .map_err(|e| BackupError::ProviderError {
+                provider: "S3".to_string(),
+                message: format!("list_objects_v2 failed: {e}"),
+            })?;
+        Ok(resp
+            .contents
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|o| o.key)
+            .collect())
+    }
+
+    async fn delete_object(&self, bucket: &str, key: &str) -> BackupResult<()> {
+        self.client
+            .delete_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| BackupError::ProviderError {
+                provider: "S3".to_string(),
+                message: format!("delete_object failed: {e}"),
+            })?;
+        Ok(())
     }
 }
 
@@ -1085,7 +1446,26 @@ impl ChannelBackupManager {
                     Box::new(LocalFileProvider::new(path, provider_config.name.clone())?)
                 }
                 BackupProviderType::S3 => {
-                    Box::new(S3Provider::new(provider_config)?)
+                    #[cfg(feature = "s3-backup")]
+                    {
+                        let runtime = tokio::runtime::Handle::try_current().map_err(|_| {
+                            BackupError::ProviderError {
+                                provider: "S3".to_string(),
+                                message: "S3 provider requires a running tokio runtime"
+                                    .to_string(),
+                            }
+                        })?;
+                        Box::new(S3Provider::new_aws(provider_config, None, runtime)?)
+                    }
+                    #[cfg(not(feature = "s3-backup"))]
+                    {
+                        return Err(BackupError::ProviderError {
+                            provider: "S3".to_string(),
+                            message:
+                                "S3 backup requires the 's3-backup' feature to be enabled"
+                                    .to_string(),
+                        });
+                    }
                 }
                 BackupProviderType::Peer => {
                     Box::new(PeerBackupProtocol::new(
@@ -1498,6 +1878,253 @@ mod tests {
         let status = manager.get_status().unwrap();
         assert_eq!(status.len(), 1);
         assert_eq!(status[0].provider_name, "test");
+    }
+
+    /// In-memory `S3ObjectStore` used to unit-test `S3Provider` without AWS.
+    /// Mimics an S3 bucket; keys are stored in a flat map and listed by
+    /// prefix match. `bucket` matches must be exact.
+    #[derive(Default)]
+    struct InMemoryS3 {
+        data: std::sync::Mutex<std::collections::HashMap<(String, String), Vec<u8>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl S3ObjectStore for InMemoryS3 {
+        async fn put_object(
+            &self,
+            bucket: &str,
+            key: &str,
+            body: Vec<u8>,
+            _kms_key_id: Option<&str>,
+        ) -> BackupResult<()> {
+            self.data
+                .lock()
+                .map_err(|_| BackupError::LockPoisoned)?
+                .insert((bucket.to_string(), key.to_string()), body);
+            Ok(())
+        }
+
+        async fn get_object(&self, bucket: &str, key: &str) -> BackupResult<Vec<u8>> {
+            self.data
+                .lock()
+                .map_err(|_| BackupError::LockPoisoned)?
+                .get(&(bucket.to_string(), key.to_string()))
+                .cloned()
+                .ok_or_else(|| BackupError::BackupNotFound {
+                    backup_id: key.to_string(),
+                })
+        }
+
+        async fn list_objects(
+            &self,
+            bucket: &str,
+            prefix: &str,
+        ) -> BackupResult<Vec<String>> {
+            Ok(self
+                .data
+                .lock()
+                .map_err(|_| BackupError::LockPoisoned)?
+                .iter()
+                .filter(|((b, k), _)| b == bucket && k.starts_with(prefix))
+                .map(|((_, k), _)| k.clone())
+                .collect())
+        }
+
+        async fn delete_object(&self, bucket: &str, key: &str) -> BackupResult<()> {
+            self.data
+                .lock()
+                .map_err(|_| BackupError::LockPoisoned)?
+                .remove(&(bucket.to_string(), key.to_string()));
+            Ok(())
+        }
+    }
+
+    fn s3_test_config() -> BackupProviderConfig {
+        BackupProviderConfig {
+            provider_type: BackupProviderType::S3,
+            name: "s3-test".to_string(),
+            bucket: Some("supernova-test".to_string()),
+            region: Some("us-east-1".to_string()),
+            prefix: Some("lightning/".to_string()),
+            kms_key_id: Some("alias/supernova-kms".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn s3_provider_roundtrip_without_signing() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let _guard = runtime.enter();
+
+        let store = Arc::new(InMemoryS3::default());
+        let config = s3_test_config();
+        let provider =
+            S3Provider::with_store(&config, store.clone(), None, runtime.handle().clone())
+                .expect("provider");
+
+        let node_id = create_test_node_id();
+        let key = create_test_encryption_key();
+        let package = ChannelBackupPackage::new(node_id, vec![]);
+        let encrypted = EncryptedBackup::encrypt(&package, &key).expect("encrypt");
+
+        provider.store(&encrypted, "alice-1").expect("store");
+        let listed = provider.list_backups().expect("list");
+        assert_eq!(listed, vec!["alice-1".to_string()]);
+
+        let retrieved = provider.retrieve("alice-1").expect("retrieve");
+        let decoded = retrieved.decrypt(&key).expect("decrypt");
+        assert!(decoded.verify());
+
+        provider.delete("alice-1").expect("delete");
+        assert!(provider.list_backups().expect("list").is_empty());
+    }
+
+    #[test]
+    fn s3_provider_signed_envelope_verifies_on_retrieve() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let _guard = runtime.enter();
+
+        let params = crate::crypto::quantum::QuantumParameters::new(
+            crate::crypto::quantum::QuantumScheme::Dilithium,
+        );
+        let keypair = Arc::new(
+            crate::crypto::quantum::QuantumKeyPair::generate(params).expect("keypair"),
+        );
+        let signer: Arc<dyn BackupSigner> =
+            Arc::new(QuantumBackupSigner::new(keypair.clone()));
+
+        let mut config = s3_test_config();
+        config.signing_public_key = Some(keypair.public_key.clone());
+
+        let store = Arc::new(InMemoryS3::default());
+        let provider = S3Provider::with_store(
+            &config,
+            store.clone(),
+            Some(signer),
+            runtime.handle().clone(),
+        )
+        .expect("provider");
+
+        let node_id = create_test_node_id();
+        let key = create_test_encryption_key();
+        let package = ChannelBackupPackage::new(node_id, vec![]);
+        let encrypted = EncryptedBackup::encrypt(&package, &key).expect("encrypt");
+
+        provider.store(&encrypted, "alice-signed").expect("store");
+        let retrieved = provider.retrieve("alice-signed").expect("retrieve");
+        let decoded = retrieved.decrypt(&key).expect("decrypt");
+        assert!(decoded.verify());
+    }
+
+    #[test]
+    fn s3_provider_rejects_tampered_envelope() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let _guard = runtime.enter();
+
+        let params = crate::crypto::quantum::QuantumParameters::new(
+            crate::crypto::quantum::QuantumScheme::Dilithium,
+        );
+        let keypair = Arc::new(
+            crate::crypto::quantum::QuantumKeyPair::generate(params).expect("keypair"),
+        );
+        let signer: Arc<dyn BackupSigner> =
+            Arc::new(QuantumBackupSigner::new(keypair.clone()));
+
+        let mut config = s3_test_config();
+        config.signing_public_key = Some(keypair.public_key.clone());
+
+        let store = Arc::new(InMemoryS3::default());
+        let provider = S3Provider::with_store(
+            &config,
+            store.clone(),
+            Some(signer),
+            runtime.handle().clone(),
+        )
+        .expect("provider");
+
+        let node_id = create_test_node_id();
+        let key = create_test_encryption_key();
+        let package = ChannelBackupPackage::new(node_id, vec![]);
+        let encrypted = EncryptedBackup::encrypt(&package, &key).expect("encrypt");
+        provider.store(&encrypted, "alice-tamper").expect("store");
+
+        // Flip a byte directly in the stored blob to simulate bucket tampering.
+        {
+            let mut guard = store.data.lock().unwrap();
+            let stored = guard
+                .values_mut()
+                .next()
+                .expect("one object");
+            let idx = stored.len() / 2;
+            stored[idx] ^= 0xFF;
+        }
+
+        let err = provider.retrieve("alice-tamper").expect_err("tamper must fail");
+        match err {
+            BackupError::InvalidBackup(_) => {}
+            other => panic!("expected InvalidBackup, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn s3_provider_rejects_unsigned_when_trust_configured() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let _guard = runtime.enter();
+
+        let params = crate::crypto::quantum::QuantumParameters::new(
+            crate::crypto::quantum::QuantumScheme::Dilithium,
+        );
+        let keypair = Arc::new(
+            crate::crypto::quantum::QuantumKeyPair::generate(params).expect("keypair"),
+        );
+
+        // Writer: no signer configured, so envelope will be stored unsigned.
+        let writer_config = s3_test_config();
+        let store = Arc::new(InMemoryS3::default());
+        let writer = S3Provider::with_store(
+            &writer_config,
+            store.clone(),
+            None,
+            runtime.handle().clone(),
+        )
+        .expect("writer");
+
+        let node_id = create_test_node_id();
+        let key = create_test_encryption_key();
+        let package = ChannelBackupPackage::new(node_id, vec![]);
+        let encrypted = EncryptedBackup::encrypt(&package, &key).expect("encrypt");
+        writer.store(&encrypted, "alice-unsigned").expect("store");
+
+        // Reader: signing pubkey configured → demands signature on retrieve.
+        let mut reader_config = s3_test_config();
+        reader_config.signing_public_key = Some(keypair.public_key.clone());
+        let reader = S3Provider::with_store(
+            &reader_config,
+            store,
+            None,
+            runtime.handle().clone(),
+        )
+        .expect("reader");
+
+        let err = reader
+            .retrieve("alice-unsigned")
+            .expect_err("unsigned retrieve must fail");
+        match err {
+            BackupError::InvalidBackup(_) => {}
+            other => panic!("expected InvalidBackup, got {:?}", other),
+        }
     }
 
     #[test]
