@@ -1,5 +1,11 @@
 # Running a Supernova Node
 
+> **Note:** The canonical operator documentation is now
+> [`NODE_OPERATOR_GUIDE.md`](./NODE_OPERATOR_GUIDE.md), which covers hardware
+> sizing, signed-release verification, systemd hardening, monitoring, and a
+> troubleshooting decision tree. This page is kept for historical reference
+> and may drift from the current release.
+
 This guide will help you set up and run your own node. Whether you're contributing to network decentralization or building applications, running a node is straightforward.
 
 **Current Version:** 1.0.0
