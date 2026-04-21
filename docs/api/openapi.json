@@ -1,0 +1,5721 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "supernova Blockchain API",
+    "description": "RESTful API for supernova blockchain node with support for environmental impact tracking and the Lightning Network",
+    "contact": {
+      "name": "supernova Developer Team",
+      "url": "https://supernovanetwork.xyz",
+      "email": "dev@supernovanetwork.xyz"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/blockchain/block/hash/{hash}": {
+      "get": {
+        "tags": [
+          "crate::api::routes::blockchain"
+        ],
+        "summary": "Get a block by hash",
+        "description": "Returns detailed information about a block with the specified hash.",
+        "operationId": "get_block_by_hash",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "description": "Block hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Block retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Block not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blockchain/block/{height}": {
+      "get": {
+        "tags": [
+          "crate::api::routes::blockchain"
+        ],
+        "summary": "Get a block by height",
+        "description": "Returns detailed information about a block at the specified height.",
+        "operationId": "get_block_by_height",
+        "parameters": [
+          {
+            "name": "height",
+            "in": "path",
+            "description": "Block height",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Block retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Block not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blockchain/info": {
+      "get": {
+        "tags": [
+          "crate::api::routes::blockchain"
+        ],
+        "summary": "Get blockchain information",
+        "description": "Returns general information about the blockchain state.",
+        "operationId": "get_blockchain_info",
+        "responses": {
+          "200": {
+            "description": "Blockchain information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockchainInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blockchain/submit": {
+      "post": {
+        "tags": [
+          "crate::api::routes::blockchain"
+        ],
+        "summary": "Submit a transaction to the blockchain",
+        "description": "Submits a new transaction to the mempool for validation and broadcasting.",
+        "operationId": "submit_transaction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitTxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction submitted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionSubmissionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blockchain/transaction/{txid}": {
+      "get": {
+        "tags": [
+          "crate::api::routes::blockchain"
+        ],
+        "summary": "Get a transaction by ID",
+        "description": "Returns detailed information about a transaction.",
+        "operationId": "get_transaction",
+        "parameters": [
+          {
+            "name": "txid",
+            "in": "path",
+            "description": "Transaction ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transaction not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/environmental/carbon": {
+      "get": {
+        "tags": [
+          "crate::api::routes::environmental"
+        ],
+        "operationId": "get_carbon_footprint",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Time period in seconds for which to retrieve data (default: 86400 - 1 day)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "86400",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "include_offsets",
+            "in": "query",
+            "description": "Whether to include offset information (default: true)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": "true",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Carbon footprint data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarbonFootprint"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/environmental/energy": {
+      "get": {
+        "tags": [
+          "crate::api::routes::environmental"
+        ],
+        "operationId": "get_energy_usage",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Time period in seconds for which to retrieve data (default: 3600 - 1 hour)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "3600",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "include_history",
+            "in": "query",
+            "description": "Whether to include historical data (default: false)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": "false",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Energy usage data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnergyUsage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/environmental/impact": {
+      "get": {
+        "tags": [
+          "crate::api::routes::environmental"
+        ],
+        "operationId": "get_environmental_impact",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Time period in seconds for which to retrieve data (default: 86400 - 1 day)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "86400",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "description": "Level of detail for the report (default: \"standard\")",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "standard",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Environmental impact data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentalImpact"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/environmental/settings": {
+      "get": {
+        "tags": [
+          "crate::api::routes::environmental"
+        ],
+        "summary": "Get environmental monitoring settings",
+        "description": "Returns the current environmental monitoring and optimization settings.",
+        "operationId": "get_environmental_settings",
+        "responses": {
+          "200": {
+            "description": "Environmental settings retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentalSettings"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::api::routes::environmental"
+        ],
+        "summary": "Update environmental monitoring settings",
+        "description": "Updates the environmental monitoring and optimization settings.",
+        "operationId": "update_environmental_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvironmentalSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Environmental settings updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentalSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/channel": {
+      "post": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "summary": "Open a new Lightning Network channel",
+        "description": "Opens a new payment channel with a remote Lightning Network node.",
+        "operationId": "open_channel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Channel opening initiated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenChannelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "summary": "Close a Lightning Network channel",
+        "description": "Closes an existing payment channel with a remote Lightning Network node.",
+        "operationId": "close_channel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Channel closing initiated successfully"
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/channel/{channel_id}": {
+      "get": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "summary": "Get a specific Lightning Network channel",
+        "description": "Returns detailed information about a specific Lightning Network channel.",
+        "operationId": "get_channel",
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lightning Network channel retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LightningChannel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/channels": {
+      "get": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "operationId": "get_channels",
+        "parameters": [
+          {
+            "name": "include_inactive",
+            "in": "query",
+            "description": "Whether to include inactive channels (default: false)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": "false",
+              "nullable": true
+            }
+          },
+          {
+            "name": "include_pending",
+            "in": "query",
+            "description": "Whether to include pending channels (default: true)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": "true",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lightning Network channels retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LightningChannel"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/info": {
+      "get": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "summary": "Get Lightning Network information",
+        "description": "Returns general information about the node's Lightning Network status.",
+        "operationId": "get_lightning_info",
+        "responses": {
+          "200": {
+            "description": "Lightning Network information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LightningInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/invoice": {
+      "post": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "summary": "Create a Lightning Network invoice",
+        "description": "Creates a new invoice for receiving a payment over the Lightning Network.",
+        "operationId": "create_invoice",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Invoice created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/invoices": {
+      "get": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "operationId": "get_invoices",
+        "parameters": [
+          {
+            "name": "pending_only",
+            "in": "query",
+            "description": "Whether to include pending invoices (default: true)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": "true",
+              "nullable": true
+            }
+          },
+          {
+            "name": "index_offset",
+            "in": "query",
+            "description": "Optional invoice index to start from",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "num_max_invoices",
+            "in": "query",
+            "description": "Maximum number of invoices to retrieve (default: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "100",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lightning Network invoices retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LightningInvoice"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/node/{node_id}": {
+      "get": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "summary": "Get information about a specific Lightning Network node",
+        "description": "Returns detailed information about a specific node in the Lightning Network.",
+        "operationId": "get_node_info",
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "description": "Node ID (public key)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Node information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Node not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/nodes": {
+      "get": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "operationId": "get_network_nodes",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Optional limit for the number of nodes to return (default: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": "100",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lightning Network nodes retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NodeInfo"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/pay": {
+      "post": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "summary": "Send a Lightning Network payment",
+        "description": "Sends a payment over the Lightning Network.",
+        "operationId": "send_payment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Payment sent successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/payments": {
+      "get": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "operationId": "get_payments",
+        "parameters": [
+          {
+            "name": "index_offset",
+            "in": "query",
+            "description": "Optional payment index to start from",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "max_payments",
+            "in": "query",
+            "description": "Maximum number of payments to retrieve (default: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "100",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "include_pending",
+            "in": "query",
+            "description": "Whether to include pending payments (default: true)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": "true",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lightning Network payments retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LightningPayment"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lightning/routes": {
+      "get": {
+        "tags": [
+          "crate::api::routes::lightning"
+        ],
+        "operationId": "find_route",
+        "parameters": [
+          {
+            "name": "pub_key",
+            "in": "query",
+            "description": "Destination node ID (public key)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "amt_mnova",
+            "in": "query",
+            "description": "Amount to send in millinova",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "fee_limit_mnova",
+            "in": "query",
+            "description": "Maximum fee in millinova (default: 10000)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "10000",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Route found successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Route"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No route found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mempool/fees": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mempool"
+        ],
+        "operationId": "get_fee_estimates",
+        "parameters": [
+          {
+            "name": "target_blocks",
+            "in": "query",
+            "description": "Target number of blocks for confirmation (default: 6)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": "6",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fee estimates retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionFees"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mempool/info": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mempool"
+        ],
+        "summary": "Get mempool information",
+        "description": "Returns general information about the mempool.",
+        "operationId": "get_mempool_info",
+        "responses": {
+          "200": {
+            "description": "Mempool information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MempoolInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mempool/submit": {
+      "post": {
+        "tags": [
+          "crate::api::routes::mempool"
+        ],
+        "summary": "Submit a transaction to the mempool",
+        "description": "Submits a new transaction to the mempool for validation and broadcasting.",
+        "operationId": "submit_transaction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitTxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction submitted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MempoolTransactionSubmissionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mempool/transaction/{txid}": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mempool"
+        ],
+        "summary": "Get a specific transaction from the mempool",
+        "description": "Returns detailed information about a specific transaction in the mempool.",
+        "operationId": "get_mempool_transaction",
+        "parameters": [
+          {
+            "name": "txid",
+            "in": "path",
+            "description": "Transaction ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MempoolTransaction"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transaction not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mempool/transactions": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mempool"
+        ],
+        "operationId": "get_mempool_transactions",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of transactions to retrieve (default: 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": "100",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination (default: 0)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": "0",
+              "nullable": true,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "verbose",
+            "in": "query",
+            "description": "Whether to include verbose transaction details (default: false)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": "false",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mempool transactions retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MempoolTransaction"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mempool/validate": {
+      "post": {
+        "tags": [
+          "crate::api::routes::mempool"
+        ],
+        "summary": "Validate a transaction",
+        "description": "Validates a transaction without adding it to the mempool.",
+        "operationId": "validate_transaction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitTxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction validated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionValidationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid transaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mining/config": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "summary": "Get mining configuration",
+        "description": "Returns the current mining configuration.",
+        "operationId": "get_mining_config",
+        "responses": {
+          "200": {
+            "description": "Mining configuration retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiningConfiguration"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "summary": "Update mining configuration",
+        "description": "Updates the mining configuration.",
+        "operationId": "update_mining_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MiningConfiguration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Mining configuration updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiningConfiguration"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mining/info": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "summary": "Get mining information",
+        "description": "Returns current mining-related information.",
+        "operationId": "get_mining_info",
+        "responses": {
+          "200": {
+            "description": "Mining information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiningInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mining/start": {
+      "post": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "operationId": "start_mining",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartMiningRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Mining operation started successfully"
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mining/stats": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "operationId": "get_mining_stats",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "path",
+            "description": "Time period in seconds (default: 3600)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "3600",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mining statistics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiningStats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mining/status": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "summary": "Get mining status",
+        "description": "Returns the current status of the mining operation.",
+        "operationId": "get_mining_status",
+        "responses": {
+          "200": {
+            "description": "Mining status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiningStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mining/stop": {
+      "post": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "summary": "Stop mining",
+        "description": "Stops the mining operation.",
+        "operationId": "stop_mining",
+        "responses": {
+          "200": {
+            "description": "Mining operation stopped successfully"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mining/submit": {
+      "post": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "summary": "Submit a mined block",
+        "description": "Submits a solved block to the network.",
+        "operationId": "submit_block",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitBlockRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Block submitted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitBlockResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid block data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mining/template": {
+      "get": {
+        "tags": [
+          "crate::api::routes::mining"
+        ],
+        "operationId": "get_mining_template",
+        "parameters": [
+          {
+            "name": "capabilities",
+            "in": "query",
+            "description": "Comma-separated list of capabilities (default: \"standard\")",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "standard",
+              "nullable": true
+            }
+          },
+          {
+            "name": "max_transactions",
+            "in": "query",
+            "description": "Maximum number of transactions to include (default: all available)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mining template retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiningTemplate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/bandwidth": {
+      "get": {
+        "tags": [
+          "crate::api::routes::network"
+        ],
+        "operationId": "get_bandwidth_usage",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Time period in seconds (default: 3600)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "3600",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bandwidth usage statistics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BandwidthUsage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/connection_count": {
+      "get": {
+        "tags": [
+          "crate::api::routes::network"
+        ],
+        "summary": "Get connection count",
+        "description": "Returns the number of connections by type.",
+        "operationId": "get_connection_count",
+        "responses": {
+          "200": {
+            "description": "Connection count retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionCount"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/info": {
+      "get": {
+        "tags": [
+          "crate::api::routes::network"
+        ],
+        "summary": "Get network information",
+        "description": "Returns information about the node's network status.",
+        "operationId": "get_network_info",
+        "responses": {
+          "200": {
+            "description": "Network information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/peers": {
+      "get": {
+        "tags": [
+          "crate::api::routes::network"
+        ],
+        "operationId": "get_peers",
+        "parameters": [
+          {
+            "name": "connection_state",
+            "in": "query",
+            "description": "Optional connection state filter",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "verbose",
+            "in": "query",
+            "description": "Include detailed information (default: false)",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": "false",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Peer list retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PeerInfo"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "crate::api::routes::network"
+        ],
+        "summary": "Add a new peer connection",
+        "description": "Attempts to connect to a new peer by address.",
+        "operationId": "add_peer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PeerAddRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Peer addition initiated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerAddResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid peer address format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/network/peers/{peer_id}": {
+      "get": {
+        "tags": [
+          "crate::api::routes::network"
+        ],
+        "summary": "Get information about a specific peer",
+        "description": "Returns detailed information about a specific connected peer.",
+        "operationId": "get_peer",
+        "parameters": [
+          {
+            "name": "peer_id",
+            "in": "path",
+            "description": "Peer ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Peer information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Peer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "crate::api::routes::network"
+        ],
+        "summary": "Remove a peer connection",
+        "description": "Disconnects from a specific peer.",
+        "operationId": "remove_peer",
+        "parameters": [
+          {
+            "name": "peer_id",
+            "in": "path",
+            "description": "Peer ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Peer removed successfully"
+          },
+          "404": {
+            "description": "Peer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/node/backup": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get backup info",
+        "operationId": "get_backup_info",
+        "responses": {
+          "200": {
+            "description": "Backup information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BackupInfo"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Create backup",
+        "operationId": "create_backup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Backup created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/config": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get configuration",
+        "operationId": "get_config",
+        "responses": {
+          "200": {
+            "description": "Configuration retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Update configuration",
+        "operationId": "update_config",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid configuration"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/debug": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get debug info",
+        "operationId": "get_debug_info",
+        "responses": {
+          "200": {
+            "description": "Debug information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebugInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/info": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get node information",
+        "description": "Returns basic information about the node including version, network, and status",
+        "operationId": "get_node_info",
+        "responses": {
+          "200": {
+            "description": "Node information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/logs": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get logs",
+        "operationId": "get_logs",
+        "parameters": [
+          {
+            "name": "level",
+            "in": "query",
+            "description": "Log level filter",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            },
+            "example": "info"
+          },
+          {
+            "name": "component",
+            "in": "query",
+            "description": "Component filter",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of logs to return",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0
+            },
+            "example": 100
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Offset for pagination",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0
+            },
+            "example": 0
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logs retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LogEntry"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/metrics": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get metrics",
+        "operationId": "get_metrics",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Time period in seconds",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true,
+              "minimum": 0
+            },
+            "example": 3600
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metrics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeMetrics"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/restart": {
+      "post": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Restart node",
+        "operationId": "restart_node",
+        "responses": {
+          "200": {
+            "description": "Node restart initiated"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/shutdown": {
+      "post": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Shutdown node",
+        "operationId": "shutdown_node",
+        "responses": {
+          "200": {
+            "description": "Node shutdown initiated"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/status": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get node status",
+        "operationId": "get_node_status",
+        "responses": {
+          "200": {
+            "description": "Node status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/system": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get system information",
+        "operationId": "get_system_info",
+        "responses": {
+          "200": {
+            "description": "System information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/node/version": {
+      "get": {
+        "tags": [
+          "node"
+        ],
+        "summary": "Get version info",
+        "operationId": "get_version",
+        "responses": {
+          "200": {
+            "description": "Version information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/environmental/resources": {
+      "get": {
+        "tags": [
+          "Environmental"
+        ],
+        "operationId": "get_resource_utilization",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Time period in seconds for which to retrieve data (default: 3600 - 1 hour)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": "3600",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resource utilization data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceUtilization"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "description": "Standard API response wrapper",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/T"
+              }
+            ],
+            "nullable": true
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message (only present if success is false)",
+            "nullable": true
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Whether the request was successful"
+          }
+        }
+      },
+      "BackupInfo": {
+        "type": "object",
+        "description": "Backup information",
+        "required": [
+          "id",
+          "timestamp",
+          "size",
+          "backup_type",
+          "status",
+          "file_path",
+          "verified"
+        ],
+        "properties": {
+          "backup_type": {
+            "type": "string",
+            "description": "Backup type"
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Backup file path"
+          },
+          "id": {
+            "type": "string",
+            "description": "Backup ID"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Backup size in bytes",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "description": "Backup status"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Backup timestamp",
+            "minimum": 0
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Verification status"
+          }
+        }
+      },
+      "BackupRequest": {
+        "type": "object",
+        "description": "Backup request parameters",
+        "required": [
+          "include_wallet",
+          "encrypt"
+        ],
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "Destination path for the backup",
+            "nullable": true
+          },
+          "encrypt": {
+            "type": "boolean",
+            "description": "Whether to encrypt the backup"
+          },
+          "include_wallet": {
+            "type": "boolean",
+            "description": "Whether to include wallet data"
+          }
+        }
+      },
+      "BandwidthUsage": {
+        "type": "object",
+        "description": "Bandwidth usage statistics",
+        "required": [
+          "total_sent",
+          "total_received",
+          "upload_rate",
+          "download_rate",
+          "peak_upload_rate",
+          "peak_download_rate"
+        ],
+        "properties": {
+          "download_rate": {
+            "type": "number",
+            "format": "double",
+            "description": "Current download rate (bytes/sec)"
+          },
+          "peak_download_rate": {
+            "type": "number",
+            "format": "double",
+            "description": "Peak download rate (bytes/sec)"
+          },
+          "peak_upload_rate": {
+            "type": "number",
+            "format": "double",
+            "description": "Peak upload rate (bytes/sec)"
+          },
+          "total_received": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total bytes received",
+            "minimum": 0
+          },
+          "total_sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total bytes sent",
+            "minimum": 0
+          },
+          "upload_rate": {
+            "type": "number",
+            "format": "double",
+            "description": "Current upload rate (bytes/sec)"
+          }
+        }
+      },
+      "BlockHashParams": {
+        "type": "object",
+        "description": "Block hash parameter for API requests",
+        "required": [
+          "hash"
+        ],
+        "properties": {
+          "hash": {
+            "type": "string",
+            "description": "Block hash"
+          }
+        }
+      },
+      "BlockHeightParams": {
+        "type": "object",
+        "description": "Block height parameter for API requests",
+        "required": [
+          "height"
+        ],
+        "properties": {
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block height",
+            "minimum": 0
+          }
+        }
+      },
+      "BlockInfo": {
+        "type": "object",
+        "description": "Block information response",
+        "required": [
+          "hash",
+          "height",
+          "confirmations",
+          "size",
+          "weight",
+          "version",
+          "merkle_root",
+          "time",
+          "nonce",
+          "difficulty",
+          "previous_block_hash",
+          "transaction_count",
+          "transactions"
+        ],
+        "properties": {
+          "confirmations": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of confirmations",
+            "minimum": 0
+          },
+          "difficulty": {
+            "type": "number",
+            "format": "double",
+            "description": "Block difficulty"
+          },
+          "hash": {
+            "type": "string",
+            "description": "Block hash"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block height",
+            "minimum": 0
+          },
+          "merkle_root": {
+            "type": "string",
+            "description": "Merkle root"
+          },
+          "next_block_hash": {
+            "type": "string",
+            "description": "Next block hash (if exists)",
+            "nullable": true
+          },
+          "nonce": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Block nonce",
+            "minimum": 0
+          },
+          "previous_block_hash": {
+            "type": "string",
+            "description": "Previous block hash"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block size in bytes",
+            "minimum": 0
+          },
+          "time": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block timestamp",
+            "minimum": 0
+          },
+          "transaction_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of transactions",
+            "minimum": 0
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Transaction IDs"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Block version",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block weight",
+            "minimum": 0
+          }
+        }
+      },
+      "BlockchainInfo": {
+        "type": "object",
+        "description": "Blockchain information response",
+        "required": [
+          "height",
+          "best_block_hash",
+          "difficulty",
+          "total_work",
+          "network",
+          "version"
+        ],
+        "properties": {
+          "best_block_hash": {
+            "type": "string",
+            "description": "Best block hash"
+          },
+          "difficulty": {
+            "type": "number",
+            "format": "double",
+            "description": "Current difficulty"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current block height",
+            "minimum": 0
+          },
+          "network": {
+            "type": "string",
+            "description": "Network name"
+          },
+          "total_work": {
+            "type": "string",
+            "description": "Total work"
+          },
+          "version": {
+            "type": "string",
+            "description": "Software version"
+          }
+        }
+      },
+      "CarbonFootprint": {
+        "type": "object",
+        "description": "Carbon footprint information",
+        "required": [
+          "timestamp",
+          "period",
+          "total_emissions_g",
+          "net_emissions_g",
+          "intensity",
+          "emissions_sources",
+          "renewable_percentage"
+        ],
+        "properties": {
+          "emissions_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmissionsSource"
+            },
+            "description": "List of emissions sources"
+          },
+          "intensity": {
+            "type": "number",
+            "format": "double",
+            "description": "Carbon intensity (g CO2e per kWh)"
+          },
+          "net_emissions_g": {
+            "type": "number",
+            "format": "double",
+            "description": "Net carbon emissions after offsets in grams of CO2e"
+          },
+          "offsets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarbonOffset"
+            },
+            "description": "List of carbon offsets applied (if any)",
+            "nullable": true
+          },
+          "period": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Time period in seconds that this data covers",
+            "minimum": 0
+          },
+          "renewable_percentage": {
+            "type": "number",
+            "format": "double",
+            "description": "Percentage of energy from renewable sources"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Timestamp when this data was generated",
+            "minimum": 0
+          },
+          "total_emissions_g": {
+            "type": "number",
+            "format": "double",
+            "description": "Total carbon emissions in grams of CO2e"
+          }
+        }
+      },
+      "CloseChannelRequest": {
+        "type": "object",
+        "description": "Close channel request",
+        "required": [
+          "channel_id"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Channel ID"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Whether to force close",
+            "nullable": true
+          }
+        }
+      },
+      "ConnectionCount": {
+        "type": "object",
+        "description": "Connection count",
+        "required": [
+          "total",
+          "inbound",
+          "outbound"
+        ],
+        "properties": {
+          "inbound": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Inbound connections",
+            "minimum": 0
+          },
+          "outbound": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Outbound connections",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total connections",
+            "minimum": 0
+          }
+        }
+      },
+      "DebugInfo": {
+        "type": "object",
+        "description": "Debug information for troubleshooting",
+        "required": [
+          "node_info",
+          "system_info",
+          "performance_metrics",
+          "network_stats",
+          "mempool_stats",
+          "blockchain_stats",
+          "lightning_stats"
+        ],
+        "properties": {
+          "blockchain_stats": {
+            "description": "Blockchain statistics"
+          },
+          "lightning_stats": {
+            "description": "Lightning Network statistics"
+          },
+          "mempool_stats": {
+            "description": "Mempool statistics"
+          },
+          "network_stats": {
+            "description": "Network statistics"
+          },
+          "node_info": {
+            "$ref": "#/components/schemas/NodeInfo"
+          },
+          "performance_metrics": {
+            "description": "Performance metrics"
+          },
+          "system_info": {
+            "$ref": "#/components/schemas/SystemInfo"
+          }
+        }
+      },
+      "EnergyUsage": {
+        "type": "object",
+        "description": "Energy usage information",
+        "required": [
+          "timestamp",
+          "period",
+          "current_power_watts",
+          "total_energy_kwh",
+          "energy_sources",
+          "efficiency"
+        ],
+        "properties": {
+          "current_power_watts": {
+            "type": "number",
+            "format": "double",
+            "description": "Current power consumption in watts"
+          },
+          "efficiency": {
+            "type": "number",
+            "format": "double",
+            "description": "Energy efficiency metric (kWh per resource utilization unit)"
+          },
+          "energy_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EnergySource"
+            },
+            "description": "List of energy sources used"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EnergyUsageHistory"
+            },
+            "description": "Historical energy usage data (if requested)",
+            "nullable": true
+          },
+          "period": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Time period in seconds that this data covers",
+            "minimum": 0
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Timestamp when this data was generated",
+            "minimum": 0
+          },
+          "total_energy_kwh": {
+            "type": "number",
+            "format": "double",
+            "description": "Total energy consumption in kilowatt-hours"
+          }
+        }
+      },
+      "EnvironmentalImpact": {
+        "type": "object",
+        "description": "Environmental impact of mining operations",
+        "required": [
+          "carbon_emissions_g_per_hour",
+          "renewable_percentage",
+          "carbon_intensity",
+          "carbon_offsets_tons",
+          "net_emissions_g_per_hour",
+          "is_carbon_negative",
+          "environmental_score",
+          "green_mining_bonus",
+          "data_sources",
+          "calculated_at"
+        ],
+        "properties": {
+          "calculated_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Timestamp of calculation",
+            "minimum": 0
+          },
+          "carbon_emissions_g_per_hour": {
+            "type": "number",
+            "format": "double",
+            "description": "Current carbon emissions in grams CO2e per hour"
+          },
+          "carbon_intensity": {
+            "type": "number",
+            "format": "double",
+            "description": "Carbon intensity (gCO2e/kWh)"
+          },
+          "carbon_offsets_tons": {
+            "type": "number",
+            "format": "double",
+            "description": "Carbon offsets purchased in tons CO2e"
+          },
+          "data_sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Data sources used for calculations"
+          },
+          "environmental_score": {
+            "type": "number",
+            "format": "double",
+            "description": "Environmental score (0-100)"
+          },
+          "green_mining_bonus": {
+            "type": "number",
+            "format": "double",
+            "description": "Green mining bonus percentage"
+          },
+          "is_carbon_negative": {
+            "type": "boolean",
+            "description": "Whether the node is carbon negative"
+          },
+          "net_emissions_g_per_hour": {
+            "type": "number",
+            "format": "double",
+            "description": "Net carbon emissions after offsets (gCO2e/hour)"
+          },
+          "renewable_percentage": {
+            "type": "number",
+            "format": "double",
+            "description": "Renewable energy percentage"
+          }
+        }
+      },
+      "EnvironmentalSettings": {
+        "type": "object",
+        "description": "Environmental monitoring settings",
+        "required": [
+          "monitoring_enabled",
+          "emission_tracking_enabled",
+          "power_saving_mode",
+          "carbon_offset_enabled",
+          "data_retention_days"
+        ],
+        "properties": {
+          "carbon_offset_enabled": {
+            "type": "boolean",
+            "description": "Whether carbon offset mechanism is enabled"
+          },
+          "data_retention_days": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of days to retain environmental data",
+            "minimum": 0
+          },
+          "emission_tracking_enabled": {
+            "type": "boolean",
+            "description": "Whether emissions tracking is enabled"
+          },
+          "energy_efficiency_target": {
+            "type": "number",
+            "format": "double",
+            "description": "Target energy efficiency (kWh per resource unit)",
+            "nullable": true
+          },
+          "energy_source_type": {
+            "type": "string",
+            "description": "Type of energy source (e.g., \"grid\", \"solar\", \"mixed\")",
+            "nullable": true
+          },
+          "location_code": {
+            "type": "string",
+            "description": "Geographic location code for emissions calculation",
+            "nullable": true
+          },
+          "monitoring_enabled": {
+            "type": "boolean",
+            "description": "Whether environmental monitoring is enabled"
+          },
+          "power_saving_mode": {
+            "type": "boolean",
+            "description": "Whether power saving mode is enabled"
+          },
+          "renewable_energy_percentage": {
+            "type": "number",
+            "format": "double",
+            "description": "Percentage of energy from renewable sources (if known)",
+            "nullable": true
+          }
+        }
+      },
+      "InvoiceRequest": {
+        "type": "object",
+        "description": "Invoice request",
+        "required": [
+          "value_mnova"
+        ],
+        "properties": {
+          "expiry": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Expiry in seconds",
+            "nullable": true,
+            "minimum": 0
+          },
+          "memo": {
+            "type": "string",
+            "description": "Description",
+            "nullable": true
+          },
+          "private": {
+            "type": "boolean",
+            "description": "Whether invoice is private",
+            "nullable": true
+          },
+          "value_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount in millinova",
+            "minimum": 0
+          }
+        }
+      },
+      "InvoiceResponse": {
+        "type": "object",
+        "description": "Invoice response",
+        "required": [
+          "payment_request",
+          "payment_hash",
+          "add_index"
+        ],
+        "properties": {
+          "add_index": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Add index",
+            "minimum": 0
+          },
+          "payment_hash": {
+            "type": "string",
+            "description": "Payment hash"
+          },
+          "payment_request": {
+            "type": "string",
+            "description": "Payment request (BOLT11 invoice)"
+          }
+        }
+      },
+      "LightningChannel": {
+        "type": "object",
+        "description": "Lightning channel information",
+        "required": [
+          "channel_id",
+          "funding_txid",
+          "output_index",
+          "remote_node_id",
+          "capacity",
+          "local_balance_mnova",
+          "remote_balance_mnova",
+          "state",
+          "is_public",
+          "is_active",
+          "total_sent_mnova",
+          "total_received_mnova",
+          "num_updates",
+          "csv_delay",
+          "local_reserve_nova",
+          "remote_reserve_nova",
+          "commit_fee",
+          "fee_per_kw",
+          "unsettled_balance_mnova",
+          "commit_weight",
+          "fee_base_mnova",
+          "fee_rate_ppm",
+          "last_update"
+        ],
+        "properties": {
+          "capacity": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Channel capacity in nova units",
+            "minimum": 0
+          },
+          "channel_id": {
+            "type": "string",
+            "description": "Channel ID"
+          },
+          "commit_fee": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Commit fee in nova units",
+            "minimum": 0
+          },
+          "commit_weight": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Commit weight",
+            "minimum": 0
+          },
+          "csv_delay": {
+            "type": "integer",
+            "format": "int32",
+            "description": "CSV delay",
+            "minimum": 0
+          },
+          "fee_base_mnova": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Fee base in millinova",
+            "minimum": 0
+          },
+          "fee_per_kw": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Fee per kiloweight",
+            "minimum": 0
+          },
+          "fee_rate_ppm": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Fee rate in parts per million",
+            "minimum": 0
+          },
+          "funding_txid": {
+            "type": "string",
+            "description": "Funding transaction ID"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Whether channel is active"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Whether channel is public"
+          },
+          "last_update": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Last update time",
+            "minimum": 0
+          },
+          "local_balance_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Local balance in millinova",
+            "minimum": 0
+          },
+          "local_reserve_nova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Local channel reserve in nova units",
+            "minimum": 0
+          },
+          "num_updates": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of updates",
+            "minimum": 0
+          },
+          "output_index": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Output index",
+            "minimum": 0
+          },
+          "remote_balance_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Remote balance in millinova",
+            "minimum": 0
+          },
+          "remote_node_id": {
+            "type": "string",
+            "description": "Remote node ID"
+          },
+          "remote_reserve_nova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Remote channel reserve in nova units",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string",
+            "description": "Channel state"
+          },
+          "total_received_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total received in millinova",
+            "minimum": 0
+          },
+          "total_sent_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total sent in millinova",
+            "minimum": 0
+          },
+          "unsettled_balance_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unsettled balance in millinova",
+            "minimum": 0
+          }
+        }
+      },
+      "LightningInfo": {
+        "type": "object",
+        "description": "Lightning Network information",
+        "required": [
+          "node_id",
+          "num_channels",
+          "num_pending_channels",
+          "num_inactive_channels",
+          "total_balance_mnova",
+          "total_outbound_capacity_mnova",
+          "total_inbound_capacity_mnova",
+          "num_peers",
+          "synced_to_chain",
+          "synced_to_graph",
+          "block_height"
+        ],
+        "properties": {
+          "block_height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block height",
+            "minimum": 0
+          },
+          "node_id": {
+            "type": "string",
+            "description": "Node ID"
+          },
+          "num_channels": {
+            "type": "integer",
+            "description": "Number of active channels",
+            "minimum": 0
+          },
+          "num_inactive_channels": {
+            "type": "integer",
+            "description": "Number of inactive channels",
+            "minimum": 0
+          },
+          "num_peers": {
+            "type": "integer",
+            "description": "Number of peers",
+            "minimum": 0
+          },
+          "num_pending_channels": {
+            "type": "integer",
+            "description": "Number of pending channels",
+            "minimum": 0
+          },
+          "synced_to_chain": {
+            "type": "boolean",
+            "description": "Whether synced to chain"
+          },
+          "synced_to_graph": {
+            "type": "boolean",
+            "description": "Whether synced to graph"
+          },
+          "total_balance_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total channel balance in millinova",
+            "minimum": 0
+          },
+          "total_inbound_capacity_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total inbound capacity in millinova",
+            "minimum": 0
+          },
+          "total_outbound_capacity_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total outbound capacity in millinova",
+            "minimum": 0
+          }
+        }
+      },
+      "LightningInvoice": {
+        "type": "object",
+        "description": "Lightning invoice information",
+        "required": [
+          "payment_hash",
+          "payment_request",
+          "creation_date",
+          "expiry_date",
+          "state",
+          "features"
+        ],
+        "properties": {
+          "amount_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount in millinova",
+            "nullable": true,
+            "minimum": 0
+          },
+          "creation_date": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Creation date",
+            "minimum": 0
+          },
+          "description": {
+            "type": "string",
+            "description": "Description",
+            "nullable": true
+          },
+          "description_hash": {
+            "type": "string",
+            "description": "Description hash",
+            "nullable": true
+          },
+          "expiry_date": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Expiry date",
+            "minimum": 0
+          },
+          "features": {
+            "type": "object",
+            "description": "Features",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "payment_hash": {
+            "type": "string",
+            "description": "Payment hash"
+          },
+          "payment_preimage": {
+            "type": "string",
+            "description": "Payment preimage",
+            "nullable": true
+          },
+          "payment_request": {
+            "type": "string",
+            "description": "Payment request (BOLT11 invoice)"
+          },
+          "settled_amount_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Settled amount in millinova",
+            "nullable": true,
+            "minimum": 0
+          },
+          "settled_date": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Settled date",
+            "nullable": true,
+            "minimum": 0
+          },
+          "state": {
+            "type": "string",
+            "description": "State"
+          }
+        }
+      },
+      "LightningPayment": {
+        "type": "object",
+        "description": "Lightning payment information",
+        "required": [
+          "payment_hash",
+          "creation_date",
+          "value_mnova",
+          "status",
+          "fee_mnova",
+          "creation_time_ns",
+          "htlcs",
+          "payment_index"
+        ],
+        "properties": {
+          "creation_date": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Creation date",
+            "minimum": 0
+          },
+          "creation_time_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Creation time in nanoseconds",
+            "minimum": 0
+          },
+          "failure_reason": {
+            "type": "string",
+            "description": "Failure reason",
+            "nullable": true
+          },
+          "fee_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Fee in millinova",
+            "minimum": 0
+          },
+          "htlcs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LightningHtlcInfo"
+            },
+            "description": "HTLCs"
+          },
+          "payment_hash": {
+            "type": "string",
+            "description": "Payment hash"
+          },
+          "payment_index": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Payment index",
+            "minimum": 0
+          },
+          "payment_preimage": {
+            "type": "string",
+            "description": "Payment preimage",
+            "nullable": true
+          },
+          "payment_request": {
+            "type": "string",
+            "description": "Payment request",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "description": "Status"
+          },
+          "value_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Value in millinova",
+            "minimum": 0
+          }
+        }
+      },
+      "LogEntry": {
+        "type": "object",
+        "description": "Log entry",
+        "required": [
+          "timestamp",
+          "level",
+          "component",
+          "message"
+        ],
+        "properties": {
+          "component": {
+            "type": "string",
+            "description": "Component that generated the log"
+          },
+          "context": {
+            "type": "object",
+            "description": "Additional context",
+            "additionalProperties": {},
+            "nullable": true
+          },
+          "level": {
+            "type": "string",
+            "description": "Log level"
+          },
+          "message": {
+            "type": "string",
+            "description": "Log message"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Timestamp",
+            "minimum": 0
+          }
+        }
+      },
+      "LogsQuery": {
+        "type": "object",
+        "description": "Query parameters for logs endpoint",
+        "properties": {
+          "component": {
+            "type": "string",
+            "description": "Component filter",
+            "nullable": true
+          },
+          "level": {
+            "type": "string",
+            "description": "Log level filter",
+            "nullable": true
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of logs to return",
+            "nullable": true,
+            "minimum": 0
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset for pagination",
+            "nullable": true,
+            "minimum": 0
+          }
+        }
+      },
+      "MempoolInfo": {
+        "type": "object",
+        "description": "Mempool information response",
+        "required": [
+          "transaction_count",
+          "total_size",
+          "total_fee",
+          "min_fee_rate",
+          "max_fee_rate",
+          "avg_fee_rate"
+        ],
+        "properties": {
+          "avg_fee_rate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Average fee rate",
+            "minimum": 0
+          },
+          "max_fee_rate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum fee rate",
+            "minimum": 0
+          },
+          "min_fee_rate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Minimum fee rate",
+            "minimum": 0
+          },
+          "total_fee": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total fees in the mempool",
+            "minimum": 0
+          },
+          "total_size": {
+            "type": "integer",
+            "description": "Total size of mempool in bytes",
+            "minimum": 0
+          },
+          "transaction_count": {
+            "type": "integer",
+            "description": "Number of transactions in mempool",
+            "minimum": 0
+          }
+        }
+      },
+      "MempoolStatistics": {
+        "type": "object",
+        "description": "Mempool statistics",
+        "required": [
+          "transaction_count",
+          "total_size",
+          "avg_transaction_size",
+          "total_fees",
+          "avg_fee_rate",
+          "memory_usage",
+          "min_fee_rate",
+          "max_fee_rate",
+          "oldest_transaction_age"
+        ],
+        "properties": {
+          "avg_fee_rate": {
+            "type": "number",
+            "format": "double",
+            "description": "Average fee rate"
+          },
+          "avg_transaction_size": {
+            "type": "number",
+            "format": "double",
+            "description": "Average transaction size"
+          },
+          "max_fee_rate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum fee rate in mempool",
+            "minimum": 0
+          },
+          "memory_usage": {
+            "type": "integer",
+            "description": "Memory usage in bytes",
+            "minimum": 0
+          },
+          "min_fee_rate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Minimum fee rate in mempool",
+            "minimum": 0
+          },
+          "oldest_transaction_age": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Age of oldest transaction (seconds)",
+            "minimum": 0
+          },
+          "total_fees": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total fees",
+            "minimum": 0
+          },
+          "total_size": {
+            "type": "integer",
+            "description": "Total size in bytes",
+            "minimum": 0
+          },
+          "transaction_count": {
+            "type": "integer",
+            "description": "Number of transactions",
+            "minimum": 0
+          }
+        }
+      },
+      "MempoolTransaction": {
+        "type": "object",
+        "description": "Mempool transaction information",
+        "required": [
+          "txid",
+          "size",
+          "fee",
+          "fee_rate",
+          "time"
+        ],
+        "properties": {
+          "fee": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Transaction fee in nova units",
+            "minimum": 0
+          },
+          "fee_rate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Fee rate in nova units per byte",
+            "minimum": 0
+          },
+          "size": {
+            "type": "integer",
+            "description": "Transaction size in bytes",
+            "minimum": 0
+          },
+          "time": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Time when transaction was added to mempool",
+            "minimum": 0
+          },
+          "txid": {
+            "type": "string",
+            "description": "Transaction ID"
+          }
+        }
+      },
+      "MempoolTransactionSubmissionResponse": {
+        "type": "object",
+        "description": "Response for mempool transaction submission",
+        "required": [
+          "txid",
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "Whether the transaction was accepted"
+          },
+          "txid": {
+            "type": "string",
+            "description": "Transaction ID"
+          }
+        }
+      },
+      "MetricsQuery": {
+        "type": "object",
+        "description": "Query parameters for metrics endpoint",
+        "properties": {
+          "period": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Time period in seconds",
+            "nullable": true,
+            "minimum": 0
+          }
+        }
+      },
+      "MiningConfiguration": {
+        "type": "object",
+        "description": "Mining configuration",
+        "properties": {
+          "algorithm_params": {
+            "type": "object",
+            "description": "Custom mining algorithm parameters",
+            "additionalProperties": {},
+            "nullable": true
+          },
+          "green_mining_enabled": {
+            "type": "boolean",
+            "description": "Enable green mining features",
+            "nullable": true
+          },
+          "intensity": {
+            "type": "number",
+            "format": "double",
+            "description": "Mining intensity (0.0 to 1.0)",
+            "nullable": true
+          },
+          "quantum_resistant": {
+            "type": "boolean",
+            "description": "Quantum-resistant mining",
+            "nullable": true
+          },
+          "target_temperature": {
+            "type": "number",
+            "format": "double",
+            "description": "Target temperature (Celsius)",
+            "nullable": true
+          },
+          "threads": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of mining threads",
+            "nullable": true,
+            "minimum": 0
+          }
+        }
+      },
+      "MiningInfo": {
+        "type": "object",
+        "description": "Mining information response",
+        "required": [
+          "is_mining",
+          "mining_threads",
+          "hashrate",
+          "difficulty",
+          "network_hashrate",
+          "current_height",
+          "seconds_since_last_block",
+          "fee_rates"
+        ],
+        "properties": {
+          "current_height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current block height",
+            "minimum": 0
+          },
+          "difficulty": {
+            "type": "number",
+            "format": "double",
+            "description": "Network difficulty"
+          },
+          "environmental_impact": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EnvironmentalImpact"
+              }
+            ],
+            "nullable": true
+          },
+          "fee_rates": {
+            "$ref": "#/components/schemas/FeeTiers"
+          },
+          "hashrate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Hashrate in hashes per second",
+            "minimum": 0
+          },
+          "is_mining": {
+            "type": "boolean",
+            "description": "Whether the node is mining"
+          },
+          "mining_threads": {
+            "type": "integer",
+            "description": "Number of mining threads",
+            "minimum": 0
+          },
+          "network_hashrate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Network hashrate estimate",
+            "minimum": 0
+          },
+          "seconds_since_last_block": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Time since last block",
+            "minimum": 0
+          }
+        }
+      },
+      "MiningStats": {
+        "type": "object",
+        "description": "Mining statistics",
+        "required": [
+          "total_hashes",
+          "blocks_found",
+          "uptime_seconds",
+          "avg_hashrate_1h",
+          "current_difficulty",
+          "estimated_time_to_block",
+          "power_consumption_watts",
+          "energy_efficiency",
+          "carbon_emissions_per_hash",
+          "renewable_percentage"
+        ],
+        "properties": {
+          "avg_hashrate_1h": {
+            "type": "number",
+            "format": "double",
+            "description": "Average hashrate over last hour"
+          },
+          "blocks_found": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Blocks found",
+            "minimum": 0
+          },
+          "carbon_emissions_per_hash": {
+            "type": "number",
+            "format": "double",
+            "description": "Carbon emissions (gCO2/hash)"
+          },
+          "current_difficulty": {
+            "type": "number",
+            "format": "double",
+            "description": "Current difficulty"
+          },
+          "energy_efficiency": {
+            "type": "number",
+            "format": "double",
+            "description": "Energy efficiency (J/TH)"
+          },
+          "estimated_time_to_block": {
+            "type": "number",
+            "format": "double",
+            "description": "Estimated time to next block"
+          },
+          "power_consumption_watts": {
+            "type": "number",
+            "format": "double",
+            "description": "Power consumption estimate (watts)"
+          },
+          "renewable_percentage": {
+            "type": "number",
+            "format": "double",
+            "description": "Renewable energy percentage"
+          },
+          "total_hashes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total hashes computed",
+            "minimum": 0
+          },
+          "uptime_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Mining uptime in seconds",
+            "minimum": 0
+          }
+        }
+      },
+      "MiningStatus": {
+        "type": "object",
+        "description": "Mining status",
+        "required": [
+          "state",
+          "active_workers",
+          "template_age_seconds",
+          "hashrate_1m",
+          "hashrate_5m",
+          "hashrate_15m"
+        ],
+        "properties": {
+          "active_workers": {
+            "type": "integer",
+            "description": "Number of active workers",
+            "minimum": 0
+          },
+          "fan_speed_percentage": {
+            "type": "number",
+            "format": "double",
+            "description": "Fan speed percentage (if available)",
+            "nullable": true
+          },
+          "hardware_temperature": {
+            "type": "number",
+            "format": "double",
+            "description": "Hardware temperature (if available)",
+            "nullable": true
+          },
+          "hashrate_15m": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "hashrate_1m": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Hashrate over different time periods",
+            "minimum": 0
+          },
+          "hashrate_5m": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string",
+            "description": "Current mining state"
+          },
+          "template_age_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current template age in seconds",
+            "minimum": 0
+          }
+        }
+      },
+      "MiningTemplate": {
+        "type": "object",
+        "description": "Block template response",
+        "required": [
+          "version",
+          "prev_hash",
+          "timestamp",
+          "height",
+          "target",
+          "merkle_root",
+          "transactions",
+          "total_fees",
+          "size",
+          "weight",
+          "estimated_time_to_mine"
+        ],
+        "properties": {
+          "environmental_data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TemplateEnvironmentalData"
+              }
+            ],
+            "nullable": true
+          },
+          "estimated_time_to_mine": {
+            "type": "number",
+            "format": "double",
+            "description": "Estimated time to mine block"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block height",
+            "minimum": 0
+          },
+          "merkle_root": {
+            "type": "string",
+            "description": "Merkle root"
+          },
+          "prev_hash": {
+            "type": "string",
+            "description": "Previous block hash"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Block size in bytes",
+            "minimum": 0
+          },
+          "target": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Block difficulty target",
+            "minimum": 0
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block timestamp",
+            "minimum": 0
+          },
+          "total_fees": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total fees",
+            "minimum": 0
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateTransaction"
+            },
+            "description": "Transactions"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Block version",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "integer",
+            "description": "Block weight",
+            "minimum": 0
+          }
+        }
+      },
+      "NetworkAddress": {
+        "type": "object",
+        "description": "Network address",
+        "required": [
+          "address",
+          "port",
+          "score"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Address"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Port",
+            "minimum": 0
+          },
+          "score": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Score",
+            "minimum": 0
+          }
+        }
+      },
+      "NetworkInfo": {
+        "type": "object",
+        "description": "Network information response",
+        "required": [
+          "version",
+          "protocol_version",
+          "connections",
+          "inbound_connections",
+          "outbound_connections",
+          "network",
+          "is_listening",
+          "accepts_incoming",
+          "local_addresses",
+          "network_stats"
+        ],
+        "properties": {
+          "accepts_incoming": {
+            "type": "boolean",
+            "description": "Whether the node accepts inbound connections"
+          },
+          "connections": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of connections",
+            "minimum": 0
+          },
+          "external_ip": {
+            "type": "string",
+            "description": "External IP address (if detected)",
+            "nullable": true
+          },
+          "inbound_connections": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of inbound connections",
+            "minimum": 0
+          },
+          "is_listening": {
+            "type": "boolean",
+            "description": "Whether the node is listening"
+          },
+          "local_addresses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetworkAddress"
+            },
+            "description": "Local addresses"
+          },
+          "network": {
+            "type": "string",
+            "description": "Network type (mainnet, testnet, etc.)"
+          },
+          "network_stats": {
+            "$ref": "#/components/schemas/NetworkStats"
+          },
+          "outbound_connections": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of outbound connections",
+            "minimum": 0
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Protocol version",
+            "minimum": 0
+          },
+          "version": {
+            "type": "string",
+            "description": "Network version"
+          }
+        }
+      },
+      "NetworkStats": {
+        "type": "object",
+        "description": "Network statistics",
+        "required": [
+          "total_bytes_sent",
+          "total_bytes_received",
+          "upload_rate",
+          "download_rate",
+          "ping_time"
+        ],
+        "properties": {
+          "download_rate": {
+            "type": "number",
+            "format": "double",
+            "description": "Download rate in bytes per second"
+          },
+          "ping_time": {
+            "type": "number",
+            "format": "double",
+            "description": "Ping times in milliseconds"
+          },
+          "total_bytes_received": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total bytes received",
+            "minimum": 0
+          },
+          "total_bytes_sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total bytes sent",
+            "minimum": 0
+          },
+          "upload_rate": {
+            "type": "number",
+            "format": "double",
+            "description": "Upload rate in bytes per second"
+          }
+        }
+      },
+      "NodeAddress": {
+        "type": "object",
+        "description": "Node address",
+        "required": [
+          "address",
+          "port"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Address string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Port number",
+            "minimum": 0
+          }
+        }
+      },
+      "NodeConfiguration": {
+        "type": "object",
+        "description": "Node configuration",
+        "required": [
+          "network",
+          "data_dir",
+          "listen_address",
+          "listen_port",
+          "max_peers",
+          "mining_enabled",
+          "testnet_enabled",
+          "lightning_enabled",
+          "environmental_tracking"
+        ],
+        "properties": {
+          "data_dir": {
+            "type": "string",
+            "description": "Data directory"
+          },
+          "environmental_tracking": {
+            "type": "boolean",
+            "description": "Environmental tracking enabled"
+          },
+          "lightning_enabled": {
+            "type": "boolean",
+            "description": "Lightning Network enabled"
+          },
+          "listen_address": {
+            "type": "string",
+            "description": "Listen address"
+          },
+          "listen_port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Listen port",
+            "minimum": 0
+          },
+          "max_peers": {
+            "type": "integer",
+            "description": "Maximum peers",
+            "minimum": 0
+          },
+          "mining_enabled": {
+            "type": "boolean",
+            "description": "Mining enabled"
+          },
+          "network": {
+            "type": "string",
+            "description": "Network name"
+          },
+          "testnet_enabled": {
+            "type": "boolean",
+            "description": "Testnet enabled"
+          }
+        }
+      },
+      "NodeInfo": {
+        "type": "object",
+        "description": "Node information",
+        "required": [
+          "node_id",
+          "version",
+          "protocol_version",
+          "network",
+          "height",
+          "best_block_hash",
+          "connections",
+          "synced",
+          "uptime"
+        ],
+        "properties": {
+          "best_block_hash": {
+            "type": "string",
+            "description": "Best block hash"
+          },
+          "connections": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of connections",
+            "minimum": 0
+          },
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current block height",
+            "minimum": 0
+          },
+          "network": {
+            "type": "string",
+            "description": "Network name"
+          },
+          "node_id": {
+            "type": "string",
+            "description": "Node ID"
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Protocol version",
+            "minimum": 0
+          },
+          "synced": {
+            "type": "boolean",
+            "description": "Whether the node is synced"
+          },
+          "uptime": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Node uptime in seconds",
+            "minimum": 0
+          },
+          "version": {
+            "type": "string",
+            "description": "Node version"
+          }
+        }
+      },
+      "NodeMetrics": {
+        "type": "object",
+        "description": "Node metrics",
+        "required": [
+          "uptime",
+          "peer_count",
+          "block_height",
+          "mempool_size",
+          "mempool_bytes",
+          "sync_progress",
+          "network_bytes_sent",
+          "network_bytes_received",
+          "cpu_usage",
+          "memory_usage",
+          "disk_usage"
+        ],
+        "properties": {
+          "block_height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current block height",
+            "minimum": 0
+          },
+          "cpu_usage": {
+            "type": "number",
+            "format": "double",
+            "description": "CPU usage percentage"
+          },
+          "disk_usage": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Disk usage in bytes",
+            "minimum": 0
+          },
+          "memory_usage": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Memory usage in bytes",
+            "minimum": 0
+          },
+          "mempool_bytes": {
+            "type": "integer",
+            "description": "Mempool size in bytes",
+            "minimum": 0
+          },
+          "mempool_size": {
+            "type": "integer",
+            "description": "Mempool size in transactions",
+            "minimum": 0
+          },
+          "network_bytes_received": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Network bytes received",
+            "minimum": 0
+          },
+          "network_bytes_sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Network bytes sent",
+            "minimum": 0
+          },
+          "peer_count": {
+            "type": "integer",
+            "description": "Number of connected peers",
+            "minimum": 0
+          },
+          "sync_progress": {
+            "type": "number",
+            "format": "double",
+            "description": "Sync progress (0.0 to 1.0)"
+          },
+          "uptime": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Node uptime in seconds",
+            "minimum": 0
+          }
+        }
+      },
+      "NodeStatus": {
+        "type": "object",
+        "description": "Node status",
+        "required": [
+          "state",
+          "height",
+          "best_block_hash",
+          "peer_count",
+          "mempool_size",
+          "is_mining",
+          "hashrate",
+          "difficulty",
+          "network_hashrate"
+        ],
+        "properties": {
+          "best_block_hash": {
+            "type": "string",
+            "description": "Best block hash"
+          },
+          "difficulty": {
+            "type": "number",
+            "format": "double",
+            "description": "Current difficulty"
+          },
+          "hashrate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current hashrate",
+            "minimum": 0
+          },
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Current block height",
+            "minimum": 0
+          },
+          "is_mining": {
+            "type": "boolean",
+            "description": "Whether the node is mining"
+          },
+          "mempool_size": {
+            "type": "integer",
+            "description": "Mempool size",
+            "minimum": 0
+          },
+          "network_hashrate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Network hashrate estimate",
+            "minimum": 0
+          },
+          "peer_count": {
+            "type": "integer",
+            "description": "Number of peers",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string",
+            "description": "Current state"
+          }
+        }
+      },
+      "NodeVersion": {
+        "type": "object",
+        "description": "Node version information",
+        "required": [
+          "version",
+          "protocol_version",
+          "git_commit",
+          "build_date",
+          "rust_version",
+          "features"
+        ],
+        "properties": {
+          "build_date": {
+            "type": "string",
+            "description": "Build date"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Features enabled"
+          },
+          "git_commit": {
+            "type": "string",
+            "description": "Git commit hash"
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Protocol version",
+            "minimum": 0
+          },
+          "rust_version": {
+            "type": "string",
+            "description": "Rust version"
+          },
+          "version": {
+            "type": "string",
+            "description": "Software version"
+          }
+        }
+      },
+      "OpenChannelRequest": {
+        "type": "object",
+        "description": "Open channel request",
+        "required": [
+          "node_id",
+          "local_funding_amount"
+        ],
+        "properties": {
+          "local_funding_amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Local funding amount in nova units",
+            "minimum": 0
+          },
+          "min_htlc_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Minimum HTLC value in millinova",
+            "nullable": true,
+            "minimum": 0
+          },
+          "node_id": {
+            "type": "string",
+            "description": "Node ID"
+          },
+          "private": {
+            "type": "boolean",
+            "description": "Whether to make the channel private",
+            "nullable": true
+          },
+          "push_amount_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Push amount in millinova",
+            "minimum": 0
+          }
+        }
+      },
+      "OpenChannelResponse": {
+        "type": "object",
+        "description": "Open channel response",
+        "required": [
+          "channel_id",
+          "funding_txid",
+          "output_index"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Channel ID"
+          },
+          "funding_txid": {
+            "type": "string",
+            "description": "Funding transaction ID"
+          },
+          "output_index": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Output index",
+            "minimum": 0
+          }
+        }
+      },
+      "PaymentRequest": {
+        "type": "object",
+        "description": "Payment request",
+        "required": [
+          "payment_request"
+        ],
+        "properties": {
+          "amount_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Amount in millinova (optional, can override invoice amount)",
+            "nullable": true,
+            "minimum": 0
+          },
+          "fee_limit_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Fee limit in millinova",
+            "nullable": true,
+            "minimum": 0
+          },
+          "payment_request": {
+            "type": "string",
+            "description": "Payment request (BOLT11 invoice)"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Timeout in seconds",
+            "nullable": true,
+            "minimum": 0
+          }
+        }
+      },
+      "PaymentResponse": {
+        "type": "object",
+        "description": "Payment response",
+        "required": [
+          "payment_hash",
+          "payment_route",
+          "payment_index",
+          "status",
+          "fee_mnova",
+          "value_mnova",
+          "creation_time_ns"
+        ],
+        "properties": {
+          "creation_time_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Creation time in nanoseconds",
+            "minimum": 0
+          },
+          "fee_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Fee in millinova",
+            "minimum": 0
+          },
+          "payment_error": {
+            "type": "string",
+            "description": "Payment error",
+            "nullable": true
+          },
+          "payment_hash": {
+            "type": "string",
+            "description": "Payment hash"
+          },
+          "payment_index": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Payment index",
+            "minimum": 0
+          },
+          "payment_preimage": {
+            "type": "string",
+            "description": "Payment preimage",
+            "nullable": true
+          },
+          "payment_route": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Payment route"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status"
+          },
+          "value_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Value in millinova",
+            "minimum": 0
+          }
+        }
+      },
+      "PeerAddRequest": {
+        "type": "object",
+        "description": "Peer add request",
+        "required": [
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Peer address"
+          },
+          "permanent": {
+            "type": "boolean",
+            "description": "Whether to make connection permanent",
+            "nullable": true
+          }
+        }
+      },
+      "PeerAddResponse": {
+        "type": "object",
+        "description": "Peer add response",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message (if failed)",
+            "nullable": true
+          },
+          "peer_id": {
+            "type": "string",
+            "description": "Peer ID (if successful)",
+            "nullable": true
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Whether the peer was added successfully"
+          }
+        }
+      },
+      "PeerConnectionStatus": {
+        "type": "object",
+        "description": "Peer connection status",
+        "required": [
+          "state",
+          "connected_time",
+          "last_activity"
+        ],
+        "properties": {
+          "connected_time": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Connection time",
+            "minimum": 0
+          },
+          "last_activity": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Last activity time",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string",
+            "description": "Connection state"
+          }
+        }
+      },
+      "PeerInfo": {
+        "type": "object",
+        "description": "Peer information",
+        "required": [
+          "id",
+          "address",
+          "direction",
+          "connected_time",
+          "last_send",
+          "last_recv",
+          "bytes_sent",
+          "bytes_received",
+          "version",
+          "user_agent",
+          "height",
+          "services",
+          "banned",
+          "reputation_score"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Peer address"
+          },
+          "banned": {
+            "type": "boolean",
+            "description": "Whether the peer is banned"
+          },
+          "bytes_received": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes received",
+            "minimum": 0
+          },
+          "bytes_sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes sent",
+            "minimum": 0
+          },
+          "connected_time": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Connected time in seconds",
+            "minimum": 0
+          },
+          "direction": {
+            "type": "string",
+            "description": "Connection direction"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Peer height",
+            "minimum": 0
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Peer ID",
+            "minimum": 0
+          },
+          "last_recv": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Last receive time",
+            "minimum": 0
+          },
+          "last_send": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Last send time",
+            "minimum": 0
+          },
+          "ping_time": {
+            "type": "number",
+            "format": "double",
+            "description": "Ping time in milliseconds",
+            "nullable": true
+          },
+          "reputation_score": {
+            "type": "number",
+            "format": "double",
+            "description": "Peer reputation score"
+          },
+          "services": {
+            "type": "string",
+            "description": "Services"
+          },
+          "user_agent": {
+            "type": "string",
+            "description": "User agent"
+          },
+          "version": {
+            "type": "string",
+            "description": "Peer version"
+          }
+        }
+      },
+      "ResourceUtilization": {
+        "type": "object",
+        "description": "System resource utilization information",
+        "required": [
+          "timestamp",
+          "period",
+          "cpu_usage",
+          "memory_usage",
+          "disk_usage",
+          "network_usage",
+          "uptime_seconds"
+        ],
+        "properties": {
+          "cpu_usage": {
+            "type": "number",
+            "format": "double",
+            "description": "CPU utilization percentage"
+          },
+          "disk_usage": {
+            "type": "number",
+            "format": "double",
+            "description": "Disk utilization percentage"
+          },
+          "memory_usage": {
+            "type": "number",
+            "format": "double",
+            "description": "Memory utilization percentage"
+          },
+          "network_usage": {
+            "type": "number",
+            "format": "double",
+            "description": "Network utilization percentage"
+          },
+          "period": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Time period in seconds that this data covers",
+            "minimum": 0
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Timestamp when this data was generated",
+            "minimum": 0
+          },
+          "uptime_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "System uptime in seconds",
+            "minimum": 0
+          }
+        }
+      },
+      "Route": {
+        "type": "object",
+        "description": "Route information",
+        "required": [
+          "total_time_lock",
+          "total_fees_mnova",
+          "total_amt_mnova",
+          "hops"
+        ],
+        "properties": {
+          "hops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RouteHop"
+            },
+            "description": "Route hops"
+          },
+          "total_amt_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total amount in millinova",
+            "minimum": 0
+          },
+          "total_fees_mnova": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total fees in millinova",
+            "minimum": 0
+          },
+          "total_time_lock": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Total time lock",
+            "minimum": 0
+          }
+        }
+      },
+      "StartMiningRequest": {
+        "type": "object",
+        "description": "Start mining\n\nStarts the mining operation.",
+        "properties": {
+          "threads": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of threads to use for mining (default: use system-determined optimal value)",
+            "nullable": true,
+            "minimum": 0
+          }
+        }
+      },
+      "SubmitBlockRequest": {
+        "type": "object",
+        "description": "Submit block request",
+        "required": [
+          "block_data"
+        ],
+        "properties": {
+          "block_data": {
+            "type": "string",
+            "description": "Block data in hexadecimal format"
+          }
+        }
+      },
+      "SubmitBlockResponse": {
+        "type": "object",
+        "description": "Submit block response",
+        "required": [
+          "accepted",
+          "block_hash"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "Whether the block was accepted"
+          },
+          "block_hash": {
+            "type": "string",
+            "description": "Block hash"
+          },
+          "reject_reason": {
+            "type": "string",
+            "description": "Rejection reason (if any)",
+            "nullable": true
+          }
+        }
+      },
+      "SubmitTxRequest": {
+        "type": "object",
+        "description": "Request for submitting a transaction",
+        "required": [
+          "raw_tx"
+        ],
+        "properties": {
+          "raw_tx": {
+            "type": "string",
+            "description": "Raw transaction data in hex format"
+          }
+        }
+      },
+      "SystemInfo": {
+        "type": "object",
+        "description": "System information",
+        "required": [
+          "os",
+          "arch",
+          "cpu_count",
+          "total_memory",
+          "used_memory",
+          "total_swap",
+          "used_swap",
+          "uptime",
+          "load_average"
+        ],
+        "properties": {
+          "arch": {
+            "type": "string",
+            "description": "System architecture"
+          },
+          "cpu_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of CPU cores",
+            "minimum": 0
+          },
+          "load_average": {
+            "$ref": "#/components/schemas/LoadAverage"
+          },
+          "os": {
+            "type": "string",
+            "description": "Operating system"
+          },
+          "total_memory": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total memory in bytes",
+            "minimum": 0
+          },
+          "total_swap": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total swap in bytes",
+            "minimum": 0
+          },
+          "uptime": {
+            "type": "integer",
+            "format": "int64",
+            "description": "System uptime in seconds",
+            "minimum": 0
+          },
+          "used_memory": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Used memory in bytes",
+            "minimum": 0
+          },
+          "used_swap": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Used swap in bytes",
+            "minimum": 0
+          }
+        }
+      },
+      "TransactionFees": {
+        "type": "object",
+        "description": "Transaction fee estimates",
+        "required": [
+          "low_priority",
+          "normal_priority",
+          "high_priority",
+          "target_blocks"
+        ],
+        "properties": {
+          "high_priority": {
+            "type": "integer",
+            "format": "int64",
+            "description": "High priority fee rate (nova units per byte)",
+            "minimum": 0
+          },
+          "low_priority": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Low priority fee rate (nova units per byte)",
+            "minimum": 0
+          },
+          "normal_priority": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Normal priority fee rate (nova units per byte)",
+            "minimum": 0
+          },
+          "target_blocks": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Target number of blocks for confirmation",
+            "minimum": 0
+          }
+        }
+      },
+      "TransactionInfo": {
+        "type": "object",
+        "description": "Transaction information response",
+        "required": [
+          "txid",
+          "hash",
+          "version",
+          "size",
+          "vsize",
+          "weight",
+          "locktime",
+          "inputs",
+          "outputs",
+          "confirmations"
+        ],
+        "properties": {
+          "block_hash": {
+            "type": "string",
+            "description": "Block hash containing this transaction (if confirmed)",
+            "nullable": true
+          },
+          "block_height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block height containing this transaction (if confirmed)",
+            "nullable": true,
+            "minimum": 0
+          },
+          "block_time": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block time (if confirmed)",
+            "nullable": true,
+            "minimum": 0
+          },
+          "confirmations": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of confirmations",
+            "minimum": 0
+          },
+          "hash": {
+            "type": "string",
+            "description": "Transaction hash"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {},
+            "description": "Transaction inputs"
+          },
+          "locktime": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Locktime",
+            "minimum": 0
+          },
+          "outputs": {
+            "type": "array",
+            "items": {},
+            "description": "Transaction outputs"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Transaction size in bytes",
+            "minimum": 0
+          },
+          "time": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Block time (if confirmed)",
+            "nullable": true,
+            "minimum": 0
+          },
+          "txid": {
+            "type": "string",
+            "description": "Transaction ID"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Transaction version",
+            "minimum": 0
+          },
+          "vsize": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Virtual size",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Transaction weight",
+            "minimum": 0
+          }
+        }
+      },
+      "TransactionInput": {
+        "type": "object",
+        "description": "Transaction input",
+        "required": [
+          "txid",
+          "vout",
+          "script_sig",
+          "script_sig_asm",
+          "sequence",
+          "value"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Address (if available)",
+            "nullable": true
+          },
+          "script_sig": {
+            "type": "string",
+            "description": "Script signature"
+          },
+          "script_sig_asm": {
+            "type": "string",
+            "description": "Script signature as human-readable ASM"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Sequence number",
+            "minimum": 0
+          },
+          "txid": {
+            "type": "string",
+            "description": "Previous transaction ID"
+          },
+          "value": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Previous output value in nova units",
+            "minimum": 0
+          },
+          "vout": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Previous transaction output index",
+            "minimum": 0
+          },
+          "witness": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Witness data (segwit only)",
+            "nullable": true
+          }
+        }
+      },
+      "TransactionOutput": {
+        "type": "object",
+        "description": "Transaction output",
+        "required": [
+          "value",
+          "script_pub_key",
+          "script_pub_key_asm",
+          "script_type"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Address (if available)",
+            "nullable": true
+          },
+          "script_pub_key": {
+            "type": "string",
+            "description": "Output script"
+          },
+          "script_pub_key_asm": {
+            "type": "string",
+            "description": "Output script as human-readable ASM"
+          },
+          "script_type": {
+            "type": "string",
+            "description": "Output script type"
+          },
+          "spent": {
+            "type": "boolean",
+            "description": "Whether this output has been spent",
+            "nullable": true
+          },
+          "spent_by_tx": {
+            "type": "string",
+            "description": "Transaction ID of spending transaction (if spent)",
+            "nullable": true
+          },
+          "value": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Output value in nova units",
+            "minimum": 0
+          }
+        }
+      },
+      "TransactionSubmissionResponse": {
+        "type": "object",
+        "description": "Transaction submission response",
+        "required": [
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "Whether the transaction was accepted"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if rejected",
+            "nullable": true
+          },
+          "txid": {
+            "type": "string",
+            "description": "Transaction ID if accepted",
+            "nullable": true
+          }
+        }
+      },
+      "TransactionValidationResult": {
+        "type": "object",
+        "description": "Transaction validation result",
+        "required": [
+          "valid"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Validation error message",
+            "nullable": true
+          },
+          "fee_rate": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Fee rate in nova units per byte",
+            "nullable": true,
+            "minimum": 0
+          },
+          "size": {
+            "type": "integer",
+            "description": "Transaction size in bytes",
+            "nullable": true,
+            "minimum": 0
+          },
+          "valid": {
+            "type": "boolean",
+            "description": "Whether the transaction is valid"
+          }
+        }
+      },
+      "TxHashParams": {
+        "type": "object",
+        "description": "Transaction hash parameter for API requests",
+        "required": [
+          "txid"
+        ],
+        "properties": {
+          "txid": {
+            "type": "string",
+            "description": "Transaction hash"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "blockchain",
+      "description": "Blockchain API - Access blocks and transactions"
+    },
+    {
+      "name": "mempool",
+      "description": "Mempool API - View and manage pending transactions"
+    },
+    {
+      "name": "network",
+      "description": "Network API - P2P network information and management"
+    },
+    {
+      "name": "mining",
+      "description": "Mining API - Mining operations and block templates"
+    },
+    {
+      "name": "environmental",
+      "description": "Environmental API - Carbon emissions and energy tracking"
+    },
+    {
+      "name": "lightning",
+      "description": "Lightning Network API - Payment channels and off-chain payments"
+    },
+    {
+      "name": "node",
+      "description": "Node API - Node status, configuration, and operations"
+    }
+  ]
+}
