@@ -1,0 +1,251 @@
+name: Release
+
+# Triggered when a version tag is pushed. Produces signed binary archives,
+# a CycloneDX SBOM, a cosign-signed SHA256SUMS, and a draft GitHub Release.
+#
+# Signing is keyless via Sigstore (OIDC federation from GitHub Actions).
+# Verification procedure and the GPG-signed tag policy are documented in
+# docs/RELEASE_PROCESS.md.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0-RC5). Must already exist in the repo.'
+        required: true
+
+permissions:
+  contents: write   # create the GitHub Release
+  id-token: write   # cosign keyless OIDC
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: '1.90.0'
+  # Reproducibility: map absolute paths to stable prefixes and strip symbols.
+  # The release workflow is the single source of truth for these flags; local
+  # dev builds may omit them.
+  RUSTFLAGS: >-
+    --remap-path-prefix=${{ github.workspace }}=/supernova
+    --remap-path-prefix=/home/runner=/builder
+    -C strip=symbols
+
+jobs:
+  sbom:
+    name: Generate CycloneDX SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install cargo-cyclonedx
+        run: cargo install --locked cargo-cyclonedx
+
+      - name: Generate workspace SBOM
+        run: cargo cyclonedx --format json --override-filename supernova-sbom
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: supernova-sbom.json
+          retention-days: 90
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: sbom
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-14
+            cross: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux aarch64 only)
+        if: matrix.cross == true
+        run: cargo install --locked cross
+
+      - name: Build release binaries
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} --all-features
+          else
+            cargo build --release --target ${{ matrix.target }} --all-features
+          fi
+
+      - name: Package archive
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_INPUT="${{ inputs.tag }}"
+          VERSION="${TAG_INPUT:-${GITHUB_REF_NAME}}"
+          TARGET="${{ matrix.target }}"
+          STAGE="supernova-${VERSION}-${TARGET}"
+          mkdir -p "$STAGE"
+          # Copy every release binary that was actually produced.
+          for bin in supernova-node supernova-cli supernova-banner supernova-oracle miner mine_genesis wallet quantum_validation; do
+            src="target/${TARGET}/release/${bin}"
+            if [ -f "$src" ]; then
+              cp "$src" "$STAGE/"
+            fi
+          done
+          # Include top-level legal / operator docs.
+          for doc in LICENSE README.md CHANGELOG.md; do
+            if [ -f "$doc" ]; then
+              cp "$doc" "$STAGE/"
+            fi
+          done
+          tar -czf "${STAGE}.tar.gz" "$STAGE"
+          shasum -a 256 "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
+          echo "archive=${STAGE}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign archive (cosign keyless)
+        env:
+          COSIGN_YES: 'true'
+        run: |
+          cosign sign-blob \
+            --output-signature "${{ steps.package.outputs.archive }}.sig" \
+            --output-certificate "${{ steps.package.outputs.archive }}.pem" \
+            "${{ steps.package.outputs.archive }}"
+
+      - name: Upload target artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: supernova-${{ matrix.target }}
+          path: |
+            supernova-*-${{ matrix.target }}.tar.gz
+            supernova-*-${{ matrix.target }}.tar.gz.sha256
+            supernova-*-${{ matrix.target }}.tar.gz.sig
+            supernova-*-${{ matrix.target }}.tar.gz.pem
+          retention-days: 90
+
+  release:
+    name: Publish draft GitHub Release
+    needs: [build, sbom]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Aggregate into release/
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find artifacts -type f \
+            \( -name '*.tar.gz' \
+            -o -name '*.sha256' \
+            -o -name '*.sig' \
+            -o -name '*.pem' \
+            -o -name 'supernova-sbom.json' \) \
+            -exec cp -v {} release/ \;
+          (cd release && sha256sum *.tar.gz supernova-sbom.json | LC_ALL=C sort > SHA256SUMS)
+          cat release/SHA256SUMS
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign SHA256SUMS (cosign keyless)
+        env:
+          COSIGN_YES: 'true'
+        run: |
+          cosign sign-blob \
+            --output-signature release/SHA256SUMS.sig \
+            --output-certificate release/SHA256SUMS.pem \
+            release/SHA256SUMS
+
+      - name: Verify signatures (self-check)
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          cosign verify-blob \
+            --certificate release/SHA256SUMS.pem \
+            --signature release/SHA256SUMS.sig \
+            --certificate-identity-regexp "https://github.com/${REPO}/\.github/workflows/release\.yml@.*" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            release/SHA256SUMS
+
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: release/*
+          body: |
+            ## Supernova ${{ github.ref_name }}
+
+            **This release is a draft.** A maintainer must publish it after
+            visually verifying the artifact list and the signed checksum file.
+
+            ### Verifying an archive
+
+            ```bash
+            # 1. Verify the cosign signature on the aggregate checksum file
+            cosign verify-blob \
+              --certificate SHA256SUMS.pem \
+              --signature  SHA256SUMS.sig \
+              --certificate-identity-regexp "https://github.com/${{ github.repository }}/\.github/workflows/release\.yml@.*" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              SHA256SUMS
+
+            # 2. Verify your downloaded archives against SHA256SUMS
+            sha256sum -c --ignore-missing SHA256SUMS
+
+            # 3. (Optional) Verify an individual archive directly
+            cosign verify-blob \
+              --certificate supernova-${{ github.ref_name }}-<target>.tar.gz.pem \
+              --signature  supernova-${{ github.ref_name }}-<target>.tar.gz.sig \
+              --certificate-identity-regexp "https://github.com/${{ github.repository }}/\.github/workflows/release\.yml@.*" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              supernova-${{ github.ref_name }}-<target>.tar.gz
+            ```
+
+            ### Artifacts
+
+            - `supernova-<version>-<target>.tar.gz` — release archive per platform
+            - `*.sha256` / `SHA256SUMS` — checksums
+            - `*.sig` / `*.pem` — cosign keyless signatures
+            - `supernova-sbom.json` — CycloneDX SBOM of the workspace
+
+            Full verification procedure, including GPG tag signature checking,
+            is in [`docs/RELEASE_PROCESS.md`](https://github.com/${{ github.repository }}/blob/main/docs/RELEASE_PROCESS.md).
