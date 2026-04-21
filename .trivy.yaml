@@ -1,0 +1,61 @@
+# Trivy configuration for Supernova container and Dockerfile scanning.
+#
+# Scopes:
+#   - Dockerfile misconfigurations (config scanners)
+#   - OS + language package CVEs (vuln scanners)
+#   - Secrets leaked into the image (secret scanner)
+#
+# CI usage:
+#   trivy config    --config .trivy.yaml .
+#   trivy fs        --config .trivy.yaml .
+#   trivy image     --config .trivy.yaml supernova:ci
+
+# Only fail on severities that warrant action. LOW/UNKNOWN noise is logged but
+# does not block merges.
+severity:
+  - CRITICAL
+  - HIGH
+
+# Exit non-zero so CI actually gates on findings of the listed severities.
+exit-code: 1
+
+# Surface both unfixed and fixed findings; operators need visibility into either.
+vulnerability:
+  ignore-unfixed: false
+  type:
+    - os
+    - library
+
+scan:
+  scanners:
+    - vuln
+    - secret
+    - config
+  # Skip lockfiles and vendored third-party trees that we do not ship.
+  skip-dirs:
+    - target
+    - fuzz/target
+    - node_modules
+    - .git
+  skip-files:
+    - "**/*.min.js"
+
+misconfiguration:
+  # Fail on Dockerfile/Kubernetes misconfiguration of the listed severities.
+  include-non-failures: false
+
+secret:
+  # Use bundled default ruleset; add project-specific allowlist below if needed.
+  config: ""
+
+# Cache control keeps CI runs fast without masking new advisories.
+cache:
+  backend: fs
+  ttl: 24h
+
+# Keep reports human-readable in logs; CI wrapper can re-emit SARIF as needed.
+format: table
+
+# Ignore file for time-boxed, documented exceptions (e.g. debian libssl1.1
+# CVEs pending base-image upgrade). Maintained separately.
+ignorefile: .trivyignore

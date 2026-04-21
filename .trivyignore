@@ -1,0 +1,8 @@
+# Trivy vulnerability allowlist.
+#
+# Format: one CVE ID per line, optional comment after `#` describing the
+# reason and planned remediation date. Entries without a remediation note
+# must be removed at the next dependency audit.
+#
+# Base image CVEs tracked here should be cleared by migrating off
+# debian:bullseye-slim / libssl1.1 before mainnet launch.
