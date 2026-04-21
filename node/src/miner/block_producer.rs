@@ -51,9 +51,12 @@ impl BlockProducer {
             version: 1,
             prev_block_hash: best_hash,
             merkle_root,
+            // A wall-clock that predates UNIX_EPOCH would indicate a misconfigured
+            // host; the miner's median-time-past check still rejects the block, so
+            // `Duration::ZERO` is a safe fallback that keeps us from panicking.
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards")
+                .unwrap_or_default()
                 .as_secs(),
             bits: difficulty_target,
             nonce: 0,

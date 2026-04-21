@@ -84,6 +84,9 @@ pub enum CheckpointError {
 
     #[error("Checkpoint not found for height {height}")]
     CheckpointNotFound { height: u64 },
+
+    #[error("Checkpoint manager lock poisoned")]
+    LockPoisoned,
 }
 
 /// Checkpoint manager for blockchain synchronization
@@ -256,14 +259,14 @@ pub fn get_checkpoint_manager() -> Arc<RwLock<CheckpointManager>> {
 /// Validate a block against checkpoints
 pub fn validate_checkpoint(block: &Block) -> Result<(), CheckpointError> {
     let manager = get_checkpoint_manager();
-    let manager = manager.read().unwrap();
+    let manager = manager.read().map_err(|_| CheckpointError::LockPoisoned)?;
     manager.validate_block(block)
 }
 
 /// Check if reorganization is allowed below checkpoint height
 pub fn can_reorganize_below(fork_height: u64) -> Result<(), CheckpointError> {
     let manager = get_checkpoint_manager();
-    let manager = manager.read().unwrap();
+    let manager = manager.read().map_err(|_| CheckpointError::LockPoisoned)?;
     manager.can_reorganize_below(fork_height)
 }
 

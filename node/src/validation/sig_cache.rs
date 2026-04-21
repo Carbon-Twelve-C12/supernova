@@ -210,10 +210,10 @@ impl SignatureCache {
 
     /// Create a new signature cache with full configuration
     pub fn with_config(config: SignatureCacheConfig) -> Self {
-        // SAFETY: DEFAULT_CACHE_CAPACITY is a non-zero constant (100,000)
-        // Using expect here documents the invariant; this cannot fail at runtime.
-        let default_capacity = NonZeroUsize::new(DEFAULT_CACHE_CAPACITY)
-            .expect("DEFAULT_CACHE_CAPACITY must be non-zero");
+        // DEFAULT_CACHE_CAPACITY is a non-zero constant (100,000); `unwrap_or`
+        // to `NonZeroUsize::MIN` keeps the type system honest without a panic.
+        let default_capacity =
+            NonZeroUsize::new(DEFAULT_CACHE_CAPACITY).unwrap_or(NonZeroUsize::MIN);
         let capacity = NonZeroUsize::new(config.capacity).unwrap_or(default_capacity);
 
         debug!("Creating signature cache with capacity {}", capacity);

@@ -28,7 +28,7 @@ pub async fn handle_jsonrpc(
     let client_ip = http_req
         .peer_addr()
         .map(|addr| addr.ip())
-        .unwrap_or_else(|| "127.0.0.1".parse().unwrap());
+        .unwrap_or_else(|| std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
 
     // SECURITY: Check if endpoint is expensive
     let is_expensive = is_expensive_endpoint(&req.method);

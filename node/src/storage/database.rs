@@ -90,8 +90,8 @@ impl<T: Clone> DatabaseCache<T> {
     pub fn new(capacity: usize) -> Self {
         Self {
             cache: RwLock::new(LruCache::new(
-                NonZeroUsize::new(capacity.max(1))
-                    .expect("Capacity is guaranteed to be at least 1"),
+                // `.max(1)` guarantees non-zero; the fallback is unreachable.
+                NonZeroUsize::new(capacity.max(1)).unwrap_or(NonZeroUsize::MIN),
             )),
             capacity,
         }

@@ -20,6 +20,8 @@ pub enum InvalidationError {
     Serialization(String),
     #[error("Block not found: {0}")]
     BlockNotFound(String),
+    #[error("Invalid-block tracker lock poisoned")]
+    LockPoisoned,
 }
 
 /// Reason for block invalidation
@@ -151,8 +153,14 @@ impl InvalidBlockTracker {
         parent_hash: Option<[u8; 32]>,
         height: Option<u64>,
     ) -> Result<(), InvalidationError> {
-        let mut invalid_blocks = self.invalid_blocks.write().unwrap();
-        let mut permanent_invalid = self.permanent_invalid.write().unwrap();
+        let mut invalid_blocks = self
+            .invalid_blocks
+            .write()
+            .map_err(|_| InvalidationError::LockPoisoned)?;
+        let mut permanent_invalid = self
+            .permanent_invalid
+            .write()
+            .map_err(|_| InvalidationError::LockPoisoned)?;
 
         // Check if already tracked
         let existing = invalid_blocks.get(&block_hash);
@@ -177,7 +185,10 @@ impl InvalidBlockTracker {
 
         // Track parent-child relationship
         if let Some(parent) = parent_hash {
-            let mut parent_map = self.parent_to_children.write().unwrap();
+            let mut parent_map = self
+                .parent_to_children
+                .write()
+                .map_err(|_| InvalidationError::LockPoisoned)?;
             parent_map
                 .entry(parent)
                 .or_insert_with(Vec::new)
@@ -199,19 +210,30 @@ impl InvalidBlockTracker {
 
     /// Check if a block is invalid
     pub fn is_invalid(&self, block_hash: &[u8; 32]) -> bool {
-        let invalid_blocks = self.invalid_blocks.read().unwrap();
+        // Lock poisoning means another thread panicked mid-update; the
+        // underlying data is still readable, so recover rather than propagate.
+        let invalid_blocks = self
+            .invalid_blocks
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         invalid_blocks.contains_key(block_hash)
     }
 
     /// Check if a block is permanently invalid
     pub fn is_permanently_invalid(&self, block_hash: &[u8; 32]) -> bool {
-        let permanent_invalid = self.permanent_invalid.read().unwrap();
+        let permanent_invalid = self
+            .permanent_invalid
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         permanent_invalid.contains(block_hash)
     }
 
     /// Get invalid block record
     pub fn get_invalid_block(&self, block_hash: &[u8; 32]) -> Option<InvalidBlock> {
-        let invalid_blocks = self.invalid_blocks.read().unwrap();
+        let invalid_blocks = self
+            .invalid_blocks
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         invalid_blocks.get(block_hash).cloned()
     }
 
@@ -221,11 +243,20 @@ impl InvalidBlockTracker {
         parent_hash: [u8; 32],
         reason: &InvalidationReason,
     ) -> Result<(), InvalidationError> {
-        let parent_to_children = self.parent_to_children.read().unwrap();
-        
+        let parent_to_children = self
+            .parent_to_children
+            .read()
+            .map_err(|_| InvalidationError::LockPoisoned)?;
+
         if let Some(children) = parent_to_children.get(&parent_hash) {
-            let mut invalid_blocks = self.invalid_blocks.write().unwrap();
-            let mut permanent_invalid = self.permanent_invalid.write().unwrap();
+            let mut invalid_blocks = self
+                .invalid_blocks
+                .write()
+                .map_err(|_| InvalidationError::LockPoisoned)?;
+            let mut permanent_invalid = self
+                .permanent_invalid
+                .write()
+                .map_err(|_| InvalidationError::LockPoisoned)?;
 
             for &child_hash in children {
                 // Only mark if not already marked
@@ -251,8 +282,14 @@ impl InvalidBlockTracker {
 
     /// Clean up old invalid block entries
     fn cleanup_old_entries(&self) -> Result<(), InvalidationError> {
-        let mut invalid_blocks = self.invalid_blocks.write().unwrap();
-        let mut permanent_invalid = self.permanent_invalid.write().unwrap();
+        let mut invalid_blocks = self
+            .invalid_blocks
+            .write()
+            .map_err(|_| InvalidationError::LockPoisoned)?;
+        let mut permanent_invalid = self
+            .permanent_invalid
+            .write()
+            .map_err(|_| InvalidationError::LockPoisoned)?;
         let now = Utc::now();
 
         // Remove temporary invalidations older than timeout
@@ -297,7 +334,10 @@ impl InvalidBlockTracker {
             return Ok(Vec::new());
         }
 
-        let invalid_blocks = self.invalid_blocks.read().unwrap();
+        let invalid_blocks = self
+            .invalid_blocks
+            .read()
+            .map_err(|_| InvalidationError::LockPoisoned)?;
         let mut orphaned = Vec::new();
 
         // Find blocks in chain whose parents are invalid
@@ -316,8 +356,14 @@ impl InvalidBlockTracker {
 
     /// Remove a block from invalid tracking (if it becomes valid)
     pub fn remove_invalid(&self, block_hash: &[u8; 32]) -> Result<(), InvalidationError> {
-        let mut invalid_blocks = self.invalid_blocks.write().unwrap();
-        let mut permanent_invalid = self.permanent_invalid.write().unwrap();
+        let mut invalid_blocks = self
+            .invalid_blocks
+            .write()
+            .map_err(|_| InvalidationError::LockPoisoned)?;
+        let mut permanent_invalid = self
+            .permanent_invalid
+            .write()
+            .map_err(|_| InvalidationError::LockPoisoned)?;
 
         invalid_blocks.remove(block_hash);
         permanent_invalid.remove(block_hash);
@@ -327,8 +373,16 @@ impl InvalidBlockTracker {
 
     /// Get statistics about invalid blocks
     pub fn get_statistics(&self) -> InvalidationStatistics {
-        let invalid_blocks = self.invalid_blocks.read().unwrap();
-        let permanent_invalid = self.permanent_invalid.read().unwrap();
+        // `get_statistics` is expected to succeed even if another thread
+        // panicked mid-update; recover the inner guards on poisoning.
+        let invalid_blocks = self
+            .invalid_blocks
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let permanent_invalid = self
+            .permanent_invalid
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
 
         let mut reason_counts: HashMap<String, u32> = HashMap::new();
         for block in invalid_blocks.values() {

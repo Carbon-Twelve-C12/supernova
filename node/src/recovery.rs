@@ -479,29 +479,26 @@ impl ErrorRecoveryManager {
                     return Ok(result);
                 }
                 Err(e) => {
-                    last_error = Some(e.to_string());
+                    let err_msg = e.to_string();
                     let category = self.classify_error(e.as_ref(), component);
 
                     if attempt < max_attempts {
                         warn!(
                             "Attempt {} failed for {}: {}. Retrying in {:?}",
-                            attempt, component, last_error.as_ref().unwrap(), delay
+                            attempt, component, err_msg, delay
                         );
                         sleep(delay).await;
                         delay = std::cmp::min(delay * 2, max_delay);
                     } else {
                         error!(
                             "Recovery failed for {} after {} attempts: {}",
-                            component, max_attempts, last_error.as_ref().unwrap()
+                            component, max_attempts, err_msg
                         );
-                        self.record_error(
-                            last_error.as_ref().unwrap(),
-                            category,
-                            component,
-                        )
-                        .await;
+                        self.record_error(&err_msg, category, component).await;
                         self.record_failure(component, Instant::now()).await;
                     }
+
+                    last_error = Some(err_msg);
                 }
             }
         }
@@ -538,28 +535,25 @@ impl ErrorRecoveryManager {
                     return Ok(result);
                 }
                 Err(e) => {
-                    last_error = Some(e.to_string());
+                    let err_msg = e.to_string();
                     let category = self.classify_error(e.as_ref(), component);
 
                     if attempt < max_attempts {
                         warn!(
                             "Attempt {} failed for {}: {}. Retrying in {:?}",
-                            attempt, component, last_error.as_ref().unwrap(), delay
+                            attempt, component, err_msg, delay
                         );
                         sleep(delay).await;
                     } else {
                         error!(
                             "Recovery failed for {} after {} attempts: {}",
-                            component, max_attempts, last_error.as_ref().unwrap()
+                            component, max_attempts, err_msg
                         );
-                        self.record_error(
-                            last_error.as_ref().unwrap(),
-                            category,
-                            component,
-                        )
-                        .await;
+                        self.record_error(&err_msg, category, component).await;
                         self.record_failure(component, start_time).await;
                     }
+
+                    last_error = Some(err_msg);
                 }
             }
         }

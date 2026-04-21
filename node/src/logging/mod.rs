@@ -52,12 +52,21 @@ pub struct LogRedactor {
 impl LogRedactor {
     /// Create a new log redactor with default patterns
     pub fn new() -> Self {
+        // SAFETY: All patterns are compile-time-constant literals vetted by tests
+        // (`redaction_*_test`); failure here would be a build-time bug, not a
+        // runtime condition, so `expect` is appropriate.
+        #[allow(clippy::expect_used)]
         Self {
-            hex_key_pattern: Regex::new(r"(?i)(?:private[_\s]?key|secret[_\s]?key|privkey|sk)[\s:=]+([0-9a-f]{64,})").unwrap(),
-            base58_pattern: Regex::new(r"(?i)(?:private[_\s]?key|secret[_\s]?key|privkey|sk)[\s:=]+([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{50,})").unwrap(),
-            seed_phrase_pattern: Regex::new(r"(?i)(?:seed|mnemonic|phrase)[\s:=]+((?:[a-z]+\s+){11,23}[a-z]+)").unwrap(),
-            password_pattern: Regex::new(r"(?i)(?:password|passwd|pwd)[\s:=]+([^\s]+)").unwrap(),
-            api_key_pattern: Regex::new(r"(?i)(?:api[_\s]?key|apikey|token)[\s:=]+([a-zA-Z0-9_\-]{20,})").unwrap(),
+            hex_key_pattern: Regex::new(r"(?i)(?:private[_\s]?key|secret[_\s]?key|privkey|sk)[\s:=]+([0-9a-f]{64,})")
+                .expect("hex_key_pattern is a valid regex literal"),
+            base58_pattern: Regex::new(r"(?i)(?:private[_\s]?key|secret[_\s]?key|privkey|sk)[\s:=]+([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{50,})")
+                .expect("base58_pattern is a valid regex literal"),
+            seed_phrase_pattern: Regex::new(r"(?i)(?:seed|mnemonic|phrase)[\s:=]+((?:[a-z]+\s+){11,23}[a-z]+)")
+                .expect("seed_phrase_pattern is a valid regex literal"),
+            password_pattern: Regex::new(r"(?i)(?:password|passwd|pwd)[\s:=]+([^\s]+)")
+                .expect("password_pattern is a valid regex literal"),
+            api_key_pattern: Regex::new(r"(?i)(?:api[_\s]?key|apikey|token)[\s:=]+([a-zA-Z0-9_\-]{20,})")
+                .expect("api_key_pattern is a valid regex literal"),
             redaction_level: RedactionLevel::Full,
         }
     }
@@ -184,9 +193,14 @@ impl LogRedactor {
     }
 
     /// Redact standalone hex keys (64+ hex characters without context)
+    ///
+    /// SAFETY: the `expect` inside `lazy_static!` is over a compile-time-constant
+    /// regex literal; failure would be a build-time bug caught by unit tests.
+    #[allow(clippy::expect_used)]
     fn redact_standalone_hex_keys(text: &str, level: RedactionLevel) -> String {
         lazy_static! {
-            static ref HEX_PATTERN: Regex = Regex::new(r"\b([0-9a-f]{64,})\b").unwrap();
+            static ref HEX_PATTERN: Regex = Regex::new(r"\b([0-9a-f]{64,})\b")
+                .expect("standalone hex regex literal");
         }
 
         if level == RedactionLevel::None {
@@ -217,9 +231,14 @@ impl LogRedactor {
     }
 
     /// Redact standalone base58 keys (50+ base58 characters)
+    ///
+    /// SAFETY: the `expect` inside `lazy_static!` is over a compile-time-constant
+    /// regex literal; failure would be a build-time bug caught by unit tests.
+    #[allow(clippy::expect_used)]
     fn redact_standalone_base58_keys(text: &str, level: RedactionLevel) -> String {
         lazy_static! {
-            static ref BASE58_PATTERN: Regex = Regex::new(r"\b([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{50,})\b").unwrap();
+            static ref BASE58_PATTERN: Regex = Regex::new(r"\b([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{50,})\b")
+                .expect("standalone base58 regex literal");
         }
 
         if level == RedactionLevel::None {

@@ -48,37 +48,15 @@ pub static CHECKPOINTS: Lazy<HashMap<u64, [u8; 32]>> = Lazy::new(|| {
 
     // Genesis block - height 0
     // The genesis block hash should be set based on the actual genesis
-    // For testnet/development, this is a placeholder
-    m.insert(0, hex_to_bytes32(
-        "0000000000000000000000000000000000000000000000000000000000000000"
-    ));
+    // For testnet/development, this is a placeholder (all-zero hash).
+    m.insert(0, [0u8; 32]);
 
-    // Add more checkpoints as the network matures
-    // Example (commented out until mainnet has sufficient history):
-    //
-    // // Block 100,000
-    // m.insert(100_000, hex_to_bytes32(
-    //     "00000000000000000..."
-    // ));
-    //
-    // // Block 200,000
-    // m.insert(200_000, hex_to_bytes32(
-    //     "00000000000000000..."
-    // ));
+    // Add more checkpoints as the network matures.
+    // Use `[u8; 32]` literals or a `const fn` decoder so the checkpoint table
+    // remains a compile-time constant with no runtime hex parsing.
 
     m
 });
-
-/// Convert a hex string to a 32-byte array
-///
-/// Panics if the hex string is invalid or not 64 characters.
-/// This is acceptable since checkpoints are hardcoded constants.
-fn hex_to_bytes32(hex: &str) -> [u8; 32] {
-    let bytes = hex::decode(hex).expect("Invalid checkpoint hex");
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&bytes);
-    arr
-}
 
 // ============================================================================
 // Checkpoint Functions

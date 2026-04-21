@@ -17,13 +17,21 @@ impl ProofOfWork {
         // Simple single-threaded mining for now
         let block_clone = Arc::clone(&block);
         thread::spawn(move || {
-            let mut block = block_clone.lock().unwrap();
+            // If the mutex is poisoned another worker has already panicked; bail
+            // out so the receiver below observes a closed channel instead of us
+            // propagating a panic into the miner thread pool.
+            let mut block = match block_clone.lock() {
+                Ok(guard) => guard,
+                Err(_) => return,
+            };
             let mut nonce: u32 = 0;
             loop {
                 block.header.nonce = nonce;
                 let hash = block.hash();
                 if hash < difficulty_target {
-                    sender.send(block.clone()).unwrap();
+                    // Receiver may have been dropped (e.g. mining cancelled);
+                    // a send failure is not a programming error here.
+                    let _ = sender.send(block.clone());
                     break;
                 }
                 nonce = nonce.wrapping_add(1);

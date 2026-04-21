@@ -220,7 +220,10 @@ impl UtxoCache {
         // Assume average entry size of ~150 bytes
         let estimated_entry_size = 150;
         let capacity = config.max_memory_bytes / estimated_entry_size;
-        let capacity = NonZeroUsize::new(capacity.max(1000)).unwrap();
+        // `.max(1000)` guarantees the value is non-zero, but the type system
+        // can't see that. Fall back to `MIN` to avoid an unwrap on a path that
+        // is unreachable by construction.
+        let capacity = NonZeroUsize::new(capacity.max(1000)).unwrap_or(NonZeroUsize::MIN);
 
         info!(
             "Initializing UTXO cache: max_memory={}MB, capacity=~{} entries",
