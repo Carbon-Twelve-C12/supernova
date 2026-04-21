@@ -26,27 +26,20 @@ path = "targets/quantum_crypto.rs"
 name = "fuzz_p2p_messages"
 path = "targets/p2p_messages.rs"
 
-[[bin]]
-name = "fuzz_difficulty_adjustment"
-path = "targets/difficulty_adjustment.rs"
-
 [dependencies]
-btclib = { path = "../btclib", features = ["lightning"] }
+supernova-core = { path = "../supernova-core", features = ["lightning"] }
 afl = "0.15"
+bincode = "1"
 arbitrary = { version = "1", features = ["derive"] }
-libfuzzer-sys = "0.4"
-honggfuzz = "0.5"
-
-[dependencies.supernova-node]
-path = "../node"
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = false
 codegen-units = 1
 debug = true
+overflow-checks = true
 
 [profile.dev]
-panic = "abort"
 opt-level = 3
 debug = true
+overflow-checks = true

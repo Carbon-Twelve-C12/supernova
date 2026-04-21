@@ -1,0 +1,121 @@
+name: Fuzz (AFL++)
+
+# Phase 3 C2: nightly fuzzing of the five consensus-adjacent entry points.
+#
+# Every fuzz target runs for FUZZ_DURATION (default 30 min). Crashes are
+# archived as workflow artifacts for triage; any non-empty `crashes/` dir
+# fails the job so regressions are visible in the dashboard.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC nightly
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: 'Per-target fuzz duration (seconds)'
+        required: false
+        default: '1800'
+  push:
+    paths:
+      - 'fuzz/**'
+      - '.github/workflows/fuzz.yml'
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  FUZZ_DURATION: ${{ github.event.inputs.duration_seconds || '1800' }}
+
+jobs:
+  fuzz:
+    name: fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - fuzz_block_validation
+          - fuzz_transaction_parsing
+          - fuzz_consensus
+          - fuzz_quantum_crypto
+          - fuzz_p2p_messages
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            fuzz/target
+          key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('fuzz/Cargo.lock', '**/Cargo.lock') }}
+
+      - name: Install AFL++ runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y afl++ llvm
+
+      - name: Install cargo-afl
+        run: cargo install --locked cargo-afl
+
+      - name: Configure kernel for AFL
+        run: |
+          echo core | sudo tee /proc/sys/kernel/core_pattern
+          sudo sh -c 'echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor || true'
+
+      - name: Build fuzz target
+        working-directory: fuzz
+        run: cargo afl build --release --bin ${{ matrix.target }}
+
+      - name: Map target to corpus dir
+        id: corpus
+        run: |
+          case '${{ matrix.target }}' in
+            fuzz_block_validation)    echo "dir=corpus/block_validation"    >> "$GITHUB_OUTPUT" ;;
+            fuzz_transaction_parsing) echo "dir=corpus/transaction_parsing" >> "$GITHUB_OUTPUT" ;;
+            fuzz_consensus)           echo "dir=corpus/consensus"           >> "$GITHUB_OUTPUT" ;;
+            fuzz_quantum_crypto)      echo "dir=corpus/quantum_crypto"      >> "$GITHUB_OUTPUT" ;;
+            fuzz_p2p_messages)        echo "dir=corpus/p2p_messages"        >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Run fuzzer (${{ env.FUZZ_DURATION }}s)
+        working-directory: fuzz
+        env:
+          AFL_SKIP_CPUFREQ: '1'
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: '1'
+          AFL_BENCH_UNTIL_CRASH: '1'
+        run: |
+          mkdir -p findings/${{ matrix.target }}
+          timeout "${FUZZ_DURATION}s" \
+            cargo afl fuzz \
+              -i ${{ steps.corpus.outputs.dir }} \
+              -o findings/${{ matrix.target }} \
+              -- target/release/${{ matrix.target }} \
+            || true
+
+      - name: Check for crashes
+        id: check
+        working-directory: fuzz
+        run: |
+          crash_count=$(find findings/${{ matrix.target }} -path '*/crashes/id:*' 2>/dev/null | wc -l | tr -d ' ')
+          echo "crashes=${crash_count}" >> "$GITHUB_OUTPUT"
+          echo "Found ${crash_count} crash(es)."
+
+      - name: Upload findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings-${{ matrix.target }}
+          path: fuzz/findings/${{ matrix.target }}
+          retention-days: 30
+
+      - name: Fail on crash
+        if: steps.check.outputs.crashes != '0'
+        run: |
+          echo "::error ::${{ steps.check.outputs.crashes }} crash(es) found in ${{ matrix.target }}"
+          exit 1
