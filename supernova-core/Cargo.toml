@@ -119,3 +119,7 @@ harness = false
 [[test]]
 name = "lightning_backup_integration_tests"
 path = "tests/lightning_backup_integration_tests.rs"
+
+[[test]]
+name = "proptests"
+path = "tests/proptests.rs"
