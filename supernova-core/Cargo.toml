@@ -80,6 +80,8 @@ sha3 = "0.10"
 hkdf = "0.12"
 base64 = "0.21"
 bip39 = { version = "2.0", features = ["zeroize"] }
+# Constant-time equality for HTLC preimage / MAC / hash comparisons.
+subtle = { workspace = true }
 bitcoin = { version = "0.30", optional = true }
 bitcoincore-rpc = { version = "0.17", optional = true }
 bulletproofs = { version = "4.0", optional = true }

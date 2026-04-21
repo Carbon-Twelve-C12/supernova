@@ -11,6 +11,7 @@ use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use tracing::{error, info, warn};
 
@@ -889,12 +890,13 @@ impl Channel {
 
         let htlc = &self.pending_htlcs[htlc_index];
 
-        // Verify preimage
+        // Verify preimage. Use a constant-time compare so peers cannot extract
+        // bits of the stored payment_hash via HTLC-settle timing side-channels.
         let mut hasher = Sha256::new();
         hasher.update(preimage);
         let hash = hasher.finalize();
 
-        if hash.as_slice() != &htlc.payment_hash {
+        if !bool::from(hash.as_slice().ct_eq(&htlc.payment_hash)) {
             return Err(ChannelError::HtlcError(
                 "Invalid preimage for HTLC".to_string(),
             ));

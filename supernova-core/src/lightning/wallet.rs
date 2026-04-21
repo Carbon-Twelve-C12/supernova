@@ -12,6 +12,7 @@ use rand::{thread_rng, Rng, RngCore};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::time::SystemTime;
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 
 /// Error types for Lightning wallet operations
@@ -388,9 +389,10 @@ impl LightningWallet {
         // by deriving the preimage from the invoice's stored preimage
         let preimage = invoice.payment_preimage();
 
-        // Verify that the preimage matches the payment hash
+        // Verify that the preimage matches the payment hash. Constant-time
+        // compare keeps the payment_hash bytes opaque to probing callers.
         let computed_hash = preimage.payment_hash();
-        if computed_hash != payment_hash {
+        if !bool::from(computed_hash.as_bytes().ct_eq(payment_hash.as_bytes())) {
             return Err(WalletError::PaymentError(
                 "Invoice preimage does not match payment hash".to_string(),
             ));

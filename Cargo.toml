@@ -27,4 +27,8 @@ tracing = "0.1"
 hex = "0.4"
 sha2 = "0.10"
 rand = "0.8"
-chrono = "0.4" 
+chrono = "0.4"
+# Constant-time primitives for timing-attack-resistant byte comparisons
+# (HTLC preimage, MAC, signature-hash checks). Already a transitive dep via
+# pqcrypto; pinned here so crypto-handling crates can use it directly.
+subtle = "2"

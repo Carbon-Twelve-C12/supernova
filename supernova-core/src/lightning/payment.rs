@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -355,11 +356,12 @@ impl PaymentProcessor {
             .get_mut(&htlc_id)
             .ok_or(PaymentError::HtlcNotFound(htlc_id))?;
 
-        // Verify preimage matches payment hash
+        // Verify preimage matches payment hash. Constant-time compare keeps
+        // the stored payment_hash opaque to settle-timing probes.
         let preimage_obj = PaymentPreimage::new(preimage);
         let expected_hash = preimage_obj.payment_hash();
 
-        if expected_hash.as_bytes() != &htlc.payment_hash {
+        if !bool::from(expected_hash.as_bytes().ct_eq(&htlc.payment_hash)) {
             return Err(PaymentError::InvalidPreimage);
         }
 

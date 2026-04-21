@@ -8,6 +8,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use tracing::{debug, error};
 
@@ -310,10 +311,12 @@ impl OnionRouter {
         // Generate shared secret with the sender
         let shared_secret = self.generate_shared_secret(&self.private_key, &packet.public_key)?;
 
-        // Verify HMAC
+        // Verify HMAC. Constant-time compare is required: a variable-time
+        // compare would leak the HMAC tag byte-by-byte, letting an attacker
+        // forge routing packets they would otherwise be unable to authenticate.
         let expected_hmac =
             self.calculate_hmac(&packet.routing_info, &shared_secret, associated_data)?;
-        if expected_hmac != packet.hmac {
+        if !bool::from(expected_hmac.ct_eq(&packet.hmac)) {
             return Err(OnionError::InvalidHmac);
         }
 

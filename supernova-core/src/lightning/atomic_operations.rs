@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 
 use crate::lightning::channel::{Channel, ChannelError, ChannelState, Htlc};
@@ -372,12 +373,13 @@ impl AtomicChannel {
                 AtomicOperationError::LockError(format!("Failed to lock HTLC: {}", e))
             })?;
 
-            // Verify preimage
+            // Verify preimage. Constant-time compare prevents timing-oracle
+            // leaks of the stored payment_hash during HTLC settle.
             let mut hasher = Sha256::new();
             hasher.update(preimage);
             let hash = hasher.finalize();
 
-            if hash.as_slice() != &htlc.payment_hash {
+            if !bool::from(hash.as_slice().ct_eq(&htlc.payment_hash)) {
                 return Err(AtomicOperationError::ChannelError(ChannelError::HtlcError(
                     "Invalid preimage for HTLC".to_string(),
                 )));

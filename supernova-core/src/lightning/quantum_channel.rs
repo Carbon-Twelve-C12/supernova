@@ -19,6 +19,7 @@ use hex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
+use subtle::ConstantTimeEq;
 
 /// Quantum-safe channel state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -302,9 +303,10 @@ impl QuantumChannel {
 
         let htlc = &mut self.htlcs[htlc_index];
 
-        // Verify preimage hash
+        // Verify preimage hash. Constant-time compare avoids leaking the stored
+        // payment_hash byte-by-byte through HTLC-settle response timing.
         let computed_hash = hash256(&preimage);
-        if computed_hash.as_slice() != &htlc.payment_hash[..32] {
+        if !bool::from(computed_hash.as_slice().ct_eq(&htlc.payment_hash[..32])) {
             return Err(ChannelError::InvalidPreimage);
         }
 
