@@ -21,9 +21,12 @@
 //! Criterion emits per-operation latency and derives throughput
 //! (`Throughput::Elements(1)`), so the report reads directly as ops/sec.
 
+use std::time::Duration;
+
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
 };
+use rayon::prelude::*;
 
 use supernova_core::crypto::quantum::{
     sign_quantum, verify_quantum_signature, QuantumKeyPair, QuantumParameters, QuantumScheme,
@@ -126,6 +129,120 @@ fn bench_signature_sign(c: &mut Criterion) {
 }
 
 // --------------------------------------------------------------------------
+// 2a. Batch signature verification
+// --------------------------------------------------------------------------
+//
+// Lattice-based PQ signatures (Dilithium, Falcon) do not admit algebraic
+// batch verification the way BLS or ECDSA-with-random-linear-combinations
+// do. The only win from "batching" is parallelism: split the batch across
+// cores and verify each signature independently.
+//
+// This section measures both paths so the amortisation claim is visible:
+//
+//   - `batch_sequential` — one-thread, serial loop. Throughput should be
+//     N × single-sig throughput, modulo loop overhead.
+//   - `batch_parallel` — rayon par_iter. Expect near-linear scaling to
+//     physical-core count, then flattening from memory bandwidth and
+//     allocator contention.
+//
+// Runtime tuning: 10k Dilithium5 verifies take ~30 s on a modern CPU, so
+// the batch-10k bench uses `sample_size(10)` and a longer measurement
+// window. Keygen and sig production happen once outside the timed region.
+
+/// Pre-generate `count` (pubkey, message, signature) triples for a given
+/// Dilithium security level. Expensive; done once per bench group.
+fn prebuild_signatures(level: u8, count: usize) -> Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+    let keypair = dilithium_keypair(level);
+    (0..count)
+        .map(|i| {
+            let message = format!("supernova batch bench #{i}").into_bytes();
+            let signature = sign_quantum(&keypair, &message).expect("sign");
+            (keypair.public_key.clone(), message, signature)
+        })
+        .collect()
+}
+
+fn bench_signature_verify_batch_sequential(c: &mut Criterion) {
+    let mut group = c.benchmark_group("signature_verify_batch_sequential");
+
+    // 10k verifies at ~3 ms/op = 30 s/iter; trim sample count so the
+    // whole group finishes in a few minutes.
+    group.sample_size(10).measurement_time(Duration::from_secs(120));
+
+    // Single security level; the scaling pattern is the same at other levels.
+    let level: u8 = 3;
+    let params = QuantumParameters {
+        scheme: QuantumScheme::Dilithium,
+        security_level: level,
+    };
+    let max_batch = 10_000usize;
+    let fixtures = prebuild_signatures(level, max_batch);
+
+    for batch in [10usize, 100, 1_000, 10_000] {
+        let slice = &fixtures[..batch];
+        group.throughput(Throughput::Elements(batch as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("dilithium_3", batch),
+            &batch,
+            |b, _| {
+                b.iter(|| {
+                    for (pk, msg, sig) in slice.iter() {
+                        let ok = verify_quantum_signature(
+                            black_box(pk),
+                            black_box(msg),
+                            black_box(sig),
+                            params,
+                        )
+                        .expect("verify");
+                        assert!(ok);
+                    }
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn bench_signature_verify_batch_parallel(c: &mut Criterion) {
+    let mut group = c.benchmark_group("signature_verify_batch_parallel");
+    group.sample_size(10).measurement_time(Duration::from_secs(120));
+
+    let level: u8 = 3;
+    let params = QuantumParameters {
+        scheme: QuantumScheme::Dilithium,
+        security_level: level,
+    };
+    let max_batch = 10_000usize;
+    let fixtures = prebuild_signatures(level, max_batch);
+
+    for batch in [10usize, 100, 1_000, 10_000] {
+        let slice = &fixtures[..batch];
+        group.throughput(Throughput::Elements(batch as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("dilithium_3", batch),
+            &batch,
+            |b, _| {
+                b.iter(|| {
+                    let all_ok = slice
+                        .par_iter()
+                        .all(|(pk, msg, sig)| {
+                            verify_quantum_signature(pk, msg, sig, params)
+                                .ok()
+                                .unwrap_or(false)
+                        });
+                    assert!(all_ok);
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// --------------------------------------------------------------------------
 // 3. Full transaction validation
 // --------------------------------------------------------------------------
 //
@@ -188,6 +305,8 @@ criterion_group!(
     benches,
     bench_signature_verify,
     bench_signature_sign,
+    bench_signature_verify_batch_sequential,
+    bench_signature_verify_batch_parallel,
     bench_transaction_validate,
     bench_transaction_roundtrip
 );

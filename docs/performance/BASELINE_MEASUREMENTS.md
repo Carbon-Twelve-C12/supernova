@@ -50,6 +50,32 @@ core, no matter how the rest of the stack is tuned.
 
 Source: `supernova-core/benches/tps_harness.rs::bench_signature_verify`.
 
+### 2.1.1 Batch signature verification (bench)
+
+Lattice-based PQ signatures do not admit algebraic batch verification the
+way BLS or ECDSA-with-random-linear-combinations do. The only win from a
+batch is parallel verification across cores. These rows make that
+explicit: `sequential` should scale linearly with batch size at ~1× the
+single-verify throughput; `parallel` should scale to physical-core count
+before memory-bandwidth effects flatten the curve.
+
+Target from the planning document: **10 000 ML-DSA signatures verified
+in under 3 seconds**. That is only achievable with parallel verification
+on a multi-core host.
+
+| Operation | Total duration | Per-sig latency | Throughput (sigs/s) |
+|---|---|---|---|
+| `batch_sequential/dilithium_3/10` | TBD | TBD | TBD |
+| `batch_sequential/dilithium_3/100` | TBD | TBD | TBD |
+| `batch_sequential/dilithium_3/1000` | TBD | TBD | TBD |
+| `batch_sequential/dilithium_3/10000` | TBD | TBD | TBD |
+| `batch_parallel/dilithium_3/10` | TBD | TBD | TBD |
+| `batch_parallel/dilithium_3/100` | TBD | TBD | TBD |
+| `batch_parallel/dilithium_3/1000` | TBD | TBD | TBD |
+| `batch_parallel/dilithium_3/10000` | TBD | TBD | TBD |
+
+Source: `supernova-core/benches/tps_harness.rs::bench_signature_verify_batch_*`.
+
 ### 2.2 Transaction validation (bench)
 
 The structural half of mempool admission — shape, overflow, dust checks,
@@ -211,6 +237,15 @@ above; drop them only in marketing copy, never in technical documents.
   against the current tree. It is kept for historical continuity;
   `tps_harness.rs` is the active harness. Retiring or porting that file
   is tracked as separate cleanup.
+- **`SignatureVerifier::batch_verify_transactions` is a stub**
+  (`supernova-core/src/crypto/signature.rs`, near "This is a placeholder
+  for batch transaction verification"). It groups transactions by scheme
+  as documented, but then returns `Ok(true)` without actually calling
+  the per-scheme verifier. Any caller relying on it as a security check
+  will accept invalid signatures. Until that is wired up, the bench
+  numbers in §2.1.1 describe the performance of the correct primitive
+  (`verify_quantum_signature`), **not** of `batch_verify_transactions`.
+  Resolution is tracked alongside the consensus-verification cleanup.
 - **Multi-node testnet harness** (4-node cross-region) is not in-tree.
   The planning document describes the shape; implementation is deferred
   to track E1 of Phase 5.
