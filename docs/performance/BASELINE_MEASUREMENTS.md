@@ -176,10 +176,24 @@ Per-transaction allocation (dhat, `--tx-count 10000`):
 A regression is any >10% increase in `At t-gmax` at the same
 `--tx-count` against the previous baseline.
 
-### 2.8 Chaos / load (deferred)
+### 2.8 Chaos / load
 
-24-hour 10-node run with injected faults (crashes, partitions, clock
-drift). Owned by track E5.
+Strategy, invariants, and per-scenario run instructions live in
+[`docs/testing/CHAOS_TESTING.md`](../testing/CHAOS_TESTING.md). This
+section records the measured outcomes of running the scenarios.
+
+| Scenario | Status | Result |
+|---|---|---|
+| §3.1 Partition-and-heal | In-tree scenario available | TBD |
+| §3.2 Crash-and-restart under load | Primitive available, scenario pending | TBD |
+| §3.3 Clock-drift skew | Primitive available, scenario pending | TBD |
+| §3.4 Byzantine oracle | Unit-level covered, multi-node deferred | TBD |
+| §3.5 24-hour 10-node mixed soak | Deferred — requires multi-node testnet | TBD |
+
+A scenario is green when all invariants in `CHAOS_TESTING.md` §1 hold:
+safety (no divergent tips), liveness (each running node advances),
+bounded reorg depth, no silent fork retention, zero consensus-path
+panics.
 
 ---
 
@@ -276,6 +290,17 @@ above; drop them only in marketing copy, never in technical documents.
 - **Multi-node testnet harness** (4-node cross-region) is not in-tree.
   The planning document describes the shape; implementation is deferred
   to track E1 of Phase 5.
+- **Orphaned chaos test files.** `node/src/tests/chaos_testing.rs`,
+  `clock_drift_tests.rs`, `network_partition_tests.rs`,
+  `large_block_tests.rs`, and `fork_handling.rs` reference a
+  `crate::network::{NetworkSimulator, NodeHandle, NetworkCondition,
+  NodeConfig}` path that does not exist in the current architecture.
+  The canonical simulator lives at
+  `supernova-core/src/testnet/network_simulator.rs`. The `tests/mod.rs`
+  stub is not imported from `node/src/lib.rs`, so these files
+  contribute zero to the test run. They should either be rewritten
+  against the real testnet API or deleted. See
+  `docs/testing/CHAOS_TESTING.md` §5.
 - **Memory profile under mempool-at-capacity** has not been captured.
   Sizing guidance in `docs/operations/PERFORMANCE_TUNING.md` is
   first-principles, not measured.
