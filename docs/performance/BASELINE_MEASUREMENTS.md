@@ -146,15 +146,35 @@ in §2.5 are a lower bound on each relay's contribution.
 |---|---|---|
 | Time-to-99%-peers, 10-node, 0–200 ms latency | < 2 s | TBD |
 
-### 2.7 Memory characterisation (deferred)
+### 2.7 Memory characterisation
 
-Requires `dhat` or `massif` integration. Placeholder until track E4 lands.
+The mempool-admission hot path is profiled by
+`supernova-core/examples/memory_profile.rs` with the `dhat` global
+allocator. That gives per-transaction allocation numbers; the
+per-process peak RSS rows for node/miner/wallet are still pending a
+full-node run under `valgrind --tool=massif`.
 
-| Role | Peak RSS under load | Measured |
-|---|---|---|
-| Full node, sync | TBD | TBD |
-| Miner, block assembly | TBD | TBD |
-| Wallet, signing | TBD | TBD |
+First-principles budgets are documented in
+`docs/operations/PERFORMANCE_TUNING.md` §Memory profiling and budgets
+(Default 8 GiB profile). Record measured peaks below once collected.
+
+| Role | Workload | Budget (PERFORMANCE_TUNING.md) | Measured peak RSS |
+|---|---|---|---|
+| Full node | Headers-first sync, 24 h | ~4.5 GiB | TBD |
+| Full node | Mempool at configured cap (300 MiB) | ~4.5 GiB | TBD |
+| Miner | Block assembly, sig cache warm | ~4.5 GiB | TBD |
+| Wallet | ML-DSA signing, HD derivation | ~500 MiB | TBD |
+
+Per-transaction allocation (dhat, `--tx-count 10000`):
+
+| Metric | Measured |
+|---|---|
+| Total bytes allocated | TBD |
+| Total allocation blocks | TBD |
+| Peak heap live (`At t-gmax`) | TBD |
+
+A regression is any >10% increase in `At t-gmax` at the same
+`--tx-count` against the previous baseline.
 
 ### 2.8 Chaos / load (deferred)
 
@@ -178,6 +198,13 @@ cargo bench -p supernova-node --bench utxo_benchmarks
 
 # Block propagation (per-hop cost)
 cargo bench -p supernova-node --bench propagation
+
+# Heap allocation profile for the mempool-admission hot path.
+# Emits `dhat-heap.json` in cwd; open with
+# https://nnethercote.github.io/dh_view/dh_view.html and copy the
+# three peak numbers into §2.7.
+cargo run --release --example memory_profile \
+    -p supernova-core --features dhat-heap -- --tx-count 10000
 ```
 
 Criterion writes HTML reports to `target/criterion/`; the p50/p99 numbers

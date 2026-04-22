@@ -13,6 +13,9 @@ atomic-swap = ["bitcoin", "bitcoincore-rpc", "bulletproofs", "curve25519-dalek-n
 # When disabled, S3Provider construction returns a descriptive error so builds
 # that don't need S3 don't pull the AWS SDK dep tree.
 s3-backup = ["aws-config", "aws-sdk-s3", "aws-credential-types", "aws-smithy-types"]
+# Enables the dhat heap allocator in `examples/memory_profile.rs`. Off by
+# default; turn on with `--features dhat-heap` when profiling locally.
+dhat-heap = ["dhat"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -93,6 +96,10 @@ aws-config = { version = "1", optional = true, default-features = false, feature
 aws-sdk-s3 = { version = "1", optional = true, default-features = false, features = ["rt-tokio"] }
 aws-credential-types = { version = "1", optional = true }
 aws-smithy-types = { version = "1", optional = true }
+# Heap profiler used by `examples/memory_profile.rs`. Optional so normal
+# builds don't pay the allocator-instrumentation cost; opt in with the
+# `dhat-heap` feature.
+dhat = { version = "0.3", optional = true }
 
 [dependencies.prost]
 version = "0.12"
@@ -119,6 +126,14 @@ harness = false
 [[bench]]
 name = "tps_harness"
 harness = false
+
+# Memory characterisation example. Because `autoexamples = false`, the
+# example must be explicitly registered here to be discoverable via
+# `cargo run --example memory_profile`.
+[[example]]
+name = "memory_profile"
+path = "examples/memory_profile.rs"
+required-features = ["dhat-heap"]
 
 [[test]]
 name = "lightning_backup_integration_tests"
