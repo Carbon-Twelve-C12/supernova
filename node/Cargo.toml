@@ -133,6 +133,10 @@ path = "src/lib.rs"
 name = "utxo_benchmarks"
 harness = false
 
+[[bench]]
+name = "propagation"
+harness = false
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

@@ -86,16 +86,41 @@ header comment; record the measured values here once the harness is run.
 | Cache hit rate, typical load | > 90% | TBD |
 | Memory within configured limit | yes | TBD |
 
-### 2.5 Block propagation (deferred)
+### 2.5 Block propagation — per-hop cost (bench)
 
-Requires a multi-node harness that is not yet in-tree. Placeholder so the
-document is complete; track E2 of the Phase 5 plan owns the delivery.
+Propagation time across a topology is `Σ per_hop_cpu + Σ per_link_latency`.
+This harness measures the per-hop-CPU half on a fixed machine, so a
+regression (for example, an expensive `Serialize` impl) is visible. The
+per-link-latency half is a network property and belongs to the
+multi-node testnet run (§2.6).
+
+| Operation | p50 latency | Throughput |
+|---|---|---|
+| `block_header_hash/sha3_over_header` | TBD | TBD ops/s |
+| `block_verify_pow/header_only` | TBD | TBD ops/s |
+| `block_verify_merkle/tx_count=10` | TBD | TBD tx/s |
+| `block_verify_merkle/tx_count=100` | TBD | TBD tx/s |
+| `block_verify_merkle/tx_count=1000` | TBD | TBD tx/s |
+| `block_serialise/tx_count=10` | TBD | TBD MiB/s |
+| `block_serialise/tx_count=100` | TBD | TBD MiB/s |
+| `block_serialise/tx_count=1000` | TBD | TBD MiB/s |
+| `block_deserialise/tx_count=10` | TBD | TBD MiB/s |
+| `block_deserialise/tx_count=100` | TBD | TBD MiB/s |
+| `block_deserialise/tx_count=1000` | TBD | TBD MiB/s |
+
+Source: `node/benches/propagation.rs`.
+
+### 2.6 Block propagation — multi-node (deferred)
+
+End-to-end propagation time across a real topology. Requires the
+multi-node testnet harness that is not yet in-tree. The per-hop numbers
+in §2.5 are a lower bound on each relay's contribution.
 
 | Metric | Target | Measured |
 |---|---|---|
 | Time-to-99%-peers, 10-node, 0–200 ms latency | < 2 s | TBD |
 
-### 2.6 Memory characterisation (deferred)
+### 2.7 Memory characterisation (deferred)
 
 Requires `dhat` or `massif` integration. Placeholder until track E4 lands.
 
@@ -105,7 +130,7 @@ Requires `dhat` or `massif` integration. Placeholder until track E4 lands.
 | Miner, block assembly | TBD | TBD |
 | Wallet, signing | TBD | TBD |
 
-### 2.7 Chaos / load (deferred)
+### 2.8 Chaos / load (deferred)
 
 24-hour 10-node run with injected faults (crashes, partitions, clock
 drift). Owned by track E5.
@@ -124,6 +149,9 @@ cargo bench -p supernova-core --bench tps_harness
 
 # UTXO cache benches
 cargo bench -p supernova-node --bench utxo_benchmarks
+
+# Block propagation (per-hop cost)
+cargo bench -p supernova-node --bench propagation
 ```
 
 Criterion writes HTML reports to `target/criterion/`; the p50/p99 numbers
