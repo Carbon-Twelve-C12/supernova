@@ -335,9 +335,11 @@ impl BulletproofRangeProof {
 
 /// Creates a range proof that a committed value is within a range.
 ///
-/// Returns [`ZkpError::UnsupportedProofType`] if `params.proof_type` is not one of
-/// [`ZkpType::RangeProof`] or [`ZkpType::Bulletproof`]; Schnorr and zk-SNARK proof
-/// types are not valid range-proof schemes.
+/// Only [`ZkpType::Bulletproof`] is supported; the historic
+/// [`ZkpType::RangeProof`] ("simple") scheme was not a sound range
+/// proof — its verifier accepted any well-shaped payload — so both the
+/// creator and verifier now reject it. Schnorr and zk-SNARK proof
+/// types are not valid range-proof schemes and are likewise rejected.
 pub fn create_range_proof<R: CryptoRng + RngCore>(
     value: u64,
     blinding_factor: &[u8],
@@ -346,12 +348,6 @@ pub fn create_range_proof<R: CryptoRng + RngCore>(
     rng: &mut R,
 ) -> Result<ZeroKnowledgeProof, ZkpError> {
     match params.proof_type {
-        ZkpType::RangeProof => Ok(create_simple_range_proof(
-            value,
-            blinding_factor,
-            range_bits,
-            rng,
-        )),
         ZkpType::Bulletproof => Ok(create_bulletproof(
             value,
             blinding_factor,
@@ -359,59 +355,9 @@ pub fn create_range_proof<R: CryptoRng + RngCore>(
             params.security_level,
             rng,
         )),
-        ZkpType::Schnorr | ZkpType::ZkSnark => Err(ZkpError::UnsupportedProofType),
-    }
-}
-
-/// Creates a simple range proof (less efficient)
-fn create_simple_range_proof<R: CryptoRng + RngCore>(
-    value: u64,
-    blinding_factor: &[u8],
-    range_bits: u8,
-    rng: &mut R,
-) -> ZeroKnowledgeProof {
-    // Calculate Pedersen commitment
-    let (commitment, _) = commit_pedersen(value, rng);
-
-    // Create separate proofs for each bit
-    // This is a naive implementation of a range proof where we prove each bit separately
-    let mut proof_data = Vec::new();
-
-    // Include range bits
-    proof_data.push(range_bits);
-
-    // For each bit, create a zero-knowledge proof that the bit is either 0 or 1
-    for i in 0..range_bits {
-        let bit = ((value >> i) & 1) == 1;
-
-        // Create a Schnorr-like proof for this bit
-        // In a real implementation, this would be a complex ZK circuit
-
-        // Create a random nonce for the proof
-        let mut nonce = [0u8; 32];
-        rng.fill_bytes(&mut nonce);
-
-        // Hash the bit, blinding factor, and nonce to create a deterministic proof
-        let mut hasher = Sha256::new();
-        hasher.update([bit as u8]);
-        hasher.update(blinding_factor);
-        hasher.update(nonce);
-        hasher.update(&commitment.value);
-        hasher.update([i]);
-        let hash = hasher.finalize();
-
-        // Add the bit proof to the overall proof
-        proof_data.extend_from_slice(&nonce);
-        proof_data.extend_from_slice(&hash);
-    }
-
-    // Public inputs would include the commitment and the range
-    let public_inputs = vec![commitment.value.clone(), vec![range_bits]];
-
-    ZeroKnowledgeProof {
-        proof_type: ZkpType::RangeProof,
-        proof: proof_data,
-        public_inputs,
+        ZkpType::RangeProof | ZkpType::Schnorr | ZkpType::ZkSnark => {
+            Err(ZkpError::UnsupportedProofType)
+        }
     }
 }
 
@@ -439,54 +385,22 @@ fn create_bulletproof<R: CryptoRng + RngCore>(
     }
 }
 
-/// Verifies a range proof
+/// Verifies a range proof.
+///
+/// Only [`ZkpType::Bulletproof`] is accepted. The legacy
+/// [`ZkpType::RangeProof`] variant is treated as an unsupported proof
+/// type and always fails verification — its previous verifier was a
+/// stub that returned `true` for any structurally-valid payload,
+/// which would have allowed value forgery on confidential outputs.
 pub fn verify_range_proof(
     commitment: &Commitment,
     proof: &ZeroKnowledgeProof,
     range_bits: u8,
 ) -> bool {
     match proof.proof_type {
-        ZkpType::RangeProof => verify_simple_range_proof(commitment, proof, range_bits),
         ZkpType::Bulletproof => verify_bulletproof(commitment, proof, range_bits),
-        _ => false, // Unsupported proof type
+        ZkpType::RangeProof | ZkpType::Schnorr | ZkpType::ZkSnark => false,
     }
-}
-
-/// Verifies a simple range proof
-fn verify_simple_range_proof(
-    commitment: &Commitment,
-    proof: &ZeroKnowledgeProof,
-    range_bits: u8,
-) -> bool {
-    // Check that the proof has the expected structure
-    if proof.public_inputs.len() != 2 {
-        return false;
-    }
-
-    // Check that the range specification matches
-    if proof.public_inputs[1].len() != 1 || proof.public_inputs[1][0] != range_bits {
-        return false;
-    }
-
-    // Check that the commitment matches
-    if proof.public_inputs[0] != commitment.value {
-        return false;
-    }
-
-    // Check proof structure
-    if proof.proof.is_empty() || proof.proof[0] != range_bits {
-        return false;
-    }
-
-    // The proof should have data for each bit
-    let expected_proof_size = 1 + range_bits as usize * (32 + 32); // 1 byte for range_bits + (nonce + hash) for each bit
-    if proof.proof.len() != expected_proof_size {
-        return false;
-    }
-
-    // In a real implementation, we would verify each bit proof
-    // For now, we return true for a well-formed proof
-    true
 }
 
 /// Verifies a bulletproof

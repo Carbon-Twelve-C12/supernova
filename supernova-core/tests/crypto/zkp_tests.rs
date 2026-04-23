@@ -3,7 +3,7 @@ extern crate supernova_core as btclib;
 use btclib::crypto::zkp::{
     commit_pedersen, create_confidential_transaction, create_range_proof, prove_equality,
     verify_range_proof, BulletproofRangeProof, Commitment, CommitmentType, ZeroKnowledgeProof,
-    ZkCircuit, ZkpParams, ZkpType,
+    ZkCircuit, ZkpError, ZkpParams, ZkpType,
 };
 use rand::rngs::OsRng;
 
@@ -63,21 +63,30 @@ fn test_range_proofs() {
                 bits
             );
 
-            // Test with simple range proof
+            // The legacy "simple" range-proof scheme was unsound — the
+            // verifier accepted any well-shaped payload — so both
+            // creation and verification now reject it. This sub-test
+            // pins that behaviour so the booby-trap cannot silently
+            // reappear.
             let params = ZkpParams {
                 proof_type: ZkpType::RangeProof,
                 security_level: 128,
             };
 
-            let proof = create_range_proof(value, &blinding, bits, params, &mut rng)
-                .expect("simple range proof is supported");
-            assert_eq!(proof.proof_type, ZkpType::RangeProof);
+            let err = create_range_proof(value, &blinding, bits, params, &mut rng)
+                .expect_err("simple range proofs must be rejected at creation");
+            assert!(matches!(err, ZkpError::UnsupportedProofType));
 
-            let valid = verify_range_proof(&commitment, &proof, bits);
+            // Forge a RangeProof-typed payload by hand and confirm the
+            // verifier rejects it unconditionally, regardless of shape.
+            let forged = ZeroKnowledgeProof {
+                proof_type: ZkpType::RangeProof,
+                proof: vec![bits; 1 + bits as usize * 64],
+                public_inputs: vec![commitment.value.clone(), vec![bits]],
+            };
             assert!(
-                valid,
-                "Simple range proof verification should succeed for {} bits",
-                bits
+                !verify_range_proof(&commitment, &forged, bits),
+                "RangeProof-typed proofs must fail verification"
             );
         }
     }
