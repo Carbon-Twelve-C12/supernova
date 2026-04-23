@@ -2520,4 +2520,62 @@ mod tests {
             "Same algorithm should always be allowed"
         );
     }
+
+    #[test]
+    fn test_quantum_keypair_implements_zeroize_on_drop() {
+        // Compile-time guarantee that `QuantumKeyPair` opts into the
+        // zeroize-on-drop cascade. If someone strips `ZeroizeOnDrop` from the
+        // derive list on the struct definition in a later refactor, this
+        // function will fail to monomorphise and the test will fail to build
+        // — which is the strongest regression signal we can give for a
+        // memory-hygiene property that is otherwise invisible at runtime.
+        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        assert_zeroize_on_drop::<QuantumKeyPair>();
+    }
+
+    #[test]
+    fn test_quantum_keypair_zeroize_wipes_secret_key() {
+        // Explicit `.zeroize()` must clear the secret-key buffer. The derive
+        // macro expands to per-field zeroize calls, and `Vec<u8>::zeroize`
+        // overwrites the backing allocation with zeros and resets length to
+        // zero — observable through `len()` and, where we still hold the
+        // buffer, a byte-by-byte check of the cleared Vec.
+        let params = QuantumParameters::with_security_level(
+            QuantumScheme::Dilithium,
+            SecurityLevel::Medium.into(),
+        );
+        let mut keypair = QuantumKeyPair::generate(params)
+            .expect("keypair generation must succeed");
+
+        let original_secret_len = keypair.secret_key.len();
+        assert!(
+            original_secret_len > 0,
+            "a freshly generated Dilithium secret key must be non-empty"
+        );
+        assert!(
+            keypair.secret_key.iter().any(|&b| b != 0),
+            "a freshly generated secret key should not be all-zero before zeroize"
+        );
+
+        // Public key is `#[zeroize(skip)]` and must survive zeroization —
+        // pin its contents so we can verify only secret material is wiped.
+        let public_key_before = keypair.public_key.clone();
+
+        keypair.zeroize();
+
+        assert_eq!(
+            keypair.secret_key.len(),
+            0,
+            "Vec<u8>::zeroize must reset the secret key length to 0"
+        );
+        assert!(
+            keypair.secret_key.iter().all(|&b| b == 0),
+            "every live byte of the secret key must be zero after zeroize"
+        );
+
+        assert_eq!(
+            keypair.public_key, public_key_before,
+            "public key carries `#[zeroize(skip)]` and must be unchanged"
+        );
+    }
 }
