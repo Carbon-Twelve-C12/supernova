@@ -296,19 +296,19 @@ impl QuantumWallet {
             .map_err(|_| WalletError::AddressEncodingFailed)
     }
 
-    /// Generate zero-knowledge proof of ownership
+    /// Generate an ownership proof for a stealth address.
+    ///
+    /// "Ownership" = knowledge of the secret key corresponding to the
+    /// address's public key. We achieve that by signing a
+    /// domain-separated ownership statement with `sign_quantum`; the
+    /// signature is verifiable by anyone against the public key and
+    /// cannot be produced without the secret. The previous
+    /// implementation delegated to a stubbed `generate_zkp` that
+    /// returned a SHA-256 hash of the statement — not a proof of
+    /// anything — so this is a correctness fix, not just a rename.
     fn generate_ownership_zkp(&self, keys: &QuantumKeyPair) -> Result<Vec<u8>, WalletError> {
-        // Create proof that we own the keys without revealing them
-        use crate::crypto::zkp::{generate_zkp, ZkpParams};
-
-        let statement = b"quantum-wallet-ownership";
-        let witness = keys.to_bytes();
-        let params = ZkpParams::default();
-
-        let proof = generate_zkp(statement, &witness, &params)
-            .map_err(|_| WalletError::ZkpGenerationFailed)?;
-
-        Ok(proof.to_bytes())
+        const OWNERSHIP_STATEMENT: &[u8] = b"supernova:quantum-wallet-ownership:v1";
+        sign_quantum(keys, OWNERSHIP_STATEMENT).map_err(|_| WalletError::ZkpGenerationFailed)
     }
 
     /// Sign transaction with quantum signatures

@@ -27,7 +27,7 @@ pub use quantum::{MLDSAPrivateKey, MLDSAPublicKey, MLDSASecurityLevel, MLDSASign
 pub use signature::{
     SignatureError, SignatureParams, SignatureScheme, SignatureType, SignatureVerifier,
 };
-pub use zkp::{generate_zkp, verify_zkp, Commitment, ZeroKnowledgeProof, ZkpParams, ZkpType};
+pub use zkp::{Commitment, ZeroKnowledgeProof, ZkpParams, ZkpType};
 
 // Export REAL Falcon implementation
 pub use falcon_real::{

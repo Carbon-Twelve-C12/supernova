@@ -13,13 +13,12 @@ use crate::crypto::hash::hash256;
 use crate::crypto::quantum::{
     sign_quantum, verify_quantum_signature, QuantumKeyPair, QuantumParameters, QuantumScheme,
 };
-use crate::crypto::zkp::{generate_zkp, verify_zkp, ZeroKnowledgeProof, ZkpParams};
+use crate::crypto::zkp::ZeroKnowledgeProof;
 use crate::types::{Transaction, TransactionOutput};
 use hex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
-use subtle::ConstantTimeEq;
 
 /// Quantum-safe channel state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,51 +286,6 @@ impl QuantumChannel {
         Ok(htlc_id)
     }
 
-    /// Settle HTLC with zero-knowledge proof of preimage
-    pub fn settle_htlc_with_zkp(
-        &mut self,
-        htlc_id: u64,
-        preimage: [u8; 32],
-        zkp_proof: ZeroKnowledgeProof,
-    ) -> Result<(), ChannelError> {
-        // Find HTLC
-        let htlc_index = self
-            .htlcs
-            .iter()
-            .position(|h| h.id == htlc_id)
-            .ok_or(ChannelError::HtlcNotFound)?;
-
-        let htlc = &mut self.htlcs[htlc_index];
-
-        // Verify preimage hash. Constant-time compare avoids leaking the stored
-        // payment_hash byte-by-byte through HTLC-settle response timing.
-        let computed_hash = hash256(&preimage);
-        if !bool::from(computed_hash.as_slice().ct_eq(&htlc.payment_hash[..32])) {
-            return Err(ChannelError::InvalidPreimage);
-        }
-
-        // Verify zero-knowledge proof
-        let zkp_params = ZkpParams::default();
-        if !verify_zkp(&zkp_proof, &htlc.payment_hash, &zkp_params)? {
-            return Err(ChannelError::InvalidZkProof);
-        }
-
-        // Update balances
-        if htlc.offered {
-            self.remote_balance += htlc.amount;
-        } else {
-            self.local_balance += htlc.amount;
-        }
-
-        // Store ZKP for later verification
-        htlc.preimage_zkp = Some(zkp_proof);
-
-        // Remove settled HTLC
-        self.htlcs.remove(htlc_index);
-
-        Ok(())
-    }
-
     /// Generate quantum-safe revocation secret
     pub fn generate_revocation_secret(&mut self) -> [u8; 32] {
         // Use quantum-safe random number generation
@@ -398,18 +352,6 @@ impl QuantumChannel {
         Ok(())
     }
 
-    /// Create zero-knowledge proof of channel ownership
-    pub fn create_ownership_proof(&mut self) -> Result<(), ChannelError> {
-        // Create ZKP that proves we own the channel without revealing keys
-        let statement = format!("channel-owner-{}", self.channel_id.encode_hex());
-        let witness = self.local_quantum_keys.to_bytes();
-
-        let zkp_params = ZkpParams::default();
-        let proof = generate_zkp(statement.as_bytes(), &witness, &zkp_params)?;
-
-        self.ownership_proof = Some(proof);
-        Ok(())
-    }
 }
 
 /// Quantum-safe onion routing for payment privacy
@@ -530,9 +472,6 @@ pub enum ChannelError {
     #[error("Invalid preimage")]
     InvalidPreimage,
 
-    #[error("Invalid zero-knowledge proof")]
-    InvalidZkProof,
-
     #[error("Quantum signature error: {0}")]
     QuantumSignature(String),
 
@@ -543,12 +482,6 @@ pub enum ChannelError {
 impl From<crate::crypto::quantum::QuantumError> for ChannelError {
     fn from(e: crate::crypto::quantum::QuantumError) -> Self {
         ChannelError::QuantumSignature(e.to_string())
-    }
-}
-
-impl From<crate::crypto::zkp::ZkpError> for ChannelError {
-    fn from(_: crate::crypto::zkp::ZkpError) -> Self {
-        ChannelError::InvalidZkProof
     }
 }
 
