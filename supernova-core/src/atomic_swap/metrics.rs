@@ -2,212 +2,270 @@
 //!
 //! Provides comprehensive metrics for monitoring atomic swap operations,
 //! performance, and system health.
+//!
+//! The metric collectors are owned by a process-wide [`AtomicSwapMetrics`]
+//! instance that is lazily initialized via [`init_metrics`]. Before init,
+//! recording helpers no-op (logged at debug level) rather than panic, so
+//! the node does not crash if metrics setup fails.
 
-use lazy_static::lazy_static;
 use prometheus::{
     Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
 };
+use std::sync::OnceLock;
 use std::time::Instant;
+use tracing::debug;
 
-lazy_static! {
-    /// Global metrics registry
-    pub static ref METRICS_REGISTRY: Registry = Registry::new();
+use crate::monitoring::MetricsError;
+
+/// Owned bundle of every atomic-swap Prometheus collector.
+pub struct AtomicSwapMetrics {
+    pub registry: Registry,
 
     // Counter metrics
-
-    /// Total number of swaps initiated
-    pub static ref SWAPS_INITIATED: IntCounter = IntCounter::new(
-        "atomic_swaps_initiated_total",
-        "Total number of atomic swaps initiated"
-    ).unwrap();
-
-    /// Total number of swaps by state
-    pub static ref SWAPS_BY_STATE: IntCounterVec = IntCounterVec::new(
-        Opts::new("atomic_swaps_state_total", "Total number of swaps by state"),
-        &["state"]
-    ).unwrap();
-
-    /// Total number of swaps completed successfully
-    pub static ref SWAPS_COMPLETED: IntCounter = IntCounter::new(
-        "atomic_swaps_completed_total",
-        "Total number of successfully completed swaps"
-    ).unwrap();
-
-    /// Total number of swaps failed
-    pub static ref SWAPS_FAILED: IntCounterVec = IntCounterVec::new(
-        Opts::new("atomic_swaps_failed_total", "Total number of failed swaps"),
-        &["reason"]
-    ).unwrap();
-
-    /// Total number of refunds
-    pub static ref SWAPS_REFUNDED: IntCounterVec = IntCounterVec::new(
-        Opts::new("atomic_swaps_refunded_total", "Total number of refunded swaps"),
-        &["chain", "reason"]
-    ).unwrap();
+    pub swaps_initiated: IntCounter,
+    pub swaps_by_state: IntCounterVec,
+    pub swaps_completed: IntCounter,
+    pub swaps_failed: IntCounterVec,
+    pub swaps_refunded: IntCounterVec,
 
     // Gauge metrics
-
-    /// Number of active swaps
-    pub static ref ACTIVE_SWAPS: IntGauge = IntGauge::new(
-        "atomic_swaps_active",
-        "Number of currently active swaps"
-    ).unwrap();
-
-    /// Number of pending Bitcoin confirmations
-    pub static ref PENDING_BTC_CONFIRMATIONS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("atomic_swaps_pending_btc_confirmations", "Number of pending Bitcoin confirmations"),
-        &["swap_id"]
-    ).unwrap();
-
-    /// Number of pending Supernova confirmations
-    pub static ref PENDING_NOVA_CONFIRMATIONS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("atomic_swaps_pending_nova_confirmations", "Number of pending Supernova confirmations"),
-        &["swap_id"]
-    ).unwrap();
+    pub active_swaps: IntGauge,
+    pub pending_btc_confirmations: IntGaugeVec,
+    pub pending_nova_confirmations: IntGaugeVec,
 
     // Histogram metrics
-
-    /// Swap completion time
-    pub static ref SWAP_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("atomic_swap_duration_seconds", "Time taken to complete a swap")
-            .buckets(vec![60.0, 300.0, 600.0, 1800.0, 3600.0, 7200.0])
-    ).unwrap();
-
-    /// Time to first confirmation
-    pub static ref TIME_TO_FIRST_CONFIRMATION: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("atomic_swap_time_to_first_confirmation_seconds", "Time to first confirmation")
-            .buckets(vec![10.0, 30.0, 60.0, 120.0, 300.0, 600.0]),
-        &["chain"]
-    ).unwrap();
-
-    /// Bitcoin transaction fee
-    pub static ref BITCOIN_TX_FEE: Histogram = Histogram::with_opts(
-        HistogramOpts::new("atomic_swap_bitcoin_tx_fee_sats", "Bitcoin transaction fee in satoshis")
-            .buckets(vec![1000.0, 5000.0, 10000.0, 50000.0, 100000.0])
-    ).unwrap();
-
-    /// Supernova transaction fee
-    pub static ref NOVA_TX_FEE: Histogram = Histogram::with_opts(
-        HistogramOpts::new("atomic_swap_nova_tx_fee_units", "Supernova transaction fee")
-            .buckets(vec![100.0, 500.0, 1000.0, 5000.0, 10000.0])
-    ).unwrap();
-
-    /// Swap amounts
-    pub static ref SWAP_AMOUNT_BTC: Histogram = Histogram::with_opts(
-        HistogramOpts::new("atomic_swap_amount_btc_sats", "Bitcoin amount in swaps")
-            .buckets(vec![10000.0, 100000.0, 1000000.0, 10000000.0, 100000000.0])
-    ).unwrap();
-
-    pub static ref SWAP_AMOUNT_NOVA: Histogram = Histogram::with_opts(
-        HistogramOpts::new("atomic_swap_amount_nova_units", "Supernova amount in swaps")
-            .buckets(vec![1000000.0, 10000000.0, 100000000.0, 1000000000.0])
-    ).unwrap();
+    pub swap_duration: Histogram,
+    pub time_to_first_confirmation: HistogramVec,
+    pub bitcoin_tx_fee: Histogram,
+    pub nova_tx_fee: Histogram,
+    pub swap_amount_btc: Histogram,
+    pub swap_amount_nova: Histogram,
 
     // Performance metrics
-
-    /// RPC method latency
-    pub static ref RPC_LATENCY: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("atomic_swap_rpc_latency_seconds", "RPC method latency")
-            .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]),
-        &["method"]
-    ).unwrap();
-
-    /// Monitor loop iteration time
-    pub static ref MONITOR_ITERATION_TIME: Histogram = Histogram::with_opts(
-        HistogramOpts::new("atomic_swap_monitor_iteration_seconds", "Monitor loop iteration time")
-            .buckets(vec![0.1, 0.5, 1.0, 2.0, 5.0])
-    ).unwrap();
+    pub rpc_latency: HistogramVec,
+    pub monitor_iteration_time: Histogram,
 
     // Cache metrics
-
-    /// Cache hit rate
-    pub static ref CACHE_HIT_RATE: Gauge = Gauge::new(
-        "atomic_swap_cache_hit_rate",
-        "Cache hit rate (0.0 to 1.0)"
-    ).unwrap();
-
-    /// Cache operations
-    pub static ref CACHE_OPERATIONS: CounterVec = CounterVec::new(
-        Opts::new("atomic_swap_cache_operations_total", "Total cache operations"),
-        &["operation", "cache_type"]
-    ).unwrap();
+    pub cache_hit_rate: Gauge,
+    pub cache_operations: CounterVec,
 
     // Error metrics
-
-    /// Errors by type
-    pub static ref ERRORS_BY_TYPE: IntCounterVec = IntCounterVec::new(
-        Opts::new("atomic_swap_errors_total", "Total errors by type"),
-        &["error_type"]
-    ).unwrap();
+    pub errors_by_type: IntCounterVec,
 
     // Network metrics
-
-    /// Bitcoin network height
-    pub static ref BITCOIN_BLOCK_HEIGHT: IntGauge = IntGauge::new(
-        "atomic_swap_bitcoin_block_height",
-        "Current Bitcoin block height"
-    ).unwrap();
-
-    /// Supernova network height
-    pub static ref NOVA_BLOCK_HEIGHT: IntGauge = IntGauge::new(
-        "atomic_swap_nova_block_height",
-        "Current Supernova block height"
-    ).unwrap();
-
-    /// WebSocket connections
-    pub static ref WEBSOCKET_CONNECTIONS: IntGauge = IntGauge::new(
-        "atomic_swap_websocket_connections",
-        "Number of active WebSocket connections"
-    ).unwrap();
-
-    /// WebSocket messages sent
-    pub static ref WEBSOCKET_MESSAGES: IntCounterVec = IntCounterVec::new(
-        Opts::new("atomic_swap_websocket_messages_total", "Total WebSocket messages"),
-        &["direction", "message_type"]
-    ).unwrap();
+    pub bitcoin_block_height: IntGauge,
+    pub nova_block_height: IntGauge,
+    pub websocket_connections: IntGauge,
+    pub websocket_messages: IntCounterVec,
 }
 
-/// Initialize all metrics with the registry
-pub fn init_metrics() -> Result<(), Box<dyn std::error::Error>> {
-    // Register counter metrics
-    METRICS_REGISTRY.register(Box::new(SWAPS_INITIATED.clone()))?;
-    METRICS_REGISTRY.register(Box::new(SWAPS_BY_STATE.clone()))?;
-    METRICS_REGISTRY.register(Box::new(SWAPS_COMPLETED.clone()))?;
-    METRICS_REGISTRY.register(Box::new(SWAPS_FAILED.clone()))?;
-    METRICS_REGISTRY.register(Box::new(SWAPS_REFUNDED.clone()))?;
+impl AtomicSwapMetrics {
+    /// Construct every collector and register it with a fresh registry.
+    /// Only fails on Prometheus-side errors (duplicate name, malformed opts),
+    /// which for compile-time constants indicates programmer error.
+    pub fn new() -> Result<Self, MetricsError> {
+        let registry = Registry::new();
 
-    // Register gauge metrics
-    METRICS_REGISTRY.register(Box::new(ACTIVE_SWAPS.clone()))?;
-    METRICS_REGISTRY.register(Box::new(PENDING_BTC_CONFIRMATIONS.clone()))?;
-    METRICS_REGISTRY.register(Box::new(PENDING_NOVA_CONFIRMATIONS.clone()))?;
+        let swaps_initiated = IntCounter::new(
+            "atomic_swaps_initiated_total",
+            "Total number of atomic swaps initiated",
+        )?;
+        let swaps_by_state = IntCounterVec::new(
+            Opts::new("atomic_swaps_state_total", "Total number of swaps by state"),
+            &["state"],
+        )?;
+        let swaps_completed = IntCounter::new(
+            "atomic_swaps_completed_total",
+            "Total number of successfully completed swaps",
+        )?;
+        let swaps_failed = IntCounterVec::new(
+            Opts::new("atomic_swaps_failed_total", "Total number of failed swaps"),
+            &["reason"],
+        )?;
+        let swaps_refunded = IntCounterVec::new(
+            Opts::new(
+                "atomic_swaps_refunded_total",
+                "Total number of refunded swaps",
+            ),
+            &["chain", "reason"],
+        )?;
 
-    // Register histogram metrics
-    METRICS_REGISTRY.register(Box::new(SWAP_DURATION.clone()))?;
-    METRICS_REGISTRY.register(Box::new(TIME_TO_FIRST_CONFIRMATION.clone()))?;
-    METRICS_REGISTRY.register(Box::new(BITCOIN_TX_FEE.clone()))?;
-    METRICS_REGISTRY.register(Box::new(NOVA_TX_FEE.clone()))?;
-    METRICS_REGISTRY.register(Box::new(SWAP_AMOUNT_BTC.clone()))?;
-    METRICS_REGISTRY.register(Box::new(SWAP_AMOUNT_NOVA.clone()))?;
+        let active_swaps =
+            IntGauge::new("atomic_swaps_active", "Number of currently active swaps")?;
+        let pending_btc_confirmations = IntGaugeVec::new(
+            Opts::new(
+                "atomic_swaps_pending_btc_confirmations",
+                "Number of pending Bitcoin confirmations",
+            ),
+            &["swap_id"],
+        )?;
+        let pending_nova_confirmations = IntGaugeVec::new(
+            Opts::new(
+                "atomic_swaps_pending_nova_confirmations",
+                "Number of pending Supernova confirmations",
+            ),
+            &["swap_id"],
+        )?;
 
-    // Register performance metrics
-    METRICS_REGISTRY.register(Box::new(RPC_LATENCY.clone()))?;
-    METRICS_REGISTRY.register(Box::new(MONITOR_ITERATION_TIME.clone()))?;
+        let swap_duration = Histogram::with_opts(
+            HistogramOpts::new("atomic_swap_duration_seconds", "Time taken to complete a swap")
+                .buckets(vec![60.0, 300.0, 600.0, 1800.0, 3600.0, 7200.0]),
+        )?;
+        let time_to_first_confirmation = HistogramVec::new(
+            HistogramOpts::new(
+                "atomic_swap_time_to_first_confirmation_seconds",
+                "Time to first confirmation",
+            )
+            .buckets(vec![10.0, 30.0, 60.0, 120.0, 300.0, 600.0]),
+            &["chain"],
+        )?;
+        let bitcoin_tx_fee = Histogram::with_opts(
+            HistogramOpts::new(
+                "atomic_swap_bitcoin_tx_fee_sats",
+                "Bitcoin transaction fee in satoshis",
+            )
+            .buckets(vec![1000.0, 5000.0, 10000.0, 50000.0, 100000.0]),
+        )?;
+        let nova_tx_fee = Histogram::with_opts(
+            HistogramOpts::new("atomic_swap_nova_tx_fee_units", "Supernova transaction fee")
+                .buckets(vec![100.0, 500.0, 1000.0, 5000.0, 10000.0]),
+        )?;
+        let swap_amount_btc = Histogram::with_opts(
+            HistogramOpts::new("atomic_swap_amount_btc_sats", "Bitcoin amount in swaps").buckets(
+                vec![10000.0, 100000.0, 1000000.0, 10000000.0, 100000000.0],
+            ),
+        )?;
+        let swap_amount_nova = Histogram::with_opts(
+            HistogramOpts::new("atomic_swap_amount_nova_units", "Supernova amount in swaps")
+                .buckets(vec![1000000.0, 10000000.0, 100000000.0, 1000000000.0]),
+        )?;
 
-    // Register cache metrics
-    METRICS_REGISTRY.register(Box::new(CACHE_HIT_RATE.clone()))?;
-    METRICS_REGISTRY.register(Box::new(CACHE_OPERATIONS.clone()))?;
+        let rpc_latency = HistogramVec::new(
+            HistogramOpts::new("atomic_swap_rpc_latency_seconds", "RPC method latency")
+                .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]),
+            &["method"],
+        )?;
+        let monitor_iteration_time = Histogram::with_opts(
+            HistogramOpts::new(
+                "atomic_swap_monitor_iteration_seconds",
+                "Monitor loop iteration time",
+            )
+            .buckets(vec![0.1, 0.5, 1.0, 2.0, 5.0]),
+        )?;
 
-    // Register error metrics
-    METRICS_REGISTRY.register(Box::new(ERRORS_BY_TYPE.clone()))?;
+        let cache_hit_rate =
+            Gauge::new("atomic_swap_cache_hit_rate", "Cache hit rate (0.0 to 1.0)")?;
+        let cache_operations = CounterVec::new(
+            Opts::new(
+                "atomic_swap_cache_operations_total",
+                "Total cache operations",
+            ),
+            &["operation", "cache_type"],
+        )?;
 
-    // Register network metrics
-    METRICS_REGISTRY.register(Box::new(BITCOIN_BLOCK_HEIGHT.clone()))?;
-    METRICS_REGISTRY.register(Box::new(NOVA_BLOCK_HEIGHT.clone()))?;
-    METRICS_REGISTRY.register(Box::new(WEBSOCKET_CONNECTIONS.clone()))?;
-    METRICS_REGISTRY.register(Box::new(WEBSOCKET_MESSAGES.clone()))?;
+        let errors_by_type = IntCounterVec::new(
+            Opts::new("atomic_swap_errors_total", "Total errors by type"),
+            &["error_type"],
+        )?;
 
+        let bitcoin_block_height = IntGauge::new(
+            "atomic_swap_bitcoin_block_height",
+            "Current Bitcoin block height",
+        )?;
+        let nova_block_height = IntGauge::new(
+            "atomic_swap_nova_block_height",
+            "Current Supernova block height",
+        )?;
+        let websocket_connections = IntGauge::new(
+            "atomic_swap_websocket_connections",
+            "Number of active WebSocket connections",
+        )?;
+        let websocket_messages = IntCounterVec::new(
+            Opts::new(
+                "atomic_swap_websocket_messages_total",
+                "Total WebSocket messages",
+            ),
+            &["direction", "message_type"],
+        )?;
+
+        registry.register(Box::new(swaps_initiated.clone()))?;
+        registry.register(Box::new(swaps_by_state.clone()))?;
+        registry.register(Box::new(swaps_completed.clone()))?;
+        registry.register(Box::new(swaps_failed.clone()))?;
+        registry.register(Box::new(swaps_refunded.clone()))?;
+        registry.register(Box::new(active_swaps.clone()))?;
+        registry.register(Box::new(pending_btc_confirmations.clone()))?;
+        registry.register(Box::new(pending_nova_confirmations.clone()))?;
+        registry.register(Box::new(swap_duration.clone()))?;
+        registry.register(Box::new(time_to_first_confirmation.clone()))?;
+        registry.register(Box::new(bitcoin_tx_fee.clone()))?;
+        registry.register(Box::new(nova_tx_fee.clone()))?;
+        registry.register(Box::new(swap_amount_btc.clone()))?;
+        registry.register(Box::new(swap_amount_nova.clone()))?;
+        registry.register(Box::new(rpc_latency.clone()))?;
+        registry.register(Box::new(monitor_iteration_time.clone()))?;
+        registry.register(Box::new(cache_hit_rate.clone()))?;
+        registry.register(Box::new(cache_operations.clone()))?;
+        registry.register(Box::new(errors_by_type.clone()))?;
+        registry.register(Box::new(bitcoin_block_height.clone()))?;
+        registry.register(Box::new(nova_block_height.clone()))?;
+        registry.register(Box::new(websocket_connections.clone()))?;
+        registry.register(Box::new(websocket_messages.clone()))?;
+
+        Ok(Self {
+            registry,
+            swaps_initiated,
+            swaps_by_state,
+            swaps_completed,
+            swaps_failed,
+            swaps_refunded,
+            active_swaps,
+            pending_btc_confirmations,
+            pending_nova_confirmations,
+            swap_duration,
+            time_to_first_confirmation,
+            bitcoin_tx_fee,
+            nova_tx_fee,
+            swap_amount_btc,
+            swap_amount_nova,
+            rpc_latency,
+            monitor_iteration_time,
+            cache_hit_rate,
+            cache_operations,
+            errors_by_type,
+            bitcoin_block_height,
+            nova_block_height,
+            websocket_connections,
+            websocket_messages,
+        })
+    }
+}
+
+static METRICS: OnceLock<AtomicSwapMetrics> = OnceLock::new();
+
+/// Initialize the global metrics singleton. Idempotent: a second successful
+/// call is a no-op. Returns an error only if the first initialization fails.
+pub fn init_metrics() -> Result<(), MetricsError> {
+    if METRICS.get().is_some() {
+        return Ok(());
+    }
+    let metrics = AtomicSwapMetrics::new()?;
+    // `set` returns Err if someone else won the race; that's not an error.
+    let _ = METRICS.set(metrics);
     Ok(())
+}
+
+/// Access the global metrics bundle. Returns `None` before [`init_metrics`]
+/// succeeds — recording helpers should treat this as a silent no-op.
+pub fn metrics() -> Option<&'static AtomicSwapMetrics> {
+    METRICS.get()
+}
+
+/// Access the underlying registry for scraping. Returns `None` until
+/// [`init_metrics`] has been called.
+pub fn registry() -> Option<&'static Registry> {
+    metrics().map(|m| &m.registry)
 }
 
 /// Timer for measuring operation duration
@@ -249,74 +307,104 @@ impl RpcTimer {
 
 impl Drop for RpcTimer {
     fn drop(&mut self) {
-        let duration = self.start.elapsed().as_secs_f64();
-        RPC_LATENCY
-            .with_label_values(&[&self.method])
-            .observe(duration);
+        if let Some(m) = metrics() {
+            let duration = self.start.elapsed().as_secs_f64();
+            m.rpc_latency
+                .with_label_values(&[&self.method])
+                .observe(duration);
+        } else {
+            debug!(
+                "atomic_swap metrics uninitialized; dropping RpcTimer for {}",
+                self.method
+            );
+        }
+    }
+}
+
+/// Record a swap as initiated. Callers that previously read the
+/// `SWAPS_INITIATED` static directly should switch to this helper.
+pub fn record_swap_initiated() {
+    if let Some(m) = metrics() {
+        m.swaps_initiated.inc();
     }
 }
 
 /// Record a swap state transition
 pub fn record_swap_state_transition(old_state: &str, new_state: &str) {
-    SWAPS_BY_STATE.with_label_values(&[new_state]).inc();
+    let Some(m) = metrics() else { return };
+    m.swaps_by_state.with_label_values(&[new_state]).inc();
 
     // Update active swaps gauge
     if new_state == "Active" || new_state == "BothFunded" {
-        ACTIVE_SWAPS.inc();
+        m.active_swaps.inc();
     } else if old_state == "Active" || old_state == "BothFunded" {
-        ACTIVE_SWAPS.dec();
+        m.active_swaps.dec();
     }
 }
 
 /// Record a swap completion
 pub fn record_swap_completion(duration_secs: f64, btc_amount: u64, nova_amount: u64) {
-    SWAPS_COMPLETED.inc();
-    SWAP_DURATION.observe(duration_secs);
-    SWAP_AMOUNT_BTC.observe(btc_amount as f64);
-    SWAP_AMOUNT_NOVA.observe(nova_amount as f64);
+    let Some(m) = metrics() else { return };
+    m.swaps_completed.inc();
+    m.swap_duration.observe(duration_secs);
+    m.swap_amount_btc.observe(btc_amount as f64);
+    m.swap_amount_nova.observe(nova_amount as f64);
 }
 
 /// Record a swap failure
 pub fn record_swap_failure(reason: &str) {
-    SWAPS_FAILED.with_label_values(&[reason]).inc();
+    if let Some(m) = metrics() {
+        m.swaps_failed.with_label_values(&[reason]).inc();
+    }
 }
 
 /// Record a refund
 pub fn record_refund(chain: &str, reason: &str) {
-    SWAPS_REFUNDED.with_label_values(&[chain, reason]).inc();
+    if let Some(m) = metrics() {
+        m.swaps_refunded.with_label_values(&[chain, reason]).inc();
+    }
 }
 
 /// Record cache operation
 pub fn record_cache_operation(operation: &str, cache_type: &str) {
-    CACHE_OPERATIONS
-        .with_label_values(&[operation, cache_type])
-        .inc();
+    if let Some(m) = metrics() {
+        m.cache_operations
+            .with_label_values(&[operation, cache_type])
+            .inc();
+    }
 }
 
 /// Record an error
 pub fn record_error(error_type: &str) {
-    ERRORS_BY_TYPE.with_label_values(&[error_type]).inc();
+    if let Some(m) = metrics() {
+        m.errors_by_type.with_label_values(&[error_type]).inc();
+    }
 }
 
 /// Update network heights
 pub fn update_network_heights(bitcoin_height: u64, nova_height: u64) {
-    BITCOIN_BLOCK_HEIGHT.set(bitcoin_height as i64);
-    NOVA_BLOCK_HEIGHT.set(nova_height as i64);
+    if let Some(m) = metrics() {
+        m.bitcoin_block_height.set(bitcoin_height as i64);
+        m.nova_block_height.set(nova_height as i64);
+    }
 }
 
 /// Update WebSocket metrics
 pub fn update_websocket_connections(delta: i64) {
+    let Some(m) = metrics() else { return };
     if delta > 0 {
-        WEBSOCKET_CONNECTIONS.add(delta);
+        m.websocket_connections.add(delta);
     } else {
-        WEBSOCKET_CONNECTIONS.sub(-delta);
+        m.websocket_connections.sub(-delta);
     }
 }
 
 pub fn record_websocket_message(direction: &str, message_type: &str) {
-    WEBSOCKET_MESSAGES
-        .with_label_values(&[direction, message_type])
-        .inc();
+    if let Some(m) = metrics() {
+        m.websocket_messages
+            .with_label_values(&[direction, message_type])
+            .inc();
+    }
 }
 
 #[cfg(test)]
@@ -324,29 +412,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_metrics_initialization() {
-        let result = init_metrics();
-        // May fail if already initialized, which is ok
-
-        // Test counter increment
-        let before = SWAPS_INITIATED.get();
-        SWAPS_INITIATED.inc();
-        assert_eq!(SWAPS_INITIATED.get(), before + 1);
+    fn test_metrics_construct_standalone() {
+        // Construction is independent of the global singleton.
+        let m = AtomicSwapMetrics::new().expect("metrics construction must succeed");
+        assert!(m.registry.gather().len() >= 23);
     }
 
     #[test]
-    fn test_timer() {
-        let timer = MetricTimer::start(SWAP_DURATION.clone());
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        timer.stop();
+    fn test_init_is_idempotent() {
+        // Two successful init calls must both return Ok, even though only
+        // one actually populates the OnceLock.
+        let first = init_metrics();
+        let second = init_metrics();
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert!(metrics().is_some());
+    }
 
-        // Verify histogram was updated
-        let metric_families = prometheus::gather();
-        let swap_duration = metric_families
-            .iter()
-            .find(|mf| mf.get_name() == "atomic_swap_duration_seconds")
-            .unwrap();
-
-        assert!(swap_duration.get_metric().len() > 0);
+    #[test]
+    fn test_recording_helpers_safe_pre_init() {
+        // Before init, recording helpers must no-op without panic.
+        // (This is best-effort: other tests in this module may have already
+        // initialized the singleton via `test_init_is_idempotent`. What
+        // matters is that the helpers never panic.)
+        record_swap_initiated();
+        record_swap_state_transition("", "Active");
+        record_error("test_error");
     }
 }

@@ -3,7 +3,7 @@
 use crate::atomic_swap::cache::{AtomicSwapCache, CacheConfig};
 use crate::atomic_swap::error::{AtomicSwapError, HTLCError};
 use crate::atomic_swap::metrics::{
-    record_error, record_swap_state_transition, RpcTimer, SWAPS_INITIATED,
+    record_error, record_swap_initiated, record_swap_state_transition, RpcTimer,
 };
 use crate::atomic_swap::monitor::{CrossChainMonitor, MonitorConfig, SwapEvent, SwapSummary};
 use crate::atomic_swap::{
@@ -464,7 +464,7 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
         })?;
 
         // Record metrics
-        SWAPS_INITIATED.inc();
+        record_swap_initiated();
         record_swap_state_transition("", "Active");
 
         // Cache the session
