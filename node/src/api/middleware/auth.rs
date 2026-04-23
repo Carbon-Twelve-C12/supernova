@@ -21,6 +21,7 @@ use super::auth_rate_limiter::{AuthBlockedError, AuthRateLimiter, AuthRateLimite
 pub struct ApiAuth {
     api_keys: Rc<Vec<String>>,
     rate_limiter: Arc<AuthRateLimiter>,
+    enabled: bool,
 }
 
 impl ApiAuth {
@@ -45,17 +46,52 @@ impl ApiAuth {
         Ok(Self {
             api_keys: Rc::new(api_keys),
             rate_limiter: Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default())),
+            enabled: true,
         })
     }
 
-    /// Create authentication middleware for testing only
-    #[cfg(test)]
-    pub fn new_unchecked(api_keys: Vec<String>) -> Self {
+    /// Create authentication middleware from already-validated keys.
+    ///
+    /// # Safety invariant
+    /// The caller must have already rejected empty / whitespace / placeholder
+    /// keys (see `ApiServer::start`). This constructor exists to avoid the
+    /// `Result` return type of [`ApiAuth::new`] on a per-worker hot path where
+    /// the panic-free lint policy (`#![deny(clippy::expect_used)]`) forbids
+    /// `.expect()` on values the compiler cannot prove infallible.
+    pub fn from_validated_keys(api_keys: Vec<String>) -> Self {
         Self {
             api_keys: Rc::new(api_keys),
             rate_limiter: Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default())),
+            enabled: true,
         }
     }
+
+    /// Disabled pass-through variant. Used when `ApiConfig::enable_auth` is
+    /// `false` so the middleware stack keeps a uniform type across the two
+    /// configurations without conditional `.wrap()` calls.
+    pub fn disabled() -> Self {
+        Self {
+            api_keys: Rc::new(Vec::new()),
+            rate_limiter: Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default())),
+            enabled: false,
+        }
+    }
+}
+
+/// Paths served publicly (no API key required). Liveness / readiness probes
+/// and minimal chain-state read endpoints must be reachable by external
+/// monitoring without shipping secrets.
+const PUBLIC_PATH_PREFIXES: &[&str] = &[
+    "/health",
+    "/api/v1/node/version",
+    "/api/v1/blockchain/info",
+    "/api/v1/blockchain/height",
+];
+
+fn is_public_path(path: &str) -> bool {
+    PUBLIC_PATH_PREFIXES
+        .iter()
+        .any(|prefix| path == *prefix || path.starts_with(&format!("{}/", prefix)))
 }
 
 impl<S, B> Transform<S, ServiceRequest> for ApiAuth
@@ -75,6 +111,7 @@ where
             service,
             api_keys: self.api_keys.clone(),
             rate_limiter: self.rate_limiter.clone(),
+            enabled: self.enabled,
         }))
     }
 }
@@ -84,6 +121,7 @@ pub struct ApiAuthMiddleware<S> {
     service: S,
     api_keys: Rc<Vec<String>>,
     rate_limiter: Arc<AuthRateLimiter>,
+    enabled: bool,
 }
 
 impl<S, B> Service<ServiceRequest> for ApiAuthMiddleware<S>
@@ -100,6 +138,17 @@ where
     forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
+        // Pass-through when auth is explicitly disabled. Operators that opt
+        // into this path must also have pinned the server to a trusted
+        // interface (the server's default is loopback-only).
+        if !self.enabled {
+            let fut = self.service.call(req);
+            return Box::pin(async move {
+                let res = fut.await?;
+                Ok(res)
+            });
+        }
+
         // Get client IP for rate limiting
         let client_ip = req
             .connection_info()
@@ -132,6 +181,17 @@ where
 
         // Skip authentication for documentation routes
         if req.path().starts_with("/swagger-ui") || req.path().starts_with("/api-docs") {
+            let fut = self.service.call(req);
+            return Box::pin(async move {
+                let res = fut.await?;
+                Ok(res)
+            });
+        }
+
+        // Skip authentication for the public-by-design endpoints (liveness /
+        // readiness probes and minimal read-only chain state). These must be
+        // reachable without credentials for external monitoring.
+        if is_public_path(req.path()) {
             let fut = self.service.call(req);
             return Box::pin(async move {
                 let res = fut.await?;
@@ -203,7 +263,7 @@ mod tests {
     async fn test_auth_middleware_valid_key() {
         let app = init_service(
             App::new()
-                .wrap(ApiAuth::new_unchecked(vec!["test-key".to_string()]))
+                .wrap(ApiAuth::from_validated_keys(vec!["test-key".to_string()]))
                 .route("/", web::get().to(test_handler)),
         )
         .await;
@@ -221,7 +281,7 @@ mod tests {
     async fn test_auth_middleware_invalid_key() {
         let app = init_service(
             App::new()
-                .wrap(ApiAuth::new_unchecked(vec!["test-key".to_string()]))
+                .wrap(ApiAuth::from_validated_keys(vec!["test-key".to_string()]))
                 .route("/", web::get().to(test_handler)),
         )
         .await;
@@ -239,7 +299,7 @@ mod tests {
     async fn test_auth_middleware_swagger_no_key() {
         let app = init_service(
             App::new()
-                .wrap(ApiAuth::new_unchecked(vec!["test-key".to_string()]))
+                .wrap(ApiAuth::from_validated_keys(vec!["test-key".to_string()]))
                 .route("/swagger-ui/index.html", web::get().to(test_handler)),
         )
         .await;
@@ -274,7 +334,7 @@ mod tests {
     #[actix_web::test]
     async fn test_no_auth_bypass() {
         // Ensure authentication cannot be bypassed
-        let auth = ApiAuth::new_unchecked(vec!["secure-key".to_string()]);
+        let auth = ApiAuth::from_validated_keys(vec!["secure-key".to_string()]);
 
         let app = init_service(
             App::new()

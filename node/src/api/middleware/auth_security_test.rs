@@ -102,7 +102,7 @@ mod auth_security_tests {
         assert!(result.is_err(), "Empty API key list should be rejected");
 
         // Even with test helper, authentication should still be enforced
-        let auth = ApiAuth::new_unchecked(vec!["test-key".to_string()]);
+        let auth = ApiAuth::from_validated_keys(vec!["test-key".to_string()]);
 
         let app = init_service(
             App::new()

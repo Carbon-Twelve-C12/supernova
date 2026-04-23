@@ -14,11 +14,18 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::docs::ApiDoc;
+use super::middleware::auth::ApiAuth;
 use super::middleware::rate_limiting;
 use super::routes;
 use crate::api_facade::ApiFacade;
 use crate::metrics::ApiMetrics;
 use crate::node::Node;
+
+/// Minimum acceptable API key length. Short keys are both guessable and
+/// indicative of placeholder/test configuration that must not reach prod.
+const MIN_API_KEY_LEN: usize = 32;
+/// Substrings that mark a key as an obvious placeholder and must be rejected.
+const PLACEHOLDER_KEY_MARKERS: &[&str] = &["CHANGE-ME", "changeme", "replace-me", "example"];
 
 /// Configuration options for the API server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,21 +56,112 @@ pub struct ApiConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
-            bind_address: "0.0.0.0".to_string(), // Listen on all interfaces
+            // SECURITY: loopback-only by default; operators must explicitly
+            // opt into public exposure via configuration. Binding on 0.0.0.0
+            // by default previously combined with absent authentication to
+            // expose privileged RPC to the LAN.
+            bind_address: "127.0.0.1".to_string(),
             port: 8080,
             enable_docs: true,
-            cors_allowed_origins: vec!["*".to_string()],
+            // SECURITY: no cross-origin access by default. Previously
+            // defaulted to `["*"]` and the middleware also hard-coded
+            // `allow_any_origin()`, which let any website in a browser
+            // talk to the RPC. Operators must explicitly list trusted
+            // origins (e.g. their dashboard / explorer domain).
+            cors_allowed_origins: Vec::new(),
             rate_limit: Some(100),
-            enable_auth: true, // SECURITY: Authentication enabled by default
-            api_keys: Some(vec![
-                // Default secure API key - MUST be changed in production
-                "CHANGE-ME-IN-PRODUCTION-supernova-default-key".to_string(),
-            ]),
+            enable_auth: true,
+            // SECURITY: no default API key. Earlier revisions shipped a
+            // hard-coded `CHANGE-ME-IN-PRODUCTION-*` placeholder key that
+            // only warned on startup — operators who skipped the warning
+            // ran production with a known credential. The server now
+            // refuses to start unless the operator supplies a real key.
+            api_keys: None,
             detailed_logging: true,
             max_json_payload_size: 5, // 5 MB
             request_timeout: 30,      // 30 seconds
         }
     }
+}
+
+/// Validate an API-key list. Returns an `io::Error` describing the first
+/// offending key so misconfigurations surface at startup rather than serve
+/// requests with weak or placeholder credentials.
+fn validate_api_keys(keys: &[String]) -> std::io::Result<()> {
+    if keys.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "API authentication is enabled but no API keys are configured. \
+             Set api_keys to one or more operator-generated secrets of at \
+             least 32 characters before starting.",
+        ));
+    }
+    for key in keys {
+        let trimmed = key.trim();
+        if trimmed.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "API key is empty or whitespace-only",
+            ));
+        }
+        if trimmed.len() < MIN_API_KEY_LEN {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "API key must be at least {} characters long (found {})",
+                    MIN_API_KEY_LEN,
+                    trimmed.len()
+                ),
+            ));
+        }
+        if PLACEHOLDER_KEY_MARKERS
+            .iter()
+            .any(|marker| trimmed.contains(marker))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "API key appears to be a placeholder (contains one of {:?}). \
+                     Generate a real operator secret before starting.",
+                    PLACEHOLDER_KEY_MARKERS
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Build a CORS middleware from the configured allow-list.
+///
+/// * empty list — returns the `Cors::default()` layer, which has no allowed
+///   origins / methods / headers and therefore blocks all cross-origin
+///   requests (browsers enforce same-origin when no permissive CORS headers
+///   come back). Same-origin requests still work.
+/// * contains `"*"` — any origin is allowed but credentials are *not* sent
+///   along, per the CORS spec (`Access-Control-Allow-Credentials` must be
+///   `false` whenever the origin is `*`). A loud warning is emitted.
+/// * explicit origins — each is registered individually.
+fn build_cors(allowed_origins: &[String]) -> Cors {
+    if allowed_origins.is_empty() {
+        return Cors::default();
+    }
+    let mut cors = Cors::default()
+        .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+        .allowed_headers(vec!["Content-Type", "Authorization", "Accept", "X-Requested-With"])
+        .max_age(3600);
+
+    if allowed_origins.iter().any(|origin| origin == "*") {
+        warn!(
+            "API CORS is configured to allow ANY origin (`*`). Credentials \
+             are disabled for safety; prefer an explicit allow-list."
+        );
+        cors = cors.send_wildcard();
+    } else {
+        for origin in allowed_origins {
+            cors = cors.allowed_origin(origin);
+        }
+    }
+    cors
 }
 
 /// API server
@@ -92,19 +190,9 @@ impl ApiServer {
     ) -> Result<Self, crate::node::NodeError> {
         let node_facade = Arc::new(ApiFacade::new(&node)?);
 
-        let config = ApiConfig::default();
-        if config
-            .api_keys
-            .as_ref()
-            .map(|keys| keys.iter().any(|k| k.contains("CHANGE-ME")))
-            .unwrap_or(false)
-        {
-            warn!("SECURITY WARNING: Using default API key. Change this in production!");
-        }
-
         Ok(Self {
             node_facade,
-            config,
+            config: ApiConfig::default(),
             bind_address: bind_address.to_string(),
             port,
             metrics: Arc::new(ApiMetrics::new()),
@@ -126,51 +214,71 @@ impl ApiServer {
         let config = self.config.clone();
         let rate_limit = config.rate_limit.unwrap_or(100);
 
-        // Validate API key configuration
-        if config.enable_auth {
-            let api_keys = config.api_keys.clone().unwrap_or_default();
-            if api_keys.is_empty() {
-                error!("SECURITY ERROR: Authentication is enabled but no API keys configured");
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Authentication enabled but no API keys configured",
-                ));
+        // Validate API key configuration fail-closed. An enable_auth=true
+        // config with missing or placeholder keys is a production foot-gun
+        // and must refuse to start.
+        let validated_keys: Option<Vec<String>> = if config.enable_auth {
+            let keys = config.api_keys.clone().unwrap_or_default();
+            if let Err(err) = validate_api_keys(&keys) {
+                error!("SECURITY: refusing to start API server: {}", err);
+                return Err(err);
             }
+            Some(keys)
+        } else {
+            warn!(
+                "API authentication is DISABLED. This is only acceptable on \
+                 trusted, loopback-only deployments."
+            );
+            None
+        };
 
-            // Warn about default key usage
-            if api_keys.iter().any(|k| k.contains("CHANGE-ME")) {
-                warn!("SECURITY WARNING: Default API key detected. This MUST be changed in production!");
-            }
-        }
+        let allowed_origins = config.cors_allowed_origins.clone();
+        let enable_docs = config.enable_docs;
 
         // Create OpenAPI documentation
         let openapi = ApiDoc::openapi();
 
-        // Calculate socket address
+        // Calculate socket address. A malformed bind_address falls back to
+        // loopback — the safer choice — but still emits a warning so the
+        // misconfig is visible in logs.
         let socket_addr = SocketAddr::new(
             IpAddr::from_str(&self.bind_address).unwrap_or_else(|e| {
-                warn!("Failed to parse bind_address '{}': {}. Falling back to 127.0.0.1", 
-                    self.bind_address, e);
+                warn!(
+                    "Failed to parse bind_address '{}': {}. Falling back to 127.0.0.1",
+                    self.bind_address, e
+                );
                 IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
             }),
             self.port,
         );
 
         info!("Starting API server on {}", socket_addr);
-        if config.enable_auth {
+        if validated_keys.is_some() {
             info!("API authentication is ENABLED");
+        }
+        if allowed_origins.is_empty() {
+            info!("CORS disabled — same-origin requests only");
         } else {
-            warn!("API authentication is DISABLED - not recommended for production");
+            info!("CORS allowed origins: {:?}", allowed_origins);
         }
 
-        // Set up the HTTP server
+        // Set up the HTTP server. The factory closure is invoked per worker;
+        // middleware values must be freshly constructed each call because
+        // actix-cors' `Cors` and our `ApiAuth` are not `Clone`. The
+        // middleware stack has a fixed shape across both `enable_auth`
+        // states (we install `ApiAuth::disabled()` when auth is off) so
+        // the App type stays homogeneous and avoids conditional `.boxed()`.
         let server = HttpServer::new(move || {
-            App::new()
+            let auth = match &validated_keys {
+                Some(keys) => ApiAuth::from_validated_keys(keys.clone()),
+                None => ApiAuth::disabled(),
+            };
+
+            let app = App::new()
                 .app_data(node_data.clone())
                 .app_data(metrics_data.clone())
                 // Configure JSON extractor limits
                 .app_data(web::JsonConfig::default().limit(4096))
-                // TODO: Add authentication middleware when type issue is resolved
                 .wrap(middleware::Compress::default())
                 .wrap(
                     middleware::DefaultHeaders::new()
@@ -182,23 +290,25 @@ impl ApiServer {
                 .wrap(middleware::NormalizePath::new(
                     middleware::TrailingSlash::Trim,
                 ))
-                .wrap(
-                    Cors::default()
-                        .allow_any_origin()
-                        .allow_any_method()
-                        .allow_any_header()
-                        .max_age(3600),
-                )
+                // Auth sits inside CORS so that 401 responses still carry
+                // the CORS headers a browser needs to interpret the
+                // failure. ApiAuth internally bypasses OPTIONS preflights
+                // and the public-path allow-list.
+                .wrap(auth)
+                .wrap(build_cors(&allowed_origins))
                 .wrap(middleware::Logger::default())
                 .wrap(rate_limiting::RateLimiter::new(rate_limit))
-                // Configure API routes
-                .configure(routes::configure)
-                // Add OpenAPI documentation if enabled
-                .service(
+                .configure(routes::configure);
+
+            if enable_docs {
+                app.service(
                     SwaggerUi::new("/swagger-ui/{_:.*}")
                         .url("/api-docs/openapi.json", openapi.clone())
                         .config(utoipa_swagger_ui::Config::default()),
                 )
+            } else {
+                app
+            }
         })
         .client_request_timeout(std::time::Duration::from_secs(config.request_timeout))
         .bind(socket_addr)?
@@ -215,12 +325,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_api_config_default() {
+    fn test_api_config_default_is_safe() {
         let config = ApiConfig::default();
         assert_eq!(config.bind_address, "127.0.0.1");
         assert_eq!(config.port, 8080);
         assert!(config.enable_docs);
-        assert_eq!(config.cors_allowed_origins, vec!["*".to_string()]);
+        assert!(
+            config.cors_allowed_origins.is_empty(),
+            "Default CORS must be empty — operators must opt into origins"
+        );
         assert_eq!(config.rate_limit, Some(100));
+        assert!(config.enable_auth, "Authentication must default to on");
+        assert!(
+            config.api_keys.is_none(),
+            "No default API key may be shipped — operators must configure one"
+        );
+    }
+
+    #[test]
+    fn test_validate_api_keys_rejects_empty() {
+        assert!(validate_api_keys(&[]).is_err());
+    }
+
+    #[test]
+    fn test_validate_api_keys_rejects_whitespace() {
+        assert!(validate_api_keys(&["   ".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_validate_api_keys_rejects_short() {
+        // 31-char key — one below the minimum.
+        assert!(validate_api_keys(&["a".repeat(31)]).is_err());
+    }
+
+    #[test]
+    fn test_validate_api_keys_rejects_placeholder() {
+        let k = format!("CHANGE-ME-{}", "x".repeat(40));
+        assert!(validate_api_keys(&[k]).is_err());
+    }
+
+    #[test]
+    fn test_validate_api_keys_accepts_real_key() {
+        // 64-char non-placeholder key.
+        let k: String = (0..64).map(|i| ((b'a' + (i as u8 % 26)) as char)).collect();
+        assert!(validate_api_keys(&[k]).is_ok());
     }
 }
