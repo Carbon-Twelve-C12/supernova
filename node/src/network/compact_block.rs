@@ -18,7 +18,23 @@ use serde::{Deserialize, Serialize};
 use siphasher::sip::SipHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::io::Read;
 use std::time::Instant;
+
+use crate::network::message::MessageSizeLimits;
+
+/// Hard cap on the decompressed output of any compact-block payload.
+///
+/// A zstd frame can claim an arbitrary "content size" and, more importantly,
+/// a small frame can legitimately expand to an unbounded amount of data. An
+/// attacker can therefore send a ~kilobyte payload that would decompress to
+/// gigabytes (a classic "decompression bomb") and exhaust node memory.
+///
+/// We bound the output at [`MessageSizeLimits::MAX_BLOCK_SIZE`] (4 MiB) — the
+/// same cap enforced on inbound P2P messages — and stream-decode so we can
+/// abort as soon as the limit is crossed rather than allocating first and
+/// checking afterwards.
+const MAX_DECOMPRESSED_SIZE: usize = MessageSizeLimits::MAX_BLOCK_SIZE;
 
 /// Compact block structure optimized for Supernova
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +141,10 @@ pub fn compress_quantum_data(data: &[u8]) -> Vec<u8> {
 }
 
 /// Decompress quantum signature data
+///
+/// The decompressed output is hard-capped at [`MAX_DECOMPRESSED_SIZE`]. Any
+/// payload that would expand beyond that cap is rejected without materialising
+/// the full decompressed buffer (decompression-bomb defense).
 pub fn decompress_quantum_data(data: &[u8]) -> Result<Vec<u8>, String> {
     // Check minimum size
     if data.len() < 5 {
@@ -141,13 +161,40 @@ pub fn decompress_quantum_data(data: &[u8]) -> Result<Vec<u8>, String> {
 
     match compression_type {
         0x00 => {
-            // Uncompressed
+            // Uncompressed — still reject anything above the cap so a single
+            // large uncompressed envelope can't slip past the streaming cap
+            // applied to the zstd branch below.
+            if payload.len() > MAX_DECOMPRESSED_SIZE {
+                return Err(format!(
+                    "Uncompressed payload exceeds {} byte cap: {} bytes",
+                    MAX_DECOMPRESSED_SIZE,
+                    payload.len()
+                ));
+            }
             Ok(payload.to_vec())
         }
         0x01 => {
-            // Zstd compressed
-            zstd::decode_all(payload)
-                .map_err(|e| format!("Decompression failed: {}", e))
+            // Zstd compressed — stream-decode with a hard output cap.
+            //
+            // We take `MAX_DECOMPRESSED_SIZE + 1` bytes out of the decoder so
+            // that exceeding the cap by even a single byte is observable: if
+            // the final buffer length is > cap, the frame was too large and
+            // we error out before the caller ever sees partial data.
+            let mut decoder = zstd::stream::read::Decoder::new(payload)
+                .map_err(|e| format!("Decompression failed: {}", e))?;
+            let mut output = Vec::new();
+            decoder
+                .by_ref()
+                .take(MAX_DECOMPRESSED_SIZE as u64 + 1)
+                .read_to_end(&mut output)
+                .map_err(|e| format!("Decompression failed: {}", e))?;
+            if output.len() > MAX_DECOMPRESSED_SIZE {
+                return Err(format!(
+                    "Decompressed size exceeds {} byte cap (possible decompression bomb)",
+                    MAX_DECOMPRESSED_SIZE
+                ));
+            }
+            Ok(output)
         }
         _ => Err(format!("Unknown compression type: {}", compression_type)),
     }
@@ -577,6 +624,70 @@ mod tests {
         assert_eq!(delta.energy_delta, deserialized.energy_delta);
         assert_eq!(delta.carbon_delta, deserialized.carbon_delta);
         assert_eq!(delta.renewable_delta, deserialized.renewable_delta);
+    }
+
+    #[test]
+    fn test_quantum_data_roundtrip_under_cap() {
+        // Payload that compresses well but stays under the cap.
+        let original = vec![0xABu8; 64 * 1024];
+        let compressed = compress_quantum_data(&original);
+        let round_tripped = decompress_quantum_data(&compressed)
+            .expect("valid payload should decompress");
+        assert_eq!(round_tripped, original);
+    }
+
+    #[test]
+    fn test_decompression_bomb_rejected() {
+        // Build a zstd frame whose decompressed size exceeds MAX_DECOMPRESSED_SIZE.
+        // 8 MiB of zeros compresses to a tiny frame but would blow past the 4 MiB cap.
+        let bomb_plaintext = vec![0u8; MAX_DECOMPRESSED_SIZE + 1024 * 1024];
+        let compressed_inner = zstd::encode_all(bomb_plaintext.as_slice(), ZSTD_COMPRESSION_LEVEL)
+            .expect("zstd encode should succeed");
+
+        // The envelope must advertise the zstd branch so the capped decoder runs.
+        let mut envelope = Vec::with_capacity(5 + compressed_inner.len());
+        envelope.extend_from_slice(&QUANTUM_COMPRESSION_MAGIC);
+        envelope.push(0x01);
+        envelope.extend_from_slice(&compressed_inner);
+
+        let result = decompress_quantum_data(&envelope);
+        assert!(result.is_err(), "bomb payload must be rejected");
+        let msg = result.err().unwrap();
+        assert!(
+            msg.contains("decompression bomb") || msg.contains("cap"),
+            "error should mention the cap, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_uncompressed_payload_capped() {
+        // Envelope with the uncompressed marker carrying more than MAX_DECOMPRESSED_SIZE
+        // must also be rejected, otherwise the cap could be trivially bypassed.
+        let mut envelope = Vec::with_capacity(5 + MAX_DECOMPRESSED_SIZE + 1);
+        envelope.extend_from_slice(&QUANTUM_COMPRESSION_MAGIC);
+        envelope.push(0x00);
+        envelope.resize(5 + MAX_DECOMPRESSED_SIZE + 1, 0u8);
+
+        let result = decompress_quantum_data(&envelope);
+        assert!(result.is_err(), "oversized uncompressed payload must be rejected");
+    }
+
+    #[test]
+    fn test_decompress_exact_cap_allowed() {
+        // A payload that decompresses to exactly MAX_DECOMPRESSED_SIZE must succeed.
+        // This also guards against an off-by-one in the `take(cap + 1)` bound.
+        let exact = vec![0u8; MAX_DECOMPRESSED_SIZE];
+        let compressed = zstd::encode_all(exact.as_slice(), ZSTD_COMPRESSION_LEVEL)
+            .expect("zstd encode should succeed");
+
+        let mut envelope = Vec::with_capacity(5 + compressed.len());
+        envelope.extend_from_slice(&QUANTUM_COMPRESSION_MAGIC);
+        envelope.push(0x01);
+        envelope.extend_from_slice(&compressed);
+
+        let result = decompress_quantum_data(&envelope).expect("exact-cap payload must succeed");
+        assert_eq!(result.len(), MAX_DECOMPRESSED_SIZE);
     }
 }
 
