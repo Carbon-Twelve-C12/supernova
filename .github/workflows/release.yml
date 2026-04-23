@@ -113,8 +113,11 @@ jobs:
           TARGET="${{ matrix.target }}"
           STAGE="supernova-${VERSION}-${TARGET}"
           mkdir -p "$STAGE"
-          # Copy every release binary that was actually produced.
-          for bin in supernova-node supernova-cli supernova-banner supernova-oracle miner mine_genesis wallet quantum_validation; do
+          # Copy every release binary that was actually produced. Note:
+          # `supernova-oracle` is deliberately excluded — it is a mock-only
+          # development binary gated behind the `mock-oracle` feature and
+          # must not be distributed in release artifacts.
+          for bin in supernova-node supernova-cli supernova-banner miner mine_genesis wallet quantum_validation; do
             src="target/${TARGET}/release/${bin}"
             if [ -f "$src" ]; then
               cp "$src" "$STAGE/"

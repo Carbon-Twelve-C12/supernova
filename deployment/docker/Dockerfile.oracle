@@ -1,7 +1,18 @@
-# Environmental Oracle Service Dockerfile
-FROM rust:1.75-slim-bookworm as builder
+# MOCK Environmental Oracle Service Dockerfile
+#
+# WARNING: this image builds the `supernova-oracle` binary with the
+# `mock-oracle` feature enabled. The binary emits randomised carbon-intensity
+# and renewable-mix values and must NEVER be deployed into a consensus-
+# relevant environmental oracle quorum. It exists only to exercise the
+# environmental-data API shape during local development and CI.
+#
+# The container will refuse to start unless the caller sets:
+#   ORACLE_I_UNDERSTAND_THIS_IS_MOCK=yes
+# The service binds to 127.0.0.1 inside the container by default; publishing
+# it beyond the container requires overriding ORACLE_BIND_HOST explicitly.
 
-# Install build dependencies
+FROM rust:1.75-slim-bookworm AS builder
+
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
@@ -11,49 +22,40 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /build
 
-# Copy workspace files
-COPY Cargo.toml Cargo.lock ./
-COPY btclib ./btclib
-COPY node ./node
+# Copy the full workspace — the node crate depends on supernova-core, wallet,
+# and other workspace members, so partial copies do not resolve.
+COPY . .
 
-# Build the oracle service
-RUN cargo build --release --bin supernova-oracle --features environmental
+# Build the mock oracle binary with its feature flag enabled. Any other build
+# of `-p supernova-node` produces a binary that refuses to start.
+RUN cargo build --release -p supernova-node --bin supernova-oracle --features mock-oracle
 
-# Runtime stage
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
     curl \
-    jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash oracle
 
-# Copy binary from builder
 COPY --from=builder /build/target/release/supernova-oracle /usr/local/bin/supernova-oracle
 
-# Create data directories
-RUN mkdir -p /home/oracle/data /home/oracle/config /home/oracle/logs \
+RUN mkdir -p /home/oracle/data /home/oracle/logs \
     && chown -R oracle:oracle /home/oracle
 
 USER oracle
 WORKDIR /home/oracle
 
-# Oracle service ports
-EXPOSE 8390 9100
+EXPOSE 8390
 
-# Environment variables
 ENV UPDATE_INTERVAL=300
-ENV CARBON_API_ENDPOINT=https://api.carbonintensity.org.uk
-ENV RENEWABLE_API_ENDPOINT=https://api.electricitymap.org
+ENV ORACLE_BIND_HOST=127.0.0.1
+# Operators must override this acknowledgement explicitly at deploy time.
+ENV ORACLE_I_UNDERSTAND_THIS_IS_MOCK=no
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8390/health || exit 1
 
-# Default command
-CMD ["supernova-oracle", "--config=/home/oracle/config/oracle.toml"] 
+CMD ["supernova-oracle"]

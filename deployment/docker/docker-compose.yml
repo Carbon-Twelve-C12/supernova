@@ -101,85 +101,14 @@ services:
       timeout: 10s
       retries: 3
 
-  # Environmental Oracle 1 - Carbon Tracking
-  oracle-carbon:
-    build:
-      context: ../..
-      dockerfile: deployment/docker/Dockerfile.oracle
-    container_name: supernova-oracle-carbon
-    hostname: oracle-carbon
-    user: "1001:1001"
-    read_only: true
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 2G
-          pids: 500
-        reservations:
-          cpus: '0.5'
-          memory: 1G
-    environment:
-      - ORACLE_TYPE=carbon_tracking
-      - ORACLE_ID=oracle-carbon-1
-      - ORACLE_REGION=north_america
-      - ORACLE_PORT=9001
-      - ORACLE_TEST_MODE=true
-    ports:
-      - "9001:9001"
-    volumes:
-      - oracle-carbon-data:/data/oracle
-    networks:
-      - supernova-testnet
-    restart: unless-stopped
-
-  # Environmental Oracle 2 - Renewable Verification
-  oracle-renewable:
-    build:
-      context: ../..
-      dockerfile: deployment/docker/Dockerfile.oracle
-    container_name: supernova-oracle-renewable
-    hostname: oracle-renewable
-    user: "1001:1001"
-    read_only: true
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 2G
-          pids: 500
-        reservations:
-          cpus: '0.5'
-          memory: 1G
-    environment:
-      - ORACLE_TYPE=renewable_verification
-      - ORACLE_ID=oracle-renewable-1
-      - ORACLE_REGION=europe
-      - ORACLE_PORT=9002
-      - ORACLE_TEST_MODE=true
-    ports:
-      - "9002:9002"
-    volumes:
-      - oracle-renewable-data:/data/oracle
-    networks:
-      - supernova-testnet
-    restart: unless-stopped
+  # Environmental oracle services have been removed from the default stack.
+  # The former `supernova-oracle` binary was a mock data source that emitted
+  # randomised carbon-intensity and renewable-mix values. Running it as a
+  # quorum member could contaminate consensus-relevant environmental data.
+  # To exercise the mock locally, build it explicitly with:
+  #   cargo build -p supernova-node --bin supernova-oracle --features mock-oracle
+  # and run it behind a loopback-only bind address. A real oracle integration
+  # must be implemented before these services are re-introduced.
 
   # Lightning Node
   lightning-node:
@@ -457,8 +386,6 @@ networks:
 volumes:
   bootstrap1-data:
   bootstrap2-data:
-  oracle-carbon-data:
-  oracle-renewable-data:
   lightning-data:
   faucet-data:
   prometheus-data:

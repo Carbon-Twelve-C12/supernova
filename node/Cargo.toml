@@ -22,6 +22,12 @@ default = ["testnet"]
 lightning = ["supernova-core/lightning"]
 environmental = []
 testnet = []
+# The `supernova-oracle` binary is a mock/demo environmental data source that
+# emits randomised carbon-intensity and renewable-mix values. It must never be
+# built into production artifacts, and the binary refuses to start without this
+# feature flag being set at compile time. Operators who want a real feed must
+# implement one instead.
+mock-oracle = []
 
 [dependencies]
 supernova-core = { path = "../supernova-core", features = ["lightning"] }
