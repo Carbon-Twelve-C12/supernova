@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::environmental::emissions::EmissionsTracker;
 use crate::mempool::transaction_pool::TransactionPool;
+use crate::monitoring::MetricsError;
 use crate::storage::chain_state::ChainState;
 use crate::types::block::Block;
 use crate::types::transaction::Transaction;
@@ -118,22 +119,21 @@ pub struct BlockchainMetrics {
     transaction_first_seen: Arc<RwLock<HashMap<[u8; 32], Instant>>>,
 }
 
-impl Default for BlockchainMetrics {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl BlockchainMetrics {
-    /// Create a new blockchain metrics system
-    pub fn new() -> Self {
+    /// Create a new blockchain metrics system.
+    ///
+    /// Returns an error only if the underlying Prometheus registry rejects a
+    /// metric definition — which in practice can only happen on programmer
+    /// error (invalid metric name or duplicate registration) since every name
+    /// here is a compile-time constant.
+    pub fn new() -> Result<Self, MetricsError> {
         let registry = Registry::new();
 
         // Create block related metrics
         let block_height =
-            IntGauge::new("supernova_block_height", "Current blockchain height").unwrap();
+            IntGauge::new("supernova_block_height", "Current blockchain height")?;
         let blocks_processed =
-            IntCounter::new("supernova_blocks_processed", "Total blocks processed").unwrap();
+            IntCounter::new("supernova_blocks_processed", "Total blocks processed")?;
         let block_processing_time = Histogram::with_opts(
             HistogramOpts::new(
                 "supernova_block_processing_time",
@@ -142,15 +142,13 @@ impl BlockchainMetrics {
             .buckets(vec![
                 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0,
             ]),
-        )
-        .unwrap();
+        )?;
 
         // Create transaction related metrics
         let transactions_by_type = IntCounterVec::new(
             Opts::new("supernova_transactions", "Number of transactions by type"),
             &["type"],
-        )
-        .unwrap();
+        )?;
 
         let transaction_verification_time = Histogram::with_opts(
             HistogramOpts::new(
@@ -160,46 +158,41 @@ impl BlockchainMetrics {
             .buckets(vec![
                 1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
             ]),
-        )
-        .unwrap();
+        )?;
 
         // Create mempool metrics
         let mempool_size = IntGauge::new(
             "supernova_mempool_size",
             "Number of transactions in mempool",
-        )
-        .unwrap();
+        )?;
         let mempool_memory_usage =
-            IntGauge::new("supernova_mempool_memory", "Mempool memory usage in bytes").unwrap();
+            IntGauge::new("supernova_mempool_memory", "Mempool memory usage in bytes")?;
 
         // Create consensus metrics
         let network_hashrate =
-            IntGauge::new("supernova_network_hashrate", "Network hashrate in TH/s").unwrap();
+            IntGauge::new("supernova_network_hashrate", "Network hashrate in TH/s")?;
         let blocks_by_difficulty = Histogram::with_opts(
             HistogramOpts::new("supernova_blocks_by_difficulty", "Blocks by difficulty").buckets(
                 vec![100.0, 1000.0, 10000.0, 100000.0, 1000000.0, 10000000.0],
             ),
-        )
-        .unwrap();
+        )?;
 
         // Create chain metrics
         let orphaned_blocks =
-            IntCounter::new("supernova_orphaned_blocks", "Number of orphaned blocks").unwrap();
+            IntCounter::new("supernova_orphaned_blocks", "Number of orphaned blocks")?;
         let stale_blocks =
-            IntCounter::new("supernova_stale_blocks", "Number of stale blocks").unwrap();
+            IntCounter::new("supernova_stale_blocks", "Number of stale blocks")?;
         let chain_reorgs =
-            IntCounter::new("supernova_chain_reorgs", "Number of chain reorganizations").unwrap();
+            IntCounter::new("supernova_chain_reorgs", "Number of chain reorganizations")?;
         let reorg_depth = Histogram::with_opts(
             HistogramOpts::new("supernova_reorg_depth", "Depth of chain reorganizations")
                 .buckets(vec![1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 20.0, 50.0]),
-        )
-        .unwrap();
+        )?;
 
         let fork_length = Histogram::with_opts(
             HistogramOpts::new("supernova_fork_length", "Length of forks")
                 .buckets(vec![1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 20.0, 50.0]),
-        )
-        .unwrap();
+        )?;
 
         // Create network metrics
         let block_propagation_time = Histogram::with_opts(
@@ -210,8 +203,7 @@ impl BlockchainMetrics {
             .buckets(vec![
                 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0,
             ]),
-        )
-        .unwrap();
+        )?;
 
         let transaction_propagation_time = Histogram::with_opts(
             HistogramOpts::new(
@@ -221,8 +213,7 @@ impl BlockchainMetrics {
             .buckets(vec![
                 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0,
             ]),
-        )
-        .unwrap();
+        )?;
 
         // Create environmental metrics
         let carbon_emissions_per_block = Histogram::with_opts(
@@ -231,14 +222,12 @@ impl BlockchainMetrics {
                 "Carbon emissions per block in kg CO2e",
             )
             .buckets(vec![1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0]),
-        )
-        .unwrap();
+        )?;
 
         let green_energy_percentage = IntGauge::new(
             "supernova_green_energy_percentage",
             "Percentage of network energy from renewable sources",
-        )
-        .unwrap();
+        )?;
 
         // Create security metrics
         let invalid_blocks = IntCounterVec::new(
@@ -247,8 +236,7 @@ impl BlockchainMetrics {
                 "Number of invalid blocks by reason",
             ),
             &["reason"],
-        )
-        .unwrap();
+        )?;
 
         let verification_failures = IntCounterVec::new(
             Opts::new(
@@ -256,40 +244,34 @@ impl BlockchainMetrics {
                 "Verification failures by reason",
             ),
             &["reason"],
-        )
-        .unwrap();
+        )?;
 
         // Create quantum metrics
         let blocks_with_quantum_signatures = IntCounter::new(
             "supernova_blocks_with_quantum_signatures",
             "Number of blocks with quantum-resistant signatures",
-        )
-        .unwrap();
+        )?;
 
         let quantum_signatures_percentage = IntGauge::new(
             "supernova_quantum_signatures_percentage",
             "Percentage of transactions using quantum-resistant signatures",
-        )
-        .unwrap();
+        )?;
 
         // Additional metrics
         let renewable_energy_blocks = IntCounter::new(
             "supernova_renewable_energy_blocks",
             "Number of blocks mined with renewable energy",
-        )
-        .unwrap();
+        )?;
 
         let p2p_messages_processed = IntCounterVec::new(
             Opts::new("supernova_p2p_messages", "P2P messages processed by type"),
             &["type"],
-        )
-        .unwrap();
+        )?;
 
         let utxo_set_size = IntGauge::new(
             "supernova_utxo_set_size",
             "Number of UTXOs in the current set",
-        )
-        .unwrap();
+        )?;
 
         let utxo_operations_per_block = Histogram::with_opts(
             HistogramOpts::new(
@@ -297,20 +279,17 @@ impl BlockchainMetrics {
                 "UTXO operations per block",
             )
             .buckets(vec![10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0]),
-        )
-        .unwrap();
+        )?;
 
         let chain_state_db_size = IntGauge::new(
             "supernova_chain_state_db_size",
             "Chain state database size in bytes",
-        )
-        .unwrap();
+        )?;
 
         let lightning_channels = IntGauge::new(
             "supernova_lightning_channels",
             "Number of Lightning Network channels",
-        )
-        .unwrap();
+        )?;
 
         let fees_per_block = Histogram::with_opts(
             HistogramOpts::new("supernova_fees_per_block", "Fees per block in satoshis").buckets(
@@ -318,8 +297,7 @@ impl BlockchainMetrics {
                     1000.0, 5000.0, 10000.0, 50000.0, 100000.0, 500000.0, 1000000.0, 5000000.0,
                 ],
             ),
-        )
-        .unwrap();
+        )?;
 
         let consensus_decisions = IntCounterVec::new(
             Opts::new(
@@ -327,84 +305,41 @@ impl BlockchainMetrics {
                 "Consensus decisions by policy",
             ),
             &["policy"],
-        )
-        .unwrap();
+        )?;
 
         // Register all metrics
-        registry.register(Box::new(block_height.clone())).unwrap();
-        registry
-            .register(Box::new(blocks_processed.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(block_processing_time.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(transactions_by_type.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(transaction_verification_time.clone()))
-            .unwrap();
-        registry.register(Box::new(mempool_size.clone())).unwrap();
-        registry
-            .register(Box::new(mempool_memory_usage.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(network_hashrate.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(blocks_by_difficulty.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(orphaned_blocks.clone()))
-            .unwrap();
-        registry.register(Box::new(stale_blocks.clone())).unwrap();
-        registry.register(Box::new(chain_reorgs.clone())).unwrap();
-        registry.register(Box::new(reorg_depth.clone())).unwrap();
-        registry.register(Box::new(fork_length.clone())).unwrap();
-        registry
-            .register(Box::new(block_propagation_time.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(transaction_propagation_time.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(carbon_emissions_per_block.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(green_energy_percentage.clone()))
-            .unwrap();
-        registry.register(Box::new(invalid_blocks.clone())).unwrap();
-        registry
-            .register(Box::new(verification_failures.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(blocks_with_quantum_signatures.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(quantum_signatures_percentage.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(renewable_energy_blocks.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(p2p_messages_processed.clone()))
-            .unwrap();
-        registry.register(Box::new(utxo_set_size.clone())).unwrap();
-        registry
-            .register(Box::new(utxo_operations_per_block.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(chain_state_db_size.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(lightning_channels.clone()))
-            .unwrap();
-        registry.register(Box::new(fees_per_block.clone())).unwrap();
-        registry
-            .register(Box::new(consensus_decisions.clone()))
-            .unwrap();
+        registry.register(Box::new(block_height.clone()))?;
+        registry.register(Box::new(blocks_processed.clone()))?;
+        registry.register(Box::new(block_processing_time.clone()))?;
+        registry.register(Box::new(transactions_by_type.clone()))?;
+        registry.register(Box::new(transaction_verification_time.clone()))?;
+        registry.register(Box::new(mempool_size.clone()))?;
+        registry.register(Box::new(mempool_memory_usage.clone()))?;
+        registry.register(Box::new(network_hashrate.clone()))?;
+        registry.register(Box::new(blocks_by_difficulty.clone()))?;
+        registry.register(Box::new(orphaned_blocks.clone()))?;
+        registry.register(Box::new(stale_blocks.clone()))?;
+        registry.register(Box::new(chain_reorgs.clone()))?;
+        registry.register(Box::new(reorg_depth.clone()))?;
+        registry.register(Box::new(fork_length.clone()))?;
+        registry.register(Box::new(block_propagation_time.clone()))?;
+        registry.register(Box::new(transaction_propagation_time.clone()))?;
+        registry.register(Box::new(carbon_emissions_per_block.clone()))?;
+        registry.register(Box::new(green_energy_percentage.clone()))?;
+        registry.register(Box::new(invalid_blocks.clone()))?;
+        registry.register(Box::new(verification_failures.clone()))?;
+        registry.register(Box::new(blocks_with_quantum_signatures.clone()))?;
+        registry.register(Box::new(quantum_signatures_percentage.clone()))?;
+        registry.register(Box::new(renewable_energy_blocks.clone()))?;
+        registry.register(Box::new(p2p_messages_processed.clone()))?;
+        registry.register(Box::new(utxo_set_size.clone()))?;
+        registry.register(Box::new(utxo_operations_per_block.clone()))?;
+        registry.register(Box::new(chain_state_db_size.clone()))?;
+        registry.register(Box::new(lightning_channels.clone()))?;
+        registry.register(Box::new(fees_per_block.clone()))?;
+        registry.register(Box::new(consensus_decisions.clone()))?;
 
-        Self {
+        Ok(Self {
             registry,
             block_height,
             blocks_processed,
@@ -439,7 +374,7 @@ impl BlockchainMetrics {
             consensus_decisions,
             block_times: Arc::new(RwLock::new(Vec::new())),
             transaction_first_seen: Arc::new(RwLock::new(HashMap::new())),
-        }
+        })
     }
 
     /// Get the Prometheus registry
@@ -809,7 +744,7 @@ mod tests {
     #[tokio::test]
     async fn test_block_interval_calculation() {
         // Create a new metrics instance
-        let metrics = BlockchainMetrics::new();
+        let metrics = BlockchainMetrics::new().expect("metrics construction must succeed");
 
         // Create block times with 10 minute intervals
         let mut time = Utc::now();
@@ -836,7 +771,7 @@ mod tests {
 
     #[test]
     fn test_registry_contains_all_metrics() {
-        let metrics = BlockchainMetrics::new();
+        let metrics = BlockchainMetrics::new().expect("metrics construction must succeed");
         let registry = metrics.registry();
 
         // Check that all metrics are registered
