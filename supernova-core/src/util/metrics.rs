@@ -1,99 +1,117 @@
 //! Metrics collection and reporting utilities
 
-use lazy_static::lazy_static;
 use prometheus::{Gauge, Histogram, HistogramOpts, IntCounter, IntGauge, Registry};
+
+use crate::monitoring::MetricsError;
 
 /// Default histogram buckets for timing operations
 pub const DEFAULT_BUCKETS: &[f64] = &[
     0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
 ];
 
-lazy_static! {
-    pub static ref REGISTRY: Registry = Registry::new();
+/// Core supernova metric collectors.
+///
+/// Construction is fallible because Prometheus rejects duplicate or
+/// malformed metric definitions; for the compile-time constant names used
+/// here, a runtime failure can only indicate programmer error.
+pub struct Metrics {
+    pub registry: Registry,
 
     // Blockchain metrics
-    pub static ref BLOCK_HEIGHT: IntGauge = IntGauge::new(
-        "supernova_block_height", "Current blockchain height"
-    ).expect("Failed to create block height metric");
-
-    pub static ref BLOCK_TIME: Histogram = Histogram::with_opts(
-        HistogramOpts::new(
-            "supernova_block_time_seconds",
-            "Time between blocks in seconds"
-        ).buckets(vec![1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0])
-    ).expect("Failed to create block time metric");
-
-    pub static ref BLOCKS_MINED: IntCounter = IntCounter::new(
-        "supernova_blocks_mined",
-        "Total number of blocks mined by this node"
-    ).expect("Failed to create blocks mined metric");
+    pub block_height: IntGauge,
+    pub block_time: Histogram,
+    pub blocks_mined: IntCounter,
 
     // Network metrics
-    pub static ref CONNECTED_PEERS: IntGauge = IntGauge::new(
-        "supernova_connected_peers",
-        "Number of connected peers"
-    ).expect("Failed to create connected peers metric");
-
-    pub static ref RECEIVED_BYTES: IntCounter = IntCounter::new(
-        "supernova_received_bytes",
-        "Total bytes received from peers"
-    ).expect("Failed to create received bytes metric");
-
-    pub static ref SENT_BYTES: IntCounter = IntCounter::new(
-        "supernova_sent_bytes",
-        "Total bytes sent to peers"
-    ).expect("Failed to create sent bytes metric");
+    pub connected_peers: IntGauge,
+    pub received_bytes: IntCounter,
+    pub sent_bytes: IntCounter,
 
     // Mempool metrics
-    pub static ref MEMPOOL_SIZE: IntGauge = IntGauge::new(
-        "supernova_mempool_size",
-        "Number of transactions in the mempool"
-    ).expect("Failed to create mempool size metric");
-
-    pub static ref MEMPOOL_BYTES: IntGauge = IntGauge::new(
-        "supernova_mempool_bytes",
-        "Size of the mempool in bytes"
-    ).expect("Failed to create mempool bytes metric");
+    pub mempool_size: IntGauge,
+    pub mempool_bytes: IntGauge,
 
     // Environmental metrics
-    pub static ref ENERGY_CONSUMPTION: Gauge = Gauge::new(
-        "supernova_energy_consumption_kwh",
-        "Estimated energy consumption in kWh"
-    ).expect("Failed to create energy consumption metric");
-
-    pub static ref CARBON_EMISSIONS: Gauge = Gauge::new(
-        "supernova_carbon_emissions_tons",
-        "Estimated carbon emissions in tons of CO2e"
-    ).expect("Failed to create carbon emissions metric");
-
-    pub static ref RENEWABLE_PERCENTAGE: Gauge = Gauge::new(
-        "supernova_renewable_percentage",
-        "Percentage of energy from renewable sources"
-    ).expect("Failed to create renewable percentage metric");
+    pub energy_consumption: Gauge,
+    pub carbon_emissions: Gauge,
+    pub renewable_percentage: Gauge,
 }
 
-/// Initialize all metrics
-pub fn init_metrics() {
-    // Register all metrics with the registry
-    REGISTRY.register(Box::new(BLOCK_HEIGHT.clone())).unwrap();
-    REGISTRY.register(Box::new(BLOCK_TIME.clone())).unwrap();
-    REGISTRY.register(Box::new(BLOCKS_MINED.clone())).unwrap();
-    REGISTRY
-        .register(Box::new(CONNECTED_PEERS.clone()))
-        .unwrap();
-    REGISTRY.register(Box::new(RECEIVED_BYTES.clone())).unwrap();
-    REGISTRY.register(Box::new(SENT_BYTES.clone())).unwrap();
-    REGISTRY.register(Box::new(MEMPOOL_SIZE.clone())).unwrap();
-    REGISTRY.register(Box::new(MEMPOOL_BYTES.clone())).unwrap();
-    REGISTRY
-        .register(Box::new(ENERGY_CONSUMPTION.clone()))
-        .unwrap();
-    REGISTRY
-        .register(Box::new(CARBON_EMISSIONS.clone()))
-        .unwrap();
-    REGISTRY
-        .register(Box::new(RENEWABLE_PERCENTAGE.clone()))
-        .unwrap();
+impl Metrics {
+    /// Construct and register every collector. Returns
+    /// [`MetricsError::Prometheus`] if the registry rejects a metric
+    /// (duplicate name, malformed options, etc.).
+    pub fn new() -> Result<Self, MetricsError> {
+        let registry = Registry::new();
+
+        let block_height =
+            IntGauge::new("supernova_block_height", "Current blockchain height")?;
+        let block_time = Histogram::with_opts(
+            HistogramOpts::new(
+                "supernova_block_time_seconds",
+                "Time between blocks in seconds",
+            )
+            .buckets(vec![1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0]),
+        )?;
+        let blocks_mined = IntCounter::new(
+            "supernova_blocks_mined",
+            "Total number of blocks mined by this node",
+        )?;
+
+        let connected_peers =
+            IntGauge::new("supernova_connected_peers", "Number of connected peers")?;
+        let received_bytes =
+            IntCounter::new("supernova_received_bytes", "Total bytes received from peers")?;
+        let sent_bytes =
+            IntCounter::new("supernova_sent_bytes", "Total bytes sent to peers")?;
+
+        let mempool_size = IntGauge::new(
+            "supernova_mempool_size",
+            "Number of transactions in the mempool",
+        )?;
+        let mempool_bytes =
+            IntGauge::new("supernova_mempool_bytes", "Size of the mempool in bytes")?;
+
+        let energy_consumption = Gauge::new(
+            "supernova_energy_consumption_kwh",
+            "Estimated energy consumption in kWh",
+        )?;
+        let carbon_emissions = Gauge::new(
+            "supernova_carbon_emissions_tons",
+            "Estimated carbon emissions in tons of CO2e",
+        )?;
+        let renewable_percentage = Gauge::new(
+            "supernova_renewable_percentage",
+            "Percentage of energy from renewable sources",
+        )?;
+
+        registry.register(Box::new(block_height.clone()))?;
+        registry.register(Box::new(block_time.clone()))?;
+        registry.register(Box::new(blocks_mined.clone()))?;
+        registry.register(Box::new(connected_peers.clone()))?;
+        registry.register(Box::new(received_bytes.clone()))?;
+        registry.register(Box::new(sent_bytes.clone()))?;
+        registry.register(Box::new(mempool_size.clone()))?;
+        registry.register(Box::new(mempool_bytes.clone()))?;
+        registry.register(Box::new(energy_consumption.clone()))?;
+        registry.register(Box::new(carbon_emissions.clone()))?;
+        registry.register(Box::new(renewable_percentage.clone()))?;
+
+        Ok(Self {
+            registry,
+            block_height,
+            block_time,
+            blocks_mined,
+            connected_peers,
+            received_bytes,
+            sent_bytes,
+            mempool_size,
+            mempool_bytes,
+            energy_consumption,
+            carbon_emissions,
+            renewable_percentage,
+        })
+    }
 }
 
 /// Start a timer for measuring durations
@@ -121,5 +139,18 @@ impl Timer {
 impl Drop for Timer {
     fn drop(&mut self) {
         self.observe();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_metrics_construct_and_register() {
+        let metrics = Metrics::new().expect("metrics construction must succeed");
+        // Every collector registered above should appear in the gather output.
+        let gathered = metrics.registry.gather();
+        assert!(gathered.len() >= 11);
     }
 }
