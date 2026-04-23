@@ -398,10 +398,14 @@ impl CompactBlockDecoder {
 
         // Reconstruct transactions in order
         for (i, short_id) in compact.short_ids.iter().enumerate() {
-            // Check if this index is prefilled
+            // Check if this index is prefilled. The encoder wraps each
+            // prefilled transaction in the QSC compression envelope (see
+            // `compress_transaction`), so we must decompress before the
+            // bincode deserialization — going straight to bincode would
+            // try to parse the QSC magic bytes as a `Transaction` and fail
+            // every single time.
             if let Some(prefilled) = compact.prefilled_txs.iter().find(|p| p.index == i as u16) {
-                let tx: Transaction = bincode::deserialize(&prefilled.transaction)
-                    .map_err(|e| CompactBlockError::DeserializationError(e.to_string()))?;
+                let tx = CompactBlockEncoder::decompress_transaction(&prefilled.transaction)?;
                 transactions.push(tx);
                 continue;
             }
@@ -521,31 +525,65 @@ mod tests {
 
     #[test]
     fn test_transaction_reconstruction() {
+        // The encoder prefills the first 10 non-mempool transactions and
+        // only marks later ones as missing (see `CompactBlockEncoder::encode`).
+        // This test exercises the genuinely-missing branch by using a 15-tx
+        // block where indices 10..15 are outside the prefill cutoff.
         let encoder = CompactBlockEncoder::new();
         let (k0, k1) = encoder.keys();
 
-        // Create block with some transactions not in mempool
-        let block = create_test_block(100, 10);
+        let block = create_test_block(100, 15);
         let transactions = block.transactions().to_vec();
 
-        // Only add first 5 to mempool
-        let mempool_ids: HashSet<[u8; 32]> = transactions[0..5]
+        // Mempool holds indices 0..10 — those use short-IDs; indices 10..15
+        // fall through to `missing_indices` because they are past the
+        // prefill cutoff and not in mempool.
+        let mempool_ids: HashSet<[u8; 32]> = transactions[0..10]
             .iter()
             .map(|tx| tx.hash())
             .collect();
 
-        // Encode block
         let compact = encoder.encode(&block, &mempool_ids, None);
+        assert_eq!(compact.missing_indices, (10u16..15u16).collect::<Vec<_>>());
+        assert!(compact.prefilled_txs.is_empty());
 
-        // Should have some prefilled and some missing
-        assert!(compact.prefilled_txs.len() > 0 || compact.missing_indices.len() > 0);
-
-        // Decode with missing transactions
-        let decoder = CompactBlockDecoder::new(k0, k1, &transactions[0..5]);
-        let missing_txs = &transactions[5..];
+        let decoder = CompactBlockDecoder::new(k0, k1, &transactions[0..10]);
+        let missing_txs = &transactions[10..];
         let decoded = decoder.decode(&compact, missing_txs).unwrap();
 
-        assert_eq!(decoded.transactions().len(), 10);
+        assert_eq!(decoded.transactions().len(), 15);
+        for (i, tx) in decoded.transactions().iter().enumerate() {
+            assert_eq!(tx.hash(), transactions[i].hash(), "tx {} hash mismatch", i);
+        }
+    }
+
+    #[test]
+    fn test_prefilled_transaction_roundtrip() {
+        // Covers the prefilled path specifically: non-mempool transactions
+        // at indices below the prefill cutoff must decompress and deserialize
+        // correctly on the decoder side. Prior to the fix that routed
+        // prefilled bytes through `decompress_transaction`, the decoder
+        // invoked `bincode::deserialize` on a QSC-enveloped payload and
+        // aborted with "unexpected end of file" on every block.
+        let encoder = CompactBlockEncoder::new();
+        let (k0, k1) = encoder.keys();
+
+        let block = create_test_block(200, 5);
+        let transactions = block.transactions().to_vec();
+
+        // Empty mempool → all 5 txs are non-mempool → all prefilled
+        // (indices 0..5 are all below the cutoff of 10).
+        let compact = encoder.encode(&block, &HashSet::new(), None);
+        assert_eq!(compact.prefilled_txs.len(), 5);
+        assert!(compact.missing_indices.is_empty());
+
+        let decoder = CompactBlockDecoder::new(k0, k1, &[]);
+        let decoded = decoder.decode(&compact, &[]).expect("prefilled decode must succeed");
+
+        assert_eq!(decoded.transactions().len(), 5);
+        for (i, tx) in decoded.transactions().iter().enumerate() {
+            assert_eq!(tx.hash(), transactions[i].hash(), "tx {} hash mismatch", i);
+        }
     }
 
     #[test]
@@ -581,19 +619,22 @@ mod tests {
 
     #[test]
     fn test_fallback_to_full_block() {
-        // Test that we can handle cases where compact block decoding fails
+        // Decoding must fail gracefully when genuinely-missing transactions
+        // are not supplied. To trigger `missing_indices` (rather than the
+        // prefill path) we need a block with more than 10 non-mempool txs.
         let encoder = CompactBlockEncoder::new();
-        let block = create_test_block(100, 5);
+        let (k0, k1) = encoder.keys();
+        let block = create_test_block(100, 12);
 
-        // Encode with empty mempool (all transactions will be prefilled/missing)
+        // Empty mempool: indices 0..10 are prefilled, indices 10..12 are
+        // listed in `missing_indices` and must be supplied by the caller.
         let compact = encoder.encode(&block, &HashSet::new(), None);
+        assert_eq!(compact.missing_indices, vec![10u16, 11u16]);
 
-        // Try to decode without providing missing transactions
-        let decoder = CompactBlockDecoder::new(0, 0, &[]);
+        let decoder = CompactBlockDecoder::new(k0, k1, &[]);
         let result = decoder.decode(&compact, &[]);
 
-        // Should fail gracefully
-        assert!(result.is_err());
+        assert!(matches!(result, Err(CompactBlockError::MissingTransaction(_))));
     }
 
     #[test]
