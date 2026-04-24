@@ -371,7 +371,7 @@ impl ManualVerificationSystem {
         // Add to pending requests
         self.pending_requests
             .write()
-            .unwrap()
+            .map_err(|_| OracleError::LockPoisoned)?
             .insert(request_id.clone(), request);
 
         // Add to current quarter batch
@@ -392,13 +392,19 @@ impl ManualVerificationSystem {
         recommendations: Vec<String>,
     ) -> Result<ManualVerificationResult, OracleError> {
         // Verify reviewer is authorized
-        let reviewers = self.authorized_reviewers.read().unwrap();
+        let reviewers = self
+            .authorized_reviewers
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let reviewer = reviewers
             .get(reviewer_id)
             .ok_or_else(|| OracleError::OracleNotRegistered(reviewer_id.to_string()))?;
 
         // Get the request
-        let mut requests = self.pending_requests.write().unwrap();
+        let mut requests = self
+            .pending_requests
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let request = requests
             .get_mut(request_id)
             .ok_or_else(|| OracleError::VerificationFailed("Request not found".to_string()))?;
@@ -425,7 +431,7 @@ impl ManualVerificationSystem {
         // Store completed verification
         self.completed_verifications
             .write()
-            .unwrap()
+            .map_err(|_| OracleError::LockPoisoned)?
             .insert(request_id.to_string(), result.clone());
 
         // Update metrics
@@ -435,11 +441,12 @@ impl ManualVerificationSystem {
         Ok(result)
     }
 
-    /// Get quarterly review batch
+    /// Get quarterly review batch. Read-only; recovers from lock poisoning
+    /// so the query path never panics.
     pub fn get_quarterly_batch(&self, quarter_id: &str) -> Option<QuarterlyReviewBatch> {
         self.quarterly_batches
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(quarter_id)
             .cloned()
     }
@@ -450,7 +457,10 @@ impl ManualVerificationSystem {
         let deadline = self.get_quarter_end_date(Utc::now());
 
         // Collect all pending requests
-        let pending = self.pending_requests.read().unwrap();
+        let pending = self
+            .pending_requests
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let request_ids: Vec<String> = pending.keys().cloned().collect();
 
         let batch = QuarterlyReviewBatch {
@@ -467,7 +477,7 @@ impl ManualVerificationSystem {
 
         self.quarterly_batches
             .write()
-            .unwrap()
+            .map_err(|_| OracleError::LockPoisoned)?
             .insert(quarter_id.clone(), batch);
 
 
@@ -476,13 +486,22 @@ impl ManualVerificationSystem {
 
     /// Assign requests to reviewers
     pub fn assign_requests_to_reviewers(&self, quarter_id: &str) -> Result<u32, OracleError> {
-        let mut batches = self.quarterly_batches.write().unwrap();
+        let mut batches = self
+            .quarterly_batches
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let batch = batches
             .get_mut(quarter_id)
             .ok_or_else(|| OracleError::VerificationFailed("Batch not found".to_string()))?;
 
-        let mut requests = self.pending_requests.write().unwrap();
-        let reviewers = self.authorized_reviewers.read().unwrap();
+        let mut requests = self
+            .pending_requests
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
+        let reviewers = self
+            .authorized_reviewers
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
 
         let mut assigned_count = 0;
 
@@ -507,12 +526,13 @@ impl ManualVerificationSystem {
         Ok(assigned_count)
     }
 
-    /// Generate quarterly report
+    /// Generate quarterly report. Read-only; recovers from lock poisoning
+    /// on every lock acquired so the reporting path never panics.
     pub fn generate_quarterly_report(&self, quarter_id: &str) -> QuarterlyReport {
         let _batch = self
             .quarterly_batches
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(quarter_id)
             .cloned()
             .unwrap_or_else(|| QuarterlyReviewBatch {
@@ -524,7 +544,10 @@ impl ManualVerificationSystem {
                 stats: BatchStatistics::default(),
             });
 
-        let completed = self.completed_verifications.read().unwrap();
+        let completed = self
+            .completed_verifications
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let quarter_results: Vec<ManualVerificationResult> = completed
             .values()
             .filter(|r| self.get_quarter_id(r.reviewed_at) == quarter_id)
@@ -537,7 +560,13 @@ impl ManualVerificationSystem {
             total_mwh_claimed: quarter_results
                 .iter()
                 .map(|r| r.request_id.clone())
-                .filter_map(|id| self.pending_requests.read().unwrap().get(&id).cloned())
+                .filter_map(|id| {
+                    self.pending_requests
+                        .read()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .get(&id)
+                        .cloned()
+                })
                 .map(|req| req.energy_data.claimed_renewable_mwh)
                 .sum(),
             total_mwh_approved: quarter_results
@@ -639,24 +668,36 @@ impl ManualVerificationSystem {
         let end_month = quarter * 3;
         let year = date.year();
 
+        // `end_month = quarter * 3` with `quarter ∈ {1,2,3,4}` (derived from
+        // a valid chrono month) can only be 3, 6, 9, or 12. The `_` branch
+        // is mathematically unreachable; keep it as a safe fallback (28)
+        // rather than `unreachable!()` so a future refactor can't turn a
+        // type-system gap into a panic.
         let end_day = match end_month {
-            3 => 31,
-            6 => 30,
-            9 => 30,
-            12 => 31,
-            _ => unreachable!(),
+            3 | 12 => 31,
+            6 | 9 => 30,
+            _ => 28,
         };
 
+        // `with_ymd_and_hms(...).single()` returns `None` only if the
+        // combination is ambiguous or invalid (e.g. DST gaps — not
+        // applicable to UTC). If it somehow fails, fall back to the input
+        // date: callers treat the result as a deadline, and an already-
+        // elapsed deadline is harmless (the request lands in the next
+        // batch) whereas a panic would kill the verification worker.
         Utc.with_ymd_and_hms(year, end_month, end_day, 23, 59, 59)
             .single()
-            .expect("Invalid date")
+            .unwrap_or(date)
     }
 
     fn validate_required_documents(
         &self,
         request: &ManualVerificationRequest,
     ) -> Result<(), OracleError> {
-        let guidelines = self.review_guidelines.read().unwrap();
+        let guidelines = self
+            .review_guidelines
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
 
         if let Some(required_docs) = guidelines
             .document_requirements
@@ -683,7 +724,10 @@ impl ManualVerificationSystem {
 
     fn add_to_quarterly_batch(&self, request_id: &str) -> Result<(), OracleError> {
         let quarter_id = self.get_current_quarter_id();
-        let mut batches = self.quarterly_batches.write().unwrap();
+        let mut batches = self
+            .quarterly_batches
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
 
         let batch = batches
             .entry(quarter_id.clone())
@@ -711,7 +755,12 @@ impl ManualVerificationSystem {
     }
 
     fn update_metrics(&self, result: &ManualVerificationResult) {
-        let mut metrics = self.metrics.write().unwrap();
+        // Metrics are best-effort; recover from poison so a prior panic in
+        // this path doesn't cascade.
+        let mut metrics = self
+            .metrics
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         metrics.completed_reviews += 1;
         metrics.total_mwh_verified += result.approved_renewable_mwh;
 
