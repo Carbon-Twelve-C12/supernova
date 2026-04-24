@@ -276,7 +276,10 @@ impl QuantumCanarySystem {
             )?;
 
             let id = canary.id;
-            self.canaries.write().unwrap().insert(id, canary);
+            self.canaries
+                .write()
+                .map_err(|_| CanaryError::LockPoisoned)?
+                .insert(id, canary);
             deployed.push(id);
         }
 
@@ -301,7 +304,10 @@ impl QuantumCanarySystem {
                 )?;
 
                 let id = canary.id;
-                self.canaries.write().unwrap().insert(id, canary);
+                self.canaries
+                    .write()
+                    .map_err(|_| CanaryError::LockPoisoned)?
+                    .insert(id, canary);
                 deployed.push(id);
             }
         }
@@ -322,7 +328,10 @@ impl QuantumCanarySystem {
         for scheme in &schemes {
             let canary = self.create_canary(*scheme, 1, 5000)?;
             let id = canary.id;
-            self.canaries.write().unwrap().insert(id, canary);
+            self.canaries
+                .write()
+                .map_err(|_| CanaryError::LockPoisoned)?
+                .insert(id, canary);
             deployed.push(id);
         }
 
@@ -377,7 +386,11 @@ impl QuantumCanarySystem {
     pub async fn check_all_canaries(&self) -> Result<Vec<MonitoringResult>, CanaryError> {
         let mut results = Vec::new();
 
-        let canaries = self.canaries.read().unwrap().clone();
+        let canaries = self
+            .canaries
+            .read()
+            .map_err(|_| CanaryError::LockPoisoned)?
+            .clone();
 
         for (id, mut canary) in canaries {
             let result = self.check_canary(&mut canary).await?;
@@ -385,7 +398,10 @@ impl QuantumCanarySystem {
             // Update canary if compromised
             if result.status == CanaryStatus::Compromised {
                 canary.compromise_detected = true;
-                self.canaries.write().unwrap().insert(id, canary.clone());
+                self.canaries
+                    .write()
+                    .map_err(|_| CanaryError::LockPoisoned)?
+                    .insert(id, canary.clone());
 
                 // Trigger emergency response
                 self.handle_compromise(&canary).await?;
@@ -397,7 +413,7 @@ impl QuantumCanarySystem {
         // Store results
         self.monitoring_results
             .write()
-            .unwrap()
+            .map_err(|_| CanaryError::LockPoisoned)?
             .extend(results.clone());
 
         Ok(results)
@@ -412,10 +428,14 @@ impl QuantumCanarySystem {
         let test_message = format!(
             "canary-check-{}-{}",
             hex::encode(canary.id.0),
+            // `duration_since(UNIX_EPOCH)` only fails if the system clock
+            // moves backwards across the canary's deployment — treat that
+            // as 0 rather than panicking; the test message just loses a
+            // timestamp byte, which doesn't affect canary integrity.
             canary
                 .last_verified
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(Duration::ZERO)
                 .as_secs()
         );
 
@@ -888,10 +908,17 @@ impl QuantumCanarySystem {
         self.alert_endpoints.push(endpoint);
     }
 
-    /// Get canary statistics
+    /// Get canary statistics. Read-only; recovers from lock poisoning so
+    /// the monitoring dashboard never panics reading internal state.
     pub fn get_statistics(&self) -> CanaryStatistics {
-        let canaries = self.canaries.read().unwrap();
-        let results = self.monitoring_results.read().unwrap();
+        let canaries = self
+            .canaries
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let results = self
+            .monitoring_results
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let total_canaries = canaries.len();
         let compromised = canaries.values().filter(|c| c.compromise_detected).count();
@@ -936,6 +963,9 @@ pub enum CanaryError {
 
     #[error("Monitoring failed")]
     MonitoringFailed,
+
+    #[error("Internal lock poisoned — another thread panicked while holding the lock")]
+    LockPoisoned,
 }
 
 #[cfg(test)]
