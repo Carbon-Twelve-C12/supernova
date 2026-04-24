@@ -5,12 +5,27 @@
 //! quantum-resistant signature schemes.
 
 use crate::crypto::quantum::{
-    sign_quantum, verify_quantum_signature, QuantumKeyPair, QuantumParameters, QuantumScheme,
+    sign_quantum, verify_quantum_signature, QuantumError, QuantumKeyPair, QuantumParameters,
+    QuantumScheme,
 };
+use crate::monitoring::MetricsError;
 use prometheus::{HistogramOpts, HistogramVec, Registry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+
+/// Errors returned by the benchmark harness. Separates metric-setup
+/// failures (invalid Prometheus options or registry collisions) from
+/// quantum-crypto failures (keygen, signing, or verification errors)
+/// so consumers can distinguish "misconfigured" from "the signature
+/// scheme itself failed."
+#[derive(Debug, thiserror::Error)]
+pub enum BenchmarkError {
+    #[error(transparent)]
+    Metrics(#[from] MetricsError),
+    #[error(transparent)]
+    Quantum(#[from] QuantumError),
+}
 
 /// Performance metrics for quantum signatures
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +63,11 @@ pub struct QuantumSignatureMonitor {
 }
 
 impl QuantumSignatureMonitor {
-    pub fn new(registry: &Registry) -> Self {
+    /// Construct the monitor and register every collector with the given
+    /// registry. Returns [`MetricsError::Prometheus`] if a histogram name
+    /// collides or options are malformed — for the compile-time constant
+    /// names used here, a runtime failure indicates programmer error.
+    pub fn new(registry: &Registry) -> Result<Self, MetricsError> {
         let sign_duration = HistogramVec::new(
             HistogramOpts::new(
                 "quantum_sign_duration_seconds",
@@ -56,8 +75,7 @@ impl QuantumSignatureMonitor {
             )
             .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]),
             &["scheme", "security_level"],
-        )
-        .unwrap();
+        )?;
 
         let verify_duration = HistogramVec::new(
             HistogramOpts::new(
@@ -66,8 +84,7 @@ impl QuantumSignatureMonitor {
             )
             .buckets(vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]),
             &["scheme", "security_level"],
-        )
-        .unwrap();
+        )?;
 
         let batch_verify_duration = HistogramVec::new(
             HistogramOpts::new(
@@ -76,8 +93,7 @@ impl QuantumSignatureMonitor {
             )
             .buckets(vec![0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]),
             &["scheme", "batch_size"],
-        )
-        .unwrap();
+        )?;
 
         let signature_size = HistogramVec::new(
             HistogramOpts::new("quantum_signature_size_bytes", "Size of quantum signatures")
@@ -85,8 +101,7 @@ impl QuantumSignatureMonitor {
                     1000.0, 2000.0, 5000.0, 10000.0, 20000.0, 50000.0, 100000.0,
                 ]),
             &["scheme", "security_level"],
-        )
-        .unwrap();
+        )?;
 
         let aggregation_duration = HistogramVec::new(
             HistogramOpts::new(
@@ -95,44 +110,45 @@ impl QuantumSignatureMonitor {
             )
             .buckets(vec![0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0]),
             &["scheme", "signature_count"],
-        )
-        .unwrap();
+        )?;
 
-        registry.register(Box::new(sign_duration.clone())).unwrap();
-        registry
-            .register(Box::new(verify_duration.clone()))
-            .unwrap();
-        registry
-            .register(Box::new(batch_verify_duration.clone()))
-            .unwrap();
-        registry.register(Box::new(signature_size.clone())).unwrap();
-        registry
-            .register(Box::new(aggregation_duration.clone()))
-            .unwrap();
+        registry.register(Box::new(sign_duration.clone()))?;
+        registry.register(Box::new(verify_duration.clone()))?;
+        registry.register(Box::new(batch_verify_duration.clone()))?;
+        registry.register(Box::new(signature_size.clone()))?;
+        registry.register(Box::new(aggregation_duration.clone()))?;
 
-        Self {
+        Ok(Self {
             sign_duration,
             verify_duration,
             batch_verify_duration,
             signature_size,
             aggregation_duration,
             performance_history: Vec::new(),
-        }
+        })
     }
 
-    /// Benchmark single signature performance
-    pub fn benchmark_single_signature(&mut self, params: QuantumParameters) -> BenchmarkResults {
-        let keypair = QuantumKeyPair::generate(params).unwrap();
+    /// Benchmark single signature performance.
+    ///
+    /// Returns [`BenchmarkError::Quantum`] if keygen, signing, or
+    /// verification fails; propagating rather than panicking means a
+    /// cryptographically broken scheme doesn't kill the whole suite
+    /// and callers can choose to skip that scheme.
+    pub fn benchmark_single_signature(
+        &mut self,
+        params: QuantumParameters,
+    ) -> Result<BenchmarkResults, BenchmarkError> {
+        let keypair = QuantumKeyPair::generate(params)?;
         let message = b"Benchmark message for quantum signature performance testing";
 
         // Benchmark signing
         let sign_start = Instant::now();
-        let signature = sign_quantum(&keypair, message).unwrap();
+        let signature = sign_quantum(&keypair, message)?;
         let sign_duration = sign_start.elapsed();
 
         // Benchmark verification
         let verify_start = Instant::now();
-        verify_quantum_signature(&keypair.public_key, message, &signature, params).unwrap();
+        verify_quantum_signature(&keypair.public_key, message, &signature, params)?;
         let verify_duration = verify_start.elapsed();
 
         // Record metrics
@@ -151,31 +167,34 @@ impl QuantumSignatureMonitor {
             .with_label_values(&[&scheme_label, &security_label])
             .observe(signature.len() as f64);
 
-        BenchmarkResults {
+        Ok(BenchmarkResults {
             signatures_count: 1,
             proving_time_ms: sign_duration.as_secs_f64() * 1000.0,
             verification_time_ms: verify_duration.as_secs_f64() * 1000.0,
             proof_size_kb: signature.len() as f64 / 1024.0,
             throughput_sigs_per_sec: 1.0 / sign_duration.as_secs_f64(),
-        }
+        })
     }
 
-    /// Benchmark batch verification (simulating aggregation benefits)
+    /// Benchmark batch verification (simulating aggregation benefits).
+    ///
+    /// Returns [`BenchmarkError::Quantum`] on the first keygen, signing,
+    /// or verification failure in the batch.
     pub fn benchmark_batch_verification(
         &mut self,
         params: QuantumParameters,
         batch_size: usize,
-    ) -> BenchmarkResults {
+    ) -> Result<BenchmarkResults, BenchmarkError> {
         // Generate batch of signatures
         let mut signatures = Vec::new();
         let mut total_sign_time = Duration::ZERO;
 
         for i in 0..batch_size {
-            let keypair = QuantumKeyPair::generate(params).unwrap();
+            let keypair = QuantumKeyPair::generate(params)?;
             let message = format!("Message {}", i).into_bytes();
 
             let sign_start = Instant::now();
-            let signature = sign_quantum(&keypair, &message).unwrap();
+            let signature = sign_quantum(&keypair, &message)?;
             total_sign_time += sign_start.elapsed();
 
             // SECURITY: Clone to avoid moving out of keypair (implements ZeroizeOnDrop)
@@ -185,7 +204,7 @@ impl QuantumSignatureMonitor {
         // Benchmark batch verification
         let verify_start = Instant::now();
         for (pubkey, message, signature) in &signatures {
-            verify_quantum_signature(pubkey, message, signature, params).unwrap();
+            verify_quantum_signature(pubkey, message, signature, params)?;
         }
         let batch_verify_duration = verify_start.elapsed();
 
@@ -201,13 +220,13 @@ impl QuantumSignatureMonitor {
         let total_size: usize = signatures.iter().map(|(_, _, sig)| sig.len()).sum();
         let aggregated_size = Self::estimate_aggregated_size(params.scheme, batch_size);
 
-        BenchmarkResults {
+        Ok(BenchmarkResults {
             signatures_count: batch_size,
             proving_time_ms: total_sign_time.as_secs_f64() * 1000.0,
             verification_time_ms: batch_verify_duration.as_secs_f64() * 1000.0,
             proof_size_kb: aggregated_size as f64 / 1024.0,
             throughput_sigs_per_sec: batch_size as f64 / total_sign_time.as_secs_f64(),
-        }
+        })
     }
 
     /// Estimate aggregated proof size based on scheme
@@ -240,8 +259,14 @@ impl QuantumSignatureMonitor {
         }
     }
 
-    /// Run comprehensive benchmark suite
-    pub fn run_full_benchmark_suite(&mut self) -> HashMap<String, Vec<BenchmarkResults>> {
+    /// Run comprehensive benchmark suite.
+    ///
+    /// Stops on the first crypto or metrics failure. Callers that want
+    /// best-effort behaviour (skip-and-continue per scheme) should
+    /// invoke the individual `benchmark_*` methods themselves.
+    pub fn run_full_benchmark_suite(
+        &mut self,
+    ) -> Result<HashMap<String, Vec<BenchmarkResults>>, BenchmarkError> {
         let mut results = HashMap::new();
 
         // Test different batch sizes like in the LaBRADOR paper
@@ -262,21 +287,19 @@ impl QuantumSignatureMonitor {
             let scheme_name = format!("{:?}", scheme);
             let mut scheme_results = Vec::new();
 
-
             for &batch_size in &batch_sizes {
-                if batch_size == 1 {
-                    let result = self.benchmark_single_signature(params);
-                    scheme_results.push(result);
+                let result = if batch_size == 1 {
+                    self.benchmark_single_signature(params)?
                 } else {
-                    let result = self.benchmark_batch_verification(params, batch_size);
-                    scheme_results.push(result);
-                }
+                    self.benchmark_batch_verification(params, batch_size)?
+                };
+                scheme_results.push(result);
             }
 
             results.insert(scheme_name, scheme_results);
         }
 
-        results
+        Ok(results)
     }
 
     /// Generate performance report similar to the research paper
@@ -299,7 +322,8 @@ mod tests {
     #[test]
     fn test_quantum_signature_monitoring() {
         let registry = Registry::new();
-        let mut monitor = QuantumSignatureMonitor::new(&registry);
+        let mut monitor =
+            QuantumSignatureMonitor::new(&registry).expect("monitor construction must succeed");
 
         // Run single signature benchmark
         let params = QuantumParameters {
@@ -307,7 +331,9 @@ mod tests {
             security_level: 3,
         };
 
-        let result = monitor.benchmark_single_signature(params);
+        let result = monitor
+            .benchmark_single_signature(params)
+            .expect("dilithium benchmark must succeed");
         assert!(result.proving_time_ms > 0.0);
         assert!(result.verification_time_ms > 0.0);
         assert!(result.proof_size_kb > 0.0);
@@ -316,7 +342,8 @@ mod tests {
     #[test]
     fn test_batch_verification_performance() {
         let registry = Registry::new();
-        let mut monitor = QuantumSignatureMonitor::new(&registry);
+        let mut monitor =
+            QuantumSignatureMonitor::new(&registry).expect("monitor construction must succeed");
 
         let params = QuantumParameters {
             scheme: QuantumScheme::Dilithium,
@@ -324,14 +351,18 @@ mod tests {
         };
 
         // Test small batch
-        let result = monitor.benchmark_batch_verification(params, 10);
+        let result = monitor
+            .benchmark_batch_verification(params, 10)
+            .expect("batch benchmark must succeed");
         assert_eq!(result.signatures_count, 10);
         assert!(result.verification_time_ms > 0.0);
 
         // Verify batch is more efficient per signature
-        let single_result = monitor.benchmark_single_signature(params);
-        let per_sig_batch = result.verification_time_ms / 10.0;
-        let per_sig_single = single_result.verification_time_ms;
+        let single_result = monitor
+            .benchmark_single_signature(params)
+            .expect("single benchmark must succeed");
+        let _per_sig_batch = result.verification_time_ms / 10.0;
+        let _per_sig_single = single_result.verification_time_ms;
 
         // Batch verification should show some efficiency gains
     }
