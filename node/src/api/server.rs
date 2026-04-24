@@ -15,6 +15,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use super::docs::ApiDoc;
 use super::middleware::auth::ApiAuth;
+use super::middleware::auth_rate_limiter::{AuthRateLimiter, AuthRateLimiterConfig};
 use super::middleware::rate_limiting;
 use super::routes;
 use crate::api_facade::ApiFacade;
@@ -155,7 +156,12 @@ fn build_cors(allowed_origins: &[String]) -> Cors {
             "API CORS is configured to allow ANY origin (`*`). Credentials \
              are disabled for safety; prefer an explicit allow-list."
         );
-        cors = cors.send_wildcard();
+        // actix-cors semantics: `send_wildcard()` alone is a no-op because
+        // `Cors::default()` starts with `allowed_origins = Some(empty_set)`.
+        // Promoting to the `All` arm requires `allow_any_origin()`; without
+        // it every cross-origin request is rejected with `OriginNotAllowed`,
+        // silently breaking the documented `["*"]` escape hatch.
+        cors = cors.allow_any_origin().send_wildcard();
     } else {
         for origin in allowed_origins {
             cors = cors.allowed_origin(origin);
@@ -262,6 +268,14 @@ impl ApiServer {
             info!("CORS allowed origins: {:?}", allowed_origins);
         }
 
+        // A single shared rate limiter across all workers. Built outside the
+        // factory closure because actix-web spawns the closure once per
+        // worker, and each call to `AuthRateLimiter::new` allocates a fresh
+        // `failed_attempts` map — per-worker isolation would multiply the
+        // brute-force ceiling by the worker count.
+        let auth_rate_limiter =
+            Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default()));
+
         // Set up the HTTP server. The factory closure is invoked per worker;
         // middleware values must be freshly constructed each call because
         // actix-cors' `Cors` and our `ApiAuth` are not `Clone`. The
@@ -270,8 +284,11 @@ impl ApiServer {
         // the App type stays homogeneous and avoids conditional `.boxed()`.
         let server = HttpServer::new(move || {
             let auth = match &validated_keys {
-                Some(keys) => ApiAuth::from_validated_keys(keys.clone()),
-                None => ApiAuth::disabled(),
+                Some(keys) => ApiAuth::from_validated_keys_with_rate_limiter(
+                    keys.clone(),
+                    auth_rate_limiter.clone(),
+                ),
+                None => ApiAuth::disabled_with_rate_limiter(auth_rate_limiter.clone()),
             };
 
             let app = App::new()

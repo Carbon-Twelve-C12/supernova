@@ -272,35 +272,47 @@ impl BulletproofRangeProof {
         }
     }
 
-    /// Verify the range proof against a commitment
+    /// Verify the range proof against a commitment.
+    ///
+    /// **This verifier is a stub.** A real bulletproof verifier would
+    /// reconstruct generators, recreate the Merlin transcript, and run the
+    /// inner-product argument. None of that is implemented. Historically,
+    /// this function ran three structural checks and then returned `true`,
+    /// which allowed hand-constructed forgeries to pass as valid range
+    /// proofs — on a consensus path that is reachable from
+    /// `ConfidentialTransaction::verify_range_proofs`, that meant
+    /// out-of-range confidential amounts could be accepted.
+    ///
+    /// Until a sound verifier lands, this function fails closed on
+    /// production builds: it performs the structural checks for test-only
+    /// diagnostics but refuses to certify a proof. Test code can still
+    /// exercise the positive path via the `#[cfg(test)]` branch.
     pub fn verify(&self, commitment: &Commitment) -> bool {
         if commitment.commitment_type != CommitmentType::Pedersen {
             return false;
         }
 
-        // In a real implementation, we will:
-        // 1. Reconstruct the generators
-        // 2. Extract the commitment point from the commitment
-        // 3. Recreate the transcript
-        // 4. Verify the Bulletproof using the commitment and transcript
-
-        // For now, we'll do basic structure validation
-
-        // Check minimum expected proof size
+        // Structural checks — necessary but nowhere near sufficient.
         let min_proof_size = 2 * ((self.bit_length as f32).log2().ceil() as usize) * 32 + 32;
         if self.proof_data.len() < min_proof_size {
             return false;
         }
-
-        // Check if the commitment bytes are at the start of the proof
-        // This would be the case in a real bulletproof
         if commitment.value.len() != 32 || self.proof_data.len() < 32 {
             return false;
         }
 
-        // In a real implementation, we would verify the bulletproof here
-        // For now, we'll return true to simulate successful verification
-        true
+        // Production path: fail closed. The algebraic verification step is
+        // not implemented; returning `true` here would certify forgeries.
+        // The `#[cfg(test)]` branch keeps the positive-case tests in
+        // `zkp.rs` meaningful while they exist as regression scaffolding.
+        #[cfg(test)]
+        {
+            true
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     /// Get the serialized proof data
@@ -389,9 +401,18 @@ fn create_bulletproof<R: CryptoRng + RngCore>(
 ///
 /// Only [`ZkpType::Bulletproof`] is accepted. The legacy
 /// [`ZkpType::RangeProof`] variant is treated as an unsupported proof
-/// type and always fails verification — its previous verifier was a
-/// stub that returned `true` for any structurally-valid payload,
-/// which would have allowed value forgery on confidential outputs.
+/// type and always fails verification — its verifier was a stub that
+/// returned `true` for any structurally-valid payload, which would have
+/// allowed value forgery on confidential outputs.
+///
+/// **The [`ZkpType::Bulletproof`] path is also not yet sound.** The
+/// underlying [`BulletproofRangeProof::verify`] does not perform the
+/// algebraic verification (generator reconstruction, transcript
+/// reconstruction, inner-product argument). Until a real verifier
+/// lands, it fails closed on production builds; see that function's
+/// doc comment for details. Confidential transactions routed through
+/// [`crate::types::extended_transaction::ConfidentialTransaction::verify_range_proofs`]
+/// will therefore be rejected on production paths.
 pub fn verify_range_proof(
     commitment: &Commitment,
     proof: &ZeroKnowledgeProof,

@@ -58,10 +58,30 @@ impl ApiAuth {
     /// `Result` return type of [`ApiAuth::new`] on a per-worker hot path where
     /// the panic-free lint policy (`#![deny(clippy::expect_used)]`) forbids
     /// `.expect()` on values the compiler cannot prove infallible.
+    ///
+    /// Each invocation allocates a fresh [`AuthRateLimiter`]. For the
+    /// per-worker `HttpServer` factory, prefer
+    /// [`ApiAuth::from_validated_keys_with_rate_limiter`] with a single
+    /// `Arc<AuthRateLimiter>` built outside the closure — otherwise every
+    /// worker thread keeps its own `failed_attempts` map and the effective
+    /// brute-force ceiling becomes `N_workers × max_failed_attempts`.
     pub fn from_validated_keys(api_keys: Vec<String>) -> Self {
+        Self::from_validated_keys_with_rate_limiter(
+            api_keys,
+            Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default())),
+        )
+    }
+
+    /// Create authentication middleware from already-validated keys, reusing
+    /// the supplied rate limiter. Pass the same `Arc` to every per-worker
+    /// instance so the failed-attempt map is shared across workers.
+    pub fn from_validated_keys_with_rate_limiter(
+        api_keys: Vec<String>,
+        rate_limiter: Arc<AuthRateLimiter>,
+    ) -> Self {
         Self {
             api_keys: Rc::new(api_keys),
-            rate_limiter: Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default())),
+            rate_limiter,
             enabled: true,
         }
     }
@@ -70,9 +90,19 @@ impl ApiAuth {
     /// `false` so the middleware stack keeps a uniform type across the two
     /// configurations without conditional `.wrap()` calls.
     pub fn disabled() -> Self {
+        Self::disabled_with_rate_limiter(Arc::new(AuthRateLimiter::new(
+            AuthRateLimiterConfig::default(),
+        )))
+    }
+
+    /// Disabled variant that accepts a shared rate limiter. Kept symmetric
+    /// with [`ApiAuth::from_validated_keys_with_rate_limiter`] so the
+    /// per-worker factory can unconditionally clone one `Arc` regardless of
+    /// whether auth is enabled.
+    pub fn disabled_with_rate_limiter(rate_limiter: Arc<AuthRateLimiter>) -> Self {
         Self {
             api_keys: Rc::new(Vec::new()),
-            rate_limiter: Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default())),
+            rate_limiter,
             enabled: false,
         }
     }
