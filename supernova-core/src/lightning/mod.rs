@@ -115,6 +115,9 @@ pub enum LightningNetworkError {
 
     #[error("Insufficient funds: {0}")]
     InsufficientFunds(String),
+
+    #[error("Internal lock poisoned — another thread panicked while holding the lock")]
+    LockPoisoned,
 }
 
 /// Main Lightning Network manager
@@ -219,7 +222,10 @@ impl LightningNetwork {
         }
 
         // Check wallet balance
-        let wallet = self.wallet.lock().unwrap();
+        let wallet = self
+            .wallet
+            .lock()
+            .map_err(|_| LightningNetworkError::LockPoisoned)?;
         if wallet.get_balance() < capacity {
             return Err(LightningNetworkError::InsufficientFunds(format!(
                 "Insufficient funds: needed {}, available {}",
@@ -244,13 +250,19 @@ impl LightningNetwork {
 
         // Register channel
         {
-            let mut channels = self.channels.write().unwrap();
+            let mut channels = self
+                .channels
+                .write()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
             channels.insert(channel_id.clone(), Arc::new(RwLock::new(channel)));
         }
 
         // Register with monitor
         {
-            let mut monitor = self.monitor.write().unwrap();
+            let mut monitor = self
+                .monitor
+                .write()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
 
             // Create encrypted channel state (placeholder for production implementation)
             let encrypted_state = EncryptedChannelState {
@@ -277,7 +289,10 @@ impl LightningNetwork {
     ) -> Result<Transaction, LightningNetworkError> {
         // Find channel
         let channel_arc = {
-            let channels = self.channels.read().unwrap();
+            let channels = self
+                .channels
+                .read()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
             channels.get(channel_id).cloned()
         };
 
@@ -287,22 +302,32 @@ impl LightningNetwork {
 
         // Close channel (cooperative or force)
         let closing_tx = if force_close {
-            let mut channel = channel_arc.write().unwrap();
+            let mut channel = channel_arc
+                .write()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
             channel.force_close()?
         } else {
-            let channel = channel_arc.read().unwrap();
+            let channel = channel_arc
+                .read()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
             channel.cooperative_close()?
         };
 
         // Unregister from monitor
         {
-            let mut monitor = self.monitor.write().unwrap();
+            let mut monitor = self
+                .monitor
+                .write()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
             monitor.unregister_channel(channel_id.as_bytes())?;
         }
 
         // Remove from active channels
         {
-            let mut channels = self.channels.write().unwrap();
+            let mut channels = self
+                .channels
+                .write()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
             channels.remove(channel_id);
         }
 
@@ -316,7 +341,10 @@ impl LightningNetwork {
         description: &str,
         expiry_seconds: u32,
     ) -> Result<Invoice, LightningNetworkError> {
-        let mut wallet = self.wallet.lock().unwrap();
+        let mut wallet = self
+            .wallet
+            .lock()
+            .map_err(|_| LightningNetworkError::LockPoisoned)?;
         let invoice = wallet.create_invoice(amount_mnova, description, expiry_seconds)?;
 
         Ok(invoice)
@@ -372,7 +400,10 @@ impl LightningNetwork {
 
         // For single-hop payments, proceed directly
         if route.len() == 1 {
-            let mut wallet = self.wallet.lock().unwrap();
+            let mut wallet = self
+                .wallet
+                .lock()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
             return Ok(wallet.pay_invoice(invoice)?);
         }
 
@@ -417,7 +448,10 @@ impl LightningNetwork {
         for (i, hop) in route.hops.iter().enumerate() {
             // Find the channel for this hop
             let channel_arc = {
-                let channels = self.channels.read().unwrap();
+                let channels = self
+                    .channels
+                    .read()
+                    .map_err(|_| LightningNetworkError::LockPoisoned)?;
                 channels.get(&hop.channel_id).cloned()
             };
 
@@ -452,7 +486,9 @@ impl LightningNetwork {
                 i, forward_amount, timelock
             );
 
-            let mut channel = channel_arc.write().unwrap();
+            let mut channel = channel_arc
+                .write()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
 
             // Add HTLC to channel
             let htlc_id = channel.add_htlc(
@@ -478,7 +514,10 @@ impl LightningNetwork {
         for i in (0..route.hops.len() - 1).rev() {
             // Find the channel for this hop
             let channel_arc = {
-                let channels = self.channels.read().unwrap();
+                let channels = self
+                    .channels
+                    .read()
+                    .map_err(|_| LightningNetworkError::LockPoisoned)?;
                 channels.get(&route.hops[i].channel_id).cloned()
             };
 
@@ -489,7 +528,9 @@ impl LightningNetwork {
                 ))
             })?;
 
-            let mut channel = channel_arc.write().unwrap();
+            let mut channel = channel_arc
+                .write()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
 
             // Find the HTLC and fulfill it
             // In a real implementation, we would track the HTLC IDs
@@ -509,21 +550,36 @@ impl LightningNetwork {
         })
     }
 
-    /// Get all active channels
+    /// Get all active channels.
+    ///
+    /// Recovers from lock poisoning (another thread panicked while holding
+    /// the write guard) so pure read-only accessors never panic; the stored
+    /// channel map is still internally consistent in that case.
     pub fn list_channels(&self) -> Vec<channel::ChannelId> {
-        let channels = self.channels.read().unwrap();
+        let channels = self
+            .channels
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         channels.keys().cloned().collect()
     }
 
-    /// Get detailed information about a specific channel
+    /// Get detailed information about a specific channel. Returns `None`
+    /// when the channel is not registered; recovers from lock poisoning on
+    /// both the map lock and the per-channel lock for the same reason as
+    /// [`Self::list_channels`].
     pub fn get_channel_info(
         &self,
         channel_id: &channel::ChannelId,
     ) -> Option<channel::ChannelInfo> {
-        let channels = self.channels.read().unwrap();
+        let channels = self
+            .channels
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         channels.get(channel_id).map(|channel_arc| {
-            let channel = channel_arc.read().unwrap();
+            let channel = channel_arc
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             channel.get_info()
         })
     }
@@ -547,7 +603,10 @@ impl LightningNetwork {
 
         // Find the channel
         let channel_arc = {
-            let channels = self.channels.read().unwrap();
+            let channels = self
+                .channels
+                .read()
+                .map_err(|_| LightningNetworkError::LockPoisoned)?;
             channels.get(channel_id).cloned()
         };
 
@@ -562,7 +621,10 @@ impl LightningNetwork {
         // 3. Get the next hop information if not the final recipient
 
         // For now, we'll simulate this by checking if we have an invoice matching the payment hash
-        let mut wallet = self.wallet.lock().unwrap();
+        let mut wallet = self
+            .wallet
+            .lock()
+            .map_err(|_| LightningNetworkError::LockPoisoned)?;
         let is_final_recipient = wallet.has_invoice(&payment_hash);
 
         if is_final_recipient {
@@ -597,7 +659,9 @@ impl LightningNetwork {
 
             // Accept the HTLC
             {
-                let mut channel = channel_arc.write().unwrap();
+                let mut channel = channel_arc
+                    .write()
+                    .map_err(|_| LightningNetworkError::LockPoisoned)?;
 
                 // Record the incoming HTLC
                 channel.add_htlc(
@@ -614,7 +678,9 @@ impl LightningNetwork {
 
             // Fulfill the HTLC
             {
-                let mut channel = channel_arc.write().unwrap();
+                let mut channel = channel_arc
+                    .write()
+                    .map_err(|_| LightningNetworkError::LockPoisoned)?;
                 channel.fulfill_htlc(htlc_id, preimage_bytes)?;
             }
 
@@ -632,7 +698,9 @@ impl LightningNetwork {
 
             // For simplicity, we'll fail the HTLC for now
             {
-                let mut channel = channel_arc.write().unwrap();
+                let mut channel = channel_arc
+                    .write()
+                    .map_err(|_| LightningNetworkError::LockPoisoned)?;
                 channel.fail_htlc(htlc_id, "Unable to forward payment")?;
             }
 
