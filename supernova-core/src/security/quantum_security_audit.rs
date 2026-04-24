@@ -133,8 +133,10 @@ pub struct SecurityLevelValidation {
     pub quantum_security_bits: u32,
 }
 
-/// Performance metrics for cryptographic operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Performance metrics for cryptographic operations. `Default` is an
+/// all-zero "no measurement recorded" record used when a crypto operation
+/// fails during the audit (logged and returned rather than panicking).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DilithiumPerformanceMetrics {
     pub avg_keygen_time: Duration,
     pub avg_sign_time: Duration,
@@ -339,6 +341,10 @@ impl QuantumSecurityAuditor {
         }
     }
 
+    /// Benchmark Dilithium keygen, sign, and verify timings. The function
+    /// signature is infallible (the audit struct must be produced even on
+    /// a broken build), so crypto failures are logged and return a zeroed
+    /// metrics record rather than panicking the audit harness.
     fn benchmark_dilithium_performance(&self) -> DilithiumPerformanceMetrics {
         let params = QuantumParameters {
             scheme: QuantumScheme::Dilithium,
@@ -347,18 +353,35 @@ impl QuantumSecurityAuditor {
 
         // Benchmark key generation
         let start = Instant::now();
-        let keypair = QuantumKeyPair::generate(params).unwrap();
+        let keypair = match QuantumKeyPair::generate(params) {
+            Ok(k) => k,
+            Err(e) => {
+                tracing::error!("Dilithium keygen failed during audit: {}", e);
+                return DilithiumPerformanceMetrics::default();
+            }
+        };
         let keygen_time = start.elapsed();
 
         // Benchmark signing
         let message = b"Performance benchmark message";
         let start = Instant::now();
-        let signature = keypair.sign(message).unwrap();
+        let signature = match keypair.sign(message) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Dilithium sign failed during audit: {}", e);
+                return DilithiumPerformanceMetrics::default();
+            }
+        };
         let sign_time = start.elapsed();
 
         // Benchmark verification
         let start = Instant::now();
-        let _ = verify_quantum_signature(&keypair.public_key, message, &signature, params).unwrap();
+        if let Err(e) =
+            verify_quantum_signature(&keypair.public_key, message, &signature, params)
+        {
+            tracing::error!("Dilithium verify failed during audit: {}", e);
+            return DilithiumPerformanceMetrics::default();
+        }
         let verify_time = start.elapsed();
 
         DilithiumPerformanceMetrics {
@@ -385,6 +408,10 @@ impl QuantumSecurityAuditor {
         }
     }
 
+    /// Run 1000 sign-verify round-trips against Dilithium L3. Failures in
+    /// keygen, sign, or verify do NOT count as "passed"; they're logged
+    /// and skipped, so a cryptographically broken build produces a
+    /// low `tests_passed` count rather than panicking the audit harness.
     fn validate_signatures(&mut self) -> SignatureValidationTests {
         let mut tests_passed = 0;
         let total_tests = 1000;
@@ -395,12 +422,31 @@ impl QuantumSecurityAuditor {
                 security_level: 3,
             };
 
-            let keypair = QuantumKeyPair::generate(params).unwrap();
+            let keypair = match QuantumKeyPair::generate(params) {
+                Ok(k) => k,
+                Err(e) => {
+                    tracing::error!("keygen failed during signature audit: {}", e);
+                    continue;
+                }
+            };
             let message = b"Test message for signature validation";
-            let signature = keypair.sign(message).unwrap();
+            let signature = match keypair.sign(message) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("sign failed during signature audit: {}", e);
+                    continue;
+                }
+            };
 
-            if verify_quantum_signature(&keypair.public_key, message, &signature, params).unwrap() {
-                tests_passed += 1;
+            match verify_quantum_signature(&keypair.public_key, message, &signature, params) {
+                Ok(true) => tests_passed += 1,
+                Ok(false) => {
+                    // Signature failed to verify — record the failure
+                    // (tests_passed not incremented) but keep iterating.
+                }
+                Err(e) => {
+                    tracing::error!("verify failed during signature audit: {}", e);
+                }
             }
         }
 
