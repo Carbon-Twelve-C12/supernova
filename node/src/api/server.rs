@@ -118,6 +118,21 @@ fn validate_api_keys(keys: &[String]) -> std::io::Result<()> {
                 "API key is empty or whitespace-only",
             ));
         }
+        // Reject keys with surrounding whitespace. Validation operates on
+        // the trimmed form but the stored key — the one `ApiAuth` compares
+        // against the Bearer-stripped header — is the raw form. A padded
+        // key would pass every check here and then silently 401 every
+        // client request (clients don't send padded Authorization values).
+        // Failing loud at startup is strictly better than the silent
+        // auth-always-fails mode.
+        if key.len() != trimmed.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "API key has surrounding whitespace. Remove leading/trailing \
+                 spaces or newlines — the raw TOML value is compared byte-\
+                 for-byte against client Authorization headers.",
+            ));
+        }
         if trimmed.len() < MIN_API_KEY_LEN {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -397,6 +412,27 @@ mod tests {
     fn test_validate_api_keys_rejects_short() {
         // 31-char key — one below the minimum.
         assert!(validate_api_keys(&["a".repeat(31)]).is_err());
+    }
+
+    #[test]
+    fn test_validate_api_keys_rejects_surrounding_whitespace() {
+        // A key whose trimmed form passes every other check is still
+        // rejected if it has padding — the stored raw form would never
+        // match the Bearer-stripped header and auth would silently fail.
+        let core: String = (0..40).map(|i| ((b'a' + (i as u8 % 26)) as char)).collect();
+        for padded in [
+            format!(" {}", core),
+            format!("{} ", core),
+            format!("  {}  ", core),
+            format!("\t{}", core),
+            format!("{}\n", core),
+        ] {
+            assert!(
+                validate_api_keys(&[padded.clone()]).is_err(),
+                "padded key {:?} must be rejected",
+                padded
+            );
+        }
     }
 
     #[test]
