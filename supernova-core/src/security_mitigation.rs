@@ -26,6 +26,10 @@ pub enum SecurityError {
     /// Internal error
     #[error("Internal security system error: {0}")]
     InternalError(String),
+
+    /// Shared state lock was poisoned by a prior panic
+    #[error("Internal lock poisoned — another thread panicked while holding the lock")]
+    LockPoisoned,
 }
 
 /// IP subnet representation for diversity tracking
@@ -714,7 +718,10 @@ impl SecurityManager {
     ) -> Result<(), SecurityError> {
         // Check rate limiting
         {
-            let mut rate_limiter = self.rate_limiter.write().unwrap();
+            let mut rate_limiter = self
+                .rate_limiter
+                .write()
+                .map_err(|_| SecurityError::LockPoisoned)?;
             // Convert IpAddr to String for matching
             let ip_str = ip_addr.to_string();
 
@@ -732,7 +739,10 @@ impl SecurityManager {
 
         // Register with diversity manager
         {
-            let mut diversity_manager = self.diversity_manager.write().unwrap();
+            let mut diversity_manager = self
+                .diversity_manager
+                .write()
+                .map_err(|_| SecurityError::LockPoisoned)?;
             diversity_manager.register_peer(peer_id, ip_addr)?;
         }
 
@@ -747,22 +757,32 @@ impl SecurityManager {
     ) -> Result<(), SecurityError> {
         // Register the connection with eclipse prevention
         {
-            let mut eclipse_prevention = self.eclipse_prevention.write().unwrap();
+            let mut eclipse_prevention = self
+                .eclipse_prevention
+                .write()
+                .map_err(|_| SecurityError::LockPoisoned)?;
             eclipse_prevention.register_outbound_connection(peer_id.clone(), ip_addr);
         }
 
         // Also register with diversity manager
         {
-            let mut diversity_manager = self.diversity_manager.write().unwrap();
+            let mut diversity_manager = self
+                .diversity_manager
+                .write()
+                .map_err(|_| SecurityError::LockPoisoned)?;
             diversity_manager.register_peer(peer_id, ip_addr)?;
         }
 
         Ok(())
     }
 
-    /// Check if outbound connections need rotation
+    /// Check if outbound connections need rotation. Read-only; recovers
+    /// from lock poisoning so the rotation-selection path never panics.
     pub fn check_outbound_rotation(&self) -> Vec<String> {
-        let eclipse_prevention = self.eclipse_prevention.read().unwrap();
+        let eclipse_prevention = self
+            .eclipse_prevention
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         if eclipse_prevention.check_rotation_needed() {
             return eclipse_prevention.get_rotation_candidates();
@@ -775,34 +795,51 @@ impl SecurityManager {
     pub fn remove_peer_connection(&self, peer_id: &str) -> Result<(), SecurityError> {
         // Remove from diversity manager
         {
-            let mut diversity_manager = self.diversity_manager.write().unwrap();
+            let mut diversity_manager = self
+                .diversity_manager
+                .write()
+                .map_err(|_| SecurityError::LockPoisoned)?;
             diversity_manager.remove_peer(peer_id)?;
         }
 
         // Remove from eclipse prevention if it's an outbound connection
         {
-            let mut eclipse_prevention = self.eclipse_prevention.write().unwrap();
+            let mut eclipse_prevention = self
+                .eclipse_prevention
+                .write()
+                .map_err(|_| SecurityError::LockPoisoned)?;
             eclipse_prevention.remove_connection(peer_id);
         }
 
         Ok(())
     }
 
-    /// Verify a block against known checkpoints
+    /// Verify a block against known checkpoints. Read-only; recovers from
+    /// lock poisoning so consensus validation never panics here.
     pub fn verify_block_against_checkpoints(&self, height: u64, block_hash: [u8; 32]) -> bool {
-        let long_range_protection = self.long_range_protection.read().unwrap();
+        let long_range_protection = self
+            .long_range_protection
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         long_range_protection.verify_block(height, block_hash)
     }
 
-    /// Add a checkpoint for long-range attack protection
+    /// Add a checkpoint for long-range attack protection. Best-effort;
+    /// recovers from lock poisoning.
     pub fn add_checkpoint(&self, height: u64, block_hash: [u8; 32]) {
-        let mut long_range_protection = self.long_range_protection.write().unwrap();
+        let mut long_range_protection = self
+            .long_range_protection
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         long_range_protection.add_checkpoint(height, block_hash);
     }
 
-    /// Get peer diversity score
+    /// Get peer diversity score. Read-only; recovers from lock poisoning.
     pub fn get_diversity_score(&self) -> f64 {
-        let diversity_manager = self.diversity_manager.read().unwrap();
+        let diversity_manager = self
+            .diversity_manager
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         diversity_manager.evaluate_diversity()
     }
 
@@ -959,7 +996,10 @@ impl SecurityManager {
 
     /// Check if a request from this IP would violate rate limits
     pub fn check_rate_limits(&self, ip_addr: &IpAddr) -> Result<(), SecurityError> {
-        let mut rate_limiter = self.rate_limiter.write().unwrap();
+        let mut rate_limiter = self
+            .rate_limiter
+            .write()
+            .map_err(|_| SecurityError::LockPoisoned)?;
 
         // Convert IpAddr to String for matching
         let ip_str = ip_addr.to_string();
