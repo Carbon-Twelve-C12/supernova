@@ -239,7 +239,7 @@ impl RegressionTestingManager {
         // Generate current timestamp
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_secs();
 
         // Create test case
@@ -288,7 +288,7 @@ impl RegressionTestingManager {
         // Generate current timestamp
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_secs();
 
         // Create test suite
@@ -387,7 +387,7 @@ impl RegressionTestingManager {
         // Update timestamp
         actual_state.timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_secs();
 
         // Verify final state matches expected
@@ -406,7 +406,7 @@ impl RegressionTestingManager {
             differences,
             executed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
         };
 
@@ -542,7 +542,7 @@ impl RegressionTestingManager {
                     // Create an error result
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or(std::time::Duration::ZERO)
                         .as_secs();
 
                     let error_result = RegressionTestResult {
@@ -589,7 +589,7 @@ impl RegressionTestingManager {
     ) -> BlockchainState {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_secs();
 
         BlockchainState {
@@ -663,7 +663,7 @@ pub mod samples {
     pub fn create_double_spend_regression_test() -> RegressionTestCase {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_secs();
 
         // Create initial state
