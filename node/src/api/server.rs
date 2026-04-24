@@ -25,8 +25,21 @@ use crate::node::Node;
 /// Minimum acceptable API key length. Short keys are both guessable and
 /// indicative of placeholder/test configuration that must not reach prod.
 const MIN_API_KEY_LEN: usize = 32;
-/// Substrings that mark a key as an obvious placeholder and must be rejected.
-const PLACEHOLDER_KEY_MARKERS: &[&str] = &["CHANGE-ME", "changeme", "replace-me", "example"];
+/// Lowercase substrings that mark a key as an obvious placeholder and must
+/// be rejected. The input is lowercased before comparison, so case variants
+/// like `Change-Me-…` / `REPLACE-ME-…` / `Example-…` are caught too — a
+/// byte-exact check was trivially bypassed by case-swapping README strings.
+const PLACEHOLDER_KEY_MARKERS: &[&str] = &[
+    "change-me",
+    "changeme",
+    "replace-me",
+    "replaceme",
+    "example",
+    "default",
+    "test",
+    "secret",
+    "demo",
+];
 
 /// Configuration options for the API server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,9 +128,10 @@ fn validate_api_keys(keys: &[String]) -> std::io::Result<()> {
                 ),
             ));
         }
+        let lowered = trimmed.to_ascii_lowercase();
         if PLACEHOLDER_KEY_MARKERS
             .iter()
-            .any(|marker| trimmed.contains(marker))
+            .any(|marker| lowered.contains(marker))
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -185,27 +199,37 @@ pub struct ApiServer {
 }
 
 impl ApiServer {
-    /// Create a new API server instance.
+    /// Create a new API server instance from the operator's configuration.
+    ///
+    /// Takes the full [`ApiConfig`] so callers cannot forget to wire
+    /// bind address, auth, or CORS settings — a previous signature that
+    /// accepted only `&str` / `u16` combined with `ApiServer::new` storing
+    /// `ApiConfig::default()` meant the operator's `[api]` TOML was
+    /// silently dropped: with the secure default (`api_keys = None,
+    /// enable_auth = true`), startup always failed closed with no keys
+    /// configured, and every deployment lost its API on upgrade.
     ///
     /// Returns an error if the underlying `ApiFacade` cannot be constructed
     /// (e.g. a missing wallet manager whose fallback initialization fails).
-    pub fn new(
-        node: Arc<Node>,
-        bind_address: &str,
-        port: u16,
-    ) -> Result<Self, crate::node::NodeError> {
+    pub fn new(node: Arc<Node>, config: ApiConfig) -> Result<Self, crate::node::NodeError> {
         let node_facade = Arc::new(ApiFacade::new(&node)?);
+        let bind_address = config.bind_address.clone();
+        let port = config.port;
 
         Ok(Self {
             node_facade,
-            config: ApiConfig::default(),
-            bind_address: bind_address.to_string(),
+            config,
+            bind_address,
             port,
             metrics: Arc::new(ApiMetrics::new()),
         })
     }
 
-    /// Set API server configuration
+    /// Override the API configuration after construction.
+    ///
+    /// Rarely needed now that [`ApiServer::new`] accepts the full
+    /// [`ApiConfig`]; kept for callers that construct the server and then
+    /// adjust settings (e.g. test harnesses).
     pub fn with_config(mut self, config: ApiConfig) -> Self {
         self.bind_address = config.bind_address.clone();
         self.port = config.port;
@@ -377,8 +401,31 @@ mod tests {
 
     #[test]
     fn test_validate_api_keys_rejects_placeholder() {
-        let k = format!("CHANGE-ME-{}", "x".repeat(40));
-        assert!(validate_api_keys(&[k]).is_err());
+        // Case variants of every marker must all be rejected — the prior
+        // byte-exact check only caught `CHANGE-ME` and `changeme`, so a
+        // simple case-swap of any other placeholder slipped through.
+        let placeholder_prefixes = [
+            "CHANGE-ME-",
+            "change-me-",
+            "Change-Me-",
+            "REPLACE-ME-",
+            "ReplaceMe-",
+            "CHANGEME-",
+            "Example-",
+            "EXAMPLE-",
+            "Default-",
+            "TEST-",
+            "Secret-",
+            "DEMO-",
+        ];
+        for prefix in &placeholder_prefixes {
+            let k = format!("{}{}", prefix, "x".repeat(40));
+            assert!(
+                validate_api_keys(&[k.clone()]).is_err(),
+                "placeholder `{}` should be rejected",
+                k
+            );
+        }
     }
 
     #[test]

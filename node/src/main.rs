@@ -170,12 +170,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_server_handle = if !config.api.bind_address.is_empty() && config.api.port > 0 {
         info!(
             "Starting API server on {}:{}",
-            "0.0.0.0", config.api.port
+            config.api.bind_address, config.api.port
         );
+        // Pass the operator's full ApiConfig through so auth keys, CORS
+        // origins, and the bind interface actually reach the server.
         let api_server = match node::api::create_api_server(
             Arc::clone(&node),
-            "0.0.0.0", // Listen on all interfaces for external access
-            config.api.port,
+            config.api.clone(),
         ) {
             Ok(server) => server,
             Err(e) => {

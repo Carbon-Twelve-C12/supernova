@@ -256,10 +256,35 @@ pub fn init_metrics() -> Result<(), MetricsError> {
     Ok(())
 }
 
-/// Access the global metrics bundle. Returns `None` before [`init_metrics`]
-/// succeeds — recording helpers should treat this as a silent no-op.
+/// Access the global metrics bundle, initializing it on first access if no
+/// caller has already called [`init_metrics`].
+///
+/// Lazy initialization is necessary because nothing in the node startup
+/// path calls `init_metrics` explicitly — the atomic-swap module is
+/// feature-gated and its RPC impl could be constructed in arbitrary
+/// orders. Without auto-init, every recording helper silently short-
+/// circuits and the Prometheus counters stay at zero forever.
+///
+/// Returns `None` only if `AtomicSwapMetrics::new()` fails (which would
+/// indicate a programmer error — every metric name is a compile-time
+/// constant), in which case the failure is logged and recording helpers
+/// remain no-ops. A subsequent call will retry.
 pub fn metrics() -> Option<&'static AtomicSwapMetrics> {
-    METRICS.get()
+    if let Some(m) = METRICS.get() {
+        return Some(m);
+    }
+    match AtomicSwapMetrics::new() {
+        Ok(m) => {
+            // If another thread won the race, discard our instance and
+            // return theirs. Either way `METRICS.get()` succeeds below.
+            let _ = METRICS.set(m);
+            METRICS.get()
+        }
+        Err(e) => {
+            tracing::error!("atomic_swap metrics initialization failed: {}", e);
+            None
+        }
+    }
 }
 
 /// Access the underlying registry for scraping. Returns `None` until
