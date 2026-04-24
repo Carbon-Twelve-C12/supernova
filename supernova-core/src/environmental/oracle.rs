@@ -48,6 +48,9 @@ pub enum OracleError {
 
     #[error("Network error: {0}")]
     NetworkError(String),
+
+    #[error("Internal lock poisoned — another thread panicked while holding the lock")]
+    LockPoisoned,
 }
 
 /// Oracle reputation and stake information
@@ -451,11 +454,11 @@ impl EnvironmentalOracle {
 
         self.oracles
             .write()
-            .unwrap()
+            .map_err(|_| OracleError::LockPoisoned)?
             .insert(oracle_id.clone(), oracle_info);
         self.oracle_metrics
             .write()
-            .unwrap()
+            .map_err(|_| OracleError::LockPoisoned)?
             .insert(oracle_id, OracleMetrics::default());
 
         Ok(())
@@ -482,15 +485,19 @@ impl EnvironmentalOracle {
             data,
             requester,
             timestamp: Utc::now(),
+            // `Duration::from_std` only fails if the input exceeds ~292B
+            // years (i64 ms overflow); any realistic timeout fits. Fall
+            // back to zero on the impossible overflow rather than panic.
             expiry: Utc::now()
-                + chrono::Duration::from_std(self.consensus_params.verification_timeout).unwrap(),
+                + chrono::Duration::from_std(self.consensus_params.verification_timeout)
+                    .unwrap_or_else(|_| chrono::Duration::zero()),
             required_specializations,
             bounty,
         };
 
         self.pending_verifications
             .write()
-            .unwrap()
+            .map_err(|_| OracleError::LockPoisoned)?
             .insert(request_id.clone(), request);
 
         Ok(request_id)
@@ -504,7 +511,10 @@ impl EnvironmentalOracle {
         verification_data: OracleSubmission,
     ) -> Result<(), OracleError> {
         // Verify oracle is registered and active
-        let oracles = self.oracles.read().unwrap();
+        let oracles = self
+            .oracles
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let oracle_info = oracles
             .get(&oracle_id)
             .ok_or_else(|| OracleError::OracleNotRegistered(oracle_id.clone()))?;
@@ -521,7 +531,10 @@ impl EnvironmentalOracle {
         }
 
         // Add submission
-        let mut submissions = self.oracle_submissions.write().unwrap();
+        let mut submissions = self
+            .oracle_submissions
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
         submissions
             .entry(request_id.clone())
             .or_default()
@@ -551,14 +564,20 @@ impl EnvironmentalOracle {
     /// * `Ok(())` - Consensus achieved and result stored
     /// * `Err(OracleError)` - Consensus failed or insufficient trusted oracles
     fn process_consensus(&self, request_id: &str) -> Result<(), OracleError> {
-        let submissions = self.oracle_submissions.read().unwrap();
+        let submissions = self
+            .oracle_submissions
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let oracle_submissions = submissions
             .get(request_id)
             .ok_or_else(|| OracleError::ConsensusNotReached("No submissions".to_string()))?;
 
         // SECURITY FIX: Filter by reputation first
         // Only oracles with reputation >= 800 (80%) participate in consensus
-        let oracles_lock = self.oracles.read().unwrap();
+        let oracles_lock = self
+            .oracles
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let trusted_submissions: Vec<&OracleSubmission> = oracle_submissions
             .iter()
             .filter(|submission| {
@@ -615,7 +634,10 @@ impl EnvironmentalOracle {
         }
 
         // Create verification result
-        let pending = self.pending_verifications.read().unwrap();
+        let pending = self
+            .pending_verifications
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let _request = pending
             .get(request_id)
             .ok_or_else(|| OracleError::ConsensusNotReached("Request not found".to_string()))?;
@@ -642,15 +664,20 @@ impl EnvironmentalOracle {
         // Store result
         self.completed_verifications
             .write()
-            .unwrap()
+            .map_err(|_| OracleError::LockPoisoned)?
             .insert(request_id.to_string(), result.clone());
 
+        // `majority_group` is Some whenever `verification_groups` has at
+        // least one entry, which is guaranteed above by the `trusted_
+        // submissions.len() >= min_oracles` check. Propagate defensively.
+        let majority_key = majority_group.ok_or_else(|| {
+            OracleError::ConsensusNotReached(
+                "No majority group after consensus (invariant violation)".to_string(),
+            )
+        })?;
+
         // Distribute rewards and penalties
-        self.distribute_rewards_and_penalties(
-            &result,
-            &verification_groups,
-            &majority_group.unwrap(),
-        )?;
+        self.distribute_rewards_and_penalties(&result, &verification_groups, &majority_key)?;
 
         // Cache result
         self.cache_verification(request_id, result);
@@ -738,7 +765,10 @@ impl EnvironmentalOracle {
         amount: u64,
         reason: String,
     ) -> Result<(), OracleError> {
-        let mut oracles = self.oracles.write().unwrap();
+        let mut oracles = self
+            .oracles
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let oracle = oracles
             .get_mut(oracle_id)
             .ok_or_else(|| OracleError::OracleNotRegistered(oracle_id.to_string()))?;
@@ -771,9 +801,12 @@ impl EnvironmentalOracle {
         hasher.update(requester.as_bytes());
         hasher.update(bincode::serialize(data).unwrap_or_default());
         hasher.update(
+            // `duration_since(UNIX_EPOCH)` only fails on systems whose clock
+            // predates 1970 — treat that pathological case as 0 rather than
+            // panicking; the request ID just loses its time component.
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs()
                 .to_le_bytes(),
         );
@@ -845,12 +878,26 @@ impl EnvironmentalOracle {
         verification_groups: &HashMap<String, Vec<&OracleSubmission>>,
         majority_key: &str,
     ) -> Result<(), OracleError> {
-        let majority_group = verification_groups.get(majority_key).unwrap();
+        // `majority_key` is sourced from `verification_groups` by the caller,
+        // so the lookup is guaranteed. Surface the violation as a typed
+        // error rather than panicking if the invariant is ever broken.
+        let majority_group = verification_groups.get(majority_key).ok_or_else(|| {
+            OracleError::ConsensusNotReached(format!(
+                "majority key `{}` not found in verification groups",
+                majority_key
+            ))
+        })?;
         let majority_oracles: HashSet<_> =
             majority_group.iter().map(|s| s.oracle_id.clone()).collect();
 
-        let mut oracles = self.oracles.write().unwrap();
-        let mut metrics = self.oracle_metrics.write().unwrap();
+        let mut oracles = self
+            .oracles
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
+        let mut metrics = self
+            .oracle_metrics
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
 
         // Reward oracles in majority
         for oracle_id in &majority_oracles {
@@ -885,7 +932,13 @@ impl EnvironmentalOracle {
     }
 
     fn check_cache(&self, request_id: &str) -> Option<CachedVerification> {
-        let cache = self.verification_cache.read().unwrap();
+        // Read-only cache access; recover from poison so the query path
+        // never panics. Poisoning means a prior thread panicked with the
+        // write lock held, but the map is still internally consistent.
+        let cache = self
+            .verification_cache
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         cache
             .get(request_id)
             .cloned()
@@ -899,16 +952,26 @@ impl EnvironmentalOracle {
             expires_at: Utc::now() + chrono::Duration::hours(24),
         };
 
+        // Caching is best-effort: if the lock is poisoned, recover and
+        // still write — a missed cache entry would only cause the next
+        // consensus run to redo the verification.
         self.verification_cache
             .write()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(request_id.to_string(), cached);
     }
 
-    /// Get oracle statistics
+    /// Get oracle statistics. Read-only; recovers from lock poisoning so
+    /// the query never panics.
     pub fn get_oracle_stats(&self, oracle_id: &str) -> Option<(OracleInfo, OracleMetrics)> {
-        let oracles = self.oracles.read().unwrap();
-        let metrics = self.oracle_metrics.read().unwrap();
+        let oracles = self
+            .oracles
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let metrics = self
+            .oracle_metrics
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         if let (Some(info), Some(metric)) = (oracles.get(oracle_id), metrics.get(oracle_id)) {
             Some((info.clone(), metric.clone()))
@@ -917,11 +980,11 @@ impl EnvironmentalOracle {
         }
     }
 
-    /// Get verification result
+    /// Get verification result. Read-only; recovers from lock poisoning.
     pub fn get_verification_result(&self, request_id: &str) -> Option<VerificationResult> {
         self.completed_verifications
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(request_id)
             .cloned()
     }
