@@ -269,7 +269,10 @@ impl CarbonTracker {
         self.update_tracking_data(entity_id, &result)?;
 
         // Store historical data
-        self.historical_data.write().unwrap().push(result.clone());
+        self.historical_data
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?
+            .push(result.clone());
 
         // Update network-wide monitoring
         self.update_monitoring_data(&result)?;
@@ -357,7 +360,10 @@ impl CarbonTracker {
     pub fn implement_real_time_carbon_tracking(&self) -> Result<(), OracleError> {
 
         // Initialize monitoring components
-        let mut monitoring = self.monitoring_data.write().unwrap();
+        let mut monitoring = self
+            .monitoring_data
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
         monitoring.last_calculation = Utc::now();
 
         // Set up real-time data streams (simulated)
@@ -486,7 +492,10 @@ impl CarbonTracker {
     }
 
     fn calculate_applied_offsets(&self, entity_id: &str) -> Result<f64, OracleError> {
-        let offsets = self.carbon_offsets.read().unwrap();
+        let offsets = self
+            .carbon_offsets
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         let total_offsets = offsets
             .values()
             .filter(|offset| offset.owner_id == entity_id && offset.is_valid())
@@ -541,7 +550,10 @@ impl CarbonTracker {
         let mut proofs = Vec::new();
 
         // Collect REC proofs
-        let recs = self.renewable_certificates.read().unwrap();
+        let recs = self
+            .renewable_certificates
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         for (_, cert) in recs.iter() {
             if cert.owner_id == entity_id {
                 proofs.push(VerificationProof {
@@ -555,7 +567,10 @@ impl CarbonTracker {
         }
 
         // Collect carbon offset proofs
-        let offsets = self.carbon_offsets.read().unwrap();
+        let offsets = self
+            .carbon_offsets
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?;
         for (_, offset) in offsets.iter() {
             if offset.owner_id == entity_id {
                 proofs.push(VerificationProof {
@@ -576,7 +591,10 @@ impl CarbonTracker {
         entity_id: &str,
         result: &CarbonTrackingResult,
     ) -> Result<(), OracleError> {
-        let mut tracking = self.tracking_data.write().unwrap();
+        let mut tracking = self
+            .tracking_data
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
 
         let energy_sources = HashMap::new(); // Would be populated from result
 
@@ -596,7 +614,10 @@ impl CarbonTracker {
     }
 
     fn update_monitoring_data(&self, result: &CarbonTrackingResult) -> Result<(), OracleError> {
-        let mut monitoring = self.monitoring_data.write().unwrap();
+        let mut monitoring = self
+            .monitoring_data
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
 
         // Update network-wide statistics
         monitoring.total_network_emissions += result.total_emissions;
