@@ -27,6 +27,9 @@ pub enum VerificationError {
 
     #[error("Verification service unavailable")]
     ServiceUnavailable,
+
+    #[error("Internal lock poisoned — another thread panicked while holding the lock")]
+    LockPoisoned,
 }
 
 /// Renewable Energy Certificate
@@ -159,25 +162,40 @@ impl VerificationService {
         Self::new(VerificationConfig::default())
     }
 
-    /// Update the service configuration
+    /// Update the service configuration. Recovers from lock poisoning so
+    /// a prior panic in a config writer can't cascade into this path.
     pub fn update_config(&self, config: VerificationConfig) {
-        let mut current_config = self.config.write().unwrap();
+        let mut current_config = self
+            .config
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *current_config = config;
     }
 
-    /// Check if a certificate is expired
+    /// Check if a certificate is expired. Read-only; recovers from
+    /// lock poisoning.
     pub fn is_certificate_expired(&self, certificate: &RenewableCertificate) -> bool {
-        let config = self.config.read().unwrap();
+        let config = self
+            .config
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let max_age = chrono::Duration::days(config.max_certificate_age_days as i64);
         let now = Utc::now();
 
         certificate.generation_end + max_age < now
     }
 
-    /// Check cache for verification result
+    /// Check cache for verification result. Read-only; recovers from
+    /// lock poisoning on both locks.
     fn check_cache(&self, id: &str) -> Option<VerificationStatus> {
-        let cache = self.verification_cache.read().unwrap();
-        let config = self.config.read().unwrap();
+        let cache = self
+            .verification_cache
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let config = self
+            .config
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         if let Some((status, timestamp)) = cache.get(id) {
             // Check if cache entry is still valid
@@ -192,19 +210,29 @@ impl VerificationService {
         None
     }
 
-    /// Add result to cache
+    /// Add result to cache. Best-effort; recovers from lock poisoning.
     fn add_to_cache(&self, id: String, status: VerificationStatus) {
-        let mut cache = self.verification_cache.write().unwrap();
+        let mut cache = self
+            .verification_cache
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         cache.insert(id, (status, Utc::now()));
     }
 
-    /// Clear expired cache entries
+    /// Clear expired cache entries. Best-effort; recovers from lock
+    /// poisoning on both locks.
     pub fn clear_expired_cache(&self) {
-        let config = self.config.read().unwrap();
+        let config = self
+            .config
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let cache_expiration = chrono::Duration::hours(config.cache_expiration_hours as i64);
         let now = Utc::now();
 
-        let mut cache = self.verification_cache.write().unwrap();
+        let mut cache = self
+            .verification_cache
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         cache.retain(|_, (_, timestamp)| *timestamp + cache_expiration > now);
     }
 }
@@ -234,24 +262,27 @@ impl VerificationProvider for VerificationService {
 
         // Get config but drop it before the await
         {
-            let config = self.config.read().unwrap();
+            let config = self
+                .config
+                .read()
+                .map_err(|_| VerificationError::LockPoisoned)?;
 
-            // If no API endpoint is configured, use local verification
-            if config.api_endpoint.is_none() {
-                let status = if config.accept_self_reported {
-                    VerificationStatus::Verified
-                } else {
-                    VerificationStatus::Pending
-                };
-
-                // Add to cache
-                self.add_to_cache(certificate.certificate_id.clone(), status);
-
-                return Ok(status);
-            }
-
-            // Copy necessary data from config
-            api_url = config.api_endpoint.as_ref().unwrap().clone();
+            // If no API endpoint is configured, use local verification;
+            // otherwise extract the endpoint and fall through to the
+            // remote path. `match` avoids the is_none/unwrap antipattern.
+            api_url = match config.api_endpoint.as_ref() {
+                Some(endpoint) => endpoint.clone(),
+                None => {
+                    let status = if config.accept_self_reported {
+                        VerificationStatus::Verified
+                    } else {
+                        VerificationStatus::Pending
+                    };
+                    drop(config);
+                    self.add_to_cache(certificate.certificate_id.clone(), status);
+                    return Ok(status);
+                }
+            };
             api_key = config.api_key.clone();
             _accept_self_reported = config.accept_self_reported;
         }
@@ -330,24 +361,24 @@ impl VerificationProvider for VerificationService {
 
         // Get config but drop it before the await
         {
-            let config = self.config.read().unwrap();
+            let config = self
+                .config
+                .read()
+                .map_err(|_| VerificationError::LockPoisoned)?;
 
-            // If no API endpoint is configured, use local verification
-            if config.api_endpoint.is_none() {
-                let status = if config.accept_self_reported {
-                    VerificationStatus::Verified
-                } else {
-                    VerificationStatus::Pending
-                };
-
-                // Add to cache
-                self.add_to_cache(offset.offset_id.clone(), status);
-
-                return Ok(status);
-            }
-
-            // Copy necessary data from config
-            api_url = config.api_endpoint.as_ref().unwrap().clone();
+            api_url = match config.api_endpoint.as_ref() {
+                Some(endpoint) => endpoint.clone(),
+                None => {
+                    let status = if config.accept_self_reported {
+                        VerificationStatus::Verified
+                    } else {
+                        VerificationStatus::Pending
+                    };
+                    drop(config);
+                    self.add_to_cache(offset.offset_id.clone(), status);
+                    return Ok(status);
+                }
+            };
             api_key = config.api_key.clone();
             _accept_self_reported = config.accept_self_reported;
         }
