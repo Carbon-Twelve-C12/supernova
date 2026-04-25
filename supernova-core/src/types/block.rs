@@ -4,6 +4,7 @@ use crate::util::merkle::MerkleTree;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::error;
 
 // Placeholder network protocol types for compilation compatibility
 pub mod network_protocol {
@@ -308,10 +309,17 @@ impl Block {
             merkle_tree.root_hash()
         };
 
-        // Create timestamp
+        // Create timestamp. `duration_since(UNIX_EPOCH)` only fails if the
+        // system clock predates 1970; fall back to 0 rather than panicking
+        // mid-block-construction. A timestamp of 0 will be rejected by
+        // consensus validation (median-time-past check), so the failure
+        // surfaces at the validator instead of crashing the miner.
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
+            .unwrap_or_else(|_| {
+                error!("system clock is before UNIX_EPOCH; emitting timestamp=0");
+                std::time::Duration::ZERO
+            })
             .as_secs();
 
         // Create header
@@ -431,9 +439,17 @@ impl Block {
 
     /// Create a new genesis block
     pub fn genesis() -> Self {
+        // Genesis runs once at chain creation; `duration_since(UNIX_EPOCH)`
+        // only fails on a clock predating 1970, which is impossible in any
+        // realistic deployment. Fall back to 0 with a log rather than
+        // panicking — a downstream chain validator would still catch a
+        // bogus timestamp.
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
+            .unwrap_or_else(|_| {
+                error!("system clock is before UNIX_EPOCH at genesis construction");
+                std::time::Duration::ZERO
+            })
             .as_secs();
 
         let header = BlockHeader {
@@ -461,9 +477,17 @@ impl Block {
         block
     }
 
-    /// Serialize to binary format
+    /// Serialize to binary format. Returns an empty `Vec` on bincode
+    /// failure (which can only happen if a contained field exceeds
+    /// bincode's size limits — not possible for a well-formed `Block`
+    /// with standard derives). The empty result is detectable by
+    /// callers and will fail downstream deserialization, surfacing the
+    /// problem there rather than panicking mid-mining or mid-relay.
     pub fn serialize(&self) -> Vec<u8> {
-        bincode::serialize(self).expect("Failed to serialize block")
+        bincode::serialize(self).unwrap_or_else(|e| {
+            error!("Block serialization failed: {}", e);
+            Vec::new()
+        })
     }
 
     /// Deserialize from binary format
@@ -569,14 +593,17 @@ impl network_protocol::Block {
     }
 
     pub fn to_core_block(&self) -> Block {
-        // This is a placeholder implementation that should be replaced with proper conversion
+        // Placeholder implementation that should be replaced with proper
+        // conversion. `duration_since(UNIX_EPOCH)` falls back to 0 on a
+        // pre-1970 clock; this is a stub so the timestamp's accuracy is
+        // not load-bearing.
         let header = BlockHeader::new(
             1,       // version
             [0; 32], // prev_block_hash
             [0; 32], // merkle_root
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(), // timestamp
             0x1d00ffff, // bits
             0,       // nonce
