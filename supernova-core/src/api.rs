@@ -27,7 +27,9 @@ pub struct ApiConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
-            bind_address: "127.0.0.1:8080".parse().unwrap(),
+            // Use the const-friendly `From` impl rather than a fallible
+            // `.parse()` so the default literally cannot fail.
+            bind_address: std::net::SocketAddr::from(([127, 0, 0, 1], 8080)),
             enable_cors: true,
             api_key: None,
             rate_limit_per_minute: 100,

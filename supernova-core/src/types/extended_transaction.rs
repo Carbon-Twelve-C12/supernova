@@ -452,8 +452,18 @@ impl ConfidentialTransaction {
         }
     }
 
+    /// `bincode::serialize` cannot fail at runtime on a struct with the
+    /// standard derives in scope. The `unwrap_or_else` arm logs and falls
+    /// back to an empty buffer to satisfy the panic-free lint policy
+    /// without `unsafe`. Same pattern as `Transaction::hash`.
     pub fn hash(&self) -> [u8; 32] {
-        let serialized = bincode::serialize(&self).unwrap();
+        let serialized = bincode::serialize(self).unwrap_or_else(|e| {
+            tracing::error!(
+                "ConfidentialTransaction bincode::serialize failed (unreachable): {}",
+                e
+            );
+            Vec::new()
+        });
         let mut hasher = Sha256::new();
         hasher.update(&serialized);
         let result = hasher.finalize();

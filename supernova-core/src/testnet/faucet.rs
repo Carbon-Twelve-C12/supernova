@@ -168,7 +168,11 @@ impl Faucet {
         }
 
         if (entry.len() as u32) >= self.ip_limit.limit {
-            let oldest = *entry.front().expect("non-empty after limit check");
+            // `len >= limit` with `limit > 0` implies `front()` is `Some`;
+            // fall back to `now` if the invariant is ever broken so the
+            // remaining_time computation simply yields 0 instead of
+            // panicking.
+            let oldest = entry.front().copied().unwrap_or(now);
             let elapsed = now.duration_since(oldest);
             let remaining_time = window
                 .as_secs()

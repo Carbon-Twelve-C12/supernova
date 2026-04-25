@@ -101,8 +101,14 @@ impl MerkleTree {
             level += 1;
         }
 
-        // The last level should contain only the root
-        let root = nodes.last().unwrap()[0];
+        // The last level always contains exactly one element (the root)
+        // because the loop above terminates when `nodes[level].len() == 1`.
+        // The empty-tree case returns early above. Fall back to the
+        // zero-hash if the invariant is ever violated rather than panic.
+        let root = nodes
+            .last()
+            .and_then(|level| level.first().copied())
+            .unwrap_or([0u8; 32]);
 
         Self {
             leaves,

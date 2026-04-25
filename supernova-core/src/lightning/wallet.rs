@@ -269,8 +269,12 @@ impl LightningWallet {
         })
     }
 
-    /// Create a test wallet with a specified balance (for testing only)
-    pub fn new_test_wallet(balance: u64) -> Self {
+    /// Create a test wallet with a specified balance (for testing only).
+    ///
+    /// Returns the underlying `KeyManager::new` error rather than panicking
+    /// — `expect()` is forbidden by the panic-free lint policy. With a
+    /// valid 32-byte random seed this should never fail in practice.
+    pub fn new_test_wallet(balance: u64) -> Result<Self, WalletError> {
         // Use a random seed for testing
         let mut rng = thread_rng();
         let mut seed = vec![0u8; 32];
@@ -278,17 +282,16 @@ impl LightningWallet {
             *byte = rng.gen();
         }
 
-        let key_manager = KeyManager::new(seed, false, None)
-            .expect("Failed to create key manager for test wallet");
+        let key_manager = KeyManager::new(seed, false, None)?;
 
-        Self {
+        Ok(Self {
             key_manager,
             on_chain_balance: balance,
             channel_balances: HashMap::new(),
             invoices: HashMap::new(),
             payments: HashMap::new(),
             preimages: HashMap::new(),
-        }
+        })
     }
 
     /// Create a Lightning wallet from an existing node wallet

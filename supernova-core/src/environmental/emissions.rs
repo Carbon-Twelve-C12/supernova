@@ -459,13 +459,11 @@ impl EmissionsTracker {
     /// Fetch the latest emissions factors from API
     pub async fn fetch_latest_emissions_factors(&mut self) -> Result<(), EmissionsError> {
         if let Some(api_endpoint) = &self.config.emissions_api_endpoint {
-            let client = match &self.http_client {
-                Some(client) => client,
-                None => {
-                    self.http_client = Some(Client::new());
-                    self.http_client.as_ref().unwrap()
-                }
-            };
+            // `get_or_insert_with` lazily initialises the client on first
+            // use and returns `&mut Client` — avoids the previous
+            // set-then-unwrap pattern that the panic-free lint policy
+            // forbids.
+            let client = self.http_client.get_or_insert_with(Client::new);
 
             // Build API request URL
             let request_url = format!("{}/emissions-factors", api_endpoint);

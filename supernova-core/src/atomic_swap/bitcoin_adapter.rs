@@ -232,14 +232,15 @@ impl BitcoinRpcClient {
                 .get_block(&block_hash)
                 .map_err(|e| BitcoinAdapterError::RpcError(e.to_string()))?;
 
-            // Check each transaction in the block
+            // Check each transaction in the block. The previous form was
+            // a `for input in &tx.input { push; break; }` that clippy
+            // flagged as a never-looping loop; the intent ("any input
+            // exists") is expressed more directly as a non-empty check.
+            // A real implementation would inspect the previous outputs
+            // being spent — see the TODO above.
             for tx in &block.txdata {
-                // Check if any input spends from our HTLC address
-                for input in &tx.input {
-                    // This is simplified - in production, we'd need to check the
-                    // previous output being spent
+                if !tx.input.is_empty() {
                     claim_txs.push(tx.clone());
-                    break;
                 }
             }
         }

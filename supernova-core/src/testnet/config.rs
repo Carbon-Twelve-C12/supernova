@@ -369,8 +369,14 @@ pub mod difficulty {
         sorted_blocks.sort_by_key(|&(height, _)| height);
 
         let window_size = sorted_blocks.len() as u64;
-        let first_block = sorted_blocks.first().unwrap();
-        let last_block = sorted_blocks.last().unwrap();
+        // The `len() < 2` guard above ensures both ends exist; if the
+        // invariant is ever broken, return the current difficulty
+        // unchanged rather than panicking.
+        let (Some(first_block), Some(last_block)) =
+            (sorted_blocks.first(), sorted_blocks.last())
+        else {
+            return current_difficulty;
+        };
 
         // Calculate the actual time taken for this window
         let time_diff = last_block.1.saturating_sub(first_block.1);

@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting supernova Lightning Network Demo");
 
     // Create a test wallet with 1 BTC balance
-    let mut wallet = LightningWallet::new_test_wallet(100_000_000);
+    let mut wallet = LightningWallet::new_test_wallet(100_000_000)?;
 
     // Create Lightning configuration
     let config = LightningConfig {

@@ -37,10 +37,13 @@ impl TransactionDependencyGraph {
 
             // If the input references another transaction in the mempool, it's a dependency
             if mempool_txs.contains_key(&prev_tx_hash) {
-                // Add dependency relationship
+                // Add dependency relationship. Use `entry().or_default()`
+                // symmetrically with the dependents map below — avoids the
+                // unwrap antipattern (the entry was inserted at line 31, so
+                // `get_mut` was always Some, but the lint denies unwrap).
                 self.dependencies
-                    .get_mut(&tx_hash)
-                    .unwrap()
+                    .entry(tx_hash)
+                    .or_default()
                     .insert(prev_tx_hash);
 
                 // Add dependent relationship (inverse of dependency)

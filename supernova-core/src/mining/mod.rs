@@ -187,10 +187,12 @@ impl MiningWorker {
         transactions.extend(mempool_txs.into_iter().take(1000)); // Max 1000 transactions
 
         while running.load(std::sync::atomic::Ordering::Relaxed) {
-            // Create block header
+            // Create block header. A pre-1970 clock would yield Err on
+            // `unwrap()`; fall back to 0 — consensus validation rejects
+            // bogus timestamps, so the failure surfaces at the validator.
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs();
 
             let header = BlockHeader::new(

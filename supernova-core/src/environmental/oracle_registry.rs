@@ -367,10 +367,15 @@ impl OracleRegistry {
         Self::new(RegistryConfig::default())
     }
 
-    /// Initialize default slashing conditions
+    /// Initialize default slashing conditions. This runs at construction
+    /// before any concurrent access, so the lock cannot legitimately be
+    /// poisoned; recover from poison rather than panicking to satisfy the
+    /// panic-free lint policy without changing the (infallible) signature.
     fn init_slashing_conditions(&self) {
-        let mut conditions = self.slashing_conditions.write()
-            .expect("Lock poisoned during initialization");
+        let mut conditions = self
+            .slashing_conditions
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         conditions.insert(
             SlashingConditionType::FalseData,

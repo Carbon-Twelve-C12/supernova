@@ -348,10 +348,14 @@ pub fn validate_htlc_security(
         });
     }
 
-    // Validate timeout is reasonable (not too far in the future)
+    // Validate timeout is reasonable (not too far in the future). A
+    // pre-1970 clock would yield Err on `unwrap()`; fall back to 0 — the
+    // resulting `max_timeout` of 30 days is in the past, so any positive
+    // `absolute_timeout` will be rejected, which is the correct safe
+    // behaviour for an unverifiable clock.
     let max_timeout = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or(std::time::Duration::ZERO)
         .as_secs()
         + 30 * 24 * 60 * 60; // 30 days
 
