@@ -123,9 +123,12 @@ impl QuantumWallet {
 
         let metadata = WalletMetadata {
             name: "Quantum Wallet".to_string(),
+            // `duration_since(UNIX_EPOCH)` only fails if the system clock
+            // predates 1970 — fall back to 0 rather than failing wallet
+            // construction; the timestamp is metadata, not key material.
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
             quantum_scheme: scheme,
             security_level,
@@ -165,7 +168,12 @@ impl QuantumWallet {
             // For now, let's use a fixed salt when password is provided
             "quantumsupernova_pw"
         };
-        let salt = Salt::from_b64(salt_str).unwrap();
+        // Salt strings are compile-time constants and valid base64, so
+        // `from_b64` should not fail — but propagate the error rather than
+        // panicking. A panic here on a future invalid-salt edit would
+        // crash the wallet construction with no diagnostic; the typed
+        // error surfaces the misconfiguration to callers.
+        let salt = Salt::from_b64(salt_str).map_err(|_| WalletError::SeedDerivationFailed)?;
 
         // Use Argon2id for quantum-resistant key derivation
         let argon2 = Argon2::default();
@@ -175,7 +183,11 @@ impl QuantumWallet {
 
         // Extract 64 bytes for seed
         let mut seed = [0u8; 64];
-        let hash_binding = hash.hash.unwrap();
+        // `PasswordHash::hash` is `Some` after a successful `hash_password`,
+        // but the type is `Option` — propagate fail-loud rather than
+        // unwrap, so a future Argon2 API change can't silently produce
+        // an empty seed.
+        let hash_binding = hash.hash.ok_or(WalletError::SeedDerivationFailed)?;
         let hash_bytes = hash_binding.as_bytes();
         seed[..hash_bytes.len().min(64)].copy_from_slice(&hash_bytes[..hash_bytes.len().min(64)]);
 
@@ -501,7 +513,10 @@ impl QuantumWallet {
             Argon2,
         };
 
-        let salt = Salt::from_b64("quantumwalletencryption").unwrap();
+        // Compile-time-constant salt; propagate fail-loud rather than
+        // panicking so a future invalid-salt edit produces a typed error.
+        let salt =
+            Salt::from_b64("quantumwalletencryption").map_err(|_| WalletError::KeyDerivationFailed)?;
         let argon2 = Argon2::default();
 
         let hash = argon2
@@ -509,7 +524,10 @@ impl QuantumWallet {
             .map_err(|_| WalletError::KeyDerivationFailed)?;
 
         let mut key = [0u8; 32];
-        let hash_binding = hash.hash.unwrap();
+        // `PasswordHash::hash` is `Some` after success, but the type is
+        // `Option` — propagate fail-loud so a future Argon2 API change
+        // can't produce a silently-empty encryption key.
+        let hash_binding = hash.hash.ok_or(WalletError::KeyDerivationFailed)?;
         let hash_bytes = hash_binding.as_bytes();
         key.copy_from_slice(&hash_bytes[..32]);
 
