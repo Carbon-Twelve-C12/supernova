@@ -106,8 +106,13 @@ impl UtxoSet {
         };
 
         Self {
+            // `cache_capacity.max(1)` is guaranteed to be non-zero, so
+            // `NonZeroUsize::new` always returns `Some`. The `unwrap_or
+            // (MIN)` fallback is unreachable but satisfies the panic-free
+            // lint policy without `unsafe`.
             cache: Arc::new(RwLock::new(LruCache::new(
-                std::num::NonZeroUsize::new(cache_capacity.max(1)).unwrap()
+                std::num::NonZeroUsize::new(cache_capacity.max(1))
+                    .unwrap_or(std::num::NonZeroUsize::MIN),
             ))),
             mmap: None,
             index: Arc::new(DashMap::new()),
@@ -134,8 +139,13 @@ impl UtxoSet {
         };
 
         let mut utxo_set = Self {
+            // `cache_capacity.max(1)` is guaranteed to be non-zero, so
+            // `NonZeroUsize::new` always returns `Some`. The `unwrap_or
+            // (MIN)` fallback is unreachable but satisfies the panic-free
+            // lint policy without `unsafe`.
             cache: Arc::new(RwLock::new(LruCache::new(
-                std::num::NonZeroUsize::new(cache_capacity.max(1)).unwrap()
+                std::num::NonZeroUsize::new(cache_capacity.max(1))
+                    .unwrap_or(std::num::NonZeroUsize::MIN),
             ))),
             mmap: None,
             index: Arc::new(DashMap::new()),
