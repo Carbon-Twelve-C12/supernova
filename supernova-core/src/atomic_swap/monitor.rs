@@ -283,7 +283,12 @@ impl CrossChainMonitor {
             active_swaps: Arc::new(RwLock::new(HashMap::new())),
             bitcoin_client: None,
             supernova_handle,
-            event_history: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1000).unwrap()))),
+            // `1000` is a non-zero literal so `new(1000)` always returns
+            // `Some`; the `unwrap_or(MIN)` branch is unreachable but
+            // satisfies the panic-free lint policy without `unsafe`.
+            event_history: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(1000).unwrap_or(NonZeroUsize::MIN),
+            ))),
             stop_signal: stop_rx,
             event_tx,
         }
@@ -302,7 +307,12 @@ impl CrossChainMonitor {
             active_swaps: Arc::new(RwLock::new(HashMap::new())),
             bitcoin_client: None,
             supernova_handle,
-            event_history: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1000).unwrap()))),
+            // `1000` is a non-zero literal so `new(1000)` always returns
+            // `Some`; the `unwrap_or(MIN)` branch is unreachable but
+            // satisfies the panic-free lint policy without `unsafe`.
+            event_history: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(1000).unwrap_or(NonZeroUsize::MIN),
+            ))),
             stop_signal: stop_rx,
             event_tx,
         }
@@ -569,9 +579,13 @@ impl CrossChainMonitor {
             htlc_id: swap.nova_htlc.htlc_id.to_vec(),
             secret,
             claimer: swap.nova_htlc.participant.address.clone(),
+            // Pre-1970 clock would yield Err here; fall back to 0 rather
+            // than panicking — the on-chain timestamp loses precision but
+            // the claim/refund still submits and downstream validation
+            // handles bogus timestamps.
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
         };
 
@@ -613,9 +627,13 @@ impl CrossChainMonitor {
         let refund_data = SupernovaRefundData {
             htlc_id: swap.nova_htlc.htlc_id.to_vec(),
             refunder: swap.nova_htlc.initiator.address.clone(),
+            // Pre-1970 clock would yield Err here; fall back to 0 rather
+            // than panicking — the on-chain timestamp loses precision but
+            // the claim/refund still submits and downstream validation
+            // handles bogus timestamps.
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
         };
 
