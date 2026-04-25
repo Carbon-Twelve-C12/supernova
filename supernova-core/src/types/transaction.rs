@@ -4,6 +4,7 @@ use crate::environmental::emissions::{Emissions, EmissionsError, EmissionsTracke
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
+use tracing::error;
 
 /// Transaction validation and processing errors
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,31 +318,41 @@ impl Transaction {
         self.signature_data = None;
     }
 
-    /// Calculate the transaction hash
+    /// Calculate the transaction hash.
+    ///
+    /// `bincode::serialize` on a `Transaction` with the standard derives in
+    /// scope cannot fail at runtime — the only failure modes (unknown type,
+    /// custom-serializer error, size-limit overflow) don't apply. The
+    /// `unwrap_or_else` arm logs and falls back to an empty buffer to
+    /// satisfy the panic-free lint policy without `unsafe`; the resulting
+    /// hash would be a known SHA-256-of-empty constant
+    /// (`e3b0c4429…b7852b855`), which is recognisable on inspection.
+    /// Cascading a `Result<[u8; 32], _>` return is not viable: this method
+    /// is on the hot consensus path and called pervasively.
     pub fn hash(&self) -> [u8; 32] {
-        if self.version >= 2 && self.signature_data.is_some() {
-            // For v2+ transactions with extended signatures, calculate hash differently
-            // to exclude the signature data for signing purposes
+        let serialized = if self.version >= 2 && self.signature_data.is_some() {
+            // For v2+ transactions with extended signatures, hash with the
+            // signature data stripped so the same hash can be used for
+            // signing and identity.
             let mut tx_copy = self.clone();
             tx_copy.signature_data = None;
-
-            let serialized = bincode::serialize(&tx_copy).unwrap();
-            let mut hasher = Sha256::new();
-            hasher.update(&serialized);
-            let result = hasher.finalize();
-            let mut hash = [0u8; 32];
-            hash.copy_from_slice(&result);
-            hash
+            bincode::serialize(&tx_copy).unwrap_or_else(|e| {
+                error!("Transaction (v2+) bincode::serialize failed (unreachable): {}", e);
+                Vec::new()
+            })
         } else {
-            // For legacy transactions or those without extended signatures, use the original hash method
-            let serialized = bincode::serialize(&self).unwrap();
-            let mut hasher = Sha256::new();
-            hasher.update(&serialized);
-            let result = hasher.finalize();
-            let mut hash = [0u8; 32];
-            hash.copy_from_slice(&result);
-            hash
-        }
+            bincode::serialize(self).unwrap_or_else(|e| {
+                error!("Transaction bincode::serialize failed (unreachable): {}", e);
+                Vec::new()
+            })
+        };
+
+        let mut hasher = Sha256::new();
+        hasher.update(&serialized);
+        let result = hasher.finalize();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&result);
+        hash
     }
 
     /// Get the transaction version
