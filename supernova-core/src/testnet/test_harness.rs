@@ -465,13 +465,15 @@ impl TestHarness {
                 let hash = format!("block{}node{}", node.height, node_id);
                 node.best_block_hash = hash;
 
-                // Process block in testnet manager
+                // Process block in testnet manager. A pre-1970 clock would
+                // panic on `unwrap()`; fall back to 0 — block timestamps in
+                // the test harness are advisory and downstream consensus
+                // tests would catch a bogus value if it mattered.
                 self.testnet.process_block(
                     node.height,
-                    // Use current time as timestamp
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or(std::time::Duration::ZERO)
                         .as_secs(),
                     Some(format!("node{}", node_id)),
                 );
@@ -508,12 +510,15 @@ impl TestHarness {
             return Err(format!("Source node {} is not running", from_node));
         }
 
-        // Check if the node exists before getting a mutable reference
-        if !self.nodes.contains_key(&to_node) {
-            return Err(format!("Destination node {} not found", to_node));
-        }
-
-        let to_node_status = self.nodes.get(&to_node).unwrap().status.clone(); // Get status before mutable borrow
+        // Look up the destination once (combined `contains_key` + `unwrap`
+        // collapsed into a single `ok_or_else`) so the unwrap antipattern
+        // is gone and the error message matches the prior format.
+        let to_node_status = self
+            .nodes
+            .get(&to_node)
+            .ok_or_else(|| format!("Destination node {} not found", to_node))?
+            .status
+            .clone();
         if to_node_status != TestNodeStatus::Running {
             return Err(format!("Destination node {} is not running", to_node));
         }
@@ -528,8 +533,11 @@ impl TestHarness {
             return Ok(());
         }
 
-        // Now we can safely get a mutable reference
-        let to = self.nodes.get_mut(&to_node).unwrap();
+        // Mutable borrow now — same lookup pattern.
+        let to = self
+            .nodes
+            .get_mut(&to_node)
+            .ok_or_else(|| format!("Destination node {} not found", to_node))?;
 
         // Add transactions to destination node's mempool
         to.mempool_count += tx_count;
