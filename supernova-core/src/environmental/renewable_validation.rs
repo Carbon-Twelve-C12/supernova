@@ -281,10 +281,11 @@ impl RenewableEnergyValidator {
         &self,
         new_incentives: GreenMiningIncentive,
     ) -> Result<(), OracleError> {
-
-        let mut incentives = self.incentive_structure.write().unwrap();
+        let mut incentives = self
+            .incentive_structure
+            .write()
+            .map_err(|_| OracleError::LockPoisoned)?;
         *incentives = new_incentives;
-
 
         Ok(())
     }
@@ -325,10 +326,18 @@ impl RenewableEnergyValidator {
         Ok(is_carbon_negative)
     }
 
-    /// Create environmental impact dashboard data
+    /// Create environmental impact dashboard data. Read-only; recovers
+    /// from lock poisoning so the dashboard endpoint never panics on a
+    /// prior writer's panic.
     pub fn create_environmental_impact_dashboard(&self) -> EnvironmentalDashboard {
-        let metrics = self.metrics.read().unwrap();
-        let certificates = self.validated_certificates.read().unwrap();
+        let metrics = self
+            .metrics
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let certificates = self
+            .validated_certificates
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         // Calculate totals
         let total_renewable_mwh: f64 = certificates
@@ -437,7 +446,12 @@ impl RenewableEnergyValidator {
         green_mining_score: f64,
         energy_consumption_mwh: f64,
     ) -> f64 {
-        let incentives = self.incentive_structure.read().unwrap();
+        // Read-only; recover from lock poisoning so incentive
+        // calculation never panics during a reward computation.
+        let incentives = self
+            .incentive_structure
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let mut total_incentive = 100.0; // Base reward
 
@@ -495,7 +509,12 @@ impl RenewableEnergyValidator {
     }
 
     fn update_metrics(&self, result: &RenewableValidationResult) {
-        let mut metrics = self.metrics.write().unwrap();
+        // Best-effort metrics update; recover from lock poisoning so a
+        // prior panic in the metrics path doesn't cascade.
+        let mut metrics = self
+            .metrics
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         metrics.total_validations += 1;
         metrics.successful_validations += 1;
         metrics.total_mwh_validated += result
