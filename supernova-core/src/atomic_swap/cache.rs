@@ -109,16 +109,22 @@ pub struct CacheStats {
 }
 
 impl AtomicSwapCache {
-    /// Create a new cache instance
+    /// Create a new cache instance.
+    ///
+    /// `config.max_bitcoin_txs` is operator-supplied and could legitimately
+    /// be `0`; we clamp it to `1` so the `LruCache::new` invariant holds
+    /// without panicking. The literal `100` for the rate cache is non-zero
+    /// at compile time; the `unwrap_or(MIN)` fallback there is unreachable
+    /// but satisfies the panic-free lint policy without `unsafe`.
     pub fn new(config: CacheConfig) -> Self {
         Self {
             swap_sessions: Arc::new(DashMap::new()),
             bitcoin_txs: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(config.max_bitcoin_txs).unwrap(),
+                NonZeroUsize::new(config.max_bitcoin_txs.max(1)).unwrap_or(NonZeroUsize::MIN),
             ))),
             script_results: Arc::new(DashMap::new()),
             rate_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(100).unwrap(), // Fixed size for rate cache
+                NonZeroUsize::new(100).unwrap_or(NonZeroUsize::MIN),
             ))),
             config,
             stats: Arc::new(CacheStats::default()),
