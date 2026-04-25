@@ -396,7 +396,7 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
         let time_lock = crate::atomic_swap::htlc::TimeLock {
             absolute_timeout: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs()
                 + (params.timeout_minutes as u64 * 60),
             relative_timeout: timeout_blocks.supernova_claim_timeout,
@@ -441,11 +441,11 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             state: SwapState::Initializing,
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
             updated_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
         };
 
