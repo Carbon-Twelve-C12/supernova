@@ -298,6 +298,41 @@ pub enum RefundSignerError {
     SigningFailed(String),
 }
 
+/// Broadcast a signed refund transaction to the Supernova network.
+///
+/// Implementations live outside `supernova-core` (typically a node-side
+/// adapter over `NetworkProxy`) so the core crate doesn't depend on the
+/// p2p stack. Returns once the network has accepted the tx into its
+/// mempool; **does not** wait for block confirmation — the cross-chain
+/// monitor handles confirmation tracking separately.
+#[async_trait::async_trait]
+pub trait RefundBroadcaster: Send + Sync {
+    /// Submit `tx` to the local mempool / peer fanout. The tx is
+    /// expected to already carry a valid signature in its input's
+    /// `signature_script`; broadcasters perform basic structural
+    /// validation but do not re-sign.
+    async fn broadcast_refund(
+        &self,
+        tx: &crate::types::Transaction,
+    ) -> Result<(), RefundBroadcastError>;
+}
+
+/// Errors a [`RefundBroadcaster`] can return.
+#[derive(Debug, thiserror::Error)]
+pub enum RefundBroadcastError {
+    /// The transaction was rejected by local mempool policy (fee too
+    /// low, double-spend detected, malformed, etc.). The error message
+    /// carries the upstream diagnostic for operator visibility.
+    #[error("refund tx rejected by mempool: {0}")]
+    Rejected(String),
+
+    /// Network-layer failure — peer unreachable, p2p stack uninitialised,
+    /// etc. Distinct from `Rejected` so callers can implement different
+    /// retry policies.
+    #[error("refund broadcast network error: {0}")]
+    Network(String),
+}
+
 /// RPC implementation for atomic swaps
 pub struct AtomicSwapRpcImpl {
     config: crate::atomic_swap::AtomicSwapConfig,
@@ -313,6 +348,11 @@ pub struct AtomicSwapRpcImpl {
     /// constructed refund tx is left unsigned (legacy stub behaviour).
     /// Wired in via [`AtomicSwapRpcImpl::with_refund_signer`].
     refund_signer: Option<Arc<dyn RefundSigner>>,
+    /// Optional broadcaster for refund transactions. Active only when a
+    /// signer is also configured (broadcasting an unsigned tx is
+    /// pointless). Wired in via
+    /// [`AtomicSwapRpcImpl::with_refund_broadcaster`].
+    refund_broadcaster: Option<Arc<dyn RefundBroadcaster>>,
 }
 
 impl AtomicSwapRpcImpl {
@@ -336,6 +376,7 @@ impl AtomicSwapRpcImpl {
             bitcoin_client,
             cache,
             refund_signer: None,
+            refund_broadcaster: None,
         }
     }
 
@@ -345,6 +386,17 @@ impl AtomicSwapRpcImpl {
     /// node crate) should chain this immediately after `new`.
     pub fn with_refund_signer(mut self, signer: Arc<dyn RefundSigner>) -> Self {
         self.refund_signer = Some(signer);
+        self
+    }
+
+    /// Attach a [`RefundBroadcaster`] implementation. Only takes effect
+    /// when a [`RefundSigner`] is also configured (broadcasting an
+    /// unsigned tx would be rejected by the network anyway).
+    pub fn with_refund_broadcaster(
+        mut self,
+        broadcaster: Arc<dyn RefundBroadcaster>,
+    ) -> Self {
+        self.refund_broadcaster = Some(broadcaster);
         self
     }
 
@@ -785,7 +837,7 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
                 hex::encode(&swap_id)
             );
         }
-        let refund_tx = swap
+        let unsigned_refund_tx = swap
             .nova_htlc
             .build_refund_transaction(funding.txid, funding.vout)
             .map_err(|e| RpcError {
@@ -793,16 +845,13 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
                 message: format!("Failed to build refund transaction: {}", e),
                 data: None,
             })?;
-        let refund_txid_bytes = refund_tx.hash();
-        let refund_txid_hex = hex::encode(refund_txid_bytes);
 
         // If a `RefundSigner` is wired up, produce a signature over the
-        // canonical refund message and record the outcome in the audit
-        // trail. The signature isn't yet attached to `refund_tx.inputs[0]
-        // .signature_script` — that wiring happens together with the
-        // broadcast handle so the txid we just returned stays stable
-        // across this commit.
-        let refund_signed = if let Some(signer) = &self.refund_signer {
+        // canonical refund message and rebuild the input with the
+        // signature in `signature_script` so the resulting tx is
+        // broadcast-ready. This changes the txid, so we always compute
+        // the txid from the *final* tx — whether signed or unsigned.
+        let (refund_tx, refund_signed) = if let Some(signer) = &self.refund_signer {
             let message = swap.nova_htlc.create_refund_message().map_err(|e| RpcError {
                 code: -32603,
                 message: format!("Failed to build refund message: {}", e),
@@ -810,27 +859,69 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             })?;
             match signer.sign_refund(&swap.nova_htlc, &message).await {
                 Ok(sig) => {
+                    // Replace input[0] with one carrying the signature.
+                    // We don't have a `set_signature_script` mutator on
+                    // TransactionInput, so rebuild via `new(...)`. The
+                    // funding outpoint, sequence, and other fields are
+                    // copied verbatim from the unsigned input.
+                    let original = &unsigned_refund_tx.inputs()[0];
+                    let signed_input = crate::types::TransactionInput::new(
+                        original.prev_tx_hash(),
+                        original.prev_output_index(),
+                        sig.bytes.clone(),
+                        original.sequence(),
+                    );
+                    let signed_tx = crate::types::Transaction::new(
+                        unsigned_refund_tx.version(),
+                        vec![signed_input],
+                        unsigned_refund_tx.outputs().to_vec(),
+                        unsigned_refund_tx.lock_time(),
+                    );
                     log::info!(
-                        "Refund {} signed by RefundSigner ({} bytes)",
-                        refund_txid_hex,
+                        "Refund signed by RefundSigner ({} byte signature embedded)",
                         sig.bytes.len()
                     );
-                    true
+                    (signed_tx, true)
                 }
                 Err(e) => {
-                    log::warn!(
-                        "Refund {} could not be signed: {}; tx remains unsigned",
-                        refund_txid_hex,
-                        e
-                    );
-                    false
+                    log::warn!("RefundSigner failed: {}; tx remains unsigned", e);
+                    (unsigned_refund_tx, false)
                 }
             }
         } else {
-            log::debug!(
-                "Refund {} built without a RefundSigner; tx remains unsigned",
-                refund_txid_hex
-            );
+            log::debug!("No RefundSigner configured; tx remains unsigned");
+            (unsigned_refund_tx, false)
+        };
+
+        // Compute the txid from the *final* tx (signed if signing
+        // succeeded, unsigned otherwise). Returned to the caller and
+        // emitted in the SwapRefunded event.
+        let refund_txid_bytes = refund_tx.hash();
+        let refund_txid_hex = hex::encode(refund_txid_bytes);
+
+        // Broadcast if a broadcaster is wired AND the tx is signed —
+        // broadcasting an unsigned refund would be rejected by the
+        // network anyway, so we skip the round-trip.
+        let refund_broadcast = if refund_signed {
+            if let Some(broadcaster) = &self.refund_broadcaster {
+                match broadcaster.broadcast_refund(&refund_tx).await {
+                    Ok(()) => {
+                        log::info!("Refund {} broadcast accepted", refund_txid_hex);
+                        true
+                    }
+                    Err(e) => {
+                        log::warn!("Refund {} broadcast failed: {}", refund_txid_hex, e);
+                        false
+                    }
+                }
+            } else {
+                log::debug!(
+                    "Refund {} signed but no RefundBroadcaster configured",
+                    refund_txid_hex
+                );
+                false
+            }
+        } else {
             false
         };
 
@@ -857,12 +948,13 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
 
         // Log refund for audit trail.
         log::info!(
-            "Swap {} refunded after timeout. Refund tx {} returns {} nova to {} (signed={}, broadcast pending)",
+            "Swap {} refunded after timeout. Refund tx {} returns {} nova to {} (signed={}, broadcast={})",
             hex::encode(&swap_id),
             refund_txid_hex,
             swap.nova_htlc.amount.saturating_sub(swap.nova_htlc.fee_structure.refund_fee),
             swap.nova_htlc.initiator.address,
-            refund_signed
+            refund_signed,
+            refund_broadcast
         );
 
         Ok(TransactionId {
