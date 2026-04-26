@@ -123,13 +123,19 @@ tonic-build = "0.10.2"
 name = "tps_harness"
 harness = false
 
-# Memory characterisation example. Because `autoexamples = false`, the
-# example must be explicitly registered here to be discoverable via
-# `cargo run --example memory_profile`.
+# Examples must be explicitly registered because `autoexamples = false`
+# at the top of the manifest. The remaining files in `examples/` are
+# legacy demos predating the post-RC4 refactor and have not been ported.
 [[example]]
 name = "memory_profile"
 path = "examples/memory_profile.rs"
 required-features = ["dhat-heap"]
+# Note: the other files in `examples/` (atomic_swap_demo, lightning_demo,
+# environmental_demo, etc.) reference type/field shapes that predate the
+# post-RC4 refactor (e.g. `ChannelConfig.max_htlc_value_in_flight_msat`,
+# `ChannelInfo.local_balance_msat`) and need a port before they can be
+# registered here. Leaving them unregistered is intentional — they serve
+# as historical documentation rather than tested examples.
 
 [[test]]
 name = "lightning_backup_integration_tests"
