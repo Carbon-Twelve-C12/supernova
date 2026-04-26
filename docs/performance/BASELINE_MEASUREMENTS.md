@@ -47,12 +47,16 @@ core, no matter how the rest of the stack is tuned.
 
 | Operation | p50 latency | Throughput (ops/s/core) | Notes |
 |---|---|---|---|
-| `signature_verify/dilithium/2` | TBD | TBD | Security level Low (ML-DSA-44) |
-| `signature_verify/dilithium/3` | TBD | TBD | Security level Medium (ML-DSA-65) — default |
-| `signature_verify/dilithium/5` | TBD | TBD | Security level High (ML-DSA-87) — wallet default |
+| `signature_verify/dilithium/2` | 28.9 µs | 34.6 K ops/s | Security level Low (ML-DSA-44) |
+| `signature_verify/dilithium/3` | 43.2 µs | 23.2 K ops/s | Security level Medium (ML-DSA-65) — default |
+| `signature_verify/dilithium/5` | 69.2 µs | 14.4 K ops/s | Security level High (ML-DSA-87) — wallet default |
 | `signature_sign/dilithium/2` | TBD | TBD | Signer perspective |
 | `signature_sign/dilithium/3` | TBD | TBD | Signer perspective |
 | `signature_sign/dilithium/5` | TBD | TBD | Signer perspective |
+
+> Numbers above were collected with `cargo bench -- --quick`, which uses
+> a shorter convergence window than the full statistical-sample mode.
+> Re-run without `--quick` before quoting figures with confidence intervals.
 
 Source: `supernova-core/benches/tps_harness.rs::bench_signature_verify`.
 
@@ -71,14 +75,21 @@ on a multi-core host.
 
 | Operation | Total duration | Per-sig latency | Throughput (sigs/s) |
 |---|---|---|---|
-| `batch_sequential/dilithium_3/10` | TBD | TBD | TBD |
-| `batch_sequential/dilithium_3/100` | TBD | TBD | TBD |
-| `batch_sequential/dilithium_3/1000` | TBD | TBD | TBD |
-| `batch_sequential/dilithium_3/10000` | TBD | TBD | TBD |
-| `batch_parallel/dilithium_3/10` | TBD | TBD | TBD |
-| `batch_parallel/dilithium_3/100` | TBD | TBD | TBD |
-| `batch_parallel/dilithium_3/1000` | TBD | TBD | TBD |
-| `batch_parallel/dilithium_3/10000` | TBD | TBD | TBD |
+| `batch_sequential/dilithium_3/10` | 436 µs | 43.6 µs | 22.9 K |
+| `batch_sequential/dilithium_3/100` | 5.46 ms | 54.6 µs | 18.3 K |
+| `batch_sequential/dilithium_3/1000` | 43.5 ms | 43.5 µs | 23.0 K |
+| `batch_sequential/dilithium_3/10000` | 435 ms | 43.5 µs | 23.0 K |
+| `batch_parallel/dilithium_3/10` | 130 µs | 13.0 µs | 76.9 K |
+| `batch_parallel/dilithium_3/100` | 770 µs | 7.70 µs | 130 K |
+| `batch_parallel/dilithium_3/1000` | 6.05 ms | 6.05 µs | 165 K |
+| `batch_parallel/dilithium_3/10000` | 56.8 ms | 5.68 µs | **176 K** |
+
+**Plan target check:** the master plan requires *10 000 ML-DSA-3
+signatures verified in under 3 seconds*. Measured: **56.8 ms** for 10 K
+parallel verifies on this 10-core M1 Pro — ~50× faster than the target.
+Single-core saturation flat-lines at ~23 K sigs/s; parallel scales
+roughly with core count up to ~176 K sigs/s, the actual TPS ceiling for
+sig-verify-bound workloads on this hardware.
 
 Source: `supernova-core/benches/tps_harness.rs::bench_signature_verify_batch_*`.
 
