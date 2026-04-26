@@ -24,10 +24,12 @@ pub mod zk_swap;
 // #[cfg(test)]
 // mod tests;
 
-pub use api::AtomicSwapRPC;
+pub use api::{
+    AtomicSwapRPC, RefundBroadcastError, RefundBroadcaster, RefundSigner, RefundSignerError,
+};
 pub use cache::{AtomicSwapCache, CacheConfig};
 pub use error::{AtomicSwapError, HTLCError, SwapError};
-pub use htlc::{HTLCState, ParticipantInfo, SupernovaHTLC, TimeLock};
+pub use htlc::{FeeStructure, HTLCState, ParticipantInfo, SupernovaHTLC, TimeLock};
 pub use metrics::init_metrics;
 pub use monitor::{CrossChainMonitor, SwapSummary};
 
