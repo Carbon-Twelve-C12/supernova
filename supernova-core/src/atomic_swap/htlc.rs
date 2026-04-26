@@ -5,7 +5,7 @@
 
 use crate::atomic_swap::crypto::{compute_hash, HashLock};
 use crate::atomic_swap::error::{HTLCError, SecurityError};
-use crate::crypto::{Hash256, MLDSAPublicKey, MLDSASignature};
+use crate::crypto::{MLDSAPublicKey, MLDSASignature};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -322,12 +322,97 @@ impl SupernovaHTLC {
         script
     }
 
+    /// Construct an **unsigned** refund transaction that spends the funding
+    /// outpoint back to the initiator after the HTLC's absolute timeout.
+    ///
+    /// The returned [`Transaction`] is consensus-correct in shape — single
+    /// input pointing at `(funding_outpoint_txid, funding_outpoint_vout)`,
+    /// single output paying `amount - refund_fee` to the initiator's
+    /// `refund_address` (falling back to `address`), `version = 2`,
+    /// `lock_time = 0` — but carries an empty `signature_script` and no
+    /// witness data. The signing layer is responsible for filling those
+    /// in before broadcast.
+    ///
+    /// The input's `sequence` is set to `time_lock.relative_timeout` as
+    /// defense-in-depth: consensus sequence-based locktime rejects the
+    /// refund if the relative timeout hasn't elapsed, even if the absolute
+    /// timeout check is bypassed by clock skew.
+    ///
+    /// Errors:
+    /// - [`HTLCError::AlreadyClaimed`] / [`HTLCError::AlreadyRefunded`] if
+    ///   the HTLC has already left the refundable state.
+    /// - [`HTLCError::InvalidAmount`] if `refund_fee >= amount` or the
+    ///   resulting refund is below [`MIN_HTLC_AMOUNT`].
+    pub fn build_refund_transaction(
+        &self,
+        funding_outpoint_txid: [u8; 32],
+        funding_outpoint_vout: u32,
+    ) -> Result<crate::types::Transaction, HTLCError> {
+        // Mirror the state guards in `create_refund_message` so the unsigned
+        // tx-builder never produces a refund that would be rejected at
+        // signing/broadcast time.
+        match self.state {
+            HTLCState::Claimed => return Err(HTLCError::AlreadyClaimed),
+            HTLCState::Refunded => return Err(HTLCError::AlreadyRefunded),
+            HTLCState::Created | HTLCState::Funded | HTLCState::Expired => {}
+        }
+
+        // refund_fee is non-zero by construction (see `SupernovaHTLC::new`).
+        let refund_amount = self
+            .amount
+            .checked_sub(self.fee_structure.refund_fee)
+            .ok_or_else(|| {
+                HTLCError::InvalidAmount(format!(
+                    "refund_fee {} exceeds HTLC amount {}",
+                    self.fee_structure.refund_fee, self.amount
+                ))
+            })?;
+
+        if refund_amount < MIN_HTLC_AMOUNT {
+            return Err(HTLCError::InvalidAmount(format!(
+                "refund amount {} below dust threshold {}",
+                refund_amount, MIN_HTLC_AMOUNT
+            )));
+        }
+
+        let refund_destination = self
+            .initiator
+            .refund_address
+            .as_deref()
+            .unwrap_or(&self.initiator.address);
+
+        let input = crate::types::TransactionInput::new(
+            funding_outpoint_txid,
+            funding_outpoint_vout,
+            Vec::new(),
+            self.time_lock.relative_timeout,
+        );
+        let output = crate::types::TransactionOutput::new(
+            refund_amount,
+            refund_destination_script(refund_destination),
+        );
+
+        Ok(crate::types::Transaction::new(2, vec![input], vec![output], 0))
+    }
+
     /// Calculate the total amount needed including fees
     pub fn total_amount_with_fees(&self) -> u64 {
         self.amount
             .saturating_add(self.fee_structure.claim_fee)
             .saturating_add(self.fee_structure.service_fee.unwrap_or(0))
     }
+}
+
+/// Encode a refund destination address into a script-pubkey-shaped
+/// payload. The wallet layer is responsible for translating this into
+/// the real consensus script before broadcast — at this layer we only
+/// need the destination to round-trip through serialization so the
+/// signing layer can recover it.
+fn refund_destination_script(address: &str) -> Vec<u8> {
+    let mut script = Vec::with_capacity(address.len() + 7);
+    script.extend_from_slice(b"REFUND:");
+    script.extend_from_slice(address.as_bytes());
+    script
 }
 
 /// Validate security parameters for the HTLC
@@ -460,4 +545,12 @@ mod tests {
         let total = htlc.total_amount_with_fees();
         assert_eq!(total, 100_000_000 + 1000 + 100); // amount + claim_fee + service_fee
     }
+
+    // Tests for `build_refund_transaction` live in
+    // `supernova-core/tests/atomic_swap_refund_construction.rs` because
+    // adjacent in-module test fixtures here depend on pre-broken APIs
+    // (`MLDSAPrivateKey::generate`, `AtomicSwapSetup` shape) that are
+    // out of scope for this commit. Moving the new tests to an
+    // integration test file lets them run against the public API
+    // surface without inheriting that breakage.
 }
