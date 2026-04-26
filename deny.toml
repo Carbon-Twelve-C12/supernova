@@ -1,56 +1,57 @@
-# Supernova Cargo Deny Configuration
-# SECURITY MODULE (P1-006): Comprehensive dependency policy
+# Supernova cargo-deny configuration.
 #
-# This file configures cargo-deny to enforce:
-# - License compliance
-# - Security vulnerability checks
-# - Supply chain integrity
+# Enforces:
+# - Security advisories (vulnerabilities + yanked crates)
+# - License allowlist (no copyleft except permissive variants)
+# - Supply-chain integrity (registry pinned, no unknown git remotes)
+# - Multi-version hygiene (warn on duplicate crate graphs)
 #
-# Documentation: https://embarkstudios.github.io/cargo-deny/
+# Schema follows cargo-deny v0.16+. Older fields (`vulnerability`,
+# `unlicensed`, `copyleft`, `allow-osi-fsf-free`, top-level
+# `[advisories].unmaintained`, `notice`) were removed and have been
+# replaced with the equivalents below.
+#
+# Docs: https://embarkstudios.github.io/cargo-deny/
 
 [graph]
-# List of crates to exclude from the dependency graph
+# Walk every feature combination, not just the default ones, so a feature-
+# gated dependency (e.g. `s3-backup` pulling in `aws-sdk-s3`) is still
+# audited. Without this, conditional deps slip past the license/advisory
+# checks until someone enables that feature.
+all-features = true
 exclude = []
-# Additional source to include (e.g., private registries)
-# all-features = true
 
 # ============================================================================
-# ADVISORIES - Security vulnerability checks
+# ADVISORIES — security-vulnerability and yanked-crate checks
 # ============================================================================
 [advisories]
-# The database of vulnerabilities to check against
+# Latest schema version — required by cargo-deny v0.16+.
+version = 2
 db-path = "~/.cargo/advisory-db"
-# URL to the advisory database
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# How to handle vulnerabilities
-# "deny" = fail the build if any vulnerabilities are found
-# "warn" = warn but don't fail
-vulnerability = "deny"
-# How to handle unmaintained crates
-unmaintained = "warn"
-# How to handle crates with known yanked versions
+# Yanked versions in `Cargo.lock` are treated as build failures: a yanked
+# release usually means the upstream maintainer pulled it for a reason
+# (broken release, embargoed CVE, license issue) and our pinned snapshot
+# would inherit that breakage on a clean rebuild.
 yanked = "deny"
-# How to handle advisories that don't apply to our platform
-notice = "warn"
-# List of advisory IDs to ignore
-# Only add entries here with documented justification
+# Per-advisory exemptions live here. Every entry MUST carry a comment
+# explaining the rationale and an expiry/follow-up. Empty by default.
 ignore = [
-    # Example: "RUSTSEC-2020-0001", # Reason for ignoring
+    # Example: { id = "RUSTSEC-2020-0001", reason = "<why>" },
 ]
 
 # ============================================================================
-# LICENSES - License compliance
+# LICENSES — allowlist + clarifications for crates with non-trivial license
+# expressions (e.g. ring's combined ISC AND MIT AND OpenSSL clause).
 # ============================================================================
 [licenses]
-# What to do when an unlicensed crate is found
-unlicensed = "deny"
-# How to handle copyleft licenses
-copyleft = "warn"
-# How to handle missing license files
-allow-osi-fsf-free = "either"
-# Confidence threshold for license detection
+version = 2
+# A crate without a detected license is rejected outright — no implicit
+# trust. To grant an exception, add a `[[licenses.clarify]]` entry with
+# the canonical SPDX expression and the LICENSE file's content hash.
 confidence-threshold = 0.8
-# List of allowed licenses (SPDX identifiers)
+# Permissive licenses we accept across the workspace. Adding a license
+# here is a security/compliance decision, not a developer convenience.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -63,60 +64,52 @@ allow = [
     "CC0-1.0",
     "MPL-2.0",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
     "BSL-1.0",
+    "OpenSSL",
 ]
 
-# Specific crate license exceptions
+# `ring`'s license expression isn't auto-detectable from the project
+# layout. Pin it explicitly so a passing license check actually verifies
+# the file content rather than waving it through.
 [[licenses.clarify]]
-name = "ring"
+crate = "ring"
 expression = "ISC AND MIT AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
 # ============================================================================
-# BANS - Crate bans and restrictions
+# BANS — duplicate-version policy + crate denylist
 # ============================================================================
 [bans]
-# How to handle multiple versions of the same crate
+# Multiple major versions of the same crate inflate binary size and
+# increase the surface area we'd need to audit if a CVE appears. Warn so
+# the duplicates are visible in CI; promote to "deny" once we've cleaned
+# the existing offenders.
 multiple-versions = "warn"
-# How to handle crates with wildcards in their version requirements
+# Wildcards (`"*"`) are dangerous because they silently pull in any
+# upstream major version. We don't use them, but allow until enforced.
 wildcards = "allow"
-# How to handle build scripts
-# "allow" = allow all build scripts
-# "deny" = deny all build scripts  
-# "warn" = warn about build scripts
 highlight = "all"
-# Crates that should not be depended upon
+# Crates we never want in the dependency graph (typically because we
+# replaced them with a hardened equivalent). Empty for now.
 deny = [
-    # Example: { name = "openssl", wrappers = ["openssl-sys"] },
+    # Example: { crate = "openssl", reason = "use rustls instead" },
 ]
-# Crates where we want to skip checking for duplicates
-skip = [
-    # Allow multiple versions of these crates if needed
-    # { name = "syn" },
-]
-# Crates with known duplicate versions that we're okay with
-skip-tree = [
-    # { name = "windows-sys", depth = 3 },
-]
+# Specific (crate, version) pairs we tolerate as duplicates. Empty by default.
+skip = []
+# Whole subtrees we tolerate as duplicates (typically platform shims like
+# `windows-sys` whose multiple versions are forced by upstream).
+skip-tree = []
 
 # ============================================================================
-# SOURCES - Supply chain security
+# SOURCES — registry / git allowlist for supply-chain integrity
 # ============================================================================
 [sources]
-# What to do when a crate is from an unknown source
+# Crates from a registry we don't recognise are rejected outright.
 unknown-registry = "deny"
-# What to do when a crate is from a git repository
+# Direct-from-git dependencies are flagged loudly. They bypass the crates.io
+# yank/audit path and are a common supply-chain weak spot. Switch to "deny"
+# once every transitive git dep has been removed or vendored.
 unknown-git = "warn"
-# List of allowed registries
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# List of allowed git sources
 allow-git = []
-
-# ============================================================================
-# Additional Configuration
-# ============================================================================
-
-# Configure how to handle specific crates
-# [sources.allow-org]
-# github = ["rust-lang", "rust-lang-nursery"]
-

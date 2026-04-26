@@ -85,11 +85,11 @@ pub fn create_testnet_genesis_block() -> Result<Block, String> {
             hex::encode(&actual_hash)
         ));
     }
-    
+
     if !block.header.meets_target() {
         return Err("Genesis block does not meet target difficulty! Genesis constants are invalid.".to_string());
     }
-    
+
     if !block.validate() {
         return Err("Genesis block validation failed! Genesis constants are invalid.".to_string());
     }
