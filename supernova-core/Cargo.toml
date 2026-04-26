@@ -120,10 +120,6 @@ quickcheck = "1.0"
 tonic-build = "0.10.2"
 
 [[bench]]
-name = "comprehensive_benchmarks"
-harness = false
-
-[[bench]]
 name = "tps_harness"
 harness = false
 

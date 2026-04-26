@@ -239,8 +239,11 @@ fn bench_hit_rate_workload(c: &mut Criterion) {
                     let idx = rng.gen_range(0..outpoints.len());
                     black_box(cache.get(&outpoints[idx]));
                 } else if op < 90 {
-                    // Add (10%)
-                    let utxo = create_test_utxo(&mut rng, rng.gen());
+                    // Add (10%). Split the random draw from the
+                    // borrow of `rng` so the two `&mut rng` uses don't
+                    // overlap (E0499).
+                    let value: u64 = rng.gen();
+                    let utxo = create_test_utxo(&mut rng, value);
                     let outpoint = OutPoint::new(utxo.txid, utxo.vout);
                     outpoints.push(outpoint);
                     cache.add(outpoint, utxo);
