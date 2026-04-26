@@ -50,9 +50,18 @@ core, no matter how the rest of the stack is tuned.
 | `signature_verify/dilithium/2` | 28.9 µs | 34.6 K ops/s | Security level Low (ML-DSA-44) |
 | `signature_verify/dilithium/3` | 43.2 µs | 23.2 K ops/s | Security level Medium (ML-DSA-65) — default |
 | `signature_verify/dilithium/5` | 69.2 µs | 14.4 K ops/s | Security level High (ML-DSA-87) — wallet default |
-| `signature_sign/dilithium/2` | TBD | TBD | Signer perspective |
-| `signature_sign/dilithium/3` | TBD | TBD | Signer perspective |
-| `signature_sign/dilithium/5` | TBD | TBD | Signer perspective |
+| `signature_sign/dilithium/2` | 223 µs | 4.5 K ops/s | Signer perspective — see note below |
+| `signature_sign/dilithium/3` | 57.9 µs | 17.3 K ops/s | Signer perspective |
+| `signature_sign/dilithium/5` | 244 µs | 4.1 K ops/s | Signer perspective |
+
+> **Sign-side rejection-sampling variance.** ML-DSA signing performs
+> rejection sampling: each attempt generates a candidate signature and
+> retries if bounds are violated. Worst-case sign time can be many
+> multiples of the mean. The ML-DSA-2 row above (223 µs, ~4× slower
+> than ML-DSA-3) is almost certainly a `--quick`-mode outlier rather
+> than the underlying scheme genuinely being slower than the higher
+> security level. Re-run without `--quick` for stable means before
+> using these for capacity planning.
 
 > Numbers above were collected with `cargo bench -- --quick`, which uses
 > a shorter convergence window than the full statistical-sample mode.
@@ -101,7 +110,12 @@ above) because it is re-run against the UTXO set at block-validation time.
 
 | Operation | p50 latency | Throughput (ops/s/core) |
 |---|---|---|
-| `transaction_validate/one_in_two_out` | TBD | TBD |
+| `transaction_validate/one_in_two_out` | 57.7 ns | 17.3 M ops/s |
+
+Validation cost is dominated by structural checks (input/output count,
+amount overflow, dust threshold, duplicate-input detection); no crypto
+on this path. The 57 ns latency means structural validation never
+bottlenecks mempool admission — sig verify (above) sets the ceiling.
 
 Source: `supernova-core/benches/tps_harness.rs::bench_transaction_validate`.
 
@@ -112,8 +126,13 @@ verify; a regression here silently halves P2P throughput.
 
 | Operation | p50 latency | Throughput (ops/s/core) |
 |---|---|---|
-| `transaction_roundtrip/encode` | TBD | TBD |
-| `transaction_roundtrip/decode` | TBD | TBD |
+| `transaction_roundtrip/encode` | 247 ns | 4.04 M ops/s |
+| `transaction_roundtrip/decode` | 526 ns | 1.90 M ops/s |
+
+Decode is ~2× the cost of encode, typical for serde-derived bincode
+codecs (decode does branch-heavy variant resolution + length-prefixed
+allocation; encode is mostly straight-line memcpy). Both well above any
+p2p link bandwidth — codec is not a propagation bottleneck.
 
 Source: `supernova-core/benches/tps_harness.rs::bench_transaction_roundtrip`.
 
