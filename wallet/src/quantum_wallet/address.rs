@@ -110,11 +110,11 @@ impl Address {
         })
     }
     
-    /// Get address as string
-    pub fn to_string(&self) -> String {
-        self.address.clone()
-    }
-    
+    // Note: a previous inherent `to_string(&self) -> String` was removed
+    // because it shadowed the `Display` impl below (clippy::
+    // should_implement_trait). Callers get the same string via
+    // `ToString::to_string()` driven by the `Display` impl.
+
     /// Get public key hash
     pub fn pubkey_hash(&self) -> &[u8; 32] {
         &self.pubkey_hash
