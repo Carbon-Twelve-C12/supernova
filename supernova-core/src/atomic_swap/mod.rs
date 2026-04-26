@@ -119,6 +119,62 @@ pub struct SwapSession {
     pub state: SwapState,
     pub created_at: u64,
     pub updated_at: u64,
+    /// On-chain outpoint of the Supernova-side HTLC funding output.
+    ///
+    /// `None` until the funding transaction has been observed on-chain
+    /// and the outpoint recorded via [`SwapSession::set_funding_outpoint`].
+    /// Refund-tx construction prefers this real outpoint when present;
+    /// without it, the RPC layer falls back to a synthetic outpoint
+    /// derived from the HTLC id (deterministic but cannot actually
+    /// spend the funding output on-chain).
+    ///
+    /// `#[serde(default)]` keeps deserialization backwards-compatible
+    /// with sessions persisted before this field existed.
+    #[serde(default)]
+    pub funding_outpoint: Option<FundingOutpoint>,
+}
+
+impl SwapSession {
+    /// Record the on-chain outpoint of the Supernova-side HTLC funding
+    /// output. Idempotent; subsequent calls overwrite.
+    pub fn set_funding_outpoint(&mut self, outpoint: FundingOutpoint) {
+        self.funding_outpoint = Some(outpoint);
+    }
+
+    /// Resolve the funding outpoint that the refund tx should spend.
+    ///
+    /// Returns the real outpoint if the funding has been recorded, or a
+    /// synthetic placeholder derived from the HTLC id (vout 0) if not.
+    /// The synthetic placeholder is deterministic per swap so the
+    /// resulting refund txid is reproducible, but it does NOT correspond
+    /// to a real on-chain output; broadcasting a refund built against
+    /// the synthetic outpoint will fail at network validation.
+    pub fn refund_funding_outpoint(&self) -> FundingOutpoint {
+        if let Some(outpoint) = &self.funding_outpoint {
+            outpoint.clone()
+        } else {
+            FundingOutpoint {
+                txid: self.nova_htlc.htlc_id,
+                vout: 0,
+                synthetic: true,
+            }
+        }
+    }
+}
+
+/// On-chain reference to a Supernova-side HTLC funding output.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FundingOutpoint {
+    /// Transaction id that created the funding output.
+    pub txid: [u8; 32],
+    /// Output index within that transaction.
+    pub vout: u32,
+    /// `true` if this outpoint was synthesized rather than observed
+    /// on-chain (placeholder for sessions where the real funding tx
+    /// has not yet been recorded). The refund flow checks this flag
+    /// to decide whether the constructed refund tx is broadcast-ready.
+    #[serde(default)]
+    pub synthetic: bool,
 }
 
 /// Reference to a Bitcoin HTLC

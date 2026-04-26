@@ -447,6 +447,7 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
+            funding_outpoint: None,
         };
 
         // Store swap
@@ -708,22 +709,28 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
 
         // Build the unsigned refund transaction. Signing (with the
         // initiator's quantum key) and network broadcast remain to be
-        // wired into the wallet/network layer; this step replaces the
-        // previous `STUB_refund_<id>` string return with a real
-        // SHA-256-derived txid computed from the constructed Transaction
-        // so monitors and explorers see a stable, swap-unique identifier
-        // rather than an opaque sentinel.
+        // wired into the wallet/network layer; this step produces a real
+        // SHA-256-derived txid so monitors and explorers see a stable,
+        // swap-unique identifier rather than an opaque sentinel.
         //
-        // The funding outpoint is synthesized from `htlc_id` (vout 0)
-        // because `SwapSession` doesn't yet track the real on-chain
-        // funding outpoint — that's the next piece of work for a full
-        // refund flow. The synthetic outpoint is deterministic per swap
-        // so the resulting txid is reproducible.
-        let funding_outpoint_txid = swap.nova_htlc.htlc_id;
-        let funding_outpoint_vout = 0u32;
+        // The funding outpoint is taken from `SwapSession::funding_outpoint`
+        // when present; otherwise a synthetic placeholder derived from
+        // `htlc_id` is used. A synthetic outpoint produces a reproducible
+        // txid but cannot actually spend the funding output on-chain —
+        // the warning log below makes the limitation explicit.
+        let funding = swap.refund_funding_outpoint();
+        if funding.synthetic {
+            log::warn!(
+                "Swap {} refund built against a SYNTHETIC funding outpoint; \
+                 set_funding_outpoint() was never called for this session. \
+                 The returned refund txid is reproducible but the underlying \
+                 transaction cannot be broadcast as-is.",
+                hex::encode(&swap_id)
+            );
+        }
         let refund_tx = swap
             .nova_htlc
-            .build_refund_transaction(funding_outpoint_txid, funding_outpoint_vout)
+            .build_refund_transaction(funding.txid, funding.vout)
             .map_err(|e| RpcError {
                 code: -32603,
                 message: format!("Failed to build refund transaction: {}", e),
