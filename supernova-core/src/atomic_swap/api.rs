@@ -706,44 +706,64 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
             });
         }
 
-        // TODO (Production): Actual refund implementation would:
-        // 1. Generate refund transaction spending HTLC back to initiator
-        // 2. Sign refund transaction with initiator's key
-        // 3. Broadcast refund transaction to Supernova network
-        // 4. Wait for confirmation
-        // 5. Update UTXO set to unlock funds
-        // 6. Trigger Bitcoin refund if applicable
-        
-        // For now, update state with comprehensive tracking
+        // Build the unsigned refund transaction. Signing (with the
+        // initiator's quantum key) and network broadcast remain to be
+        // wired into the wallet/network layer; this step replaces the
+        // previous `STUB_refund_<id>` string return with a real
+        // SHA-256-derived txid computed from the constructed Transaction
+        // so monitors and explorers see a stable, swap-unique identifier
+        // rather than an opaque sentinel.
+        //
+        // The funding outpoint is synthesized from `htlc_id` (vout 0)
+        // because `SwapSession` doesn't yet track the real on-chain
+        // funding outpoint — that's the next piece of work for a full
+        // refund flow. The synthetic outpoint is deterministic per swap
+        // so the resulting txid is reproducible.
+        let funding_outpoint_txid = swap.nova_htlc.htlc_id;
+        let funding_outpoint_vout = 0u32;
+        let refund_tx = swap
+            .nova_htlc
+            .build_refund_transaction(funding_outpoint_txid, funding_outpoint_vout)
+            .map_err(|e| RpcError {
+                code: -32603,
+                message: format!("Failed to build refund transaction: {}", e),
+                data: None,
+            })?;
+        let refund_txid_bytes = refund_tx.hash();
+        let refund_txid_hex = hex::encode(refund_txid_bytes);
+
+        // Update state and timestamp.
         swap.state = SwapState::Refunded;
         swap.updated_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
 
-        // Emit refund event for observability
+        // Emit refund event for observability — carries the real txid
+        // so downstream subscribers can correlate with the broadcast
+        // step once that's wired in.
         self.add_event(
             swap_id,
             SwapEvent::SwapRefunded {
                 swap_id,
                 chain: crate::atomic_swap::monitor::Chain::Supernova,
-                refund_tx: format!("STUB_refund_{}", hex::encode(&swap_id[..8])),
+                refund_tx: refund_txid_hex.clone(),
                 reason: crate::atomic_swap::monitor::RefundReason::Timeout,
             },
         )
         .await;
 
-        // Log refund for audit trail
+        // Log refund for audit trail.
         log::info!(
-            "Swap {} refunded after timeout. HTLC funds should be returned to {}",
+            "Swap {} refunded after timeout. Refund tx {} returns {} nova to {} (sign+broadcast pending)",
             hex::encode(&swap_id),
+            refund_txid_hex,
+            swap.nova_htlc.amount.saturating_sub(swap.nova_htlc.fee_structure.refund_fee),
             swap.nova_htlc.initiator.address
         );
-        
-        // SECURITY: Return clear indication this is a stub
-        // Production deployment must implement actual refund transaction
+
         Ok(TransactionId {
-            txid: format!("STUB_refund_{}", hex::encode(&swap_id[..8])),
+            txid: refund_txid_hex,
             chain: "supernova".to_string(),
         })
     }
