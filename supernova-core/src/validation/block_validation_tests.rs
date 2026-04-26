@@ -5,6 +5,8 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::config::NetworkType;
+    use crate::governance::{treasury_script_pubkey, TREASURY_ALLOCATION_PERCENT};
     use crate::types::block::{Block, BlockHeader};
     use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
     use crate::validation::block::{
@@ -12,10 +14,38 @@ mod tests {
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// Reward outputs that satisfy the consensus treasury rule:
+    /// `outputs[0]` is the miner reward and `outputs[1]` is the
+    /// `TREASURY_ALLOCATION_PERCENT`% treasury output paying the
+    /// regtest treasury P2WSH script.
+    fn coinbase_outputs_with_treasury() -> Vec<TransactionOutput> {
+        const TOTAL: u64 = 5_000_000_000; // matches `Transaction::new_coinbase`
+        let treasury = TOTAL * TREASURY_ALLOCATION_PERCENT / 100;
+        let miner = TOTAL - treasury;
+        vec![
+            TransactionOutput::new(
+                miner,
+                vec![0x76, 0xa9, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x88, 0xac],
+            ),
+            TransactionOutput::new(treasury, treasury_script_pubkey(NetworkType::Regtest)),
+        ]
+    }
+
+    /// Build a coinbase transaction whose outputs satisfy the consensus
+    /// treasury rule for the regtest network used by `create_test_context`.
+    fn make_test_coinbase() -> Transaction {
+        let mut tx = Transaction::new_coinbase();
+        // Replace the default single-output coinbase with one that pays
+        // both miner and treasury so block validation doesn't trip on
+        // `InvalidTreasuryOutput`.
+        let inputs: Vec<TransactionInput> = tx.inputs().to_vec();
+        tx = Transaction::new(tx.version(), inputs, coinbase_outputs_with_treasury(), 0);
+        tx
+    }
+
     /// Create a test block with specified parameters
     fn create_test_block(height: u64, prev_hash: [u8; 32], timestamp: u64, version: u32) -> Block {
-        // Create coinbase transaction
-        let coinbase = Transaction::new_coinbase();
+        let coinbase = make_test_coinbase();
 
         let mut header = BlockHeader::new(
             version, prev_hash, [0; 32], // Merkle root will be calculated
