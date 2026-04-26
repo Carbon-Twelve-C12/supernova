@@ -257,6 +257,47 @@ pub struct PrivacyMetrics {
     pub privacy_adoption_rate: f64,
 }
 
+/// Sign the refund message for an expiring atomic-swap HTLC.
+///
+/// Implementations live outside `supernova-core` so the core crate
+/// doesn't depend on the wallet stack — typically a `node`-side adapter
+/// over `WalletManager` looks up the initiator's quantum-resistant
+/// secret key by `htlc.initiator.address` and produces a signature
+/// over the canonical message returned by
+/// [`SupernovaHTLC::create_refund_message`].
+///
+/// Errors are surfaced as a typed [`RefundSignerError`] so the RPC
+/// layer can map them to JSON-RPC error codes without leaking the
+/// underlying wallet/key-management implementation details.
+#[async_trait::async_trait]
+pub trait RefundSigner: Send + Sync {
+    /// Produce an MLDSA signature for the refund message bound to
+    /// `htlc.initiator`.
+    async fn sign_refund(
+        &self,
+        htlc: &crate::atomic_swap::htlc::SupernovaHTLC,
+        message: &[u8],
+    ) -> Result<crate::crypto::MLDSASignature, RefundSignerError>;
+}
+
+/// Errors a [`RefundSigner`] can return.
+#[derive(Debug, thiserror::Error)]
+pub enum RefundSignerError {
+    /// The signer doesn't manage a key for the initiator's address —
+    /// e.g. the refund RPC reached a node that doesn't hold this
+    /// wallet. The RPC layer should surface this as a 4xx-equivalent
+    /// JSON-RPC error so clients retry against a different node.
+    #[error("no signing key available for initiator address: {0}")]
+    AddressNotFound(String),
+
+    /// The underlying signing operation failed (key-derivation issue,
+    /// HSM unavailable, etc.). Wallet-level diagnostics should appear
+    /// in the implementation's logs; this variant carries a short
+    /// operator-facing description.
+    #[error("refund signing failed: {0}")]
+    SigningFailed(String),
+}
+
 /// RPC implementation for atomic swaps
 pub struct AtomicSwapRpcImpl {
     config: crate::atomic_swap::AtomicSwapConfig,
@@ -266,6 +307,12 @@ pub struct AtomicSwapRpcImpl {
     #[cfg(feature = "atomic-swap")]
     bitcoin_client: Option<Arc<crate::atomic_swap::bitcoin_adapter::BitcoinRpcClient>>,
     cache: Arc<AtomicSwapCache>,
+    /// Optional signer for refund transactions. When present, the
+    /// `refund_swap` flow signs the canonical refund message and
+    /// records the result in the audit log; when absent, the
+    /// constructed refund tx is left unsigned (legacy stub behaviour).
+    /// Wired in via [`AtomicSwapRpcImpl::with_refund_signer`].
+    refund_signer: Option<Arc<dyn RefundSigner>>,
 }
 
 impl AtomicSwapRpcImpl {
@@ -288,7 +335,17 @@ impl AtomicSwapRpcImpl {
             #[cfg(feature = "atomic-swap")]
             bitcoin_client,
             cache,
+            refund_signer: None,
         }
+    }
+
+    /// Attach a [`RefundSigner`] implementation. Builder-style so the
+    /// existing 8+ test callers of `AtomicSwapRpcImpl::new` don't need
+    /// to thread a signer they won't use. Production wiring (in the
+    /// node crate) should chain this immediately after `new`.
+    pub fn with_refund_signer(mut self, signer: Arc<dyn RefundSigner>) -> Self {
+        self.refund_signer = Some(signer);
+        self
     }
 
     /// Add an event to the history
@@ -739,6 +796,44 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
         let refund_txid_bytes = refund_tx.hash();
         let refund_txid_hex = hex::encode(refund_txid_bytes);
 
+        // If a `RefundSigner` is wired up, produce a signature over the
+        // canonical refund message and record the outcome in the audit
+        // trail. The signature isn't yet attached to `refund_tx.inputs[0]
+        // .signature_script` — that wiring happens together with the
+        // broadcast handle so the txid we just returned stays stable
+        // across this commit.
+        let refund_signed = if let Some(signer) = &self.refund_signer {
+            let message = swap.nova_htlc.create_refund_message().map_err(|e| RpcError {
+                code: -32603,
+                message: format!("Failed to build refund message: {}", e),
+                data: None,
+            })?;
+            match signer.sign_refund(&swap.nova_htlc, &message).await {
+                Ok(sig) => {
+                    log::info!(
+                        "Refund {} signed by RefundSigner ({} bytes)",
+                        refund_txid_hex,
+                        sig.bytes.len()
+                    );
+                    true
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Refund {} could not be signed: {}; tx remains unsigned",
+                        refund_txid_hex,
+                        e
+                    );
+                    false
+                }
+            }
+        } else {
+            log::debug!(
+                "Refund {} built without a RefundSigner; tx remains unsigned",
+                refund_txid_hex
+            );
+            false
+        };
+
         // Update state and timestamp.
         swap.state = SwapState::Refunded;
         swap.updated_at = std::time::SystemTime::now()
@@ -762,11 +857,12 @@ impl AtomicSwapRPC for AtomicSwapRpcImpl {
 
         // Log refund for audit trail.
         log::info!(
-            "Swap {} refunded after timeout. Refund tx {} returns {} nova to {} (sign+broadcast pending)",
+            "Swap {} refunded after timeout. Refund tx {} returns {} nova to {} (signed={}, broadcast pending)",
             hex::encode(&swap_id),
             refund_txid_hex,
             swap.nova_htlc.amount.saturating_sub(swap.nova_htlc.fee_structure.refund_fee),
-            swap.nova_htlc.initiator.address
+            swap.nova_htlc.initiator.address,
+            refund_signed
         );
 
         Ok(TransactionId {

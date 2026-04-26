@@ -254,8 +254,13 @@ impl SupernovaHTLC {
         Ok(message.into_bytes())
     }
 
-    /// Create the message to be signed for a refund
-    pub(crate) fn create_refund_message(&self) -> Result<Vec<u8>, HTLCError> {
+    /// Create the message to be signed for a refund.
+    ///
+    /// Public so external signing layers (e.g. wallet implementations of
+    /// the [`crate::atomic_swap::api::RefundSigner`] trait) can produce a
+    /// signature over the same canonical bytes that `verify_refund` will
+    /// later check.
+    pub fn create_refund_message(&self) -> Result<Vec<u8>, HTLCError> {
         // Refunding after claim is never valid.
         if self.state == HTLCState::Claimed {
             return Err(HTLCError::AlreadyClaimed);
