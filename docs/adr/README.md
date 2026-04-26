@@ -29,6 +29,7 @@ stays auditable.
 | [0005](0005-fork-resolution-v2.md) | Fork resolution v2 | Accepted | Consensus |
 | [0006](0006-treasury-governance.md) | Treasury governance scheme | Accepted | Governance / consensus |
 | [0007](0007-refund-signer-broadcaster-traits.md) | Refund-flow trait abstraction for atomic-swap RPC | Accepted | Atomic-swap / cross-crate dependency design |
+| [0008](0008-bulletproof-range-proof-fail-closed.md) | Bulletproof range-proof verifier fails closed on production builds | Accepted | Cryptography / consensus / confidential transactions |
 
 ---
 
