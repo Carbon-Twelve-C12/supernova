@@ -163,6 +163,18 @@ docs/*AUDIT*.md
 MEDIUM_VULNERABILITY_FIXES.md
 SUPERNOVA_SECURITY_AUDIT_V2.md
 supernova-readiness-report.md
+
+# Local-only docs that surfaced during 2026-04 RC4 cleanup. These are
+# either AI-tooling files, Foundation-internal planning, vulnerability
+# disclosure docs, or self-assessments listing remediation gaps —
+# publishing any of them ahead of the corresponding code/audit work
+# would either leak negotiating positions or hand adversaries a target
+# list. To publish later, remove the path from this section.
+/CLAUDE.md
+/docs/operations/DISASTER_RECOVERY.md
+/docs/security/AUDIT_VENDORS.md
+/docs/security/SHANNON_AUDIT_FINDINGS.md
+/docs/testing/TESTING_ASSESSMENT.md
 .claude/
 AUDIT_REPORT*.md
 PROGRESS*.md
