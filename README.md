@@ -40,8 +40,8 @@ git clone https://github.com/Carbon-Twelve-C12/supernova.git
 cd supernova
 cargo build --release
 
-# Run testnet node
-./target/release/supernova-node --network testnet
+# Run testnet node (auto-loads ./config/node.toml from the repo root)
+./target/release/supernova-node
 ```
 
 ## Run a Node
@@ -62,10 +62,12 @@ Want to join the network? Running your own node helps decentralize Supernova.
 
 ```
 supernova/
-├── supernova-core/     # Core blockchain logic, consensus, cryptography
-├── node/               # Full node implementation, P2P, RPC
-├── wallet/             # Quantum-resistant wallet
-└── btclib/             # Bitcoin-compatible primitives
+├── supernova-core/      # Core types, consensus, crypto, lightning
+├── node/                # Full node implementation, P2P, RPC, mempool
+├── miner/               # Mining implementation, difficulty adjustment
+├── wallet/              # Quantum-resistant HD wallet
+├── quantum_validation/  # ML-DSA / SPHINCS+ signature verification
+└── cli/                 # Command-line tools
 ```
 
 ## Status
