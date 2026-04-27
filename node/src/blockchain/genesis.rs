@@ -19,27 +19,43 @@ pub const TESTNET_GENESIS_DIFFICULTY_BITS: u32 = 0x207fffff;
 pub const TESTNET_GENESIS_VERSION: u32 = 1;
 pub const TESTNET_GENESIS_REWARD: u64 = 50_000_000_00; // 50 NOVA in attaNova
 
-/// Pre-mined nonce
-/// This was generated on October 28, 2025 and is IMMUTABLE for all testnet nodes
-pub const TESTNET_GENESIS_NONCE: u32 = 1;
+/// Pre-mined nonce.
+///
+/// Becomes IMMUTABLE for the deployed testnet at launch. The current
+/// values were re-mined on 2026-04-27 because the previous constants
+/// (October 2025) were anchored against an older `Transaction::hash`
+/// shape and the hash check failed during build. Regenerate via the
+/// `diagnose_genesis_values` `#[ignore]`'d test in this module's
+/// `mod tests` block whenever the coinbase transaction shape or the
+/// `Transaction::hash` / `BlockHeader::hash` codec changes.
+pub const TESTNET_GENESIS_NONCE: u32 = 3;
 
-/// Pre-calculated merkle root
-/// This was generated on October 28, 2025 and is IMMUTABLE for all testnet nodes
+/// Pre-calculated merkle root.
+///
+/// `Block::calculate_merkle_root()` of a block containing the single
+/// genesis coinbase tx — note that `MerkleTree::new` SHA-256-hashes
+/// its inputs, so this is `SHA256(tx.hash())` for a single-tx block,
+/// not `tx.hash()` itself. The diagnostic helper uses the canonical
+/// path so this constant always matches what consensus computes.
+/// Hex: 3671b404d424fcbf2a7639a2c46811299c8c79b41600418eb3ed5c3bafe1306d
 pub const TESTNET_GENESIS_MERKLE_ROOT: [u8; 32] = [
-    0x7f, 0x6a, 0xfa, 0x67, 0x18, 0xce, 0x43, 0x70,
-    0x6c, 0x7b, 0x3a, 0xeb, 0x48, 0xd0, 0xca, 0xb9,
-    0xcb, 0x90, 0xd5, 0xfa, 0xc0, 0x0d, 0x88, 0xa4,
-    0x96, 0xae, 0xe0, 0x15, 0x54, 0x16, 0x98, 0xc3
+    0x36, 0x71, 0xb4, 0x04, 0xd4, 0x24, 0xfc, 0xbf,
+    0x2a, 0x76, 0x39, 0xa2, 0xc4, 0x68, 0x11, 0x29,
+    0x9c, 0x8c, 0x79, 0xb4, 0x16, 0x00, 0x41, 0x8e,
+    0xb3, 0xed, 0x5c, 0x3b, 0xaf, 0xe1, 0x30, 0x6d
 ];
 
-/// Expected genesis block hash (for validation)
-/// This was generated on October 28, 2025 and is IMMUTABLE for all testnet nodes
-/// Hash: 88771cecb50a860f8d82e3a2723f07ad254e9685cdd7b0b78fadcc4c158b5f32
+/// Expected genesis block hash.
+///
+/// `BlockHeader::hash()` of the genesis header constructed with the
+/// constants above. Meets the testnet difficulty target
+/// (`TESTNET_GENESIS_DIFFICULTY_BITS = 0x207fffff`) at nonce 3.
+/// Hex: 2e716d6ba655a62d1c3deea98f965ae29f00b90793b71a3eb18b11832be8ad54
 pub const TESTNET_GENESIS_HASH: [u8; 32] = [
-    0x88, 0x77, 0x1c, 0xec, 0xb5, 0x0a, 0x86, 0x0f,
-    0x8d, 0x82, 0xe3, 0xa2, 0x72, 0x3f, 0x07, 0xad,
-    0x25, 0x4e, 0x96, 0x85, 0xcd, 0xd7, 0xb0, 0xb7,
-    0x8f, 0xad, 0xcc, 0x4c, 0x15, 0x8b, 0x5f, 0x32
+    0x2e, 0x71, 0x6d, 0x6b, 0xa6, 0x55, 0xa6, 0x2d,
+    0x1c, 0x3d, 0xee, 0xa9, 0x8f, 0x96, 0x5a, 0xe2,
+    0x9f, 0x00, 0xb9, 0x07, 0x93, 0xb7, 0x1a, 0x3e,
+    0xb1, 0x8b, 0x11, 0x83, 0x2b, 0xe8, 0xad, 0x54
 ];
 
 /// Create the hardcoded testnet genesis block
@@ -91,7 +107,14 @@ pub fn create_testnet_genesis_block() -> Result<Block, String> {
     }
 
     if !block.validate() {
-        return Err("Genesis block validation failed! Genesis constants are invalid.".to_string());
+        return Err(format!(
+            "Genesis block validation failed (pow={}, merkle={}, txs={}, computed_merkle={}, header_merkle={})",
+            block.verify_proof_of_work(),
+            block.verify_merkle_root(),
+            block.validate_transactions(),
+            hex::encode(block.calculate_merkle_root()),
+            hex::encode(block.header.merkle_root)
+        ));
     }
     
     tracing::info!(
@@ -196,9 +219,75 @@ mod tests {
         // Ensure timestamp is reasonable
         assert!(TESTNET_GENESIS_TIMESTAMP > 1700000000); // After Nov 2023
         assert!(TESTNET_GENESIS_TIMESTAMP < 2000000000); // Before 2033
-        
+
         // Ensure difficulty is testnet-appropriate (easy)
         assert_eq!(TESTNET_GENESIS_DIFFICULTY_BITS, 0x207fffff);
+    }
+
+    /// Diagnostic helper: re-mines the genesis block, finding a nonce
+    /// that satisfies the testnet difficulty target. Prints the values
+    /// that `TESTNET_GENESIS_NONCE`, `TESTNET_GENESIS_MERKLE_ROOT`, and
+    /// `TESTNET_GENESIS_HASH` should be set to. Run with
+    /// `cargo test diagnose_genesis_values -- --nocapture` after any
+    /// change to `Transaction::hash` or the coinbase shape; copy the
+    /// output back into the constants above.
+    ///
+    /// `#[ignore]` so it doesn't run on every test invocation — it's a
+    /// developer tool, not a regression check.
+    #[test]
+    #[ignore = "developer tool: re-mines genesis. Run explicitly when constants need regen."]
+    fn diagnose_genesis_values() {
+        let coinbase_script = b"Genesis block for Supernova supernova-testnet".to_vec();
+        let coinbase_input = TransactionInput::new_coinbase(coinbase_script);
+        let genesis_output = TransactionOutput::new(TESTNET_GENESIS_REWARD, vec![]);
+        let coinbase_tx = Transaction::new(2, vec![coinbase_input], vec![genesis_output], 0);
+
+        // Use the canonical merkle-root path so the constant we print
+        // matches what `Block::calculate_merkle_root()` will compute
+        // at validation time. `MerkleTree::new` SHA-256-hashes its
+        // inputs (so the single-tx root is `SHA256(tx.hash())`, not
+        // `tx.hash()` directly) — easy to get wrong without going
+        // through the canonical helper.
+        let placeholder_header = BlockHeader::new(
+            TESTNET_GENESIS_VERSION,
+            [0u8; 32],
+            [0u8; 32],
+            TESTNET_GENESIS_TIMESTAMP,
+            TESTNET_GENESIS_DIFFICULTY_BITS,
+            0,
+        );
+        let placeholder_block = Block::new(placeholder_header, vec![coinbase_tx.clone()]);
+        let actual_merkle = placeholder_block.calculate_merkle_root();
+
+        // Mine the genesis: iterate nonce until the header hash meets
+        // the difficulty target. Testnet difficulty 0x207fffff is
+        // trivially easy and a valid nonce appears within the first
+        // few thousand attempts.
+        let mut mined: Option<(u32, [u8; 32])> = None;
+        for nonce in 0u32..u32::MAX {
+            let header = BlockHeader::new(
+                TESTNET_GENESIS_VERSION,
+                [0u8; 32],
+                actual_merkle,
+                TESTNET_GENESIS_TIMESTAMP,
+                TESTNET_GENESIS_DIFFICULTY_BITS,
+                nonce,
+            );
+            if header.meets_target() {
+                mined = Some((nonce, header.hash()));
+                break;
+            }
+        }
+
+        let (nonce, hash) = mined.expect("testnet difficulty is easy; a nonce must exist");
+
+        println!("=== Genesis diagnostic values ===");
+        println!("TESTNET_GENESIS_NONCE       = {};", nonce);
+        println!("TESTNET_GENESIS_MERKLE_ROOT = {:?};", actual_merkle);
+        println!("TESTNET_GENESIS_HASH        = {:?};", hash);
+        println!("merkle (hex): {}", hex::encode(actual_merkle));
+        println!("hash   (hex): {}", hex::encode(hash));
+        println!("nonce: {}", nonce);
     }
     
     #[test]
@@ -208,7 +297,11 @@ mod tests {
         
         // Create genesis and verify it succeeds
         let genesis = create_testnet_genesis_block();
-        assert!(genesis.is_ok(), "Genesis creation should succeed with hardcoded values");
+        assert!(
+            genesis.is_ok(),
+            "Genesis creation should succeed: {:?}",
+            genesis.as_ref().err()
+        );
         
         let block = genesis.expect("Genesis block creation failed");
         
