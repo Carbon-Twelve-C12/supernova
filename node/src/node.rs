@@ -367,12 +367,25 @@ impl Node {
             None
         };
 
-        // Initialize wallet manager for testnet
-        let wallet_path = dirs::data_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("supernova")
-            .join("wallet");
-        
+        // Initialize wallet manager for testnet.
+        //
+        // Wallet storage is derived from the configured `storage.db_path` so
+        // that the operator has a single directory to back up and a single
+        // directory to wipe for a clean restart. Earlier revisions used
+        // `dirs::data_dir().join("supernova").join("wallet")` (e.g.
+        // `~/Library/Application Support/supernova/wallet/` on macOS), which
+        // meant `rm -rf ./data` left the wallet keys + UTXO index orphaned in
+        // the user's home directory — operators had no way to discover the
+        // location without reading source, and "fresh start" workflows were
+        // silently broken across runs.
+        //
+        // Migration note: existing testnet wallets at the legacy
+        // `dirs::data_dir()/supernova/wallet/` location are NOT moved
+        // automatically. Operators upgrading from RC3 or earlier should copy
+        // the contents into their new `<data_dir>/wallet/` directory if they
+        // want to preserve addresses.
+        let wallet_path = config.storage.db_path.join("wallet");
+
         std::fs::create_dir_all(&wallet_path).ok();
         
         let wallet_manager = match crate::wallet_manager::WalletManager::new(
