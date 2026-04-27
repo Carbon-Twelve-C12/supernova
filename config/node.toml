@@ -12,7 +12,11 @@ enable_quantum_security = true
 
 [network]
 listen_addr = "/ip4/0.0.0.0/tcp/8333"
-max_peers = 50
+# max_peers must be >= max_inbound_connections + max_outbound_connections,
+# else NodeConfig validation rejects the file on startup. 200 leaves headroom
+# above the 128 inbound + 24 outbound caps below so a fully-populated outbound
+# side does not force the node to refuse legitimate inbound connections.
+max_peers = 200
 bootstrap_nodes = []
 peer_ping_interval = 30
 max_outbound_connections = 24
