@@ -9,11 +9,75 @@ use wallet::quantum_wallet::{
     Utxo,
 };
 
+use crate::config::{NetworkEnvironment, NodeConfig};
 use crate::storage::BlockchainDB;
 use crate::storage::ChainState;
 use crate::mempool::TransactionPool;
 use crate::network::NetworkProxy;
 use supernova_core::types::transaction::Transaction;
+
+/// Hardcoded fallback passphrase used when the operator hasn't supplied
+/// `SUPERNOVA_WALLET_PASSPHRASE` AND the node is running in a non-production
+/// environment. Anyone with read access to the keystore on disk can decrypt
+/// it with this string — by design, since dev/testnet workflows must boot
+/// without prompting for a passphrase. `resolve_wallet_passphrase` refuses
+/// to use it on Production environments.
+const TESTNET_DEFAULT_PASSPHRASE: &str = "testnet_default_passphrase";
+
+/// Environment variable used to supply the wallet keystore passphrase.
+/// Required when `[node].environment = "Production"`; optional (and
+/// recommended) on testnet / development. Set this in the node operator's
+/// startup environment, NOT in any committed config file.
+pub const WALLET_PASSPHRASE_ENV: &str = "SUPERNOVA_WALLET_PASSPHRASE";
+
+/// Resolve the wallet keystore passphrase for the configured environment.
+///
+/// Order of precedence:
+/// 1. `SUPERNOVA_WALLET_PASSPHRASE` env var (always wins when non-empty).
+/// 2. Hardcoded testnet/development default — only when the configured
+///    `[node].environment` is `Testnet` or `Development`. A loud warning
+///    is logged whenever this branch is taken.
+/// 3. Refuse with `WalletManagerError::KeystoreError` when running in
+///    `Production` without the env var set. Earlier revisions of this file
+///    auto-unlocked the keystore with a published default passphrase on
+///    every startup regardless of environment, which made the on-disk
+///    Argon2id encryption decorative — anyone with shell access to the
+///    wallet directory could decrypt it. Production now refuses to start
+///    rather than silently degrade keystore protection.
+pub fn resolve_wallet_passphrase(config: &NodeConfig) -> Result<String, WalletManagerError> {
+    if let Ok(p) = std::env::var(WALLET_PASSPHRASE_ENV) {
+        if !p.trim().is_empty() {
+            tracing::info!(
+                "Wallet keystore passphrase loaded from {} environment variable",
+                WALLET_PASSPHRASE_ENV
+            );
+            return Ok(p);
+        }
+        tracing::warn!(
+            "{} is set but empty/whitespace — falling through to environment-based resolution",
+            WALLET_PASSPHRASE_ENV
+        );
+    }
+
+    match config.node.environment {
+        NetworkEnvironment::Production => Err(WalletManagerError::KeystoreError(format!(
+            "{} environment variable is required when [node].environment = \"Production\". \
+             Refusing to auto-unlock the wallet keystore with a published default \
+             passphrase on a production node. Set the env var (>= 16 chars) and restart.",
+            WALLET_PASSPHRASE_ENV
+        ))),
+        NetworkEnvironment::Testnet | NetworkEnvironment::Development => {
+            tracing::warn!(
+                "Wallet keystore auto-unlocked with the hardcoded development passphrase \
+                 because {} is unset and [node].environment = {:?}. NEVER ship this to a \
+                 production deployment — anyone with disk access can decrypt the keystore.",
+                WALLET_PASSPHRASE_ENV,
+                config.node.environment
+            );
+            Ok(TESTNET_DEFAULT_PASSPHRASE.to_string())
+        }
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum WalletManagerError {
@@ -64,9 +128,16 @@ pub struct WalletManager {
 }
 
 impl WalletManager {
-    /// Create new wallet manager (unlocked for testnet)
+    /// Create a new wallet manager.
+    ///
+    /// `passphrase` is used both to (re)initialise the in-memory keystore and
+    /// to unlock the on-disk `WalletStorage` (Argon2id-encrypted). Callers
+    /// MUST source the passphrase via `resolve_wallet_passphrase(config)`
+    /// rather than hard-coding it — that helper enforces the production
+    /// guardrail that refuses to fall back to the published testnet default.
     pub fn new(
         wallet_path: PathBuf,
+        passphrase: &str,
         db: Arc<BlockchainDB>,
         chain_state: Arc<RwLock<ChainState>>,
         mempool: Arc<TransactionPool>,
@@ -75,16 +146,14 @@ impl WalletManager {
         // Open wallet storage
         let mut storage = WalletStorage::open(wallet_path)
             .map_err(|e| WalletManagerError::StorageError(e.to_string()))?;
-        
-        // Create and initialize keystore
+
+        // Create and initialise keystore with the operator-supplied passphrase.
         let mut keystore = Keystore::new();
-        
-        // Auto-initialize for testnet (in production, this would require user passphrase)
-        keystore.initialize("testnet_default_passphrase")
+        keystore.initialize(passphrase)
             .map_err(|e| WalletManagerError::KeystoreError(e.to_string()))?;
-        
-        // Unlock storage
-        storage.unlock("testnet_default_passphrase")
+
+        // Unlock storage with the same passphrase.
+        storage.unlock(passphrase)
             .map_err(|e| WalletManagerError::StorageError(e.to_string()))?;
         
         // Create UTXO index

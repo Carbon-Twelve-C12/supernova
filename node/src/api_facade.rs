@@ -56,8 +56,23 @@ impl ApiFacade {
                     "Node has no wallet manager — initializing fallback at ./wallet_fallback"
                 );
                 let wallet_path = std::path::PathBuf::from("./wallet_fallback");
+                // Use the same passphrase-resolution policy as the primary
+                // wallet bootstrap in `Node::new`. On Production this errors
+                // out unless `SUPERNOVA_WALLET_PASSPHRASE` is set — refusing
+                // the fallback is correct: silently initialising it with a
+                // published default would defeat the keystore encryption.
+                let cfg = node.config();
+                let cfg_guard = cfg.read().map_err(|_| {
+                    NodeError::General("config lock poisoned".to_string())
+                })?;
+                let passphrase = crate::wallet_manager::resolve_wallet_passphrase(&cfg_guard)
+                    .map_err(|e| {
+                        NodeError::General(format!("fallback wallet passphrase: {e}"))
+                    })?;
+                drop(cfg_guard);
                 let wm = WalletManager::new(
                     wallet_path,
+                    &passphrase,
                     node.db(),
                     node.chain_state(),
                     node.mempool(),

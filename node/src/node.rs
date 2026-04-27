@@ -387,14 +387,38 @@ impl Node {
         let wallet_path = config.storage.db_path.join("wallet");
 
         std::fs::create_dir_all(&wallet_path).ok();
-        
-        let wallet_manager = match crate::wallet_manager::WalletManager::new(
-            wallet_path,
-            Arc::clone(&db),
-            Arc::clone(&chain_state),
-            Arc::clone(&mempool),
-            Arc::clone(&network_proxy),
-        ) {
+
+        // Resolve the keystore passphrase. Errors here surface as a missing
+        // wallet manager (the inner `match` below logs and returns `None`),
+        // which is the right behaviour for a Production node booted without
+        // SUPERNOVA_WALLET_PASSPHRASE — the node continues to serve P2P /
+        // consensus duties without a wallet, rather than auto-unlocking
+        // with a published default.
+        let wallet_passphrase = match crate::wallet_manager::resolve_wallet_passphrase(&config) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::error!("Wallet keystore disabled: {}", e);
+                None
+            }
+        };
+
+        let wallet_manager = match wallet_passphrase.as_deref().map(|pass| {
+            crate::wallet_manager::WalletManager::new(
+                wallet_path,
+                pass,
+                Arc::clone(&db),
+                Arc::clone(&chain_state),
+                Arc::clone(&mempool),
+                Arc::clone(&network_proxy),
+            )
+        }) {
+            Some(Ok(wm)) => Ok(wm),
+            Some(Err(e)) => Err(e),
+            None => Err(crate::wallet_manager::WalletManagerError::KeystoreError(
+                "wallet passphrase unavailable".to_string(),
+            )),
+        };
+        let wallet_manager = match wallet_manager {
             Ok(wm) => {
                 tracing::info!("Wallet manager initialized successfully");
                 Some(Arc::new(RwLock::new(wm)))
