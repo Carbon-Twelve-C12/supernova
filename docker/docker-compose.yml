@@ -5,7 +5,7 @@ services:
   supernova-node-1:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
     image: supernova:latest
     container_name: supernova-node-1
     restart: unless-stopped

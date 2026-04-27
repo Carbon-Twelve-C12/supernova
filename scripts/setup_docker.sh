@@ -96,7 +96,7 @@ if [[ $(basename $(pwd)) == "scripts" ]]; then
 fi
 
 # Build the Docker image with proper error handling
-if ! docker build -t supernova:latest -f docker/Dockerfile .; then
+if ! docker build -t supernova:latest .; then
     echo -e "${RED}Docker build failed!${NC} Please check the error message above."
     exit 1
 fi

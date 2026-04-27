@@ -28,7 +28,7 @@ If you prefer to build from source (may encounter compilation errors):
 
 ```bash
 # Build Docker image from source (not recommended)
-docker build -t supernova:latest -f docker/Dockerfile .
+docker build -t supernova:latest .
 
 # Navigate to testnet directory
 cd deployments/testnet
@@ -102,7 +102,7 @@ If you prefer to set up manually:
 
 2. Build the supernova Docker image:
    ```bash
-   docker build -t supernova:latest -f docker/Dockerfile .
+   docker build -t supernova:latest .
    ```
 
 3. Start the testnet using Docker Compose:
