@@ -1,82 +1,133 @@
-# Bootstrap Node Configuration
-# This node serves as the initial connection point for the testnet
+# Supernova Testnet — Bootstrap Node
+#
+# Role: serves as the initial peer-discovery anchor for the testnet. Other
+# nodes (seeds, miners, faucet) point their bootstrap_nodes here. This node
+# itself has no upstream bootstrap_nodes — it IS the bootstrap.
+#
+# Schema: matches `NodeConfig` in node/src/config.rs as of v1.0.0-RC4. Field
+# names are validated by `#[serde(deny_unknown_fields)]` on the [api] block,
+# so misnamed entries fail loud at startup. Earlier revisions of this file
+# used a legacy `[rpc]` / `[blockchain]` / `[mining]` schema that produced
+# `missing field cors_allowed_origins` on every boot — see commit history.
+
+[node]
+chain_id = "supernova-testnet"
+environment = "Testnet"
+metrics_enabled = true
+metrics_port = 9100
+log_level = "info"
+network_name = "Bootstrap Node"
+enable_lightning = true
+enable_quantum_security = true
+# Bootstrap also mines to keep block production going during cold-start.
+enable_mining = true
 
 [network]
-network = "testnet"
-p2p_port = 8333
-max_connections = 250
-enable_discovery = true
-# Bootstrap nodes should accept more connections
-listen_address = "0.0.0.0:8333"
+listen_addr = "/ip4/0.0.0.0/tcp/8333"
+max_peers = 250
+bootstrap_nodes = []
+peer_ping_interval = 30
+max_outbound_connections = 24
+max_inbound_connections = 200
+ban_threshold = 100
+ban_duration = 86400
+network_id = "supernova-testnet"
+# Docker bridge networks do not relay multicast; mDNS would silently never
+# resolve a peer. Disable to avoid noise. Same reasoning for UPnP — the
+# container has no router to negotiate with.
+enable_mdns = false
+enable_upnp = false
+enable_peer_exchange = true
+enable_nat_traversal = false
+connection_timeout = 30
+reconnect_interval = 60
+status_broadcast_interval = 180
+trusted_peers = []
+# Validation requires >= 8 (eclipse-resistance floor). Bootstrap will reach
+# this once the first wave of seed/miner/faucet nodes join.
+min_outbound_connections = 8
 
-[rpc]
+[network.peer_diversity]
 enabled = true
-host = "0.0.0.0"
-port = 8332
-max_connections = 200
+min_diversity_score = 0.7
+connection_strategy = "BalancedDiversity"
+rotation_interval = 21600
+max_peers_per_subnet = 20
+max_peers_per_asn = 50
+max_peers_per_region = 100
+max_inbound_ratio = 10.0
+max_connection_attempts_per_min = 60
 
-# RPC authentication - SECURITY: Set credentials via environment variables
-# Export before running: export SUPERNOVA_RPC_USERNAME=your_username
-#                        export SUPERNOVA_RPC_PASSWORD=your_secure_password
-username = "${SUPERNOVA_RPC_USERNAME}"
-password = "${SUPERNOVA_RPC_PASSWORD}"
-
-[blockchain]
-target_block_time = 150
-initial_difficulty = "0x1d00ffff"
-initial_block_reward = 5000000000
-halving_interval = 840000
-max_block_size = 4194304
-
-[mining]
-# Bootstrap node also mines to ensure block production
-enabled = true
-threads = 2
-mining_address = "testnet1qbootstrap000000000000000000000000000000"
-
-[environmental]
-enabled = true
-carbon_offset_target = 150
-green_mining_bonus = 35
-verification_interval = 30
-# Bootstrap node uses 100% renewable energy (for testing)
-renewable_percentage = 1.0
-efficiency_score = 0.9
-
-[quantum]
-enabled = true
-algorithm = "dilithium3"
-hybrid_mode = true
+[network.pubsub_config]
+history_length = 5
+history_gossip = 3
+duplicate_cache_size = 1000
+duplicate_cache_ttl = 120
+heartbeat_interval = 10
+validation_mode = "Strict"
+max_transmit_size = 5242880
+explicit_relays = 3
 
 [storage]
-backend = "sled"
-cache_size = 2048
-compression = true
+db_path = "/home/supernova/data"
+enable_compression = true
+cache_size = 1073741824
+max_open_files = 1000
+block_cache_size = 67108864
 
 [mempool]
-max_size = 500
-min_fee_rate = 1
-max_tx_age = 72
+max_size = 5000
+transaction_timeout = 7200
+min_fee_rate = 1.0
+max_fee_rate = 100000.0
+max_per_address = 100
+max_orphan_transactions = 100
+enable_rbf = true
+min_rbf_fee_increase = 10.0
 
-[logging]
-level = "info"
-file = "/home/supernova/logs/bootstrap.log"
-rotation = "daily"
-retention_days = 30
+[backup]
+backup_dir = "/home/supernova/data/backups"
+max_backups = 5
+backup_interval = 3600
+enable_automated_backups = true
+compress_backups = true
+verify_on_startup = true
 
-[metrics]
-enabled = true
-port = 9100
-endpoint = "/metrics"
+[checkpoint]
+checkpoints_enabled = true
+checkpoint_interval = 86400
+checkpoint_type = "Full"
+data_dir = "/home/supernova/data/checkpoints"
+max_checkpoints = 7
 
 [api]
+# 0.0.0.0 inside the container; docker-compose maps 8332→host 8332.
+bind_address = "0.0.0.0"
+port = 8332
+# Add explorer / dashboard origins before going public, e.g.
+#   cors_allowed_origins = ["https://explorer.testnet.supernovanetwork.xyz"]
+cors_allowed_origins = []
+rate_limit = 200
+enable_auth = true
+# OPERATOR ACTION REQUIRED: api_keys must be a non-empty list of >= 32-char
+# secrets, or the API server refuses to start. To generate one:
+#     docker exec supernova-bootstrap supernova-node generate-api-key
+# then paste the output below.
+api_keys = []
+enable_docs = true
+detailed_logging = true
+max_json_payload_size = 5
+request_timeout = 30
+
+[testnet]
 enabled = true
-swagger_enabled = true
-cors_enabled = true
-cors_origins = [
-    "https://explorer.supernovanetwork.xyz",
-    "https://dashboard.supernovanetwork.xyz",
-    "https://faucet.supernovanetwork.xyz",
-    "https://api.supernovanetwork.xyz"
-]
-# For local development, add: "http://localhost:3000", "http://localhost:8080" 
+network_id = "testnet"
+enable_faucet = false
+faucet_amount = 10000000000
+faucet_cooldown = 3600
+faucet_max_balance = 1000000000000
+enable_test_mining = false
+test_mining_difficulty = 1
+enable_network_simulation = false
+simulated_latency_ms = 0
+simulated_packet_loss = 0.0
