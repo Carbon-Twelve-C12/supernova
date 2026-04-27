@@ -26,9 +26,13 @@ struct Args {
     #[arg(long)]
     with_animation: bool,
 
-    /// Configuration file path
-    #[arg(short, long, default_value = "config.toml")]
-    config: String,
+    /// Configuration file path. When omitted, searches the legacy default
+    /// locations (`./config.toml`, `./config/node.toml`, `.supernova/node.toml`)
+    /// and auto-creates `./config.toml` if none are present. When supplied,
+    /// the named file is required — passing a missing path errors out instead
+    /// of silently falling back to a search.
+    #[arg(short, long)]
+    config: Option<String>,
 
     /// Enable debug logging
     #[arg(short, long)]
@@ -116,8 +120,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Load configuration
-    let config = NodeConfig::load().unwrap_or_else(|e| {
+    // Load configuration. `args.config` is what the operator passed via
+    // `-c`/`--config`; `None` triggers the legacy multi-path search.
+    let config = NodeConfig::load(args.config.as_deref()).unwrap_or_else(|e| {
         eprintln!("Failed to load configuration: {}", e);
         std::process::exit(1);
     });

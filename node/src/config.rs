@@ -655,33 +655,69 @@ impl Default for PubSubConfig {
 }
 
 impl NodeConfig {
-    pub fn load() -> Result<Self, ConfigError> {
+    /// Load configuration.
+    ///
+    /// * `explicit_path = Some(p)` — load *only* `p`. If the file is missing,
+    ///   return an error (no silent fallback). This is what an operator gets
+    ///   when they pass `--config <path>` on the command line, and is also
+    ///   the right behavior for systemd units / containers that bake the
+    ///   path into their service definition.
+    /// * `explicit_path = None` — search the legacy default locations
+    ///   (`config.toml`, `config/node.toml`, `.supernova/node.toml`). This
+    ///   path also auto-creates `config.toml` if nothing is found, preserving
+    ///   the historical "just works" zero-config bootstrap.
+    ///
+    /// Prior revisions ignored the operator's `--config` flag entirely and
+    /// always searched the legacy locations — `-c /etc/supernova.toml`
+    /// silently loaded `./config.toml` instead. The explicit-path branch
+    /// here closes that foot-gun.
+    pub fn load(explicit_path: Option<&str>) -> Result<Self, ConfigError> {
         let mut config = Config::builder();
         config = config.add_source(Config::try_from(&Self::default())?);
 
-        // Try multiple config file locations
-        let config_paths = vec![
-            PathBuf::from("config.toml"),           // Root directory
-            PathBuf::from("config/node.toml"),      // Legacy location
-            PathBuf::from(".supernova/node.toml"),  // User directory
-        ];
-        
-        let mut config_loaded = false;
-        for config_path in &config_paths {
-            if config_path.exists() {
-                info!("Loading configuration from: {:?}", config_path);
-                if let Some(config_str) = config_path.to_str() {
-                    config = config.add_source(File::with_name(config_str.trim_end_matches(".toml")));
-                    config_loaded = true;
-                    break;
+        if let Some(path) = explicit_path {
+            let pb = PathBuf::from(path);
+            if !pb.exists() {
+                return Err(ConfigError::Message(format!(
+                    "Configuration file not found: {} (working dir: {})",
+                    path,
+                    std::env::current_dir()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|_| "<unknown>".into())
+                )));
+            }
+            info!("Loading configuration from: {:?}", pb);
+            // The `config` crate's `File::with_name` strips the extension
+            // and probes for any supported format. Trim the trailing `.toml`
+            // so an explicit path like `foo.toml` resolves to `foo` (matching
+            // the historical search behavior below).
+            let stem = path.trim_end_matches(".toml");
+            config = config.add_source(File::with_name(stem));
+        } else {
+            // Try multiple config file locations
+            let config_paths = vec![
+                PathBuf::from("config.toml"),           // Root directory
+                PathBuf::from("config/node.toml"),      // Legacy location
+                PathBuf::from(".supernova/node.toml"),  // User directory
+            ];
+
+            let mut config_loaded = false;
+            for config_path in &config_paths {
+                if config_path.exists() {
+                    info!("Loading configuration from: {:?}", config_path);
+                    if let Some(config_str) = config_path.to_str() {
+                        config = config.add_source(File::with_name(config_str.trim_end_matches(".toml")));
+                        config_loaded = true;
+                        break;
+                    }
                 }
             }
-        }
-        
-        if !config_loaded {
-            warn!("No configuration file found, using defaults");
-            if let Err(e) = Self::create_default_config(&PathBuf::from("config.toml")) {
-                warn!("Failed to create default config file: {}", e);
+
+            if !config_loaded {
+                warn!("No configuration file found, using defaults");
+                if let Err(e) = Self::create_default_config(&PathBuf::from("config.toml")) {
+                    warn!("Failed to create default config file: {}", e);
+                }
             }
         }
 
@@ -710,7 +746,11 @@ impl NodeConfig {
 
     pub async fn reload(&mut self) -> Result<(), ConfigError> {
         info!("Reloading configuration");
-        match Self::load() {
+        // NOTE: reload re-runs the legacy search rather than remembering the
+        // path the operator started with. If you migrate to an explicit-path
+        // workflow, restart the node instead of relying on hot-reload, or
+        // extend `NodeConfig` to remember the source path.
+        match Self::load(None) {
             Ok(new_config) => {
                 if let Err(e) = new_config.validate() {
                     error!("Invalid configuration: {}", e);
