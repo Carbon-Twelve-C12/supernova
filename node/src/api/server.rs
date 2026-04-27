@@ -41,8 +41,16 @@ const PLACEHOLDER_KEY_MARKERS: &[&str] = &[
     "demo",
 ];
 
-/// Configuration options for the API server
+/// Configuration options for the API server.
+///
+/// `deny_unknown_fields` is set deliberately. The `config` crate otherwise
+/// silently drops unknown TOML keys, which previously let operators believe
+/// their `authentication_required = false` / `rate_limit_per_minute = 60`
+/// entries were taking effect when in fact `ApiConfig::default()` (with
+/// `enable_auth = true`) was. Failing loud on field-name drift surfaces the
+/// problem at startup instead of after auth has silently re-enabled.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApiConfig {
     /// Bind address for the API server
     pub bind_address: String,

@@ -88,14 +88,53 @@ data_dir = "./checkpoints"
 max_checkpoints = 7
 
 [api]
-enabled = true
+# Field names below match the ApiConfig struct in node/src/api/server.rs.
+# The TOML loader silently drops unknown fields, so misnamed entries are NOT
+# surfaced at startup — earlier revisions of this file used `authentication_
+# required` / `rate_limit_per_minute` / `max_request_size` which all match
+# nothing on the struct, and operators got the secure defaults regardless of
+# their TOML choices. Keep field names exact.
+
+# Bind address — keep loopback by default. Public exposure requires explicitly
+# changing this AND populating api_keys below; binding 0.0.0.0 with absent
+# auth is the historical foot-gun the defaults were hardened against.
 bind_address = "127.0.0.1"
 port = 8332
-cors_allowed_origins = ["*"]
-max_request_size = 10485760
-rate_limit_per_minute = 60
-authentication_required = false
+
+# Cross-origin policy. Empty list = no browser-origin RPC access (secure
+# default). Add specific dashboard / explorer origins here, e.g.
+#   cors_allowed_origins = ["https://dashboard.example.org"]
+# Wildcard "*" defeats CORS protection — only acceptable for purely-local
+# development against a loopback bind_address.
+cors_allowed_origins = []
+
+# Rate limit in requests/minute. Omit to disable.
+rate_limit = 100
+
+# Authentication. The server REFUSES TO START with enable_auth = true and an
+# empty api_keys list — this is intentional (a prior revision shipped a hard-
+# coded "CHANGE-ME-IN-PRODUCTION-..." placeholder that operators ignored).
+# To bring up the API:
+#   1. Run:  supernova-node generate-api-key
+#   2. Paste the output into api_keys below.
+# Disabling auth (enable_auth = false) is acceptable ONLY for purely-local
+# development on a loopback bind_address; do not ship that to a public host.
+enable_auth = true
 api_keys = []
+
+# OpenAPI / Swagger UI exposure. Disable in production behind a reverse proxy.
+enable_docs = true
+
+# Verbose request/response logging. Useful in development; lower in production
+# to reduce log volume and avoid surfacing operator queries.
+detailed_logging = true
+
+# Maximum JSON payload size in megabytes. 5 MB covers block-template / batch
+# transaction submission without exposing the server to memory pressure.
+max_json_payload_size = 5
+
+# Per-request timeout in seconds.
+request_timeout = 30
 
 [testnet]
 enabled = true
