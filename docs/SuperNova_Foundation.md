@@ -323,7 +323,16 @@ All core protocol code is open source under MIT license. The Foundation:
 
 ## 6. Foundation Timeline and Milestones
 
-### 6.1 Establishment Phase (2025 Q2-Q3)
+> **Status note (as of 2026-04):** The original Establishment Phase
+> calendar (2025 Q2–Q3) and the early portion of the Growth Phase
+> (2025 Q4 – 2026 Q1) are now historical reference points. The Growth
+> Phase's later activities are in flight; Maturity Phase
+> (2026 Q3 onwards) is the next forward-looking milestone window.
+> Specific calendar dates below are kept as the originally-set
+> targets; live status lives in the operations dashboards and the
+> Foundation's annual report rather than in this document.
+
+### 6.1 Establishment Phase (originally targeted 2025 Q2–Q3 — historical)
 
 - Legal registration in Switzerland
 - Initial council appointment
@@ -331,7 +340,7 @@ All core protocol code is open source under MIT license. The Foundation:
 - Environmental committee formation
 - Initial treasury setup and custody solution implementation
 
-### 6.2 Growth Phase (2025 Q4 - 2026 Q2)
+### 6.2 Growth Phase (originally targeted 2025 Q4 – 2026 Q2 — in flight)
 
 - Ecosystem development grants program launch
 - Environmental treasury activation
@@ -339,7 +348,7 @@ All core protocol code is open source under MIT license. The Foundation:
 - Establishment of technical governance process
 - Community governance participation system launch
 
-### 6.3 Maturity Phase (2026 Q3 onwards)
+### 6.3 Maturity Phase (2026 Q3 onwards — upcoming)
 
 - Full decentralization of protocol governance
 - Expanded environmental initiatives

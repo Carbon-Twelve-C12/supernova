@@ -296,4 +296,4 @@ This positions Supernova as the most future-proof blockchain platform, ready for
 
 ---
 
-**Version**: 1.0.0-RC4 | **Status**: Production Ready | **Last Updated**: September 2025 
+**Version**: 1.0.0-RC4 (post-RC4 work in flight; `1.0.0-RC5` testnet target) | **Status**: Production-Ready engineering / pre-testnet review | **Last Updated**: April 2026 

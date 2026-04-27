@@ -5,7 +5,7 @@
 This document specifies the peer-to-peer network protocol used by Supernova nodes to communicate with each other. The protocol is based on libp2p with custom extensions for blockchain-specific functionality.
 
 **Version:** 1.0
-**Last Updated:** December 2025
+**Last Updated:** April 2026 (date-alignment review; protocol substance unchanged since 2025-12)
 
 ---
 

@@ -220,5 +220,5 @@ Minimum Fee: 1 satoshi/byte
 **Testnet Status: READY FOR LAUNCH** 🚀
 
 ---
-*Last Updated: June 2025*
-*Next Review: Before Mainnet* 
+*Last Updated: April 2026 (post-RC4 audit / panic-safety / refund-flow work; date-alignment review)*
+*Next Review: At public testnet launch — see `CHANGELOG.md` `[Unreleased]` for the pre-launch work that's already landed.*

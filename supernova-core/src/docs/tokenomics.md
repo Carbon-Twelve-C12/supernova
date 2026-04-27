@@ -13,7 +13,7 @@ This document provides detailed information about supernova's token economics, i
 - **Smallest Unit**: 1 attonova (0.000000000000000001 NOVA)
 - **Consensus Mechanism**: Environmentally-aware Proof of Work
 - **Environmental Feature**: Carbon-negative by design
-- **Launch Date**: Q4 2025
+- **Launch Date**: TBD — testnet launch (`1.0.0-RC5`) ahead of mainnet (`1.0.0`); see [`CHANGELOG.md`](../../../CHANGELOG.md) `[Unreleased]` for the live pre-launch checklist. (Original 2025 Q4 target slipped during the post-RC4 panic-safety / audit-prep cycle.)
 
 ### 1.2 Token Utility
 
@@ -174,18 +174,28 @@ The Foundation adheres to strict guidelines for any token sales:
 
 ### 5.3 Sale Schedule Projection
 
-The Foundation has outlined the following projected sale schedule for the first 3 years:
+> **Schedule status (as of 2026-04):** the table below is the
+> *original* projection set when launch was planned for 2025 Q4. The
+> Q4 2025 launch slipped during the post-RC4 panic-safety + audit-prep
+> cycle (see `CHANGELOG.md`); the schedule will be re-anchored to the
+> actual launch date at testnet bring-up. Amounts and cadence are
+> indicative; periods will shift correspondingly.
 
-| Period | Maximum Sale Amount | Expected Price Range | Purpose |
-|--------|---------------------|----------------------|---------|
-| Q4 2025 | 157,500 NOVA | TBD | Initial operations funding |
-| Q2 2026 | 220,500 NOVA | TBD | Development grants and team expansion |
-| Q4 2026 | 283,500 NOVA | TBD | Marketing and adoption initiatives |
-| Q2 2027 | 315,000 NOVA | TBD | Infrastructure and scaling |
-| Q4 2027 | 378,000 NOVA | TBD | Environmental initiatives funding |
-| Q2 2028 | 441,000 NOVA | TBD | Global expansion and partnerships |
+The Foundation outlined the following projected sale schedule when
+the 2025 Q4 launch was planned. Periods below are *relative* to
+launch (read "Launch + 0" / "Launch + 6 months" / etc.) rather than
+fixed calendar dates:
 
-*Note: Actual sales will be dependent on operational needs and market conditions, and may be less than the maximum amounts listed.*
+| Period (relative to launch) | Originally-targeted calendar | Maximum Sale Amount | Expected Price Range | Purpose |
+|---|---|---|---|---|
+| Launch + 0 | (was) Q4 2025 | 157,500 NOVA | TBD | Initial operations funding |
+| Launch + ~6 months | (was) Q2 2026 | 220,500 NOVA | TBD | Development grants and team expansion |
+| Launch + ~12 months | (was) Q4 2026 | 283,500 NOVA | TBD | Marketing and adoption initiatives |
+| Launch + ~18 months | (was) Q2 2027 | 315,000 NOVA | TBD | Infrastructure and scaling |
+| Launch + ~24 months | (was) Q4 2027 | 378,000 NOVA | TBD | Environmental initiatives funding |
+| Launch + ~30 months | (was) Q2 2028 | 441,000 NOVA | TBD | Global expansion and partnerships |
+
+*Note: Actual sales will be dependent on operational needs and market conditions, and may be less than the maximum amounts listed. Calendar dates will be re-anchored to mainnet launch.*
 
 ### 5.4 Operational Expense Categories
 
