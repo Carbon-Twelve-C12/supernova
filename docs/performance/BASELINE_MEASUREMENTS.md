@@ -25,8 +25,8 @@ numbers are not meaningful.
 | OS / kernel | macOS (Darwin 23.5.0) |
 | Rust toolchain | `rustc 1.90.0 (1159e78c4 2025-09-14)` |
 | Build profile | `--release` |
-| Date measured | 2026-04-26 |
-| Commit | `88a6b2c5fcd243b6b648ba27aaf12a402a720c54` (`demo refund flow`) |
+| Date measured | 2026-04-26 (initial `--quick` run); 2026-04-27 (full-precision rerun for §2.1, §2.1.1, §2.2, §2.3) |
+| Commit | `88a6b2c5fcd243b6b648ba27aaf12a402a720c54` (`demo refund flow`) — initial; full-precision rerun pending parent commit |
 
 > **Note on dev-laptop measurement.** The numbers in §2.5 below were taken
 > on a developer laptop, not the target server hardware. Use them as a
@@ -45,29 +45,33 @@ verification. This is the ceiling on single-node TPS: whatever number
 `signature_verify/dilithium/5` produces, the node cannot exceed it on one
 core, no matter how the rest of the stack is tuned.
 
-| Operation | p50 latency | Throughput (ops/s/core) | Notes |
-|---|---|---|---|
-| `signature_verify/dilithium/2` | 28.9 µs | 34.6 K ops/s | Security level Low (ML-DSA-44) |
-| `signature_verify/dilithium/3` | 43.2 µs | 23.2 K ops/s | Security level Medium (ML-DSA-65) — default |
-| `signature_verify/dilithium/5` | 69.2 µs | 14.4 K ops/s | Security level High (ML-DSA-87) — wallet default |
-| `signature_sign/dilithium/2` | 223 µs | 4.5 K ops/s | Signer perspective — see note below |
-| `signature_sign/dilithium/3` | 57.9 µs | 17.3 K ops/s | Signer perspective |
-| `signature_sign/dilithium/5` | 244 µs | 4.1 K ops/s | Signer perspective |
+Numbers below are full-precision criterion runs (100 samples per
+benchmark, `[low_p95 mean high_p95]` bounds reported). Re-measured
+on `2026-04-27`.
 
-> **Sign-side rejection-sampling variance.** ML-DSA signing performs
-> rejection sampling: each attempt generates a candidate signature and
-> retries if bounds are violated. Worst-case sign time can be many
-> multiples of the mean. The ML-DSA-2 row above (223 µs, ~4× slower
-> than ML-DSA-3) is almost certainly a `--quick`-mode outlier rather
-> than the underlying scheme genuinely being slower than the higher
-> security level. Re-run without `--quick` for stable means before
-> using these for capacity planning.
+| Operation | Mean latency | 95% CI | Throughput (ops/s/core) | Notes |
+|---|---|---|---|---|
+| `signature_verify/dilithium/2` | 33.0 µs | [30.7, 36.3] µs | 30.3 K ops/s | Security level Low (ML-DSA-44) |
+| `signature_verify/dilithium/3` | 62.7 µs | [53.6, 73.4] µs | 16.0 K ops/s | Security level Medium (ML-DSA-65) — default |
+| `signature_verify/dilithium/5` | 71.1 µs | [70.3, 72.5] µs | 14.1 K ops/s | Security level High (ML-DSA-87) — wallet default |
+| `signature_sign/dilithium/2` | 87.6 µs | [86.3, 89.5] µs | 11.4 K ops/s | Signer perspective |
+| `signature_sign/dilithium/3` | 102.6 µs | [101.3, 104.7] µs | 9.7 K ops/s | Signer perspective |
+| `signature_sign/dilithium/5` | 223.0 µs | [222.2, 224.4] µs | 4.5 K ops/s | Signer perspective |
 
-> Numbers above were collected with `cargo bench -- --quick`, which uses
-> a shorter convergence window than the full statistical-sample mode.
-> Re-run without `--quick` before quoting figures with confidence intervals.
+**Sign-side latency now scales monotonically with security level**
+(87.6 → 102.6 → 223.0 µs across L2 / L3 / L5), as expected for the
+larger lattice dimensions. The earlier `--quick` run reported
+ML-DSA-2 sign at 223 µs and ML-DSA-3 sign at 58 µs — both were
+rejection-sampling outliers under the shorter convergence window.
+Full-precision (100 samples) eliminates that variance and the
+caveat box that used to live here.
 
-Source: `supernova-core/benches/tps_harness.rs::bench_signature_verify`.
+Verify-side scaling is closer to flat (33 → 63 → 71 µs) because
+verification doesn't perform rejection sampling — it's a deterministic
+algebraic check on a single candidate.
+
+Source: `supernova-core/benches/tps_harness.rs::bench_signature_verify`,
+`bench_signature_sign`.
 
 ### 2.1.1 Batch signature verification (bench)
 
@@ -82,23 +86,37 @@ Target from the planning document: **10 000 ML-DSA signatures verified
 in under 3 seconds**. That is only achievable with parallel verification
 on a multi-core host.
 
-| Operation | Total duration | Per-sig latency | Throughput (sigs/s) |
-|---|---|---|---|
-| `batch_sequential/dilithium_3/10` | 436 µs | 43.6 µs | 22.9 K |
-| `batch_sequential/dilithium_3/100` | 5.46 ms | 54.6 µs | 18.3 K |
-| `batch_sequential/dilithium_3/1000` | 43.5 ms | 43.5 µs | 23.0 K |
-| `batch_sequential/dilithium_3/10000` | 435 ms | 43.5 µs | 23.0 K |
-| `batch_parallel/dilithium_3/10` | 130 µs | 13.0 µs | 76.9 K |
-| `batch_parallel/dilithium_3/100` | 770 µs | 7.70 µs | 130 K |
-| `batch_parallel/dilithium_3/1000` | 6.05 ms | 6.05 µs | 165 K |
-| `batch_parallel/dilithium_3/10000` | 56.8 ms | 5.68 µs | **176 K** |
+Numbers below are full-precision criterion runs (10 samples per
+benchmark for the larger batch sizes — criterion auto-reduces sample
+count for benchmarks that take too long; means and 95% bounds
+reported as `[low mean high]`). Re-measured on `2026-04-27`.
+
+| Operation | Total duration | 95% CI | Per-sig | Throughput (sigs/s) |
+|---|---|---|---|---|
+| `batch_sequential/dilithium_3/10` | 446.6 µs | [441.7, 451.2] | 44.7 µs | 22.4 K |
+| `batch_sequential/dilithium_3/100` | 4.49 ms | [4.46, 4.53] | 44.9 µs | 22.3 K |
+| `batch_sequential/dilithium_3/1000` | 45.3 ms | [44.6, 46.2] | 45.3 µs | 22.1 K |
+| `batch_sequential/dilithium_3/10000` | 452.6 ms | [447.1, 463.6] | 45.3 µs | 22.1 K |
+| `batch_parallel/dilithium_3/10` | 138.0 µs | [134.8, 141.4] | 13.8 µs | 72.4 K |
+| `batch_parallel/dilithium_3/100` | 715.0 µs | [684.6, 751.9] | 7.15 µs | 139.9 K |
+| `batch_parallel/dilithium_3/1000` | 6.18 ms | [5.99, 6.37] | 6.18 µs | 161.8 K |
+| `batch_parallel/dilithium_3/10000` | 56.3 ms | [54.8, 58.0] | 5.63 µs | **177.6 K** |
 
 **Plan target check:** the master plan requires *10 000 ML-DSA-3
-signatures verified in under 3 seconds*. Measured: **56.8 ms** for 10 K
-parallel verifies on this 10-core M1 Pro — ~50× faster than the target.
-Single-core saturation flat-lines at ~23 K sigs/s; parallel scales
-roughly with core count up to ~176 K sigs/s, the actual TPS ceiling for
-sig-verify-bound workloads on this hardware.
+signatures verified in under 3 seconds*. Measured: **56.3 ms** for 10 K
+parallel verifies on this 10-core M1 Pro — ~53× faster than the target,
+with a tight 95% bound of 54.8–58.0 ms.
+
+**Sequential single-core saturation** flat-lines at ~22.1 K sigs/s
+across all batch sizes (10 → 10 K), confirming the per-sig cost is
+fully consistent at scale.
+
+**Parallel scaling** rises from 72.4 K (batch=10) to 177.6 K
+(batch=10 000). Sub-linear at small batches because thread spin-up
+amortises poorly over fewer items; near the theoretical ceiling
+(~10 cores × 22.1 K = 221 K) at large batches, with the gap explained
+by the 2 efficiency cores running slower than the 8 performance cores
+and by memory-bandwidth contention between threads.
 
 Source: `supernova-core/benches/tps_harness.rs::bench_signature_verify_batch_*`.
 
@@ -108,14 +126,17 @@ The structural half of mempool admission — shape, overflow, dust checks,
 duplicate-input detection. Signature verification is separate (measured
 above) because it is re-run against the UTXO set at block-validation time.
 
-| Operation | p50 latency | Throughput (ops/s/core) |
-|---|---|---|
-| `transaction_validate/one_in_two_out` | 57.7 ns | 17.3 M ops/s |
+Full-precision (100 samples), re-measured `2026-04-27`.
+
+| Operation | Mean latency | 95% CI | Throughput (ops/s/core) |
+|---|---|---|---|
+| `transaction_validate/one_in_two_out` | 63.2 ns | [58.6, 70.3] ns | 15.8 M ops/s |
 
 Validation cost is dominated by structural checks (input/output count,
 amount overflow, dust threshold, duplicate-input detection); no crypto
-on this path. The 57 ns latency means structural validation never
-bottlenecks mempool admission — sig verify (above) sets the ceiling.
+on this path. The 63 ns latency means structural validation never
+bottlenecks mempool admission — sig verify (above) sets the ceiling
+at ~16 K ops/s/core, three orders of magnitude lower.
 
 Source: `supernova-core/benches/tps_harness.rs::bench_transaction_validate`.
 
@@ -124,10 +145,12 @@ Source: `supernova-core/benches/tps_harness.rs::bench_transaction_validate`.
 Bincode encode / decode per transaction. Should be small next to sig
 verify; a regression here silently halves P2P throughput.
 
-| Operation | p50 latency | Throughput (ops/s/core) |
-|---|---|---|
-| `transaction_roundtrip/encode` | 247 ns | 4.04 M ops/s |
-| `transaction_roundtrip/decode` | 526 ns | 1.90 M ops/s |
+Full-precision (100 samples), re-measured `2026-04-27`.
+
+| Operation | Mean latency | 95% CI | Throughput (ops/s/core) |
+|---|---|---|---|
+| `transaction_roundtrip/encode` | 262 ns | [253, 275] ns | 3.82 M ops/s |
+| `transaction_roundtrip/decode` | 543 ns | [520, 574] ns | 1.84 M ops/s |
 
 Decode is ~2× the cost of encode, typical for serde-derived bincode
 codecs (decode does branch-heavy variant resolution + length-prefixed
