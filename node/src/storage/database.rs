@@ -2718,6 +2718,8 @@ pub enum StorageError {
     LockPoisoned(String),
     #[error("UTXO locked: {0}")]
     UtxoLocked(String),
+    #[error("Invalid transaction: {0}")]
+    InvalidTransaction(String),
 }
 
 // Add these implementations after the enum definition

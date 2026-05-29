@@ -576,6 +576,31 @@ impl Node {
                         continue;
                     }
                     
+                    // Verify the transaction is authorized against the current
+                    // UTXO set before relaying it into the mempool (audit
+                    // Critical #1, fail-closed). Reject on lock poisoning.
+                    match chain_state.read() {
+                        Ok(chain) => {
+                            if let Err(e) = chain.verify_transaction_authorization(&transaction) {
+                                tracing::warn!(
+                                    "Rejecting unauthorized transaction {} from peer {:?}: {}",
+                                    hex::encode(&tx_hash[..8]),
+                                    from_peer,
+                                    e
+                                );
+                                continue;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Cannot verify transaction {} (chain lock poisoned): {}",
+                                hex::encode(&tx_hash[..8]),
+                                e
+                            );
+                            continue;
+                        }
+                    }
+
                     // Add to mempool
                     match mempool.add_transaction(transaction, fee_rate) {
                         Ok(_) => {

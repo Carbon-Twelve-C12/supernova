@@ -4,7 +4,6 @@
 use supernova_core::types::transaction::{
     Transaction, TransactionInput, TransactionOutput, TransactionSignatureData, SignatureSchemeType
 };
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -253,9 +252,11 @@ impl TransactionBuilder {
             })
             .collect();
         
-        // Create unsigned transaction
+        // Create unsigned transaction. Version 2 selects the extended-signature
+        // scheme: `Transaction::hash` (the txid) excludes `signature_data`, so
+        // the txid is stable regardless of the signature.
         let mut transaction = Transaction::new(
-            1, // version
+            2, // version
             tx_inputs,
             tx_outputs,
             0, // locktime
@@ -272,17 +273,15 @@ impl TransactionBuilder {
     
     /// Sign transaction with ML-DSA
     fn sign_transaction(&self, transaction: &mut Transaction) -> Result<(), TransactionError> {
-        // Serialize transaction for signing (excluding signature_data)
-        let tx_bytes = bincode::serialize(&transaction)
-            .map_err(|e| TransactionError::SigningError(e.to_string()))?;
-        
-        // Hash transaction
-        let mut hasher = Sha256::new();
-        hasher.update(&tx_bytes);
-        let tx_hash = hasher.finalize();
-        
-        // For now, use first keypair for signature
-        // In production, implement proper input signing
+        // Sign over the canonical signature hash — exactly the bytes the
+        // verifier checks (see `Transaction::signature_hash` /
+        // `verify_authorization`). This excludes `signature_data` and all input
+        // scripts so signing and verification agree.
+        let tx_hash = transaction.signature_hash();
+
+        // NOTE: a single transaction-level signature is produced with the first
+        // input's key, so every input must be owned by that key. Per-input
+        // signing (multi-owner) is tracked as follow-up work.
         if let Some(first_input) = self.inputs.first() {
             let signature = first_input.keypair.sign(&tx_hash)
                 .map_err(|e| TransactionError::SigningError(e.to_string()))?;

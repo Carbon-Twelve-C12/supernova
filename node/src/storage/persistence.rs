@@ -644,7 +644,34 @@ impl ChainState {
             }
         }
 
+        // Cryptographically verify every input is authorized to spend its UTXO
+        // (audit Critical #1). Fail-closed: a missing, invalid, or unbound
+        // signature rejects the transaction and therefore the block.
+        if let Err(e) = self.verify_transaction_authorization(tx) {
+            tracing::warn!(
+                "Signature authorization failed for tx {}: {}",
+                hex::encode(tx.hash()),
+                e
+            );
+            return Ok(false);
+        }
+
         Ok(true)
+    }
+
+    /// Verify that every input of `tx` is cryptographically authorized to spend
+    /// its referenced UTXO, checked against the current UTXO set.
+    ///
+    /// **Fail-closed**: returns `Err` if any signature is missing, invalid, or
+    /// not bound to the spent output's key (audit Critical #1). Coinbase
+    /// transactions carry no spendable inputs and pass. See
+    /// [`supernova_core::types::transaction::Transaction::verify_authorization`].
+    pub fn verify_transaction_authorization(&self, tx: &Transaction) -> Result<(), StorageError> {
+        let get_prevout = |txid: &[u8; 32], vout: u32| -> Option<TransactionOutput> {
+            self.db.get_utxo(txid, vout).ok().flatten()
+        };
+        tx.verify_authorization(&get_prevout)
+            .map_err(|e| StorageError::InvalidTransaction(e.to_string()))
     }
 
     /// Retrieve a specific output from a block by transaction hash and output index
@@ -1413,6 +1440,70 @@ mod tests {
 
         // Total difficulty should be increased
         assert!(chain_state.get_total_difficulty() > 0);
+
+        Ok(())
+    }
+
+    /// End-to-end check of the accept-path wiring (audit Critical #1): the owner
+    /// of a UTXO can spend it, but an attacker signing with their own key cannot
+    /// — the signing key is bound to the spent output's script.
+    #[tokio::test]
+    async fn test_verify_transaction_authorization_binds_signing_key_to_utxo(
+    ) -> Result<(), StorageError> {
+        use sha3::{Digest as _, Sha3_512};
+        use supernova_core::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
+        use supernova_core::types::transaction::{
+            SignatureSchemeType, TransactionInput, TransactionSignatureData,
+        };
+
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
+        let chain_state = ChainState::new(db.clone())?;
+
+        // Owner key and the output-script commitment it controls
+        // (SHA3-512(pubkey)[..32], matching the wallet address derivation).
+        let owner = QuantumKeyPair::generate(QuantumParameters::new(QuantumScheme::Dilithium))
+            .expect("owner keypair");
+        let mut hasher = Sha3_512::new();
+        hasher.update(&owner.public_key);
+        let owner_script = hasher.finalize()[..32].to_vec();
+
+        // Seed a UTXO locked to the owner.
+        let prev_txid = [9u8; 32];
+        let prevout = TransactionOutput::new(1_000_000, owner_script);
+        db.store_utxo(&prev_txid, 0, &bincode::serialize(&prevout).unwrap())?;
+
+        let spend = |kp: &QuantumKeyPair| -> Transaction {
+            let inputs = vec![TransactionInput::new(prev_txid, 0, vec![], 0xffff_ffff)];
+            let outputs = vec![TransactionOutput::new(900_000, vec![0xab; 32])];
+            let mut tx = Transaction::new(2, inputs, outputs, 0);
+            let sig = kp.sign(&tx.signature_hash()).expect("sign");
+            tx.set_signature_data(TransactionSignatureData {
+                scheme: SignatureSchemeType::Dilithium,
+                security_level: kp.parameters.security_level,
+                data: sig,
+                public_key: kp.public_key.clone(),
+            });
+            tx
+        };
+
+        // The owner can spend their own UTXO.
+        assert!(
+            chain_state
+                .verify_transaction_authorization(&spend(&owner))
+                .is_ok(),
+            "owner's signed transaction must be authorized"
+        );
+
+        // An attacker signing with their own key cannot spend the owner's UTXO.
+        let attacker = QuantumKeyPair::generate(QuantumParameters::new(QuantumScheme::Dilithium))
+            .expect("attacker keypair");
+        assert!(
+            chain_state
+                .verify_transaction_authorization(&spend(&attacker))
+                .is_err(),
+            "attacker's key must NOT authorize spending the owner's UTXO"
+        );
 
         Ok(())
     }
