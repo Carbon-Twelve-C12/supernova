@@ -269,6 +269,19 @@ impl TransactionOutput {
     }
 }
 
+/// Key commitment used by output scripts: the first 32 bytes of
+/// `SHA3-512(public_key)`.
+///
+/// This mirrors `wallet::quantum_wallet::address::Address::from_public_key`,
+/// so an output locked to an address can be matched against the public key that
+/// must sign to spend it. SHA3-512 is the project's Grover-resistant hash.
+pub(crate) fn pubkey_commitment(public_key: &[u8]) -> Vec<u8> {
+    use sha3::{Digest as _, Sha3_512};
+    let mut hasher = Sha3_512::new();
+    hasher.update(public_key);
+    hasher.finalize()[..32].to_vec()
+}
+
 impl Transaction {
     /// Create a new transaction
     pub fn new(
@@ -353,6 +366,141 @@ impl Transaction {
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
         hash
+    }
+
+    /// Canonical message digest that a transaction's signature commits to
+    /// (the "sighash").
+    ///
+    /// Distinct from [`Transaction::hash`] (the txid): it is computed over the
+    /// transaction with **all authorization material removed** —
+    /// `signature_data` cleared and every input's `signature_script` and witness
+    /// emptied — so the signer and the verifier hash exactly the same bytes. The
+    /// signature therefore commits to all inputs (outpoints + sequence), all
+    /// outputs (amount + script), the version and the locktime, but not to
+    /// itself.
+    ///
+    /// This MUST match the bytes the wallet signs (see
+    /// `wallet::quantum_wallet::transaction_builder::sign_transaction`).
+    pub fn signature_hash(&self) -> [u8; 32] {
+        let mut tx = self.clone();
+        tx.signature_data = None;
+        for input in tx.inputs.iter_mut() {
+            input.signature_script.clear();
+            input.witness.clear();
+        }
+        let serialized = bincode::serialize(&tx).unwrap_or_else(|e| {
+            error!(
+                "Transaction signature_hash bincode::serialize failed (unreachable): {}",
+                e
+            );
+            Vec::new()
+        });
+        let mut hasher = Sha256::new();
+        hasher.update(&serialized);
+        let result = hasher.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&result);
+        out
+    }
+
+    /// Verify that this transaction is cryptographically authorized to spend
+    /// every output it references. **Fail-closed**: any missing, malformed, or
+    /// unauthorized signature returns `Err`.
+    ///
+    /// For a non-coinbase transaction, authorization requires BOTH:
+    ///   1. a valid signature over [`Transaction::signature_hash`] under the
+    ///      public key embedded in `signature_data` (real post-quantum /
+    ///      classical verification), and
+    ///   2. that the embedded public key actually *owns* every spent output —
+    ///      i.e. each prevout's `pub_key_script` equals the key commitment
+    ///      `SHA3-512(public_key)[..32]` (the address `pubkey_hash`).
+    ///
+    /// Check (2) is essential: without it a signature made with the *attacker's
+    /// own* key would satisfy (1) while authorizing the spend of *anyone's*
+    /// UTXO. This is the defect tracked as audit Critical #1.
+    ///
+    /// `get_prevout` resolves the output an input spends. Coinbase transactions
+    /// have no spendable inputs and are accepted here (their issuance is checked
+    /// by consensus subsidy rules, not by signatures).
+    ///
+    /// NOTE: the current scheme carries a single transaction-level signature, so
+    /// every input must be owned by the same key. Multi-owner (per-input)
+    /// signing is tracked as follow-up work.
+    pub fn verify_authorization(
+        &self,
+        get_prevout: impl Fn(&[u8; 32], u32) -> Option<TransactionOutput>,
+    ) -> Result<(), TransactionError> {
+        if self.is_coinbase() {
+            return Ok(());
+        }
+
+        let sig = self.signature_data.as_ref().ok_or_else(|| {
+            TransactionError::InvalidSignature("transaction carries no signature".to_string())
+        })?;
+
+        // (1) Cryptographic verification over the canonical sighash.
+        let message = self.signature_hash();
+        let crypto_ok = match sig.scheme {
+            SignatureSchemeType::Dilithium
+            | SignatureSchemeType::Falcon
+            | SignatureSchemeType::SphincsPlus => {
+                let scheme = match sig.scheme {
+                    SignatureSchemeType::Dilithium => QuantumScheme::Dilithium,
+                    SignatureSchemeType::Falcon => QuantumScheme::Falcon,
+                    _ => QuantumScheme::SphincsPlus,
+                };
+                let params = QuantumParameters {
+                    scheme,
+                    security_level: sig.security_level,
+                };
+                crate::crypto::quantum::verify_quantum_signature(
+                    &sig.public_key,
+                    &message,
+                    &sig.data,
+                    params,
+                )
+                .map_err(|e| TransactionError::QuantumSignatureError(e.to_string()))?
+            }
+            SignatureSchemeType::Legacy => SignatureVerifier::new()
+                .verify(
+                    SignatureType::Secp256k1,
+                    &sig.public_key,
+                    &message,
+                    &sig.data,
+                )
+                .map_err(TransactionError::from)?,
+            SignatureSchemeType::Ed25519 => SignatureVerifier::new()
+                .verify(SignatureType::Ed25519, &sig.public_key, &message, &sig.data)
+                .map_err(TransactionError::from)?,
+            SignatureSchemeType::Hybrid => {
+                return Err(TransactionError::InvalidSignature(
+                    "hybrid signature scheme is not yet supported".to_string(),
+                ));
+            }
+        };
+        if !crypto_ok {
+            return Err(TransactionError::SignatureVerificationFailed);
+        }
+
+        // (2) Bind the signing key to every spent output (fail-closed).
+        let commitment = pubkey_commitment(&sig.public_key);
+        for (i, input) in self.inputs.iter().enumerate() {
+            let prevout = get_prevout(&input.prev_tx_hash, input.prev_output_index)
+                .ok_or_else(|| {
+                    TransactionError::InvalidInput(format!(
+                        "previous output missing for input {}",
+                        i
+                    ))
+                })?;
+            if prevout.pub_key_script != commitment {
+                return Err(TransactionError::InvalidSignature(format!(
+                    "input {} is not authorized by the transaction's signing key",
+                    i
+                )));
+            }
+        }
+
+        Ok(())
     }
 
     /// Get the transaction version
@@ -505,9 +653,10 @@ impl Transaction {
                     // Verify the signature (simplified for this implementation)
                     self.verify_ecdsa_signature(signature, pubkey, &sighash)
                 }
-                ScriptType::P2SH => true,
-                ScriptType::P2WPKH => true,
-                ScriptType::P2WSH => true,
+                // Script-hash / SegWit spend types are not yet supported by the
+                // canonical authorization path (`verify_authorization`). Reject
+                // rather than silently accepting them (fail-closed).
+                ScriptType::P2SH | ScriptType::P2WPKH | ScriptType::P2WSH => false,
             }
         } else {
             // Unknown script type
@@ -641,21 +790,19 @@ impl Transaction {
         self.hash()
     }
 
-    /// Verify an ECDSA signature
+    /// Verify an ECDSA (secp256k1) signature over `message_hash`.
+    ///
+    /// Real, fail-closed verification: returns `false` on any
+    /// parse/verification failure rather than defaulting to valid.
     fn verify_ecdsa_signature(
         &self,
         signature: &[u8],
         pubkey: &[u8],
         message_hash: &[u8; 32],
     ) -> bool {
-        // In a real implementation, we would:
-        // 1. Parse the signature (DER format) + sighash flag
-        // 2. Parse the public key
-        // 3. Verify the signature against the message hash
-
-        // For now, assume the signature is valid
-        // This would be replaced with actual crypto verification in production
-        true
+        SignatureVerifier::new()
+            .verify(SignatureType::Secp256k1, pubkey, message_hash, signature)
+            .unwrap_or(false)
     }
 
     /// Calculate the fee rate in nova units per byte
@@ -1188,6 +1335,106 @@ mod tests {
         let priority2 = tx2.get_priority_score(&get_output);
 
         assert!(priority2 > priority1);
+    }
+
+    // --- audit Critical #1: real, bound, fail-closed signature verification ---
+
+    /// Build a valid signed Dilithium transaction and the prevout script that
+    /// authorizes it. Returns `(tx, owner_pubkey, owner_script)`.
+    fn signed_quantum_tx() -> (Transaction, Vec<u8>, Vec<u8>) {
+        let keypair = QuantumKeyPair::generate(QuantumParameters::new(QuantumScheme::Dilithium))
+            .expect("keypair generation");
+        let owner_script = pubkey_commitment(&keypair.public_key);
+
+        let inputs = vec![TransactionInput::new([7u8; 32], 0, vec![], 0xffffffff)];
+        let outputs = vec![TransactionOutput::new(40_000_000, vec![0xab; 32])];
+        let mut tx = Transaction::new(2, inputs, outputs, 0);
+
+        // Sign exactly the bytes the verifier will check.
+        let message = tx.signature_hash();
+        let signature = keypair.sign(&message).expect("sign");
+        tx.set_signature_data(TransactionSignatureData {
+            scheme: SignatureSchemeType::Dilithium,
+            security_level: keypair.parameters.security_level,
+            data: signature,
+            public_key: keypair.public_key.clone(),
+        });
+        // `keypair.public_key` cloned: QuantumKeyPair is ZeroizeOnDrop, so we
+        // cannot move fields out of it.
+        (tx, keypair.public_key.clone(), owner_script)
+    }
+
+    #[test]
+    fn valid_signed_tx_is_authorized() {
+        let (tx, _pk, script) = signed_quantum_tx();
+        let get_prevout =
+            move |_h: &[u8; 32], _i: u32| Some(TransactionOutput::new(50_000_000, script.clone()));
+        assert!(tx.verify_authorization(&get_prevout).is_ok());
+    }
+
+    #[test]
+    fn tampered_output_breaks_signature() {
+        let (mut tx, _pk, script) = signed_quantum_tx();
+        // Mutate an output AFTER signing -> sighash changes -> crypto must fail.
+        let keep_script = tx.outputs[0].pub_key_script.clone();
+        tx.outputs[0] = TransactionOutput::new(999_999_999, keep_script);
+        let get_prevout =
+            move |_h: &[u8; 32], _i: u32| Some(TransactionOutput::new(50_000_000, script.clone()));
+        assert!(tx.verify_authorization(&get_prevout).is_err());
+    }
+
+    #[test]
+    fn attacker_key_cannot_spend_victim_utxo() {
+        // The attacker produces a perfectly valid signature with their OWN key,
+        // but the prevout is locked to a DIFFERENT (victim) key. Step (1) passes;
+        // the key->UTXO binding in step (2) must reject it. This is the core of
+        // Critical #1: "anyone can spend anyone's UTXO".
+        let (tx, _attacker_pk, _attacker_script) = signed_quantum_tx();
+        let victim = QuantumKeyPair::generate(QuantumParameters::new(QuantumScheme::Dilithium))
+            .expect("victim keypair");
+        let victim_script = pubkey_commitment(&victim.public_key);
+        let get_prevout = move |_h: &[u8; 32], _i: u32| {
+            Some(TransactionOutput::new(50_000_000, victim_script.clone()))
+        };
+        assert!(
+            tx.verify_authorization(&get_prevout).is_err(),
+            "an attacker's own key must NOT authorize spending a victim-locked UTXO"
+        );
+    }
+
+    #[test]
+    fn missing_signature_is_rejected() {
+        let inputs = vec![TransactionInput::new([7u8; 32], 0, vec![], 0xffffffff)];
+        let outputs = vec![TransactionOutput::new(10, vec![0u8; 32])];
+        let tx = Transaction::new(2, inputs, outputs, 0); // no signature_data
+        let get_prevout = |_h: &[u8; 32], _i: u32| Some(TransactionOutput::new(50, vec![0u8; 32]));
+        assert!(tx.verify_authorization(&get_prevout).is_err());
+    }
+
+    #[test]
+    fn missing_prevout_is_rejected() {
+        let (tx, _pk, _script) = signed_quantum_tx();
+        let get_prevout = |_h: &[u8; 32], _i: u32| None;
+        assert!(tx.verify_authorization(&get_prevout).is_err());
+    }
+
+    #[test]
+    fn coinbase_needs_no_signature() {
+        let inputs = vec![TransactionInput::new_coinbase(vec![1, 2, 3])];
+        let outputs = vec![TransactionOutput::new(50_000_000_000, vec![0u8; 32])];
+        let tx = Transaction::new(1, inputs, outputs, 0);
+        assert!(tx.is_coinbase());
+        let get_prevout = |_h: &[u8; 32], _i: u32| None;
+        assert!(tx.verify_authorization(&get_prevout).is_ok());
+    }
+
+    #[test]
+    fn ecdsa_verification_no_longer_blanket_accepts() {
+        // The old stub returned `true` for any input; garbage must now be rejected.
+        let inputs = vec![TransactionInput::new([0u8; 32], 0, vec![], 0xffffffff)];
+        let outputs = vec![TransactionOutput::new(1, vec![])];
+        let tx = Transaction::new(1, inputs, outputs, 0);
+        assert!(!tx.verify_ecdsa_signature(&[0u8; 64], &[2u8; 33], &[9u8; 32]));
     }
 }
 

@@ -701,49 +701,15 @@ impl SignatureVerifier {
         &self,
         txs: &[&crate::types::transaction::Transaction],
     ) -> Result<bool, SignatureError> {
-        // Group transactions by signature type for batch verification
-        let mut secp256k1_batches: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = Vec::new();
-        let mut ed25519_batches: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = Vec::new();
-
-        // Organize transactions by signature type
+        // Real verification: a batch is valid only if every transaction in it
+        // verifies. (Previously this grouped the transactions but never checked
+        // any signature, returning a hardcoded `Ok(true)`.)
         for tx in txs {
-            let signature_data = match tx.signature_data() {
-                Some(data) => data,
-                None => return Err(SignatureError::MissingSignature),
-            };
-
-            let hash = tx.hash();
-
-            match signature_data.scheme {
-                crate::types::transaction::SignatureSchemeType::Legacy => {
-                    secp256k1_batches.push((
-                        signature_data.public_key.clone(),
-                        hash.to_vec(),
-                        signature_data.data.clone(),
-                    ));
-                }
-                crate::types::transaction::SignatureSchemeType::Ed25519 => {
-                    ed25519_batches.push((
-                        signature_data.public_key.clone(),
-                        hash.to_vec(),
-                        signature_data.data.clone(),
-                    ));
-                }
-                _ => {
-                    return Err(SignatureError::UnsupportedScheme(format!(
-                        "Signature scheme not supported for batch verification: {:?}",
-                        signature_data.scheme
-                    )))
-                }
+            if !self.verify_transaction(tx)? {
+                return Ok(false);
             }
         }
-
-        // This is a placeholder for batch transaction verification
-        // The actual implementation would:
-        // 1. Call batch_verify for each group
-        // 2. Return true only if all groups verify successfully
-
-        Ok(true) // Placeholder
+        Ok(true)
     }
 
     /// Verify a Falcon signature
