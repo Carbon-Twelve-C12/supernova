@@ -4,6 +4,7 @@
 // Re-export all modules
 pub mod api;
 // pub mod alerting;  // Temporarily disabled for compilation
+pub mod bond;
 pub mod carbon_tracking;
 pub mod dashboard;
 pub mod emissions;
