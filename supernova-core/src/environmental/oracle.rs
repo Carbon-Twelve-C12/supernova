@@ -16,6 +16,14 @@ use crate::environmental::emissions::{
     CarbonOffsetInfo, EnergySourceInfo, EnergySourceType, RECCertificateInfo, VerificationStatus,
 };
 
+/// Domain-separation tag (with embedded layout version) for the bytes an oracle
+/// signs when answering a verification request. It prefixes every signed
+/// message so a signature can never be reused under a different layout version
+/// or — once emissions/retirement attestations are added in later
+/// carbon-negative steps — under a different attestation type. Any change to the
+/// signed-message layout MUST bump the `_v1` suffix.
+const ENV_ATTESTATION_DOMAIN_V1: &[u8] = b"SNOVA_ENV_ORACLE_SUBMISSION_v1";
+
 /// Oracle error types
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum OracleError {
@@ -539,7 +547,7 @@ impl EnvironmentalOracle {
 
         // Verify the submission's signature against the registered oracle's
         // ML-DSA public key (carbon-negative Step 1). Fail-closed.
-        if !self.verify_oracle_signature(&verification_data, &oracle_info.public_key) {
+        if !self.verify_oracle_signature(&verification_data, &request_id, &oracle_info.public_key) {
             return Err(OracleError::InvalidSignature(
                 "Invalid oracle signature".to_string(),
             ));
@@ -852,12 +860,13 @@ impl EnvironmentalOracle {
     fn verify_oracle_signature(
         &self,
         submission: &OracleSubmission,
+        request_id: &str,
         oracle_public_key: &[u8],
     ) -> bool {
         if submission.signature.is_empty() || oracle_public_key.is_empty() {
             return false;
         }
-        let message = match Self::oracle_signing_message(submission) {
+        let message = match Self::oracle_signing_message(submission, request_id) {
             Some(m) => m,
             None => return false, // fail-closed on canonicalization failure
         };
@@ -874,14 +883,20 @@ impl EnvironmentalOracle {
         )
     }
 
-    /// Canonical, domain-separated bytes an oracle signs for a submission.
-    /// Deterministic and excludes the signature itself, so the signature binds
-    /// the payload (oracle id, data type, reference, data, proof commitment,
-    /// timestamp) and cannot be replayed across submission types. This is the
-    /// wire contract any real oracle client must sign.
-    fn oracle_signing_message(submission: &OracleSubmission) -> Option<Vec<u8>> {
+    /// Canonical, domain-separated bytes an oracle signs for a submission
+    /// answering a specific verification request.
+    ///
+    /// Deterministic and excludes the signature itself. The signature binds the
+    /// payload (oracle id, data type, reference, data, proof commitment,
+    /// timestamp) AND the `request_id` it answers, so a valid submission cannot
+    /// be replayed against a different request (anti-replay / anti-
+    /// misattribution). The leading [`ENV_ATTESTATION_DOMAIN_V1`] tag prevents a
+    /// signature from being reused under any other domain or layout version.
+    /// This is the wire contract any real oracle client must sign.
+    fn oracle_signing_message(submission: &OracleSubmission, request_id: &str) -> Option<Vec<u8>> {
         bincode::serialize(&(
-            b"SNOVA_ENV_ORACLE_v1",
+            ENV_ATTESTATION_DOMAIN_V1,
+            request_id,
             &submission.oracle_id,
             &submission.data_type,
             &submission.reference_id,
@@ -1146,9 +1161,9 @@ mod tests {
         let oracle = EnvironmentalOracle::new(1000);
         let kp = dilithium_keypair();
         let mut sub = sample_submission("oracle1");
-        let msg = EnvironmentalOracle::oracle_signing_message(&sub).unwrap();
+        let msg = EnvironmentalOracle::oracle_signing_message(&sub, "req-1").unwrap();
         sub.signature = kp.sign(&msg).expect("sign");
-        assert!(oracle.verify_oracle_signature(&sub, &kp.public_key));
+        assert!(oracle.verify_oracle_signature(&sub, "req-1", &kp.public_key));
     }
 
     #[test]
@@ -1158,7 +1173,7 @@ mod tests {
         let kp = dilithium_keypair();
         let mut sub = sample_submission("oracle1");
         sub.signature = vec![0xAA; 64];
-        assert!(!oracle.verify_oracle_signature(&sub, &kp.public_key));
+        assert!(!oracle.verify_oracle_signature(&sub, "req-1", &kp.public_key));
     }
 
     #[test]
@@ -1166,7 +1181,7 @@ mod tests {
         let oracle = EnvironmentalOracle::new(1000);
         let kp = dilithium_keypair();
         let sub = sample_submission("oracle1"); // signature left empty
-        assert!(!oracle.verify_oracle_signature(&sub, &kp.public_key));
+        assert!(!oracle.verify_oracle_signature(&sub, "req-1", &kp.public_key));
     }
 
     #[test]
@@ -1174,11 +1189,11 @@ mod tests {
         let oracle = EnvironmentalOracle::new(1000);
         let kp = dilithium_keypair();
         let mut sub = sample_submission("oracle1");
-        let msg = EnvironmentalOracle::oracle_signing_message(&sub).unwrap();
+        let msg = EnvironmentalOracle::oracle_signing_message(&sub, "req-1").unwrap();
         sub.signature = kp.sign(&msg).expect("sign");
         // Mutate the payload AFTER signing — the signature must no longer verify.
         sub.reference_id = "CERT-999".to_string();
-        assert!(!oracle.verify_oracle_signature(&sub, &kp.public_key));
+        assert!(!oracle.verify_oracle_signature(&sub, "req-1", &kp.public_key));
     }
 
     #[test]
@@ -1187,9 +1202,34 @@ mod tests {
         let signer = dilithium_keypair();
         let other = dilithium_keypair();
         let mut sub = sample_submission("oracle1");
-        let msg = EnvironmentalOracle::oracle_signing_message(&sub).unwrap();
+        let msg = EnvironmentalOracle::oracle_signing_message(&sub, "req-1").unwrap();
         sub.signature = signer.sign(&msg).expect("sign");
-        assert!(!oracle.verify_oracle_signature(&sub, &other.public_key));
+        assert!(!oracle.verify_oracle_signature(&sub, "req-1", &other.public_key));
+    }
+
+    #[test]
+    fn oracle_signature_bound_to_request() {
+        // A submission signed for one request must NOT verify for another
+        // (anti-replay / anti-misattribution — carbon-negative Step 2).
+        let oracle = EnvironmentalOracle::new(1000);
+        let kp = dilithium_keypair();
+        let mut sub = sample_submission("oracle1");
+        let msg = EnvironmentalOracle::oracle_signing_message(&sub, "req-1").unwrap();
+        sub.signature = kp.sign(&msg).expect("sign");
+        assert!(oracle.verify_oracle_signature(&sub, "req-1", &kp.public_key));
+        assert!(!oracle.verify_oracle_signature(&sub, "req-2", &kp.public_key));
+    }
+
+    #[test]
+    fn oracle_signing_message_is_deterministic_and_request_separated() {
+        let sub = sample_submission("oracle1");
+        let a = EnvironmentalOracle::oracle_signing_message(&sub, "req-1").unwrap();
+        let b = EnvironmentalOracle::oracle_signing_message(&sub, "req-1").unwrap();
+        assert_eq!(a, b, "same submission + request must serialize identically");
+        let c = EnvironmentalOracle::oracle_signing_message(&sub, "req-2").unwrap();
+        assert_ne!(a, c, "different request must change the signed bytes");
+        // The domain tag must prefix the signed bytes.
+        assert!(a.windows(ENV_ATTESTATION_DOMAIN_V1.len()).any(|w| w == ENV_ATTESTATION_DOMAIN_V1));
     }
 
     #[test]
