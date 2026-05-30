@@ -37,5 +37,7 @@ pub use transaction::{Transaction, TransactionError, TransactionInput, Transacti
 pub use transaction_dependency::TransactionDependencyGraph;
 pub use transaction_safe::TransactionSafe;
 pub use units::UnitError;
-pub use units::{Amount, Attonovas, FeeRate, NovaUnit, ATTONOVAS_PER_NOVA, NOVAS_PER_NOVA};
+pub use units::{
+    block_subsidy, Amount, Attonovas, FeeRate, NovaUnit, ATTONOVAS_PER_NOVA, NOVAS_PER_NOVA,
+};
 pub use utxo::{UtxoEntry, UtxoSet};

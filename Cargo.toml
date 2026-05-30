@@ -32,3 +32,11 @@ chrono = "0.4"
 # (HTLC preimage, MAC, signature-hash checks). Already a transitive dep via
 # pqcrypto; pinned here so crypto-handling crates can use it directly.
 subtle = "2"
+
+# Release builds must NOT silently wrap integer arithmetic (audit Critical #3):
+# a wrapped u64 on the value/fee/subsidy path could mint coins. This is a
+# defense-in-depth backstop — the consensus accept path also uses explicit
+# checked arithmetic and never relies on this flag — but it converts any
+# un-audited overflow elsewhere into a loud panic instead of a silent mint.
+[profile.release]
+overflow-checks = true

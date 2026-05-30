@@ -1,6 +1,7 @@
 use super::database::{BlockchainDB, StorageError};
 use supernova_core::consensus::chainwork::{self, Work};
 use supernova_core::types::block::Block;
+use supernova_core::types::block_subsidy;
 use supernova_core::types::transaction::{Transaction, TransactionOutput};
 use crate::blockchain::checkpoint::{validate_checkpoint, can_reorganize_below};
 use crate::blockchain::invalidation::{InvalidBlockTracker, InvalidBlockTrackerConfig, InvalidationReason};
@@ -492,7 +493,6 @@ impl ChainState {
         }
 
         // Store the block in our database, but don't update best chain
-        let block_difficulty = block_work_u64(&block);
         self.store_block(block)?;
         self.chain_work.insert(block_hash, new_chain_work);
 
@@ -582,6 +582,79 @@ impl ChainState {
             }
         }
 
+        // Coinbase subsidy cap (audit Critical #3): a block may not create value
+        // beyond its block subsidy plus the fees of the transactions it confirms.
+        if !self.check_block_value(block)? {
+            self.invalid_block_tracker
+                .mark_invalid(
+                    block_hash,
+                    InvalidationReason::InvalidStructure(
+                        "Coinbase exceeds block subsidy plus fees".to_string(),
+                    ),
+                    Some(*block.prev_block_hash()),
+                    Some(block.height()),
+                )
+                .map_err(|e| {
+                    StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e))
+                })?;
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
+    /// Verify that a block does not create monetary value beyond what consensus
+    /// permits (audit Critical #3): the total coinbase output must not exceed
+    /// `block_subsidy(height)` plus the total fees of the block's non-coinbase
+    /// transactions. **Fail-closed** with checked arithmetic — any overflow or a
+    /// missing prevout returns `Ok(false)` (reject) rather than risking a wrap
+    /// that could mint coins. Returns `Ok(true)` if the block conserves value.
+    fn check_block_value(&self, block: &Block) -> Result<bool, StorageError> {
+        let get_prevout = |txid: &[u8; 32], vout: u32| -> Option<TransactionOutput> {
+            self.db.get_utxo(txid, vout).ok().flatten()
+        };
+
+        let mut total_fees: u64 = 0;
+        let mut coinbase_output: u64 = 0;
+        for tx in block.transactions() {
+            if tx.is_coinbase() {
+                let out = match tx.total_output() {
+                    Some(v) => v,
+                    None => return Ok(false), // coinbase output sum overflow
+                };
+                coinbase_output = match coinbase_output.checked_add(out) {
+                    Some(v) => v,
+                    None => return Ok(false),
+                };
+            } else {
+                // calculate_fee = checked_sub(total_input, total_output); None on
+                // overflow or a value-creating tx (already rejected per-tx, but
+                // re-checked here so it can never poison the fee total).
+                let fee = match tx.calculate_fee(&get_prevout) {
+                    Some(v) => v,
+                    None => return Ok(false),
+                };
+                total_fees = match total_fees.checked_add(fee) {
+                    Some(v) => v,
+                    None => return Ok(false),
+                };
+            }
+        }
+
+        let max_coinbase = match block_subsidy(block.height()).checked_add(total_fees) {
+            Some(v) => v,
+            None => return Ok(false),
+        };
+        if coinbase_output > max_coinbase {
+            tracing::warn!(
+                "Coinbase cap violated at height {}: coinbase output {} > subsidy + fees {}",
+                block.height(),
+                coinbase_output,
+                max_coinbase
+            );
+            return Ok(false);
+        }
+
         Ok(true)
     }
 
@@ -643,6 +716,45 @@ impl ChainState {
                 );
                 return Ok(false);
             }
+        }
+
+        // Value conservation (audit Critical #3): a non-coinbase transaction may
+        // not create value — the sum of the amounts it spends must be at least
+        // the sum of the amounts it creates. All sums use checked arithmetic
+        // (`total_input`/`total_output` return `None` on overflow or a missing
+        // prevout); a `None` rejects the transaction (fail-closed), since release
+        // builds disable overflow-checks and a silent wrap could mint coins.
+        let get_prevout = |txid: &[u8; 32], vout: u32| -> Option<TransactionOutput> {
+            self.db.get_utxo(txid, vout).ok().flatten()
+        };
+        let total_in = match tx.total_input(&get_prevout) {
+            Some(v) => v,
+            None => {
+                tracing::warn!(
+                    "Value conservation: input sum overflow or missing prevout for tx {}",
+                    hex::encode(tx.hash())
+                );
+                return Ok(false);
+            }
+        };
+        let total_out = match tx.total_output() {
+            Some(v) => v,
+            None => {
+                tracing::warn!(
+                    "Value conservation: output sum overflow for tx {}",
+                    hex::encode(tx.hash())
+                );
+                return Ok(false);
+            }
+        };
+        if total_in < total_out {
+            tracing::warn!(
+                "Value conservation violated for tx {}: inputs {} < outputs {}",
+                hex::encode(tx.hash()),
+                total_in,
+                total_out
+            );
+            return Ok(false);
         }
 
         // Cryptographically verify every input is authorized to spend its UTXO
@@ -1542,5 +1654,111 @@ mod tests {
         let bad = coinbase_block([0u8; 32], u32::MAX);
         assert!(block_work(&bad).is_err());
         assert_eq!(block_work_u64(&bad), 0);
+    }
+
+    // --- audit Critical #3: value conservation + coinbase subsidy cap ---
+
+    /// A coinbase transaction paying exactly `amount` (smallest units).
+    fn coinbase_paying(amount: u64) -> Transaction {
+        use supernova_core::types::transaction::TransactionInput;
+        Transaction::new(
+            1,
+            vec![TransactionInput::new_coinbase(vec![0u8])],
+            vec![TransactionOutput::new(amount, vec![0x88, 0xac])],
+            0,
+        )
+    }
+
+    #[tokio::test]
+    async fn coinbase_cap_rejects_overpay_and_allows_exact_subsidy() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
+        let chain_state = ChainState::new(db)?;
+
+        // new_with_params blocks are at height 0, where block_subsidy == 50 NOVA
+        // == 5_000_000_000 smallest units. (No fees: coinbase-only blocks.)
+        let bits = 0x207f_ffff;
+        let exact = Block::new_with_params(1, [0u8; 32], vec![coinbase_paying(5_000_000_000)], bits);
+        assert!(
+            chain_state.check_block_value(&exact)?,
+            "a coinbase paying exactly the subsidy must be accepted"
+        );
+
+        let over = Block::new_with_params(1, [0u8; 32], vec![coinbase_paying(5_000_000_001)], bits);
+        assert!(
+            !chain_state.check_block_value(&over)?,
+            "a coinbase paying one unit over the subsidy must be rejected (no minting)"
+        );
+
+        // Genesis / coinbase-less block conserves value trivially.
+        let empty = Block::new_with_params(1, [0u8; 32], vec![], bits);
+        assert!(
+            chain_state.check_block_value(&empty)?,
+            "a block with no coinbase creates no value"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn value_conservation_rejects_inflated_outputs() -> Result<(), StorageError> {
+        use sha3::{Digest as _, Sha3_512};
+        use supernova_core::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
+        use supernova_core::types::transaction::{
+            SignatureSchemeType, TransactionInput, TransactionSignatureData,
+        };
+
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
+        let chain_state = ChainState::new(db.clone())?;
+
+        // Owner key + a UTXO of 1_000_000 locked to it.
+        let owner = QuantumKeyPair::generate(QuantumParameters::new(QuantumScheme::Dilithium))
+            .expect("keypair");
+        let mut hasher = Sha3_512::new();
+        hasher.update(&owner.public_key);
+        let owner_script = hasher.finalize()[..32].to_vec();
+        let prev_txid = [3u8; 32];
+        db.store_utxo(
+            &prev_txid,
+            0,
+            &bincode::serialize(&TransactionOutput::new(1_000_000, owner_script)).unwrap(),
+        )?;
+
+        // A correctly-signed spend creating `out_amount` from the 1_000_000 UTXO.
+        let signed_spend = |out_amount: u64| -> Transaction {
+            let inputs = vec![TransactionInput::new(prev_txid, 0, vec![], 0xffff_ffff)];
+            let outputs = vec![TransactionOutput::new(out_amount, vec![0xab; 32])];
+            let mut tx = Transaction::new(2, inputs, outputs, 0);
+            let sig = owner.sign(&tx.signature_hash()).expect("sign");
+            tx.set_signature_data(TransactionSignatureData {
+                scheme: SignatureSchemeType::Dilithium,
+                security_level: owner.parameters.security_level,
+                data: sig,
+                public_key: owner.public_key.clone(),
+            });
+            tx
+        };
+
+        // Creating MORE value than is spent must be rejected (minting).
+        assert!(
+            !chain_state
+                .validate_transaction(&signed_spend(1_000_001))
+                .await?,
+            "a transaction whose outputs exceed its inputs must be rejected"
+        );
+        // Spending exactly, or leaving a fee, is allowed.
+        assert!(
+            chain_state
+                .validate_transaction(&signed_spend(1_000_000))
+                .await?,
+            "a value-conserving transaction must be accepted"
+        );
+        assert!(
+            chain_state
+                .validate_transaction(&signed_spend(900_000))
+                .await?,
+            "a transaction leaving a fee must be accepted"
+        );
+        Ok(())
     }
 }
