@@ -264,10 +264,17 @@ impl WalletStorage {
         let cipher = self.cipher.as_ref()
             .ok_or_else(|| StorageError::EncryptionError("Cipher not initialized".to_string()))?;
         
-        // Generate random nonce
-        let nonce_bytes = aes_gcm::aead::rand_core::RngCore::next_u64(&mut OsRng).to_le_bytes();
+        // Generate a full 96-bit random nonce.
+        //
+        // SECURITY (audit Critical #4): AES-256-GCM requires a unique nonce per
+        // encryption under a given key. The previous implementation filled only
+        // the low 64 bits of the 96-bit nonce (`next_u64` into `[..8]`, leaving
+        // bytes 8..12 permanently zero), cutting the birthday-collision bound to
+        // ~2^32 encryptions. A repeated GCM nonce is catastrophic — it leaks the
+        // XOR of two plaintexts (here, secret keys) and enables tag forgery. Fill
+        // all 12 bytes directly from the OS CSPRNG instead.
         let mut nonce_array = [0u8; 12];
-        nonce_array[..8].copy_from_slice(&nonce_bytes);
+        aes_gcm::aead::rand_core::RngCore::fill_bytes(&mut OsRng, &mut nonce_array);
         let nonce = Nonce::from_slice(&nonce_array);
         
         // Encrypt
@@ -336,9 +343,10 @@ mod tests {
     fn test_storage_creation() {
         let temp_dir = TempDir::new().unwrap();
         let storage = WalletStorage::open(temp_dir.path().join("wallet.db")).unwrap();
-        
-        // Should create database successfully
-        assert!(storage.db.was_recovered());
+
+        // A freshly created database is NOT recovered from a previous process.
+        // (The prior assertion was inverted and always failed.)
+        assert!(!storage.db.was_recovered());
     }
     
     #[test]
@@ -406,11 +414,55 @@ mod tests {
         
         // Store metadata
         storage.store_metadata(&metadata).unwrap();
-        
+
         // Load metadata
         let loaded = storage.load_metadata().unwrap();
         assert_eq!(loaded.version, 1);
         assert_eq!(loaded.network, "testnet");
+    }
+
+    /// audit Critical #4: the AES-GCM nonce must use all 96 bits and never
+    /// repeat. The previous code filled only the low 64 bits, leaving bytes
+    /// 8..12 permanently zero (collision bound ~2^32 — catastrophic for GCM).
+    #[test]
+    fn nonce_uses_full_96_bits_and_is_unique() {
+        use std::collections::HashSet;
+
+        let temp_dir = TempDir::new().unwrap();
+        let mut storage = WalletStorage::open(temp_dir.path().join("wallet.db")).unwrap();
+        storage.unlock("test_password").unwrap();
+
+        let mut seen = HashSet::new();
+        let mut high_bytes_ever_nonzero = false;
+        for _ in 0..64 {
+            let enc = storage.encrypt_data(b"top secret key material").unwrap();
+            assert_eq!(enc.nonce.len(), 12, "GCM nonce must be 96 bits");
+            // The 4 high bytes were always zero under the old 64-bit nonce.
+            if enc.nonce[8..12].iter().any(|&b| b != 0) {
+                high_bytes_ever_nonzero = true;
+            }
+            assert!(
+                seen.insert(enc.nonce.clone()),
+                "GCM nonce repeated — reuse is catastrophic for AES-GCM"
+            );
+        }
+        assert!(
+            high_bytes_ever_nonzero,
+            "high 32 bits of the nonce never set: nonce has only 64-bit entropy"
+        );
+    }
+
+    /// Encrypt/decrypt round-trips correctly with the full-width nonce.
+    #[test]
+    fn encrypt_decrypt_roundtrip() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut storage = WalletStorage::open(temp_dir.path().join("wallet.db")).unwrap();
+        storage.unlock("test_password").unwrap();
+
+        let plaintext = b"recoverable secret key bytes";
+        let enc = storage.encrypt_data(plaintext).unwrap();
+        let dec = storage.decrypt_data(&enc).unwrap();
+        assert_eq!(dec, plaintext);
     }
 }
 
