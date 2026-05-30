@@ -2,6 +2,7 @@
 ///
 /// Provides algorithms and rules governing the blockchain consensus,
 /// including difficulty adjustment, block validation, and fork resolution.
+pub mod chainwork;
 pub mod checkpoint;
 pub mod difficulty;
 pub mod fork_resolution_v2;
@@ -20,6 +21,7 @@ mod fork_resolution_attack_tests;
 mod security_fix_tests;
 
 // Re-export key types
+pub use chainwork::{work_from_target, work_to_u64_saturating, Work};
 pub use checkpoint::{
     Checkpoint, CheckpointConfig, CheckpointError, CheckpointManager, CheckpointResult,
     CheckpointSource,

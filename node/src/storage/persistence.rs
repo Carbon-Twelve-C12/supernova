@@ -1,4 +1,5 @@
 use super::database::{BlockchainDB, StorageError};
+use supernova_core::consensus::chainwork::{self, Work};
 use supernova_core::types::block::Block;
 use supernova_core::types::transaction::{Transaction, TransactionOutput};
 use crate::blockchain::checkpoint::{validate_checkpoint, can_reorganize_below};
@@ -27,7 +28,7 @@ pub struct ChainState {
     db: Arc<BlockchainDB>,
     current_height: u64,
     best_block_hash: [u8; 32],
-    chain_work: HashMap<[u8; 32], u128>,
+    chain_work: HashMap<[u8; 32], Work>,
     fork_points: HashSet<[u8; 32]>,
     last_reorg_time: SystemTime,
     reorg_count: u64,
@@ -57,7 +58,7 @@ pub struct ForkInfo {
     pub fork_point_height: u64,
     pub tip_hash: [u8; 32],
     pub tip_height: u64,
-    pub chain_work: u128,
+    pub chain_work: Work,
     pub blocks_added: u64,
     pub first_seen: SystemTime,
     pub last_updated: SystemTime,
@@ -356,7 +357,7 @@ impl ChainState {
                         self.chain_work.insert(self.best_block_hash, work);
                         work
                     } else {
-                        0
+                        Work::zero()
                     }
                 }
             };
@@ -456,7 +457,7 @@ impl ChainState {
             }
         } else {
             // Direct extension of current chain
-            let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
+            let block_difficulty = block_work_u64(&block);
 
             // Store block to database with bloom filter and cache updates
             tracing::debug!("Storing block {} at height {}", hex::encode(&block_hash[..8]), block.height());
@@ -491,7 +492,7 @@ impl ChainState {
         }
 
         // Store the block in our database, but don't update best chain
-        let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
+        let block_difficulty = block_work_u64(&block);
         self.store_block(block)?;
         self.chain_work.insert(block_hash, new_chain_work);
 
@@ -860,7 +861,7 @@ impl ChainState {
         // Connect blocks from the new chain
         let mut total_difficulty_adjustment: u64 = 0;
         for block in blocks_to_apply.iter() {
-            let block_difficulty = calculate_block_work(extract_target_from_block(block)) as u64;
+            let block_difficulty = block_work_u64(block);
             total_difficulty_adjustment += block_difficulty;
 
             if let Err(e) = self.connect_block(block) {
@@ -936,7 +937,7 @@ impl ChainState {
         self.reverse_block_transactions(block)?;
 
         // Adjust total difficulty when disconnecting a block
-        let block_difficulty = calculate_block_work(extract_target_from_block(block)) as u64;
+        let block_difficulty = block_work_u64(block);
         let current_difficulty = self.get_total_difficulty();
         let new_total = current_difficulty.saturating_sub(block_difficulty);
 
@@ -957,11 +958,13 @@ impl ChainState {
 
     fn connect_block(&mut self, block: &Block) -> Result<(), StorageError> {
         // Calculate total difficulty and block work
-        let block_difficulty = calculate_block_work(extract_target_from_block(block)) as u64;
+        let block_difficulty = block_work_u64(block);
 
-        // Update chain work
+        // Update chain work — store CUMULATIVE proof-of-work for this tip so the
+        // fork-choice comparison in process_block stays consistent across reorgs.
         let block_hash = block.hash();
-        self.chain_work.insert(block_hash, block_difficulty as u128);
+        let cumulative_work = self.calculate_chain_work(block)?;
+        self.chain_work.insert(block_hash, cumulative_work);
 
         // Update total difficulty
         self.update_total_difficulty(block_difficulty)?;
@@ -984,10 +987,11 @@ impl ChainState {
         self.db.flush()?;
 
         // Calculate block difficulty
-        let block_difficulty = calculate_block_work(extract_target_from_block(&block)) as u64;
+        let block_difficulty = block_work_u64(&block);
 
-        // Update chain work
-        self.chain_work.insert(block_hash, block_difficulty as u128);
+        // Update chain work (cumulative; see connect_block).
+        let cumulative_work = self.calculate_chain_work(&block)?;
+        self.chain_work.insert(block_hash, cumulative_work);
 
         // Update total difficulty
         self.update_total_difficulty(block_difficulty)?;
@@ -1005,14 +1009,14 @@ impl ChainState {
         Ok(())
     }
 
-    fn calculate_chain_work(&self, block: &Block) -> Result<u128, StorageError> {
-        let mut total_work = 0_u128;
+    fn calculate_chain_work(&self, block: &Block) -> Result<Work, StorageError> {
+        let mut total_work = Work::zero();
         let mut current = block.clone();
 
         tracing::debug!("Calculating chain work from height {}", current.height());
 
         while current.height() > 0 {
-            total_work += calculate_block_work(extract_target_from_block(&current));
+            total_work = total_work.saturating_add(block_work(&current)?);
 
             // Get previous block
             let prev_hash = current.prev_block_hash();
@@ -1314,42 +1318,29 @@ impl ChainState {
     }
 }
 
-// Function to extract target from a block's bits field
-fn extract_target_from_block(block: &Block) -> u32 {
-    // BlockHeader doesn't expose target directly, so we need to extract it
-    // For our implementation, we'll use the hash of the block as a proxy for difficulty
-    let hash = block.hash();
-    let first_bytes = &hash[0..4];
-
-    // Create a u32 from the first 4 bytes of the hash
-    let mut target = 0u32;
-    for (i, &byte) in first_bytes.iter().enumerate() {
-        target |= (byte as u32) << (8 * i);
-    }
-
-    target
+/// Real proof-of-work contributed by a block (audit Critical #2).
+///
+/// Computed from the block's declared difficulty `target` — the SAME bytes
+/// `BlockHeader::meets_target` checks the hash against — via Bitcoin's
+/// `GetBlockProof` (`2^256 / (target + 1)`). This replaces the previous
+/// `extract_target_from_block`, which derived "work" from the first four bytes
+/// of the block hash and was trivially grindable to fake unlimited work.
+///
+/// Returns `Err(InvalidBlock)` for a malformed/over-range `bits` field (which
+/// decodes to a zero target): such a block is unmineable and must never be
+/// awarded work.
+fn block_work(block: &Block) -> Result<Work, StorageError> {
+    chainwork::work_from_target(&block.header().target()).ok_or(StorageError::InvalidBlock)
 }
 
-// Calculate work for a block based on its target (difficulty)
-fn calculate_block_work(target: u32) -> u128 {
-    // Use a more reasonable approach that doesn't overflow
-    // The actual Bitcoin formula is 2^256 / (target+1), but we'll use a simplified version
-    // that doesn't overflow u128
-
-    // First ensure target is not 0 to avoid division by zero
-    let safe_target = target.max(1) as u128;
-
-    // Use a large but safe max_target value that won't overflow
-    // 2^128 - 1 is the maximum value for u128
-    let max_target = u128::MAX / 1000; // Use a fraction of max to avoid overflow
-
-    // Calculate difficulty - with safeguards against overflow
-    if safe_target <= 1 {
-        return max_target; // Avoid division by extremely small numbers
-    }
-
-    // Calculate work as max_target / target
-    max_target / safe_target
+/// Saturating u64 projection of a block's real work, for the legacy
+/// `total_difficulty` metric only. NON-AUTHORITATIVE: fork choice uses the full
+/// [`Work`] value via the `chain_work` map, never this. A block with invalid
+/// `bits` projects to 0 here (it is rejected separately on the accept path).
+fn block_work_u64(block: &Block) -> u64 {
+    chainwork::work_from_target(&block.header().target())
+        .map(chainwork::work_to_u64_saturating)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -1506,5 +1497,50 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    // --- audit Critical #2: real proof-of-work chain-work accounting ---
+
+    fn coinbase_block(prev: [u8; 32], bits: u32) -> Block {
+        Block::new_with_params(1, prev, vec![Transaction::new_coinbase()], bits)
+    }
+
+    #[test]
+    fn block_work_is_independent_of_hash_grinding() {
+        // Two blocks with identical difficulty `bits` but different nonces (hence
+        // different hashes) MUST contribute identical work. This is exactly the
+        // property the old `extract_target_from_block` (first 4 hash bytes)
+        // violated, letting an attacker grind a tiny hash prefix to fake huge
+        // work and reorg the chain at no cost.
+        let bits = 0x207f_ffff; // valid, easy regtest-style target
+        let b1 = coinbase_block([0u8; 32], bits);
+        let mut b2 = coinbase_block([0u8; 32], bits);
+        b2.increment_nonce();
+        assert_ne!(b1.hash(), b2.hash(), "different nonces must give different hashes");
+        assert_eq!(
+            block_work(&b1).unwrap(),
+            block_work(&b2).unwrap(),
+            "work must depend only on the difficulty bits, not on the block hash"
+        );
+    }
+
+    #[test]
+    fn harder_bits_yield_more_work() {
+        // Lower target (harder to mine) must be worth more proof-of-work.
+        let easy = coinbase_block([0u8; 32], 0x207f_ffff);
+        let hard = coinbase_block([0u8; 32], 0x1d00_ffff);
+        assert!(
+            block_work(&hard).unwrap() > block_work(&easy).unwrap(),
+            "a harder target must contribute more chain work"
+        );
+    }
+
+    #[test]
+    fn invalid_bits_have_no_work() {
+        // An over-range `bits` (e.g. u32::MAX) decodes to a zero target and must
+        // be rejected — never awarded (would-be infinite) work.
+        let bad = coinbase_block([0u8; 32], u32::MAX);
+        assert!(block_work(&bad).is_err());
+        assert_eq!(block_work_u64(&bad), 0);
     }
 }
