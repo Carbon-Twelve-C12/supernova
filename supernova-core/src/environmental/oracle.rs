@@ -12,6 +12,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
+use crate::environmental::bond::BondResolver;
 use crate::environmental::emissions::{
     CarbonOffsetInfo, EnergySourceInfo, EnergySourceType, RECCertificateInfo, VerificationStatus,
 };
@@ -72,7 +73,14 @@ pub struct OracleInfo {
     /// with an empty key cannot be registered.
     pub public_key: Vec<u8>,
 
-    /// Stake amount in NOVA
+    /// Outpoint (txid, vout) of this oracle's on-chain stake bond, if registered
+    /// with one (carbon-negative Step 4). The authoritative stake is the LIVE
+    /// value of this UTXO (see [`crate::environmental::bond::BondResolver`]);
+    /// `stake_amount` caches the value observed at registration. `None` for
+    /// oracles created via the legacy registry path until they post a bond.
+    pub bond_outpoint: Option<([u8; 32], u32)>,
+
+    /// Cached stake value (nova units), derived from the bond at registration.
     pub stake_amount: u64,
 
     /// Reputation score (0-1000)
@@ -444,8 +452,10 @@ impl EnvironmentalOracle {
         &self,
         oracle_id: String,
         public_key: Vec<u8>,
-        stake_amount: u64,
+        bond_txid: [u8; 32],
+        bond_vout: u32,
         specializations: HashSet<String>,
+        bonds: &dyn BondResolver,
     ) -> Result<(), OracleError> {
         // Fail-closed: an oracle with no public key can never be authenticated,
         // so it must not be registerable (carbon-negative Step 1).
@@ -454,6 +464,16 @@ impl EnvironmentalOracle {
                 "oracle public key must not be empty".to_string(),
             ));
         }
+        // Stake must be a real, unspent on-chain bond committing to this key
+        // (carbon-negative Step 4) — not a self-declared integer.
+        let stake_amount = bonds
+            .resolve_bond(&bond_txid, bond_vout, &public_key)
+            .ok_or_else(|| {
+                OracleError::InvalidProof(
+                    "oracle stake bond is missing, spent, malformed, or not bound to this key"
+                        .to_string(),
+                )
+            })?;
         if stake_amount < self.min_oracle_stake {
             return Err(OracleError::InsufficientStake {
                 required: self.min_oracle_stake,
@@ -464,6 +484,7 @@ impl EnvironmentalOracle {
         let oracle_info = OracleInfo {
             oracle_id: oracle_id.clone(),
             public_key,
+            bond_outpoint: Some((bond_txid, bond_vout)),
             stake_amount,
             reputation_score: 500, // Start with neutral reputation
             correct_verifications: 0,
@@ -484,6 +505,26 @@ impl EnvironmentalOracle {
             .insert(oracle_id, OracleMetrics::default());
 
         Ok(())
+    }
+
+    /// Current on-chain stake of an oracle, resolved live from its bond UTXO
+    /// (carbon-negative Step 4). Returns 0 if the oracle is unknown, has no
+    /// bond, or its bond has been spent / withdrawn — so a slashed or exited
+    /// oracle genuinely loses its economic weight, unlike the old in-memory
+    /// integer. This is the value later steps will weight attestations by.
+    pub fn live_stake(&self, oracle_id: &str, bonds: &dyn BondResolver) -> u64 {
+        let oracles = match self.oracles.read() {
+            Ok(o) => o,
+            Err(_) => return 0,
+        };
+        let info = match oracles.get(oracle_id) {
+            Some(i) => i,
+            None => return 0,
+        };
+        match info.bond_outpoint {
+            Some((txid, vout)) => bonds.resolve_bond(&txid, vout, &info.public_key).unwrap_or(0),
+            None => 0,
+        }
     }
 
     /// Submit a verification request
@@ -1073,25 +1114,55 @@ impl EnvironmentalOracle {
 mod tests {
     use super::*;
 
+    /// Test bond resolver: returns a configured value for known outpoints,
+    /// `None` otherwise (mirrors the node checking the UTXO set).
+    struct MockBonds {
+        bonds: std::collections::HashMap<([u8; 32], u32), u64>,
+    }
+    impl MockBonds {
+        fn new() -> Self {
+            Self {
+                bonds: std::collections::HashMap::new(),
+            }
+        }
+        fn with(mut self, outpoint: ([u8; 32], u32), value: u64) -> Self {
+            self.bonds.insert(outpoint, value);
+            self
+        }
+    }
+    impl BondResolver for MockBonds {
+        fn resolve_bond(&self, txid: &[u8; 32], vout: u32, _pk: &[u8]) -> Option<u64> {
+            self.bonds.get(&(*txid, vout)).copied()
+        }
+    }
+
     #[test]
     fn test_oracle_registration() {
         let oracle_system = EnvironmentalOracle::new(1000);
+        let bonds = MockBonds::new()
+            .with(([1u8; 32], 0), 2000) // oracle1's bond is worth 2000
+            .with(([2u8; 32], 0), 500); // oracle2's bond is below the minimum
 
-        // Test successful registration
+        // Successful registration against a real, sufficient on-chain bond.
         let result = oracle_system.register_oracle(
             "oracle1".to_string(),
             vec![1u8; 32],
-            2000,
+            [1u8; 32],
+            0,
             ["rec_certificate".to_string()].into(),
+            &bonds,
         );
         assert!(result.is_ok());
+        assert_eq!(oracle_system.live_stake("oracle1", &bonds), 2000);
 
-        // Test insufficient stake
+        // Insufficient bond value is rejected.
         let result = oracle_system.register_oracle(
             "oracle2".to_string(),
             vec![1u8; 32],
-            500,
+            [2u8; 32],
+            0,
             ["rec_certificate".to_string()].into(),
+            &bonds,
         );
         assert!(matches!(result, Err(OracleError::InsufficientStake { .. })));
     }
@@ -1235,7 +1306,53 @@ mod tests {
     #[test]
     fn oracle_empty_public_key_unregisterable() {
         let oracle = EnvironmentalOracle::new(1000);
-        let r = oracle.register_oracle("o".to_string(), vec![], 10_000, HashSet::new());
+        let bonds = MockBonds::new().with(([0u8; 32], 0), 10_000);
+        let r = oracle.register_oracle(
+            "o".to_string(),
+            vec![],
+            [0u8; 32],
+            0,
+            HashSet::new(),
+            &bonds,
+        );
         assert!(matches!(r, Err(OracleError::InvalidSignature(_))));
+    }
+
+    #[test]
+    fn registration_requires_a_resolvable_bond() {
+        // The stake is on-chain, not self-declared (carbon-negative Step 4):
+        // registration against an outpoint that resolves to no bond is rejected.
+        let oracle = EnvironmentalOracle::new(1000);
+        let bonds = MockBonds::new(); // empty: nothing resolves
+        let r = oracle.register_oracle(
+            "o".to_string(),
+            vec![9u8; 32],
+            [5u8; 32],
+            0,
+            HashSet::new(),
+            &bonds,
+        );
+        assert!(matches!(r, Err(OracleError::InvalidProof(_))));
+    }
+
+    #[test]
+    fn live_stake_drops_to_zero_when_bond_spent() {
+        let oracle = EnvironmentalOracle::new(1000);
+        let outpoint = ([4u8; 32], 1);
+        let funded = MockBonds::new().with(outpoint, 5000);
+        oracle
+            .register_oracle(
+                "o".to_string(),
+                vec![9u8; 32],
+                outpoint.0,
+                outpoint.1,
+                HashSet::new(),
+                &funded,
+            )
+            .expect("register");
+        assert_eq!(oracle.live_stake("o", &funded), 5000);
+        // Bond spent / withdrawn => resolver no longer returns it => stake is 0.
+        let spent = MockBonds::new();
+        assert_eq!(oracle.live_stake("o", &spent), 0);
     }
 }

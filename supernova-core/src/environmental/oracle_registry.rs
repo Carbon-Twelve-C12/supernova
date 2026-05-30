@@ -663,6 +663,9 @@ impl OracleRegistry {
             // ML-DSA key. Empty for now => this oracle is fail-closed and cannot
             // authenticate submissions until a real key is registered.
             public_key: Vec::new(),
+            // No on-chain bond via this legacy registry path yet => live stake
+            // resolves to 0 (carbon-negative Step 4).
+            bond_outpoint: None,
             stake_amount: application.stake_amount,
             reputation_score: 500, // Start with neutral
             correct_verifications: 0,

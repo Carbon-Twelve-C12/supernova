@@ -80,6 +80,21 @@ pub fn bond_belongs_to(terms: &OracleBondTerms, oracle_public_key: &[u8]) -> boo
     terms.oracle_commitment.as_slice() == pubkey_commitment(oracle_public_key).as_slice()
 }
 
+/// Resolves an oracle stake bond from the live UTXO set (carbon-negative Step 4).
+///
+/// Implemented by the node over its UTXO database: a bond is simply an unspent
+/// output whose `pub_key_script` parses as an [`OracleBondTerms`] committing to
+/// the oracle's key. An oracle's economic weight is the value of its UNSPENT
+/// bond, so a spent or voluntarily-withdrawn bond drops the oracle's stake to
+/// zero — the on-chain link the previous self-declared `u64` stake lacked.
+pub trait BondResolver {
+    /// Value (in nova units) of the unspent bond at `(txid, vout)` IFF its
+    /// output script is a well-formed oracle bond committing to
+    /// `oracle_public_key`. Returns `None` if the bond is spent, missing,
+    /// malformed, or bound to a different key (fail-closed).
+    fn resolve_bond(&self, txid: &[u8; 32], vout: u32, oracle_public_key: &[u8]) -> Option<u64>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
