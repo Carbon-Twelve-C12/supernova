@@ -56,8 +56,13 @@ pub enum OracleError {
 /// Oracle reputation and stake information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OracleInfo {
-    /// Oracle identifier (public key)
+    /// Oracle identifier (display handle)
     pub oracle_id: String,
+
+    /// Oracle's post-quantum (ML-DSA / Dilithium) public key. Every submission
+    /// is authenticated against this key (carbon-negative Step 1); an oracle
+    /// with an empty key cannot be registered.
+    pub public_key: Vec<u8>,
 
     /// Stake amount in NOVA
     pub stake_amount: u64,
@@ -430,9 +435,17 @@ impl EnvironmentalOracle {
     pub fn register_oracle(
         &self,
         oracle_id: String,
+        public_key: Vec<u8>,
         stake_amount: u64,
         specializations: HashSet<String>,
     ) -> Result<(), OracleError> {
+        // Fail-closed: an oracle with no public key can never be authenticated,
+        // so it must not be registerable (carbon-negative Step 1).
+        if public_key.is_empty() {
+            return Err(OracleError::InvalidSignature(
+                "oracle public key must not be empty".to_string(),
+            ));
+        }
         if stake_amount < self.min_oracle_stake {
             return Err(OracleError::InsufficientStake {
                 required: self.min_oracle_stake,
@@ -442,6 +455,7 @@ impl EnvironmentalOracle {
 
         let oracle_info = OracleInfo {
             oracle_id: oracle_id.clone(),
+            public_key,
             stake_amount,
             reputation_score: 500, // Start with neutral reputation
             correct_verifications: 0,
@@ -523,8 +537,9 @@ impl EnvironmentalOracle {
             return Err(OracleError::OracleSlashed(oracle_id));
         }
 
-        // Verify signature
-        if !self.verify_oracle_signature(&verification_data) {
+        // Verify the submission's signature against the registered oracle's
+        // ML-DSA public key (carbon-negative Step 1). Fail-closed.
+        if !self.verify_oracle_signature(&verification_data, &oracle_info.public_key) {
             return Err(OracleError::InvalidSignature(
                 "Invalid oracle signature".to_string(),
             ));
@@ -822,10 +837,59 @@ impl EnvironmentalOracle {
         }
     }
 
-    fn verify_oracle_signature(&self, submission: &OracleSubmission) -> bool {
-        // Verify signature using the oracle's public key (simplified for now)
-        // For now, check that signature is not empty
-        !submission.signature.is_empty()
+    /// Authenticate a submission against the registered oracle's post-quantum
+    /// (ML-DSA / Dilithium) public key.
+    ///
+    /// **Fail-closed**: returns `false` on an empty signature, an empty
+    /// registered key, a canonicalization failure, or any verification error. A
+    /// submission is accepted ONLY if `verify_quantum_signature` returns
+    /// `Ok(true)`.
+    ///
+    /// NOTE: a valid signature proves the submission came from the holder of the
+    /// registered key — it does NOT prove the data is accurate. Authenticity is
+    /// not accuracy; accuracy is bounded by oracle staking + M-of-N median
+    /// aggregation in later carbon-negative steps.
+    fn verify_oracle_signature(
+        &self,
+        submission: &OracleSubmission,
+        oracle_public_key: &[u8],
+    ) -> bool {
+        if submission.signature.is_empty() || oracle_public_key.is_empty() {
+            return false;
+        }
+        let message = match Self::oracle_signing_message(submission) {
+            Some(m) => m,
+            None => return false, // fail-closed on canonicalization failure
+        };
+        matches!(
+            crate::crypto::quantum::verify_quantum_signature(
+                oracle_public_key,
+                &message,
+                &submission.signature,
+                crate::crypto::quantum::QuantumParameters::new(
+                    crate::crypto::quantum::QuantumScheme::Dilithium,
+                ),
+            ),
+            Ok(true)
+        )
+    }
+
+    /// Canonical, domain-separated bytes an oracle signs for a submission.
+    /// Deterministic and excludes the signature itself, so the signature binds
+    /// the payload (oracle id, data type, reference, data, proof commitment,
+    /// timestamp) and cannot be replayed across submission types. This is the
+    /// wire contract any real oracle client must sign.
+    fn oracle_signing_message(submission: &OracleSubmission) -> Option<Vec<u8>> {
+        bincode::serialize(&(
+            b"SNOVA_ENV_ORACLE_v1",
+            &submission.oracle_id,
+            &submission.data_type,
+            &submission.reference_id,
+            &submission.data,
+            &submission.proof.commitment,
+            submission.timestamp.timestamp(),
+        ))
+        .ok()
     }
 
     fn hash_verification_data(&self, data: &EnvironmentalData) -> String {
@@ -1001,6 +1065,7 @@ mod tests {
         // Test successful registration
         let result = oracle_system.register_oracle(
             "oracle1".to_string(),
+            vec![1u8; 32],
             2000,
             ["rec_certificate".to_string()].into(),
         );
@@ -1009,6 +1074,7 @@ mod tests {
         // Test insufficient stake
         let result = oracle_system.register_oracle(
             "oracle2".to_string(),
+            vec![1u8; 32],
             500,
             ["rec_certificate".to_string()].into(),
         );
@@ -1039,5 +1105,97 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(!result.unwrap().is_empty());
+    }
+
+    // --- carbon-negative Step 1: real ML-DSA oracle attestation signatures ---
+
+    fn sample_submission(oracle_id: &str) -> OracleSubmission {
+        OracleSubmission {
+            oracle_id: oracle_id.to_string(),
+            data_type: "carbon_offset".to_string(),
+            reference_id: "CERT-123".to_string(),
+            data: EnvironmentalData::CarbonOffset {
+                offset_id: "CERT-123".to_string(),
+                issuer: "Verra".to_string(),
+                amount_tonnes: 100.0,
+                project_type: "reforestation".to_string(),
+                project_location: "Brazil".to_string(),
+                vintage_year: 2025,
+                registry_url: "https://registry.example/CERT-123".to_string(),
+            },
+            proof: CryptographicProof {
+                proof_type: "signature".to_string(),
+                proof_data: vec![],
+                commitment: [7u8; 32],
+                parameters: HashMap::new(),
+            },
+            timestamp: Utc::now(),
+            signature: vec![],
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn dilithium_keypair() -> crate::crypto::quantum::QuantumKeyPair {
+        use crate::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
+        QuantumKeyPair::generate(QuantumParameters::new(QuantumScheme::Dilithium))
+            .expect("keypair generation")
+    }
+
+    #[test]
+    fn oracle_valid_signature_accepted() {
+        let oracle = EnvironmentalOracle::new(1000);
+        let kp = dilithium_keypair();
+        let mut sub = sample_submission("oracle1");
+        let msg = EnvironmentalOracle::oracle_signing_message(&sub).unwrap();
+        sub.signature = kp.sign(&msg).expect("sign");
+        assert!(oracle.verify_oracle_signature(&sub, &kp.public_key));
+    }
+
+    #[test]
+    fn oracle_forged_signature_rejected() {
+        // The exact attack the old stub allowed: non-empty garbage must now fail.
+        let oracle = EnvironmentalOracle::new(1000);
+        let kp = dilithium_keypair();
+        let mut sub = sample_submission("oracle1");
+        sub.signature = vec![0xAA; 64];
+        assert!(!oracle.verify_oracle_signature(&sub, &kp.public_key));
+    }
+
+    #[test]
+    fn oracle_empty_signature_rejected() {
+        let oracle = EnvironmentalOracle::new(1000);
+        let kp = dilithium_keypair();
+        let sub = sample_submission("oracle1"); // signature left empty
+        assert!(!oracle.verify_oracle_signature(&sub, &kp.public_key));
+    }
+
+    #[test]
+    fn oracle_tampered_payload_rejected() {
+        let oracle = EnvironmentalOracle::new(1000);
+        let kp = dilithium_keypair();
+        let mut sub = sample_submission("oracle1");
+        let msg = EnvironmentalOracle::oracle_signing_message(&sub).unwrap();
+        sub.signature = kp.sign(&msg).expect("sign");
+        // Mutate the payload AFTER signing — the signature must no longer verify.
+        sub.reference_id = "CERT-999".to_string();
+        assert!(!oracle.verify_oracle_signature(&sub, &kp.public_key));
+    }
+
+    #[test]
+    fn oracle_wrong_key_rejected() {
+        let oracle = EnvironmentalOracle::new(1000);
+        let signer = dilithium_keypair();
+        let other = dilithium_keypair();
+        let mut sub = sample_submission("oracle1");
+        let msg = EnvironmentalOracle::oracle_signing_message(&sub).unwrap();
+        sub.signature = signer.sign(&msg).expect("sign");
+        assert!(!oracle.verify_oracle_signature(&sub, &other.public_key));
+    }
+
+    #[test]
+    fn oracle_empty_public_key_unregisterable() {
+        let oracle = EnvironmentalOracle::new(1000);
+        let r = oracle.register_oracle("o".to_string(), vec![], 10_000, HashSet::new());
+        assert!(matches!(r, Err(OracleError::InvalidSignature(_))));
     }
 }

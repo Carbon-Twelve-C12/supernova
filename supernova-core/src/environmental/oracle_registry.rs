@@ -659,6 +659,10 @@ impl OracleRegistry {
 
         let oracle_info = OracleInfo {
             oracle_id: application.applicant_id.clone(),
+            // TODO (carbon-negative Step 4): bind to the applicant's bonded
+            // ML-DSA key. Empty for now => this oracle is fail-closed and cannot
+            // authenticate submissions until a real key is registered.
+            public_key: Vec::new(),
             stake_amount: application.stake_amount,
             reputation_score: 500, // Start with neutral
             correct_verifications: 0,
