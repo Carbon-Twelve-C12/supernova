@@ -1060,8 +1060,12 @@ impl ChainState {
         self.current_height -= 1;
         self.best_block_hash = *block.prev_block_hash();
 
+        // Persist height big-endian to match every other writer (persistence.rs
+        // :188/:477/:1116) and the `from_be_bytes` reader in `ChainState::new`.
+        // This previously used `bincode` (little-endian), so a reorg corrupted
+        // the persisted height — it was mis-read as a huge number on reload (#5).
         self.db
-            .store_metadata(b"height", &bincode::serialize(&self.current_height)?)?;
+            .set_metadata(b"height", &self.current_height.to_be_bytes())?;
         self.db
             .store_metadata(b"best_hash", &self.best_block_hash)?;
 
@@ -1758,6 +1762,34 @@ mod tests {
                 .validate_transaction(&signed_spend(900_000))
                 .await?,
             "a transaction leaving a fee must be accepted"
+        );
+        Ok(())
+    }
+
+    // --- #5: reorg crash-safety — height encoding ---
+
+    #[tokio::test]
+    async fn disconnect_block_persists_height_big_endian() -> Result<(), StorageError> {
+        // A reorg's disconnect_block must persist b"height" big-endian so that
+        // ChainState::new (which reads it via from_be_bytes) recovers it intact.
+        // The previous bincode (little-endian) write corrupted height on reload.
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
+        let mut chain_state = ChainState::new(db.clone())?;
+
+        // Put the chain at height 300 and disconnect one (empty) block.
+        chain_state.current_height = 300;
+        let block = Block::new_with_params(1, [0u8; 32], vec![], 0x207f_ffff);
+        chain_state.disconnect_block(&block)?;
+        assert_eq!(chain_state.current_height, 299);
+
+        // Reload from the SAME db: the height must survive. Under the old
+        // little-endian bincode write, from_be_bytes would read a huge number.
+        let reloaded = ChainState::new(db)?;
+        assert_eq!(
+            reloaded.get_height(),
+            299,
+            "persisted height must round-trip through a reload (big-endian)"
         );
         Ok(())
     }
