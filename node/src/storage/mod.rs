@@ -13,6 +13,7 @@ pub mod integrity;
 pub mod journal;
 pub mod memory;
 pub mod persistence;
+pub mod reorg;
 pub mod traits;
 pub mod transaction_index;
 pub mod utxo_cache;

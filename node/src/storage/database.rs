@@ -929,6 +929,69 @@ impl BlockchainDB {
         Ok(())
     }
 
+    /// Apply a whole reorganization change-set ATOMICALLY (#5).
+    ///
+    /// Every op is committed inside a SINGLE sled multi-tree transaction over
+    /// the `blocks`, `utxos`, `metadata`, and `block_height_index` trees: either
+    /// all of them land or none do. This replaces the no-op
+    /// begin/commit/rollback primitives for the reorg path, so a crash or
+    /// mid-reorg error can never leave a half-updated UTXO set or a dangling
+    /// height index. The change-set holds only owned bytes, so the closure is
+    /// pure and safe for sled to retry on contention. Durability is forced with
+    /// a flush once the transaction commits.
+    pub fn apply_reorg_atomically(
+        &self,
+        changes: &crate::storage::reorg::ReorgChangeSet,
+    ) -> Result<(), StorageError> {
+        use crate::storage::reorg::ReorgOp;
+        use sled::transaction::{ConflictableTransactionError, TransactionError};
+        use sled::Transactional;
+
+        let outcome = (&self.blocks, &self.utxos, &self.metadata, &self.block_height_index)
+            .transaction(|(blocks, utxos, metadata, height_idx)| {
+                for op in &changes.ops {
+                    match op {
+                        ReorgOp::PutBlock(hash, bytes) => {
+                            blocks.insert(&hash[..], bytes.as_slice())?;
+                        }
+                        ReorgOp::PutUtxo(key, value) => {
+                            utxos.insert(key.as_slice(), value.as_slice())?;
+                        }
+                        ReorgOp::DelUtxo(key) => {
+                            utxos.remove(key.as_slice())?;
+                        }
+                        ReorgOp::PutMeta(key, value) => {
+                            metadata.insert(key.as_slice(), value.as_slice())?;
+                        }
+                        ReorgOp::PutHeightIndex(be_height, hash) => {
+                            height_idx.insert(&be_height[..], &hash[..])?;
+                        }
+                        ReorgOp::DelHeightIndex(be_height) => {
+                            height_idx.remove(&be_height[..])?;
+                        }
+                        #[cfg(test)]
+                        ReorgOp::AbortForTest => {
+                            return sled::transaction::abort(StorageError::DatabaseError(
+                                "reorg transaction aborted for test".to_string(),
+                            ));
+                        }
+                    }
+                }
+                Ok::<(), ConflictableTransactionError<StorageError>>(())
+            });
+
+        match outcome {
+            Ok(()) => {
+                self.db.flush()?;
+                Ok(())
+            }
+            // An application-level abort carries our own StorageError unchanged.
+            Err(TransactionError::Abort(inner)) => Err(inner),
+            // A sled-level storage failure during the transaction.
+            Err(TransactionError::Storage(e)) => Err(StorageError::Database(e)),
+        }
+    }
+
     /// Store chain metadata
     pub fn store_metadata(&self, key: &[u8], value: &[u8]) -> Result<(), StorageError> {
         self.metadata.insert(key, value)?;
@@ -2833,6 +2896,48 @@ pub enum IntegrityIssueType {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn apply_reorg_atomically_is_all_or_nothing() {
+        use crate::storage::reorg::{ReorgChangeSet, ReorgOp};
+        let temp_dir = tempdir().unwrap();
+        let db = BlockchainDB::new(temp_dir.path()).unwrap();
+
+        // A committed change-set lands every op across the trees it touches.
+        let mut cs = ReorgChangeSet::new();
+        cs.put_meta(b"reorg_k".to_vec(), b"v1".to_vec());
+        cs.put_height_index(7, [7u8; 32]);
+        db.apply_reorg_atomically(&cs).unwrap();
+        assert_eq!(db.get_metadata(b"reorg_k").unwrap().as_deref(), Some(&b"v1"[..]));
+        assert_eq!(db.get_block_hash_by_height(7).unwrap(), Some([7u8; 32]));
+
+        // An aborting change-set discards ALL of its ops atomically: the writes
+        // it staged before the abort never appear, and the deletes it staged
+        // never take effect — so the prior committed state is untouched. This is
+        // exactly the crash-safety the no-op begin/commit/rollback never gave.
+        let mut bad = ReorgChangeSet::new();
+        bad.put_meta(b"reorg_k2".to_vec(), b"v2".to_vec()); // would add
+        bad.del_height_index(7); // would delete the committed index entry
+        bad.put_height_index(8, [8u8; 32]); // would add
+        bad.ops.push(ReorgOp::AbortForTest);
+        assert!(db.apply_reorg_atomically(&bad).is_err());
+
+        assert_eq!(
+            db.get_metadata(b"reorg_k2").unwrap(),
+            None,
+            "staged write before abort must be discarded"
+        );
+        assert_eq!(
+            db.get_block_hash_by_height(7).unwrap(),
+            Some([7u8; 32]),
+            "staged delete before abort must be discarded"
+        );
+        assert_eq!(
+            db.get_block_hash_by_height(8).unwrap(),
+            None,
+            "second staged write before abort must be discarded"
+        );
+    }
 
     #[test]
     fn test_block_storage() -> Result<(), StorageError> {
