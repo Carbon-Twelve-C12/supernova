@@ -5,6 +5,7 @@
 pub mod chainwork;
 pub mod checkpoint;
 pub mod difficulty;
+pub mod difficulty_retarget;
 pub mod fork_resolution_v2;
 pub mod secure_fork_resolution;
 pub mod time_warp_prevention;
