@@ -18,6 +18,9 @@ const MAX_REORG_DEPTH: u64 = 100;
 const MAX_FORK_DISTANCE: u64 = 6;
 const FORK_CHOICE_WINDOW: u64 = 10;
 const STALE_TIP_THRESHOLD: Duration = Duration::from_secs(3600);
+/// Maximum seconds a block's timestamp may lead local time (#2.2). Enforced as a
+/// NON-permanent relay/admission rule, mirroring Bitcoin's 2-hour window.
+const MAX_FUTURE_BLOCK_TIME: u64 = 2 * 60 * 60;
 
 // Add the missing BlockNotFound variant to StorageError in persistence.rs
 impl From<&'static str> for StorageError {
@@ -711,6 +714,34 @@ impl ChainState {
         Ok((cursor.header().timestamp(), last_ts))
     }
 
+    /// Median-time-past: the median timestamp of up to the last 11 blocks ending
+    /// at `parent` (inclusive), gathered by walking `prev_block_hash` along the
+    /// block's OWN chain — never the canonical height index. A block's timestamp
+    /// must be at least this value (see `validate_block`). This is Bitcoin's MTP;
+    /// we reject timestamps strictly BELOW it, allowing equality so that blocks
+    /// sharing a one-second tick are not rejected — the future-time ceiling and
+    /// the retarget's 4x timespan clamp are what bound time-warp attacks.
+    fn median_time_past(&self, parent: &Block) -> Result<u64, StorageError> {
+        let mut timestamps = Vec::with_capacity(11);
+        let mut cursor = parent.clone();
+        loop {
+            timestamps.push(cursor.header().timestamp());
+            if timestamps.len() >= 11 {
+                break;
+            }
+            let prev = *cursor.prev_block_hash();
+            if prev == [0u8; 32] {
+                break; // reached genesis
+            }
+            match self.db.get_block(&prev)? {
+                Some(b) => cursor = b,
+                None => break, // ancestor missing; median over what we have
+            }
+        }
+        timestamps.sort_unstable();
+        Ok(timestamps[timestamps.len() / 2])
+    }
+
     async fn validate_block(&self, block: &Block) -> Result<bool, StorageError> {
         let block_hash = block.hash();
 
@@ -766,6 +797,51 @@ impl ChainState {
                 Some(*block.prev_block_hash()),
                 Some(block.height()),
             ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
+            return Ok(false);
+        }
+
+        // Timestamp (#2.2). Median-time-past is a PERMANENT consensus rule: a
+        // block's timestamp must not predate the median of its recent ancestors
+        // (walked along its own chain), which bounds backward-dated time-warp.
+        // The 2-hour future ceiling is a NON-permanent relay rule: a block dated
+        // slightly ahead becomes valid once local clocks catch up, so it is
+        // rejected WITHOUT being blacklisted. Genesis has no ancestors to median.
+        let ts_prev_hash = *block.prev_block_hash();
+        if ts_prev_hash != [0u8; 32] {
+            if let Some(ts_parent) = self.db.get_block(&ts_prev_hash)? {
+                let mtp = self.median_time_past(&ts_parent)?;
+                if block.timestamp() < mtp {
+                    tracing::warn!(
+                        "Block {} timestamp {} is below median-time-past {}",
+                        hex::encode(&block_hash[..8]),
+                        block.timestamp(),
+                        mtp
+                    );
+                    self.invalid_block_tracker.mark_invalid(
+                        block_hash,
+                        InvalidationReason::InvalidStructure(
+                            "Timestamp below median-time-past".to_string(),
+                        ),
+                        Some(ts_prev_hash),
+                        Some(block.height()),
+                    ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
+                    return Ok(false);
+                }
+            }
+        }
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if now_secs > 0 && block.timestamp() > now_secs.saturating_add(MAX_FUTURE_BLOCK_TIME) {
+            // Relay rule: reject but do NOT mark permanently invalid — the block
+            // may become acceptable once this node's clock advances.
+            tracing::warn!(
+                "Block {} timestamp {} exceeds the 2h future ceiling (now {}); rejecting (retryable)",
+                hex::encode(&block_hash[..8]),
+                block.timestamp(),
+                now_secs
+            );
             return Ok(false);
         }
 
@@ -2422,6 +2498,50 @@ mod tests {
         assert!(
             cs.process_block(a4).await.is_err(),
             "a boundary block that ignores the required retarget must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_block_rejects_out_of_range_timestamps() {
+        // A block dated before median-time-past, or more than 2h in the future,
+        // must be rejected. (Timestamp is part of the PoW hash, so each block's
+        // timestamp is set BEFORE mining.)
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+        let bits = 0x207f_ffff;
+        let (_g, a1h) = seed_base_chain(&db, bits, 320);
+        let mut cs = regtest_chain_state(db.clone()).unwrap();
+
+        let a2 = mine(unique_coinbase_block(a1h, bits, 322));
+        assert!(cs.process_block(a2.clone()).await.unwrap());
+
+        // Backdated (timestamp 1, far below the recent ancestors) -> rejected.
+        let mut backdated = unique_coinbase_block(a2.hash(), bits, 323);
+        backdated.header.set_timestamp(1);
+        let backdated = mine(backdated);
+        assert!(
+            cs.process_block(backdated).await.is_err(),
+            "a block below median-time-past must be rejected"
+        );
+
+        // More than 2h in the future -> rejected by the relay ceiling.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let mut future = unique_coinbase_block(a2.hash(), bits, 324);
+        future.header.set_timestamp(now + 3 * 60 * 60);
+        let future = mine(future);
+        assert!(
+            cs.process_block(future).await.is_err(),
+            "a block more than 2h in the future must be rejected"
+        );
+
+        // A well-timed block at the same height IS accepted.
+        let good = mine(unique_coinbase_block(a2.hash(), bits, 325));
+        assert!(
+            cs.process_block(good).await.unwrap(),
+            "a block with a current timestamp must be accepted"
         );
     }
 }
