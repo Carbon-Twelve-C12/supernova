@@ -499,9 +499,27 @@ impl ChainState {
         Ok(false)
     }
 
+    /// The authoritative height a block should have, DERIVED from its parent
+    /// rather than trusted from the wire (#5 height reliability): a genesis block
+    /// (null prev hash) is height 0; otherwise it is the stored parent's height
+    /// plus one. Returns `None` when the parent is unknown (an orphan), since the
+    /// height cannot be derived without it.
+    ///
+    /// Consensus already trusts `block.height()` for the subsidy cap
+    /// (`check_block_value`) and the fork-distance gate; making height
+    /// parent-derived is what lets those checks be trustworthy. A later commit
+    /// enforces `block.height() == expected_height` and stamps the derived value.
+    fn expected_height(&self, block: &Block) -> Option<u64> {
+        let prev = block.prev_block_hash();
+        if *prev == [0u8; 32] {
+            return Some(0); // genesis
+        }
+        self.db.get_block(prev).ok().flatten().map(|p| p.height() + 1)
+    }
+
     async fn validate_block(&self, block: &Block) -> Result<bool, StorageError> {
         let block_hash = block.hash();
-        
+
         // Check if block is already marked as invalid
         if self.invalid_block_tracker.is_permanently_invalid(&block_hash) {
             tracing::warn!("Block {} is permanently invalid, rejecting", hex::encode(&block_hash[..8]));
@@ -520,6 +538,21 @@ impl ChainState {
                 Some(block.height()),
             ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
             return Ok(false);
+        }
+
+        // Observe block-height consistency (#5 height reliability). A block's
+        // height should be parent.height()+1. NOT yet enforced — a follow-up
+        // commit derives/stamps and enforces it; for now we only surface a
+        // mismatch so the wire value can't silently diverge from the chain.
+        if let Some(expected) = self.expected_height(block) {
+            if block.height() != expected {
+                tracing::warn!(
+                    "Block {} claims height {} but its parent implies {}",
+                    hex::encode(&block_hash[..8]),
+                    block.height(),
+                    expected
+                );
+            }
         }
 
         tracing::debug!(
@@ -1792,5 +1825,30 @@ mod tests {
             "persisted height must round-trip through a reload (big-endian)"
         );
         Ok(())
+    }
+
+    #[test]
+    fn expected_height_is_derived_from_parent() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+        let chain_state = ChainState::new(db.clone()).unwrap();
+
+        // Genesis (null prev hash) is height 0.
+        let genesis = Block::new_with_params(1, [0u8; 32], vec![], 0x207f_ffff);
+        assert_eq!(chain_state.expected_height(&genesis), Some(0));
+
+        // A stored parent at height 5 implies its child is height 6 — derived
+        // from the parent, NOT from the child's (untrusted) wire height.
+        let mut parent = Block::new_with_params(1, [9u8; 32], vec![], 0x207f_ffff);
+        parent.set_height(5);
+        db.store_block(&parent.hash(), &bincode::serialize(&parent).unwrap())
+            .unwrap();
+        let mut child = Block::new_with_params(1, parent.hash(), vec![], 0x207f_ffff);
+        child.set_height(999); // lying wire height is ignored
+        assert_eq!(chain_state.expected_height(&child), Some(6));
+
+        // An unknown parent (orphan) cannot derive a height.
+        let orphan = Block::new_with_params(1, [7u8; 32], vec![], 0x207f_ffff);
+        assert_eq!(chain_state.expected_height(&orphan), None);
     }
 }
