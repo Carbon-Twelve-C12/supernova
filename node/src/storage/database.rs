@@ -2775,7 +2775,10 @@ impl BlockchainDB {
     }
 }
 
-fn create_utxo_key(tx_hash: &[u8; 32], index: u32) -> Vec<u8> {
+/// Build the `utxos` tree key for an outpoint: `tx_hash || index.to_be_bytes()`
+/// (36 bytes). Exposed to the reorg planner so its change-set keys match the
+/// non-transactional `store_utxo`/`remove_utxo` byte format exactly.
+pub(crate) fn create_utxo_key(tx_hash: &[u8; 32], index: u32) -> Vec<u8> {
     let mut key = Vec::with_capacity(36);
     key.extend_from_slice(tx_hash);
     key.extend_from_slice(&index.to_be_bytes());

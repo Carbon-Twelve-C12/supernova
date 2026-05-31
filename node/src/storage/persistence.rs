@@ -1,4 +1,5 @@
-use super::database::{BlockchainDB, StorageError};
+use super::database::{create_utxo_key, BlockchainDB, StorageError};
+use super::reorg::ReorgChangeSet;
 use supernova_core::consensus::chainwork::{self, Work};
 use supernova_core::types::block::Block;
 use supernova_core::types::block_subsidy;
@@ -10,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 const MAX_REORG_DEPTH: u64 = 100;
 const MAX_FORK_DISTANCE: u64 = 6;
@@ -891,66 +892,6 @@ impl ChainState {
         )))
     }
 
-    /// Reverse transactions from a disconnected block during chain reorganization
-    /// This restores the UTXO set to the state before the block was added
-    fn reverse_block_transactions(&mut self, block: &Block) -> Result<(), StorageError> {
-        tracing::info!(
-            "Reversing transactions from disconnected block at height {}",
-            block.height()
-        );
-
-        // Process transactions in reverse order to properly unwind state
-        for tx in block.transactions().iter().rev() {
-            let tx_hash = tx.hash();
-
-            if !tx.is_coinbase() {
-                // Restore spent UTXOs from inputs
-                for input in tx.inputs() {
-                    let prev_tx = input.prev_tx_hash();
-                    let prev_vout = input.prev_output_index();
-
-                    // Retrieve the original output that was spent
-                    let prev_output = self.get_output_from_disconnected_block(&prev_tx, prev_vout)?;
-
-                    // Restore to UTXO set
-                    let output_data = bincode::serialize(&prev_output).map_err(|e| {
-                        StorageError::DatabaseError(format!(
-                            "Failed to serialize output for restoration: {}",
-                            e
-                        ))
-                    })?;
-
-                    self.db.store_utxo(&prev_tx, prev_vout, &output_data)?;
-
-                    tracing::debug!(
-                        "Restored UTXO: {}:{} (amount: {} nova units)",
-                        hex::encode(&prev_tx[..8]),
-                        prev_vout,
-                        prev_output.value()
-                    );
-                }
-            }
-
-            // Remove created UTXOs from this transaction's outputs
-            for (vout, output) in tx.outputs().iter().enumerate() {
-                self.db.remove_utxo(&tx_hash, vout as u32)?;
-                tracing::debug!(
-                    "Removed UTXO: {}:{} (amount: {} nova units)",
-                    hex::encode(&tx_hash[..8]),
-                    vout,
-                    output.value()
-                );
-            }
-        }
-
-        tracing::info!(
-            "Successfully reversed {} transactions from block at height {}",
-            block.transactions().len(),
-            block.height()
-        );
-        Ok(())
-    }
-
     fn find_fork_point(
         &self,
         new_tip: &Block,
@@ -1024,44 +965,72 @@ impl ChainState {
                 fork_point.height());
         }
 
-        self.db.begin_transaction()?;
+        // ---- PHASE A: PLAN. Build the full change-set against the pre-reorg
+        // database; NO writes and NO in-memory mutation happen here, so the
+        // whole reorg can be committed atomically (or not at all). ----
+        let mut changes = ReorgChangeSet::new();
 
-        // Disconnect blocks from the current main chain
-        for block in blocks_to_disconnect.iter().rev() {
-            if let Err(e) = self.disconnect_block(block) {
-                error!("Error disconnecting block during reorganization: {:?}", e);
-                self.db.rollback_transaction()?;
-                return Err(e);
-            }
+        // Disconnect tip-first: `blocks_to_disconnect` is ordered [old_tip ..
+        // fork_point+1], so iterating forward unwinds the tip before its parents.
+        for block in blocks_to_disconnect.iter() {
+            self.plan_disconnect_block(block, &mut changes)?;
         }
 
-        // Connect blocks from the new chain
-        let mut total_difficulty_adjustment: u64 = 0;
-        for block in blocks_to_apply.iter() {
-            let block_difficulty = block_work_u64(block);
-            total_difficulty_adjustment += block_difficulty;
-
-            if let Err(e) = self.connect_block(block) {
-                error!("Error connecting block during reorganization: {:?}", e);
-                // Critical error - rollback the transaction
-                self.db.rollback_transaction()?;
-                return Err(e);
-            }
+        // Connect oldest-first: `blocks_to_apply` is ordered [new_tip ..
+        // fork_point+1], so `.rev()` applies the oldest fork block first — an
+        // output must be created before a later block can spend it.
+        for block in blocks_to_apply.iter().rev() {
+            self.plan_connect_block(block, &mut changes)?;
         }
 
-        // Update chain state
+        // total_difficulty tracks the cumulative PoW of the BEST chain. Recompute
+        // it ABSOLUTELY from the new tip rather than as a delta off the previous
+        // value: the stored metric can include work from fork blocks that were
+        // stored but never on the best chain, so a delta would carry that
+        // pollution forward (and could underflow). A fresh cumulative sum over
+        // the new tip's ancestry is self-consistent and cannot double-count the
+        // applied blocks.
+        let new_total_difficulty =
+            chainwork::work_to_u64_saturating(self.calculate_chain_work(new_tip)?);
+        changes.put_meta(
+            b"total_difficulty".to_vec(),
+            bincode::serialize(&new_total_difficulty)?,
+        );
+        // Tip metadata: height big-endian to match every other writer/reader.
+        changes.put_meta(b"height".to_vec(), new_tip.height().to_be_bytes().to_vec());
+        changes.put_meta(b"best_hash".to_vec(), new_tip.hash().to_vec());
+
+        // Persist the new tip's block bytes — the only applied block not already
+        // stored (fork ancestors were stored when first received). store_block
+        // also refreshes the bloom filter / cache so the tip is readable. Block
+        // bytes are content-addressed, so a lingering orphan if the commit below
+        // fails is harmless — the authoritative chain state IS the atomic commit.
+        let tip_bytes = bincode::serialize(new_tip).map_err(|e| {
+            StorageError::DatabaseError(format!("tip block serialize failed: {}", e))
+        })?;
+        self.db.store_block(&new_tip.hash(), &tip_bytes)?;
+
+        // ---- PHASE B: COMMIT atomically. If this fails, NO in-memory state has
+        // been touched, so ChainState and the DB both still reflect old_tip. ----
+        self.db.apply_reorg_atomically(&changes)?;
+
+        // ---- PHASE C: post-commit side effects (reached only on success).
+        // These are non-transactional and must run after the durable commit. ----
         self.best_block_hash = new_tip.hash();
         self.current_height = new_tip.height();
         self.last_reorg_time = SystemTime::now();
         self.reorg_count += 1;
 
-        // Update total difficulty for the reorg
-        self.update_total_difficulty(total_difficulty_adjustment)?;
-
-        // Commit the transaction
-        if let Err(e) = self.db.commit_transaction() {
-            error!("Failed to commit reorganization transaction: {:?}", e);
-            return Err(e);
+        // Record cumulative work for the applied tips and DROP the orphaned
+        // disconnected hashes, so the chain_work map cannot leak (or feed a
+        // stale comparison) across repeated reorgs.
+        for block in blocks_to_apply.iter() {
+            if let Ok(work) = self.calculate_chain_work(block) {
+                self.chain_work.insert(block.hash(), work);
+            }
+        }
+        for block in blocks_to_disconnect.iter() {
+            self.chain_work.remove(&block.hash());
         }
 
         // Update fork points
@@ -1109,51 +1078,88 @@ impl ChainState {
         Ok(())
     }
 
-    fn disconnect_block(&mut self, block: &Block) -> Result<(), StorageError> {
-        // Use reverse_block_transactions for proper UTXO unwinding
-        self.reverse_block_transactions(block)?;
+    /// Plan the UTXO/index effects of DISCONNECTING `block` into `changes` (#5).
+    ///
+    /// Emits ops only — performs NO database writes and mutates no in-memory
+    /// state — so the whole reorg can be staged and then committed atomically.
+    /// Reverses the block's transactions: restores every spent prevout (resolved
+    /// against the pre-reorg chain, which still holds the disconnected blocks)
+    /// and removes every output the block created, then drops the block's
+    /// height->hash index entry. Transactions are reversed newest-first so an
+    /// output created and then spent within the same block nets out correctly.
+    fn plan_disconnect_block(
+        &self,
+        block: &Block,
+        changes: &mut ReorgChangeSet,
+    ) -> Result<(), StorageError> {
+        for tx in block.transactions().iter().rev() {
+            let tx_hash = tx.hash();
 
-        // Adjust total difficulty when disconnecting a block
-        let block_difficulty = block_work_u64(block);
-        let current_difficulty = self.get_total_difficulty();
-        let new_total = current_difficulty.saturating_sub(block_difficulty);
+            // Restore the prevouts this tx spent (coinbase spends nothing).
+            if !tx.is_coinbase() {
+                for input in tx.inputs() {
+                    let prev_tx = input.prev_tx_hash();
+                    let prev_vout = input.prev_output_index();
+                    // Resolve the spent output's value/script against the
+                    // PRE-reorg state (no writes have happened yet), so the
+                    // restoration is exact even for prevouts created below the
+                    // fork point.
+                    let prev_output =
+                        self.get_output_from_disconnected_block(&prev_tx, prev_vout)?;
+                    let output_data = bincode::serialize(&prev_output).map_err(|e| {
+                        StorageError::DatabaseError(format!(
+                            "undo output serialize failed: {}",
+                            e
+                        ))
+                    })?;
+                    changes.put_utxo(create_utxo_key(&prev_tx, prev_vout), output_data);
+                }
+            }
 
-        let difficulty_bytes = bincode::serialize(&new_total)?;
-        self.db
-            .store_metadata(b"total_difficulty", &difficulty_bytes)?;
+            // Remove the outputs this tx created.
+            for vout in 0..tx.outputs().len() as u32 {
+                changes.del_utxo(create_utxo_key(&tx_hash, vout));
+            }
+        }
 
-        self.current_height -= 1;
-        self.best_block_hash = *block.prev_block_hash();
-
-        // Persist height big-endian to match every other writer (persistence.rs
-        // :188/:477/:1116) and the `from_be_bytes` reader in `ChainState::new`.
-        // This previously used `bincode` (little-endian), so a reorg corrupted
-        // the persisted height — it was mis-read as a huge number on reload (#5).
-        self.db
-            .set_metadata(b"height", &self.current_height.to_be_bytes())?;
-        self.db
-            .store_metadata(b"best_hash", &self.best_block_hash)?;
-
+        changes.del_height_index(block.height());
         Ok(())
     }
 
-    fn connect_block(&mut self, block: &Block) -> Result<(), StorageError> {
-        // Calculate total difficulty and block work
-        let block_difficulty = block_work_u64(block);
+    /// Plan the UTXO/index effects of CONNECTING `block` into `changes` (#5).
+    ///
+    /// Emits ops only — no database writes, no in-memory mutation. Applies the
+    /// block's transactions to the UTXO set (spend each non-coinbase input,
+    /// create each output) and records its height->hash index entry, keyed on
+    /// the now-trustworthy stamped `block.height()`. The new tip's block bytes
+    /// are persisted separately by the caller (content-addressed and idempotent,
+    /// so they need not be inside the atomic UTXO/metadata commit).
+    fn plan_connect_block(
+        &self,
+        block: &Block,
+        changes: &mut ReorgChangeSet,
+    ) -> Result<(), StorageError> {
+        for tx in block.transactions() {
+            let tx_hash = tx.hash();
 
-        // Update chain work — store CUMULATIVE proof-of-work for this tip so the
-        // fork-choice comparison in process_block stays consistent across reorgs.
-        let block_hash = block.hash();
-        let cumulative_work = self.calculate_chain_work(block)?;
-        self.chain_work.insert(block_hash, cumulative_work);
+            if !tx.is_coinbase() {
+                for input in tx.inputs() {
+                    changes.del_utxo(create_utxo_key(
+                        &input.prev_tx_hash(),
+                        input.prev_output_index(),
+                    ));
+                }
+            }
 
-        // Update total difficulty
-        self.update_total_difficulty(block_difficulty)?;
+            for (vout, output) in tx.outputs().iter().enumerate() {
+                let output_data = bincode::serialize(output).map_err(|e| {
+                    StorageError::DatabaseError(format!("output serialize failed: {}", e))
+                })?;
+                changes.put_utxo(create_utxo_key(&tx_hash, vout as u32), output_data);
+            }
+        }
 
-        // Update best block hash and height
-        self.best_block_hash = block_hash;
-        self.current_height += 1;
-
+        changes.put_height_index(block.height(), block.hash());
         Ok(())
     }
 
@@ -1840,31 +1846,122 @@ mod tests {
         Ok(())
     }
 
-    // --- #5: reorg crash-safety — height encoding ---
+    // --- #5: atomic chain reorganization ---
+
+    /// Build a coinbase block whose coinbase has a UNIQUE txid (its input script
+    /// is keyed on `tag`), so each block's coinbase UTXO key differs — required
+    /// to observe UTXO divergence between competing branches across a reorg.
+    fn unique_coinbase_block(prev: [u8; 32], bits: u32, tag: u64) -> Block {
+        use supernova_core::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+        let input = TransactionInput::new(
+            [0u8; 32],
+            0xffff_ffff,
+            tag.to_le_bytes().to_vec(),
+            0xffff_ffff,
+        );
+        let output = TransactionOutput::new(5_000_000_000, vec![]);
+        let coinbase = Transaction::new(1, vec![input], vec![output], 0);
+        Block::new_with_params(1, prev, vec![coinbase], bits)
+    }
 
     #[tokio::test]
-    async fn disconnect_block_persists_height_big_endian() -> Result<(), StorageError> {
-        // A reorg's disconnect_block must persist b"height" big-endian so that
-        // ChainState::new (which reads it via from_be_bytes) recovers it intact.
-        // The previous bincode (little-endian) write corrupted height on reload.
+    async fn reorg_switches_to_heavier_branch_atomically() -> Result<(), StorageError> {
+        // A strictly heavier competing branch must atomically replace the main
+        // chain: tip, height index, UTXO set, total difficulty, and the
+        // persisted (reload-safe) height all switch to the new branch, and the
+        // old branch's effects are fully unwound. The fork point is height 1 —
+        // NOT genesis, which find_fork_point rejects — and every coinbase is
+        // distinct so UTXO divergence between branches is observable.
         let temp_dir = tempdir().unwrap();
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
-        let mut chain_state = ChainState::new(db.clone())?;
+        let bits = 0x207f_ffff;
 
-        // Put the chain at height 300 and disconnect one (empty) block.
-        chain_state.current_height = 300;
-        let block = Block::new_with_params(1, [0u8; 32], vec![], 0x207f_ffff);
-        chain_state.disconnect_block(&block)?;
-        assert_eq!(chain_state.current_height, 299);
+        // Seed the shared prefix g0(h0) <- a1(h1) directly: height 0 carries a
+        // genesis checkpoint that process_block would reject for a custom block,
+        // so only heights >= 2 are fed through the accept path.
+        let mut g0 = unique_coinbase_block([0u8; 32], bits, 100);
+        g0.set_height(0);
+        let g0 = mine(g0);
+        let gh = g0.hash();
+        db.store_block(&gh, &bincode::serialize(&g0).unwrap())?;
+        let mut a1 = unique_coinbase_block(gh, bits, 101);
+        a1.set_height(1);
+        let a1 = mine(a1);
+        let a1h = a1.hash();
+        db.store_block(&a1h, &bincode::serialize(&a1).unwrap())?;
+        db.store_block_height_index(0, &gh)?;
+        db.store_block_height_index(1, &a1h)?;
+        db.set_metadata(b"height", &1u64.to_be_bytes())?;
+        db.set_metadata(b"best_hash", &a1h)?;
+        let w = block_work_u64(&g0); // all blocks share `bits`, so equal work
+        db.store_metadata(b"total_difficulty", &bincode::serialize(&(2 * w)).unwrap())?;
 
-        // Reload from the SAME db: the height must survive. Under the old
-        // little-endian bincode write, from_be_bytes would read a huge number.
-        let reloaded = ChainState::new(db)?;
-        assert_eq!(
-            reloaded.get_height(),
-            299,
-            "persisted height must round-trip through a reload (big-endian)"
+        let mut cs = ChainState::new(db.clone())?;
+
+        // Main chain extends a1: a2(h2), a3(h3) via the normal accept path.
+        let a2 = mine(unique_coinbase_block(a1h, bits, 2));
+        let a3 = mine(unique_coinbase_block(a2.hash(), bits, 3));
+        let a2_cb = a2.transactions()[0].hash();
+        let a3_cb = a3.transactions()[0].hash();
+        assert!(cs.process_block(a2.clone()).await?);
+        assert!(cs.process_block(a3.clone()).await?);
+
+        // Pre-reorg baseline.
+        assert_eq!(cs.get_height(), 3);
+        assert_eq!(cs.get_best_block_hash(), a3.hash());
+        assert!(db.get_utxo(&a2_cb, 0)?.is_some(), "main-chain coinbase present");
+
+        // A strictly heavier fork off a1: b2(h2), b3(h3), b4(h4).
+        let b2 = mine(unique_coinbase_block(a1h, bits, 12));
+        let b3 = mine(unique_coinbase_block(b2.hash(), bits, 13));
+        let b4 = mine(unique_coinbase_block(b3.hash(), bits, 14));
+        let (b2h, b3h, b4h) = (b2.hash(), b3.hash(), b4.hash());
+        let b2_cb = b2.transactions()[0].hash();
+        let b3_cb = b3.transactions()[0].hash();
+        let b4_cb = b4.transactions()[0].hash();
+        let (b2w, b3w, b4w) =
+            (block_work_u64(&b2), block_work_u64(&b3), block_work_u64(&b4));
+
+        assert!(db.get_utxo(&b2_cb, 0)?.is_none(), "fork coinbase not yet applied");
+
+        // Forks at equal-or-lower cumulative work are stored but do not switch.
+        assert!(!cs.process_block(b2.clone()).await?);
+        assert!(!cs.process_block(b3.clone()).await?);
+        // The fork now has strictly more work -> reorg.
+        assert!(
+            cs.process_block(b4.clone()).await?,
+            "heavier fork must trigger a reorg"
         );
+
+        // Tip + height switched to the new branch.
+        assert_eq!(cs.get_best_block_hash(), b4h);
+        assert_eq!(cs.get_height(), 4);
+
+        // Height index resolves to the NEW branch for every reorged height.
+        assert_eq!(db.get_block_hash_by_height(2)?, Some(b2h));
+        assert_eq!(db.get_block_hash_by_height(3)?, Some(b3h));
+        assert_eq!(db.get_block_hash_by_height(4)?, Some(b4h));
+
+        // UTXO set reflects the new branch; the old branch is fully unwound.
+        assert!(db.get_utxo(&a2_cb, 0)?.is_none(), "disconnected a2 coinbase removed");
+        assert!(db.get_utxo(&a3_cb, 0)?.is_none(), "disconnected a3 coinbase removed");
+        assert!(db.get_utxo(&b2_cb, 0)?.is_some(), "connected b2 coinbase added");
+        assert!(db.get_utxo(&b3_cb, 0)?.is_some(), "connected b3 coinbase added");
+        assert!(db.get_utxo(&b4_cb, 0)?.is_some(), "connected b4 coinbase added");
+
+        // Total difficulty = cumulative PoW of the NEW best chain (genesis g0 at
+        // height 0 is excluded by calculate_chain_work), proving no double-count
+        // and no fork-block pollution carried over from the old metric.
+        assert_eq!(
+            cs.get_total_difficulty(),
+            block_work_u64(&a1) + b2w + b3w + b4w,
+            "total difficulty must equal the new best chain's cumulative work"
+        );
+
+        // The new height survives a reload (atomic big-endian metadata commit).
+        let reloaded = ChainState::new(db.clone())?;
+        assert_eq!(reloaded.get_height(), 4);
+        assert_eq!(db.get_block_hash_by_height(4)?, Some(b4h));
         Ok(())
     }
 
