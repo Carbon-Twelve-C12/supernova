@@ -951,6 +951,39 @@ impl BlockchainDB {
         Ok(())
     }
 
+    /// Rebuild the height->hash index for an existing database by walking the
+    /// best chain from `best_hash` down to genesis (#5 migration). The index's
+    /// only writer historically had no callers, so older databases never built
+    /// it and every height-based lookup returned `None`; this repopulates it.
+    ///
+    /// Only best-chain blocks are indexed: we follow `prev_block_hash` links and
+    /// NEVER iterate the raw `blocks` tree, so orphan and abandoned-fork blocks
+    /// can never shadow the canonical (height -> hash) mapping. Idempotent —
+    /// re-running overwrites identical entries — so it is safe to call on every
+    /// startup behind an "is the tip indexed?" guard. Returns the number of
+    /// best-chain blocks indexed.
+    pub fn backfill_height_index(&self, best_hash: &[u8; 32]) -> Result<usize, StorageError> {
+        let mut indexed = 0;
+        let mut cursor = *best_hash;
+        loop {
+            if cursor == [0u8; 32] {
+                break; // reached the genesis sentinel / null parent
+            }
+            let block = match self.get_block(&cursor)? {
+                Some(block) => block,
+                None => break, // tip or an ancestor is missing — stop, stay degraded
+            };
+            self.store_block_height_index(block.height(), &cursor)?;
+            indexed += 1;
+            if block.height() == 0 {
+                break; // genesis indexed; done
+            }
+            cursor = *block.prev_block_hash();
+        }
+        self.flush()?;
+        Ok(indexed)
+    }
+
     /// Get block hash by height
     pub fn get_block_by_height(&self, height: u64) -> Result<Option<Block>, StorageError> {
         if let Some(hash) = self.block_height_index.get(height.to_be_bytes())? {

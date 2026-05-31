@@ -123,6 +123,25 @@ impl ChainState {
             None => [0u8; 32],
         };
 
+        // One-time height->hash index backfill (#5 migration). Older databases
+        // never populated `block_height_index` (its writer had no callers), so
+        // every height-based lookup returned None. If the tip isn't indexed,
+        // rebuild the index by walking the best chain. The guard makes normal
+        // restarts (already indexed) skip the walk; failure is non-fatal so a
+        // corrupt tail block cannot block startup — readers stay degraded until
+        // repaired rather than the node refusing to boot.
+        if current_height > 0
+            && best_block_hash != [0u8; 32]
+            && db.get_block_hash_by_height(current_height)?.is_none()
+        {
+            match db.backfill_height_index(&best_block_hash) {
+                Ok(n) => tracing::info!("Backfilled block height index: {} entries", n),
+                Err(e) => {
+                    tracing::warn!("Height index backfill failed (non-fatal): {:?}", e)
+                }
+            }
+        }
+
         tracing::debug!(
             "ChainState initialized: height={}, best_hash={}",
             current_height,
@@ -187,7 +206,10 @@ impl ChainState {
         // Store height as big-endian bytes (to match get_height() which reads as big-endian)
         self.db.set_metadata(b"height", &self.current_height.to_be_bytes())?;
         self.db.set_metadata(b"best_hash", &genesis_hash)?;
-        
+        // Record genesis in the height->hash index (#5): every best-chain block
+        // must be queryable by height, and genesis is height 0.
+        self.db.store_block_height_index(self.current_height, &genesis_hash)?;
+
         // Process genesis transactions to create initial UTXO set
         self.process_block_transactions(&genesis_block)?;
         
@@ -497,6 +519,10 @@ impl ChainState {
             // Store updated height and best hash as big-endian
             self.db.set_metadata(b"height", &self.current_height.to_be_bytes())?;
             self.db.set_metadata(b"best_hash", &block_hash)?;
+            // Record this block in the height->hash index (#5). `current_height`
+            // was just set to the stamped/derived `block.height()`, so the key is
+            // the trustworthy height, not an attacker-supplied wire value.
+            self.db.store_block_height_index(self.current_height, &block_hash)?;
             self.db.flush()?;
             
             // Process transactions to update UTXO set
@@ -1914,5 +1940,89 @@ mod tests {
         // derive correctly and the subsidy cap can never read the wire lie.
         let stored = db.get_block(&child_hash).unwrap().unwrap();
         assert_eq!(stored.height(), 2, "stored block height must be derived");
+    }
+
+    #[tokio::test]
+    async fn direct_extension_populates_height_index() {
+        // Accepting a block that extends the tip must record (height -> hash) so
+        // get_block_hash_by_height resolves. The index was previously never
+        // written by any production path, so every height lookup returned None.
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+        let mut chain_state = ChainState::new(db.clone()).unwrap();
+
+        // Seed a stored ancestry genesis0(0) <- parent(1) and point the tip at it.
+        let genesis0 = Block::new_with_params(1, [0u8; 32], vec![], 0x207f_ffff);
+        db.store_block(&genesis0.hash(), &bincode::serialize(&genesis0).unwrap())
+            .unwrap();
+        let mut parent = Block::new_with_params(1, genesis0.hash(), vec![], 0x207f_ffff);
+        parent.set_height(1);
+        db.store_block(&parent.hash(), &bincode::serialize(&parent).unwrap())
+            .unwrap();
+        chain_state.current_height = 1;
+        chain_state.best_block_hash = parent.hash();
+
+        // Extend the tip with a valid mined coinbase block (derived height 2).
+        let child = mine(coinbase_block(parent.hash(), 0x207f_ffff));
+        let child_hash = child.hash();
+        assert!(chain_state.process_block(child).await.unwrap());
+
+        assert_eq!(
+            db.get_block_hash_by_height(2).unwrap(),
+            Some(child_hash),
+            "a direct-extension accept must index (height -> hash)"
+        );
+    }
+
+    #[test]
+    fn backfill_rebuilds_height_index_idempotently() {
+        // An older DB with blocks + height/best_hash metadata but an EMPTY height
+        // index must be repaired on startup by ChainState::new, and the repair
+        // must be idempotent and follow the best chain — never orphan blocks.
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+
+        // Store a 3-block best chain (heights 0,1,2) linked by prev_block_hash,
+        // directly (bypassing the index), then set the tip metadata.
+        let mut g = Block::new_with_params(1, [0u8; 32], vec![], 0x207f_ffff);
+        g.set_height(0);
+        let gh = g.hash();
+        db.store_block(&gh, &bincode::serialize(&g).unwrap()).unwrap();
+        let mut b1 = Block::new_with_params(1, gh, vec![], 0x207f_ffff);
+        b1.set_height(1);
+        let h1 = b1.hash();
+        db.store_block(&h1, &bincode::serialize(&b1).unwrap()).unwrap();
+        let mut b2 = Block::new_with_params(1, h1, vec![], 0x207f_ffff);
+        b2.set_height(2);
+        let h2 = b2.hash();
+        db.store_block(&h2, &bincode::serialize(&b2).unwrap()).unwrap();
+        db.set_metadata(b"height", &2u64.to_be_bytes()).unwrap();
+        db.set_metadata(b"best_hash", &h2).unwrap();
+
+        // The index starts empty.
+        assert_eq!(db.get_block_hash_by_height(2).unwrap(), None);
+
+        // ChainState::new triggers the guarded one-time backfill.
+        let _chain_state = ChainState::new(db.clone()).unwrap();
+        assert_eq!(db.get_block_hash_by_height(0).unwrap(), Some(gh));
+        assert_eq!(db.get_block_hash_by_height(1).unwrap(), Some(h1));
+        assert_eq!(db.get_block_hash_by_height(2).unwrap(), Some(h2));
+
+        // An orphan at the SAME height as genesis, off the best chain, must not
+        // shadow the canonical mapping — the walk follows parent links, never
+        // blocks.iter() — and re-running is idempotent (same count).
+        let mut orphan = Block::new_with_params(1, [0xaa; 32], vec![], 0x207f_ffff);
+        orphan.set_height(0);
+        db.store_block(&orphan.hash(), &bincode::serialize(&orphan).unwrap())
+            .unwrap();
+        let n1 = db.backfill_height_index(&h2).unwrap();
+        let n2 = db.backfill_height_index(&h2).unwrap();
+        assert_eq!(n1, 3, "backfill indexes exactly the 3 best-chain blocks");
+        assert_eq!(n2, 3, "backfill is idempotent");
+        assert_eq!(
+            db.get_block_hash_by_height(0).unwrap(),
+            Some(gh),
+            "height 0 stays genesis, not the same-height orphan"
+        );
     }
 }
