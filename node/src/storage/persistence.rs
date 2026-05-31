@@ -1,7 +1,7 @@
 use super::database::{create_utxo_key, BlockchainDB, StorageError};
 use super::reorg::ReorgChangeSet;
 use supernova_core::consensus::chainwork::{self, Work};
-use supernova_core::consensus::difficulty_retarget::RetargetParams;
+use supernova_core::consensus::difficulty_retarget::{self, RetargetParams};
 use supernova_core::types::block::Block;
 use supernova_core::types::block_subsidy;
 use supernova_core::types::transaction::{Transaction, TransactionOutput};
@@ -327,11 +327,40 @@ impl ChainState {
 
     /// Get the difficulty target for the next block
     pub fn get_difficulty_target(&self) -> u32 {
-        // This is a placeholder. In a real implementation, this would involve a
-        // sophisticated algorithm based on the timestamps and difficulties of
-        // previous blocks.
-        // For now, we'll just return a constant value.
-        0x1f00ffff // A reasonably low difficulty for testing
+        // The difficulty the NEXT block must use, computed with the SAME
+        // `required_bits` rule the validator enforces (#2.2) so the node's own
+        // miner never produces a block the validator would reject. Falls back to
+        // the network floor only if the tip can't be read.
+        self.next_required_bits()
+            .unwrap_or(self.retarget_params.pow_limit_bits)
+    }
+
+    /// The required `bits` for the block at `current_height + 1`, derived from the
+    /// tip (its parent) — off a retarget boundary this is the tip's bits; at a
+    /// boundary it is the retargeted value. Shared with `validate_block` via
+    /// `difficulty_retarget::required_bits` so miner and validator cannot diverge.
+    fn next_required_bits(&self) -> Result<u32, StorageError> {
+        let params = self.retarget_params;
+        // No tip yet -> the next block is genesis-level, mined at the floor.
+        if self.best_block_hash == [0u8; 32] {
+            return Ok(params.pow_limit_bits);
+        }
+        let tip = self.db.get_block(&self.best_block_hash)?.ok_or_else(|| {
+            StorageError::DatabaseError("tip block missing for difficulty target".to_string())
+        })?;
+        let next_height = self.current_height + 1;
+        let boundary_timestamps =
+            if next_height > 0 && params.interval > 0 && next_height % params.interval == 0 {
+                Some(self.period_boundary_timestamps(&tip, params.interval)?)
+            } else {
+                None
+            };
+        Ok(difficulty_retarget::required_bits(
+            next_height,
+            tip.header().bits(),
+            boundary_timestamps,
+            &params,
+        ))
     }
 
     /// Get the current network difficulty as a float
@@ -591,6 +620,97 @@ impl ChainState {
         self.db.get_block(prev).ok().flatten().map(|p| p.height() + 1)
     }
 
+    /// Validate a block's difficulty `bits` against what the chain requires
+    /// (#2.2). Returns `Ok(false)` to reject a permanently-wrong block (easier
+    /// than the floor, or not the required difficulty for its height/parent), and
+    /// `Err` when the parent is not yet known (a retryable orphan — do NOT mark it
+    /// permanently invalid).
+    fn check_block_difficulty(&self, block: &Block) -> Result<bool, StorageError> {
+        let params = self.retarget_params;
+
+        // Floor + mineability: reject any target easier than `pow_limit` or zero
+        // (over-range bits). This is a cheap pre-filter independent of the parent.
+        if !difficulty_retarget::target_within_limit(block.header().bits(), &params) {
+            tracing::warn!(
+                "Block {} difficulty {:#x} is easier than the pow_limit floor {:#x}",
+                hex::encode(&block.hash()[..8]),
+                block.header().bits(),
+                params.pow_limit_bits
+            );
+            return Ok(false);
+        }
+
+        // Genesis (null parent) has no parent-derived difficulty to enforce.
+        let prev_hash = *block.prev_block_hash();
+        if prev_hash == [0u8; 32] {
+            return Ok(true);
+        }
+
+        // The parent must be known to derive the required difficulty. A missing
+        // parent is an orphan we cannot yet judge — surface as Err so it is
+        // rejected for now but not blacklisted (it may arrive in order later).
+        let parent = self.db.get_block(&prev_hash)?.ok_or_else(|| {
+            StorageError::DatabaseError(format!(
+                "difficulty check: parent {} not yet known",
+                hex::encode(&prev_hash[..8])
+            ))
+        })?;
+
+        // `block.height()` is the trustworthy derived/stamped height. At a
+        // retarget boundary, sample the period's first/last timestamps along the
+        // block's own ancestry; otherwise difficulty is unchanged from the parent.
+        let height = block.height();
+        let boundary_timestamps =
+            if height > 0 && params.interval > 0 && height % params.interval == 0 {
+                Some(self.period_boundary_timestamps(&parent, params.interval)?)
+            } else {
+                None
+            };
+
+        let required = difficulty_retarget::required_bits(
+            height,
+            parent.header().bits(),
+            boundary_timestamps,
+            &params,
+        );
+        if block.header().bits() != required {
+            tracing::warn!(
+                "Block {} has bits {:#x} but the chain requires {:#x} at height {}",
+                hex::encode(&block.hash()[..8]),
+                block.header().bits(),
+                required,
+                height
+            );
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
+    /// Gather the `(first_ts, last_ts)` timestamps of the difficulty period that
+    /// closes just before a boundary block whose parent is `parent`, by walking
+    /// the parent's OWN ancestry (`prev_block_hash`) — never the canonical height
+    /// index. `last_ts` is the parent's timestamp (height `H-1`); `first_ts` is
+    /// the timestamp `interval-1` ancestors back (height `H-interval`).
+    fn period_boundary_timestamps(
+        &self,
+        parent: &Block,
+        interval: u64,
+    ) -> Result<(u64, u64), StorageError> {
+        let last_ts = parent.header().timestamp();
+        let mut cursor = parent.clone();
+        for _ in 0..interval.saturating_sub(1) {
+            let prev_hash = *cursor.prev_block_hash();
+            cursor = self.db.get_block(&prev_hash)?.ok_or_else(|| {
+                StorageError::DatabaseError(format!(
+                    "difficulty retarget: period ancestor {} is missing",
+                    hex::encode(&prev_hash[..8])
+                ))
+            })?;
+        }
+        Ok((cursor.header().timestamp(), last_ts))
+    }
+
     async fn validate_block(&self, block: &Block) -> Result<bool, StorageError> {
         let block_hash = block.hash();
 
@@ -625,6 +745,24 @@ impl ChainState {
             self.invalid_block_tracker.mark_invalid(
                 block_hash,
                 InvalidationReason::InvalidStructure("Basic validation failed".to_string()),
+                Some(*block.prev_block_hash()),
+                Some(block.height()),
+            ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
+            return Ok(false);
+        }
+
+        // Difficulty (#2.2): the block's `bits` must equal the difficulty the
+        // chain requires at its (derived, trustworthy) height and must not be
+        // easier than the network floor. Required difficulty is derived by
+        // PARENT-WALK along the block's OWN ancestry — never the canonical height
+        // index, which would use the wrong chain for a fork. Checked early so an
+        // easy-bits block never reaches transaction or value validation. A
+        // missing parent surfaces as Err (retryable orphan), not a permanent mark.
+        if !self.check_block_difficulty(block)? {
+            tracing::warn!("Block failed difficulty validation: height={}", block.height());
+            self.invalid_block_tracker.mark_invalid(
+                block_hash,
+                InvalidationReason::InvalidStructure("Difficulty bits not as required".to_string()),
                 Some(*block.prev_block_hash()),
                 Some(block.height()),
             ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
@@ -2228,6 +2366,62 @@ mod tests {
             db.get_block_hash_by_height(0).unwrap(),
             Some(gh),
             "height 0 stays genesis, not the same-height orphan"
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_block_rejects_easy_bits() {
+        // A block claiming difficulty EASIER than the floor must be rejected even
+        // though it satisfies its own (trivial) target. Regtest floor is
+        // 0x207fffff; 0x20ffffff decodes to a larger (easier) target.
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+        let (_g, a1h) = seed_base_chain(&db, 0x207f_ffff, 300);
+        let mut cs = regtest_chain_state(db.clone()).unwrap();
+
+        let easy = mine(unique_coinbase_block(a1h, 0x20ff_ffff, 301));
+        assert!(
+            cs.process_block(easy).await.is_err(),
+            "a block easier than the pow_limit floor must be rejected"
+        );
+
+        // A correctly-difficultied block at the same height IS accepted, proving
+        // the gate rejects only the easy one, not all blocks.
+        let ok_block = mine(unique_coinbase_block(a1h, 0x207f_ffff, 302));
+        assert!(
+            cs.process_block(ok_block).await.unwrap(),
+            "a floor-difficulty block must be accepted"
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_block_rejects_wrong_bits_at_retarget_boundary() {
+        // At a retarget boundary the chain requires a recomputed difficulty; a
+        // block that ignores the retarget and keeps the parent's bits is rejected.
+        // A tiny 4-block interval makes the boundary cheap to reach, and the fast
+        // (near-instant) test blocks make the required difficulty rise above the
+        // parent's bits — so the boundary path is exercised without expensive
+        // mining at the harder target.
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+        let bits = 0x207f_ffff;
+        let (_g, a1h) = seed_base_chain(&db, bits, 310);
+        let params = RetargetParams { target_block_time: 30, interval: 4, pow_limit_bits: bits };
+        let mut cs = ChainState::with_params(db.clone(), params).unwrap();
+
+        // Heights 2 and 3 are off-boundary (interval 4): difficulty is unchanged,
+        // so a block keeping `bits` is accepted.
+        let a2 = mine(unique_coinbase_block(a1h, bits, 312));
+        assert!(cs.process_block(a2.clone()).await.unwrap());
+        let a3 = mine(unique_coinbase_block(a2.hash(), bits, 313));
+        assert!(cs.process_block(a3.clone()).await.unwrap());
+
+        // Height 4 IS a boundary -> the required difficulty rises, so a block
+        // still claiming `bits` is rejected.
+        let a4 = mine(unique_coinbase_block(a3.hash(), bits, 314));
+        assert!(
+            cs.process_block(a4).await.is_err(),
+            "a boundary block that ignores the required retarget must be rejected"
         );
     }
 }
