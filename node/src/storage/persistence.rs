@@ -1,6 +1,7 @@
 use super::database::{create_utxo_key, BlockchainDB, StorageError};
 use super::reorg::ReorgChangeSet;
 use supernova_core::consensus::chainwork::{self, Work};
+use supernova_core::consensus::difficulty_retarget::RetargetParams;
 use supernova_core::types::block::Block;
 use supernova_core::types::block_subsidy;
 use supernova_core::types::transaction::{Transaction, TransactionOutput};
@@ -38,6 +39,9 @@ pub struct ChainState {
     last_block_time: SystemTime,
     rejected_reorgs: u64,
     invalid_block_tracker: Arc<InvalidBlockTracker>,
+    /// Per-network consensus parameters (difficulty floor, retarget interval,
+    /// block time) — the validator's source of truth for required difficulty.
+    retarget_params: RetargetParams,
 }
 
 #[derive(Debug)]
@@ -87,7 +91,21 @@ pub enum ForkChoiceReason {
 }
 
 impl ChainState {
+    /// Open chain state with the default (launch-network = testnet) consensus
+    /// parameters. Defaulting to the HARD difficulty floor is the consensus-safe
+    /// choice: a caller that forgets to pass network params still enforces real
+    /// difficulty rather than silently dropping to the easy regtest floor.
     pub fn new(db: Arc<BlockchainDB>) -> Result<Self, StorageError> {
+        Self::with_params(db, RetargetParams::testnet())
+    }
+
+    /// Open chain state with explicit per-network consensus parameters (tests use
+    /// `RetargetParams::regtest()` for the easy floor; a future multi-network node
+    /// passes the configured network's params here).
+    pub fn with_params(
+        db: Arc<BlockchainDB>,
+        retarget_params: RetargetParams,
+    ) -> Result<Self, StorageError> {
         // Read height as big-endian bytes (to match how we write it)
         let current_height = match db.get_metadata(b"height")? {
             Some(height_bytes) => {
@@ -161,6 +179,7 @@ impl ChainState {
             last_block_time: SystemTime::now(),
             rejected_reorgs: 0,
             invalid_block_tracker: Arc::new(InvalidBlockTracker::new(InvalidBlockTrackerConfig::default())),
+            retarget_params,
         })
     }
 
@@ -170,6 +189,13 @@ impl ChainState {
 
     pub fn get_best_block_hash(&self) -> [u8; 32] {
         self.best_block_hash
+    }
+
+    /// The per-network consensus parameters this chain enforces (difficulty
+    /// floor, retarget interval, block time). The miner and the difficulty gate
+    /// both read these so they agree on the required difficulty.
+    pub fn retarget_params(&self) -> RetargetParams {
+        self.retarget_params
     }
 
     /// Get the invalid block tracker
@@ -1535,6 +1561,15 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    /// Open chain state with the easy REGTEST difficulty floor (0x207fffff), which
+    /// matches the `bits` every test block uses. Production defaults to the hard
+    /// testnet floor (0x1e0fffff) via `ChainState::new`, so tests must opt into
+    /// regtest or their easy blocks would be rejected once the difficulty gate is
+    /// wired in.
+    fn regtest_chain_state(db: Arc<BlockchainDB>) -> Result<ChainState, StorageError> {
+        ChainState::with_params(db, RetargetParams::regtest())
+    }
+
     /// Seed `g0(h0) <- a1(h1)` directly as the chain tip and return their hashes.
     /// Heights 0/1 carry a genesis checkpoint that process_block would reject for
     /// a custom block, so the shared prefix is seeded and only heights >=2 are
@@ -1567,7 +1602,7 @@ mod tests {
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
         let bits = 0x207f_ffff;
         let (_g, a1h) = seed_base_chain(&db, bits, 220);
-        let mut cs = ChainState::new(db.clone())?;
+        let mut cs = regtest_chain_state(db.clone())?;
 
         // Main chain a1 -> a2 (height 2).
         let a2 = mine(unique_coinbase_block(a1h, bits, 222));
@@ -1595,7 +1630,7 @@ mod tests {
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
         let bits = 0x207f_ffff;
         let (_g, a1h) = seed_base_chain(&db, bits, 240);
-        let cs = ChainState::new(db.clone())?;
+        let cs = regtest_chain_state(db.clone())?;
 
         // A valid mined coinbase block extending the tip passes validation.
         let mut valid = unique_coinbase_block(a1h, bits, 242);
@@ -1622,7 +1657,7 @@ mod tests {
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
         let bits = 0x207f_ffff;
         let (_g, a1h) = seed_base_chain(&db, bits, 250);
-        let mut cs = ChainState::new(db.clone())?;
+        let mut cs = regtest_chain_state(db.clone())?;
         assert_eq!(cs.get_total_difficulty(), 0, "no difficulty recorded yet");
 
         let a2 = mine(unique_coinbase_block(a1h, bits, 252));
@@ -1660,7 +1695,7 @@ mod tests {
         db.set_metadata(b"height", &1u64.to_be_bytes()).unwrap();
         db.set_metadata(b"best_hash", &src_hash).unwrap();
 
-        let cs = ChainState::new(db.clone()).unwrap();
+        let cs = regtest_chain_state(db.clone()).unwrap();
 
         // Disconnected block D (height 2): tx T spends S:0 and creates output P.
         let spend_in = TransactionInput::new(s_txid, 0, b"sig".to_vec(), 0xffff_ffff);
@@ -1709,7 +1744,7 @@ mod tests {
 
         let temp_dir = tempdir().unwrap();
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
-        let chain_state = ChainState::new(db.clone())?;
+        let chain_state = regtest_chain_state(db.clone())?;
 
         // Owner key and the output-script commitment it controls
         // (SHA3-512(pubkey)[..32], matching the wallet address derivation).
@@ -1830,7 +1865,7 @@ mod tests {
     async fn coinbase_cap_rejects_overpay_and_allows_exact_subsidy() -> Result<(), StorageError> {
         let temp_dir = tempdir().unwrap();
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
-        let chain_state = ChainState::new(db)?;
+        let chain_state = regtest_chain_state(db)?;
 
         // new_with_params blocks are at height 0, where block_subsidy == 50 NOVA
         // == 5_000_000_000 smallest units. (No fees: coinbase-only blocks.)
@@ -1866,7 +1901,7 @@ mod tests {
 
         let temp_dir = tempdir().unwrap();
         let db = Arc::new(BlockchainDB::new(temp_dir.path())?);
-        let chain_state = ChainState::new(db.clone())?;
+        let chain_state = regtest_chain_state(db.clone())?;
 
         // Owner key + a UTXO of 1_000_000 locked to it.
         let owner = QuantumKeyPair::generate(QuantumParameters::new(QuantumScheme::Dilithium))
@@ -1969,7 +2004,7 @@ mod tests {
         let w = block_work_u64(&g0); // all blocks share `bits`, so equal work
         db.store_metadata(b"total_difficulty", &bincode::serialize(&(2 * w)).unwrap())?;
 
-        let mut cs = ChainState::new(db.clone())?;
+        let mut cs = regtest_chain_state(db.clone())?;
 
         // Main chain extends a1: a2(h2), a3(h3) via the normal accept path.
         let a2 = mine(unique_coinbase_block(a1h, bits, 2));
@@ -2032,7 +2067,7 @@ mod tests {
         );
 
         // The new height survives a reload (atomic big-endian metadata commit).
-        let reloaded = ChainState::new(db.clone())?;
+        let reloaded = regtest_chain_state(db.clone())?;
         assert_eq!(reloaded.get_height(), 4);
         assert_eq!(db.get_block_hash_by_height(4)?, Some(b4h));
         Ok(())
@@ -2042,7 +2077,7 @@ mod tests {
     fn expected_height_is_derived_from_parent() {
         let temp_dir = tempdir().unwrap();
         let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
-        let chain_state = ChainState::new(db.clone()).unwrap();
+        let chain_state = regtest_chain_state(db.clone()).unwrap();
 
         // Genesis (null prev hash) is height 0.
         let genesis = Block::new_with_params(1, [0u8; 32], vec![], 0x207f_ffff);
@@ -2072,7 +2107,7 @@ mod tests {
         // the `block_subsidy` cap and let the coinbase mint extra coins).
         let temp_dir = tempdir().unwrap();
         let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
-        let mut chain_state = ChainState::new(db.clone()).unwrap();
+        let mut chain_state = regtest_chain_state(db.clone()).unwrap();
 
         // Seed a tiny stored ancestry: genesis0 (height 0) <- parent (height 1).
         // These exist only for the chain-work walk and height derivation, so they
@@ -2119,7 +2154,7 @@ mod tests {
         // written by any production path, so every height lookup returned None.
         let temp_dir = tempdir().unwrap();
         let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
-        let mut chain_state = ChainState::new(db.clone()).unwrap();
+        let mut chain_state = regtest_chain_state(db.clone()).unwrap();
 
         // Seed a stored ancestry genesis0(0) <- parent(1) and point the tip at it.
         let genesis0 = Block::new_with_params(1, [0u8; 32], vec![], 0x207f_ffff);
@@ -2173,7 +2208,7 @@ mod tests {
         assert_eq!(db.get_block_hash_by_height(2).unwrap(), None);
 
         // ChainState::new triggers the guarded one-time backfill.
-        let _chain_state = ChainState::new(db.clone()).unwrap();
+        let _chain_state = regtest_chain_state(db.clone()).unwrap();
         assert_eq!(db.get_block_hash_by_height(0).unwrap(), Some(gh));
         assert_eq!(db.get_block_hash_by_height(1).unwrap(), Some(h1));
         assert_eq!(db.get_block_hash_by_height(2).unwrap(), Some(h2));
