@@ -321,7 +321,28 @@ impl ChainState {
         max_target / current_target
     }
 
-    pub async fn process_block(&mut self, block: Block) -> Result<bool, StorageError> {
+    pub async fn process_block(&mut self, mut block: Block) -> Result<bool, StorageError> {
+        // Stamp the authoritative height DERIVED from the parent (#5 height
+        // reliability). The wire height is attacker-controlled yet feeds the
+        // subsidy cap (`check_block_value`), chain-work accumulation, the
+        // persisted tip, and future children's derivation — so consensus must
+        // use the derived value, not the claim. Height is excluded from the
+        // block hash (`serialize_for_hash`), so stamping changes neither block
+        // identity nor proof-of-work. A genuinely orphan block (parent unknown)
+        // keeps its claimed height and is rejected downstream when its ancestors
+        // cannot be walked.
+        if let Some(expected) = self.expected_height(&block) {
+            if block.height() != expected {
+                tracing::warn!(
+                    "Block {} claimed height {} but its parent implies {}; using the derived height",
+                    hex::encode(&block.hash()[..8]),
+                    block.height(),
+                    expected
+                );
+            }
+            block.set_height(expected);
+        }
+
         let block_hash = block.hash();
         let prev_hash = block.prev_block_hash();
 
@@ -538,21 +559,6 @@ impl ChainState {
                 Some(block.height()),
             ).map_err(|e| StorageError::DatabaseError(format!("Failed to mark block invalid: {}", e)))?;
             return Ok(false);
-        }
-
-        // Observe block-height consistency (#5 height reliability). A block's
-        // height should be parent.height()+1. NOT yet enforced — a follow-up
-        // commit derives/stamps and enforces it; for now we only surface a
-        // mismatch so the wire value can't silently diverge from the chain.
-        if let Some(expected) = self.expected_height(block) {
-            if block.height() != expected {
-                tracing::warn!(
-                    "Block {} claims height {} but its parent implies {}",
-                    hex::encode(&block_hash[..8]),
-                    block.height(),
-                    expected
-                );
-            }
         }
 
         tracing::debug!(
@@ -1654,6 +1660,15 @@ mod tests {
         Block::new_with_params(1, prev, vec![Transaction::new_coinbase()], bits)
     }
 
+    /// Grind the nonce until the block satisfies its proof-of-work target. Cheap
+    /// for the easy regtest-style `0x207f_ffff` target these tests use.
+    fn mine(mut block: Block) -> Block {
+        while !block.verify_proof_of_work() {
+            block.increment_nonce();
+        }
+        block
+    }
+
     #[test]
     fn block_work_is_independent_of_hash_grinding() {
         // Two blocks with identical difficulty `bits` but different nonces (hence
@@ -1850,5 +1865,54 @@ mod tests {
         // An unknown parent (orphan) cannot derive a height.
         let orphan = Block::new_with_params(1, [7u8; 32], vec![], 0x207f_ffff);
         assert_eq!(chain_state.expected_height(&orphan), None);
+    }
+
+    #[tokio::test]
+    async fn process_block_stamps_derived_height_over_wire_claim() {
+        // A block whose WIRE height lies must be accepted at its parent-derived
+        // height, so the subsidy cap, the persisted tip, and the stored block all
+        // reflect the real height — never the attacker's claim. Regression for
+        // the fake-low-height inflation vector (a low claimed height would lift
+        // the `block_subsidy` cap and let the coinbase mint extra coins).
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+        let mut chain_state = ChainState::new(db.clone()).unwrap();
+
+        // Seed a tiny stored ancestry: genesis0 (height 0) <- parent (height 1).
+        // These exist only for the chain-work walk and height derivation, so they
+        // bypass validation (stored directly) and may be empty blocks.
+        let genesis0 = Block::new_with_params(1, [0u8; 32], vec![], 0x207f_ffff);
+        db.store_block(&genesis0.hash(), &bincode::serialize(&genesis0).unwrap())
+            .unwrap();
+        let mut parent = Block::new_with_params(1, genesis0.hash(), vec![], 0x207f_ffff);
+        parent.set_height(1);
+        db.store_block(&parent.hash(), &bincode::serialize(&parent).unwrap())
+            .unwrap();
+        chain_state.current_height = 1;
+        chain_state.best_block_hash = parent.hash();
+
+        // A valid coinbase child of `parent` that LIES about its height (claims 7
+        // while the parent implies 2).
+        let mut child = coinbase_block(parent.hash(), 0x207f_ffff);
+        child.set_height(7);
+        let child = mine(child);
+        let child_hash = child.hash();
+
+        let accepted = chain_state
+            .process_block(child)
+            .await
+            .expect("valid child of the tip must be accepted");
+        assert!(accepted, "child extends the tip, so it must be accepted");
+
+        // The tip height is the DERIVED 2, never the claimed 7.
+        assert_eq!(
+            chain_state.get_height(),
+            2,
+            "tip must use the parent-derived height, not the wire claim"
+        );
+        // The STORED block also carries the derived height, so its own children
+        // derive correctly and the subsidy cap can never read the wire lie.
+        let stored = db.get_block(&child_hash).unwrap().unwrap();
+        assert_eq!(stored.height(), 2, "stored block height must be derived");
     }
 }
