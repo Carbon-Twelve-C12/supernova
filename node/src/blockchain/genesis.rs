@@ -5,7 +5,7 @@
 //!
 //! These values were generated using fixed parameters:
 //! - Timestamp: 1730044800 (October 27, 2025 16:00:00 UTC)
-//! - Difficulty: 0x207fffff (very easy for testnet)
+//! - Difficulty: 0x1e0fffff (testnet pow_limit floor, #2.2)
 //! - Coinbase: "Genesis block for Supernova supernova-testnet"
 //! - Reward: 50 NOVA
 
@@ -15,20 +15,20 @@ use supernova_core::types::{Block, BlockHeader, Transaction, TransactionInput, T
 /// These values are IMMUTABLE and define the testnet's origin
 
 pub const TESTNET_GENESIS_TIMESTAMP: u64 = 1730044800; // October 27, 2025 16:00:00 UTC
-pub const TESTNET_GENESIS_DIFFICULTY_BITS: u32 = 0x207fffff;
+pub const TESTNET_GENESIS_DIFFICULTY_BITS: u32 = 0x1e0fffff;
 pub const TESTNET_GENESIS_VERSION: u32 = 1;
 pub const TESTNET_GENESIS_REWARD: u64 = 50_000_000_00; // 50 NOVA in attaNova
 
 /// Pre-mined nonce.
 ///
-/// Becomes IMMUTABLE for the deployed testnet at launch. The current
-/// values were re-mined on 2026-04-27 because the previous constants
-/// (October 2025) were anchored against an older `Transaction::hash`
-/// shape and the hash check failed during build. Regenerate via the
-/// `diagnose_genesis_values` `#[ignore]`'d test in this module's
-/// `mod tests` block whenever the coinbase transaction shape or the
-/// `Transaction::hash` / `BlockHeader::hash` codec changes.
-pub const TESTNET_GENESIS_NONCE: u32 = 3;
+/// Becomes IMMUTABLE for the deployed testnet at launch. Re-mined on
+/// 2026-05-31 when the genesis difficulty was raised from the easy
+/// `0x207fffff` to the real testnet floor `0x1e0fffff` (#2.2) — the
+/// validator now enforces a `pow_limit` floor, so genesis must meet it.
+/// Regenerate via the `diagnose_genesis_values` `#[ignore]`'d test in this
+/// module's `mod tests` block whenever the coinbase shape, the difficulty
+/// bits, or the `Transaction::hash` / `BlockHeader::hash` codec changes.
+pub const TESTNET_GENESIS_NONCE: u32 = 1138822;
 
 /// Pre-calculated merkle root.
 ///
@@ -48,14 +48,14 @@ pub const TESTNET_GENESIS_MERKLE_ROOT: [u8; 32] = [
 /// Expected genesis block hash.
 ///
 /// `BlockHeader::hash()` of the genesis header constructed with the
-/// constants above. Meets the testnet difficulty target
-/// (`TESTNET_GENESIS_DIFFICULTY_BITS = 0x207fffff`) at nonce 3.
-/// Hex: 2e716d6ba655a62d1c3deea98f965ae29f00b90793b71a3eb18b11832be8ad54
+/// constants above. Meets the testnet difficulty floor
+/// (`TESTNET_GENESIS_DIFFICULTY_BITS = 0x1e0fffff`) at nonce 1138822.
+/// Hex: 1bbb2e022f0a89e9f4ff65824cfac39fe5c9037b0dcc644f09808306e30a0000
 pub const TESTNET_GENESIS_HASH: [u8; 32] = [
-    0x2e, 0x71, 0x6d, 0x6b, 0xa6, 0x55, 0xa6, 0x2d,
-    0x1c, 0x3d, 0xee, 0xa9, 0x8f, 0x96, 0x5a, 0xe2,
-    0x9f, 0x00, 0xb9, 0x07, 0x93, 0xb7, 0x1a, 0x3e,
-    0xb1, 0x8b, 0x11, 0x83, 0x2b, 0xe8, 0xad, 0x54
+    0x1b, 0xbb, 0x2e, 0x02, 0x2f, 0x0a, 0x89, 0xe9,
+    0xf4, 0xff, 0x65, 0x82, 0x4c, 0xfa, 0xc3, 0x9f,
+    0xe5, 0xc9, 0x03, 0x7b, 0x0d, 0xcc, 0x64, 0x4f,
+    0x09, 0x80, 0x83, 0x06, 0xe3, 0x0a, 0x00, 0x00
 ];
 
 /// Create the hardcoded testnet genesis block
@@ -220,8 +220,8 @@ mod tests {
         assert!(TESTNET_GENESIS_TIMESTAMP > 1700000000); // After Nov 2023
         assert!(TESTNET_GENESIS_TIMESTAMP < 2000000000); // Before 2033
 
-        // Ensure difficulty is testnet-appropriate (easy)
-        assert_eq!(TESTNET_GENESIS_DIFFICULTY_BITS, 0x207fffff);
+        // Genesis must sit at the testnet difficulty floor (#2.2).
+        assert_eq!(TESTNET_GENESIS_DIFFICULTY_BITS, 0x1e0fffff);
     }
 
     /// Diagnostic helper: re-mines the genesis block, finding a nonce
@@ -340,8 +340,8 @@ mod tests {
         assert!(TESTNET_GENESIS_TIMESTAMP > 1700000000, "Timestamp too old");
         assert!(TESTNET_GENESIS_TIMESTAMP < 2000000000, "Timestamp too far in future");
         
-        // Verify difficulty is testnet-appropriate
-        assert_eq!(TESTNET_GENESIS_DIFFICULTY_BITS, 0x207fffff, "Must use testnet difficulty");
+        // Verify difficulty sits at the testnet floor (#2.2).
+        assert_eq!(TESTNET_GENESIS_DIFFICULTY_BITS, 0x1e0fffff, "Must use testnet floor difficulty");
     }
 }
 
