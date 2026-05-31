@@ -76,11 +76,14 @@ impl BlockTemplate {
         
         let height = chain.get_height() + 1;
         let prev_hash = chain.get_best_block_hash();
-        
-        // Use testnet difficulty for rapid block generation
-        // In production, this would use adaptive difficulty adjustment
-        let difficulty_bits = 0x207fffff; // Testnet easy difficulty (same as genesis)
-        
+
+        // The difficulty the chain REQUIRES for this next block (#2.2) — the same
+        // `required_bits` rule `validate_block` enforces, so a block mined from
+        // this template is accepted rather than rejected for wrong difficulty.
+        // This replaces a hardcoded easy `0x207fffff`, which the testnet floor
+        // (0x1e0fffff) would reject.
+        let difficulty_bits = chain.get_difficulty_target();
+
         drop(chain); // Release lock
         
         // Get transactions from mempool
