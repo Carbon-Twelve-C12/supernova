@@ -18,6 +18,13 @@ use parking_lot::Mutex as ParkingLotMutex;
 
 use crate::storage::StorageError;
 
+/// Maximum size of a single WAL entry (16MB). Guards against a corrupted or
+/// maliciously modified length prefix triggering an oversized allocation
+/// during crash-recovery replay before the entry has been structurally
+/// validated (bincode's default `deserialize_from` has no size cap and would
+/// otherwise eagerly allocate `Vec`s sized directly from untrusted bytes).
+const MAX_WAL_ENTRY_SIZE: usize = 16 * 1024 * 1024;
+
 /// Represents an unspent transaction output
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnspentOutput {
@@ -292,14 +299,37 @@ impl AtomicUtxoSet {
         let file = File::open(&self.wal_path)?;
         let mut reader = std::io::BufReader::new(file);
 
-        // Read and apply each WAL entry
+        // Read and apply each WAL entry. Entries are length-prefixed (see
+        // `write_to_wal`) so a corrupted or tampered WAL cannot present a
+        // fabricated Vec length that forces a large/failing allocation
+        // before any structural validation of the entry occurs.
         loop {
-            match bincode::deserialize_from::<_, UtxoTransaction>(&mut reader) {
+            let mut len_bytes = [0u8; 4];
+            match reader.read_exact(&mut len_bytes) {
+                Ok(_) => {}
+                Err(_) => break, // End of WAL (EOF or truncated prefix)
+            }
+
+            let len = u32::from_le_bytes(len_bytes) as usize;
+            if len > MAX_WAL_ENTRY_SIZE {
+                warn!(
+                    "WAL entry size {} exceeds maximum {}, stopping replay",
+                    len, MAX_WAL_ENTRY_SIZE
+                );
+                break;
+            }
+
+            let mut buf = vec![0u8; len];
+            if reader.read_exact(&mut buf).is_err() {
+                break; // Truncated/corrupted trailing entry
+            }
+
+            match bincode::deserialize::<UtxoTransaction>(&buf) {
                 Ok(tx) => {
                     // Apply the transaction
                     self.apply_transaction_internal(&tx)?;
                 }
-                Err(_) => break, // End of WAL
+                Err(_) => break, // Corrupted entry
             }
         }
 
@@ -479,7 +509,12 @@ impl AtomicUtxoSet {
             .append(true)
             .open(&self.wal_path)?;
 
-        bincode::serialize_into(&mut file, tx)?;
+        // Length-prefix each entry so `replay_wal` can bound its allocation
+        // before deserializing untrusted bytes (see MAX_WAL_ENTRY_SIZE).
+        let serialized = bincode::serialize(tx)?;
+        let len = serialized.len() as u32;
+        file.write_all(&len.to_le_bytes())?;
+        file.write_all(&serialized)?;
         file.sync_all()?;
 
         Ok(())
@@ -891,5 +926,32 @@ mod tests {
             // WAL should be cleared
             assert!(!wal_path.exists());
         }
+    }
+
+    #[test]
+    fn test_replay_wal_rejects_oversized_entry_length() {
+        // A WAL file whose length prefix claims a size larger than
+        // MAX_WAL_ENTRY_SIZE must not trigger a large allocation attempt;
+        // replay should safely stop instead of deserializing untrusted
+        // bytes with an unbounded length.
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("utxo.db");
+        let wal_path = temp_dir.path().join("utxo.wal");
+
+        // Craft a corrupted WAL: a length prefix far exceeding
+        // MAX_WAL_ENTRY_SIZE, followed by a tiny amount of data (nowhere
+        // near enough to satisfy the claimed length).
+        let bogus_len: u32 = (MAX_WAL_ENTRY_SIZE as u32).saturating_add(1);
+        let mut corrupted = Vec::new();
+        corrupted.extend_from_slice(&bogus_len.to_le_bytes());
+        corrupted.extend_from_slice(&[0xAB, 0xCD, 0xEF]);
+        std::fs::write(&wal_path, &corrupted).unwrap();
+
+        // Opening the UTXO set triggers replay_wal() during load(). This
+        // must return Ok and must not attempt to allocate/read the bogus
+        // length, leaving the UTXO set empty and clearing the bad WAL.
+        let utxo_set = AtomicUtxoSet::new(&db_path).unwrap();
+        assert_eq!(utxo_set.len(), 0);
+        assert!(!wal_path.exists());
     }
 }

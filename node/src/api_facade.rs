@@ -364,13 +364,23 @@ impl ApiFacade {
     }
 
     /// Restart node
+    ///
+    /// Triggers the same graceful-shutdown sequence used for SIGINT/SIGTERM
+    /// (see `crate::shutdown::ShutdownCoordinator`), then exits the process
+    /// with a distinct code so a process supervisor (systemd, Docker,
+    /// Kubernetes) configured to restart on that code brings the node back
+    /// up. This process does not re-exec itself in place.
     pub fn restart(&self) -> Result<(), NodeError> {
-        Err(NodeError::General("Restart not implemented".to_string()))
+        crate::shutdown::request_admin_shutdown(true).map_err(NodeError::General)
     }
 
     /// Shutdown node
+    ///
+    /// Triggers the same graceful-shutdown sequence used for SIGINT/SIGTERM
+    /// (see `crate::shutdown::ShutdownCoordinator`) and lets the process
+    /// exit normally once it completes.
     pub fn shutdown(&self) -> Result<(), NodeError> {
-        Err(NodeError::General("Shutdown not implemented".to_string()))
+        crate::shutdown::request_admin_shutdown(false).map_err(NodeError::General)
     }
 
     /// Get debug info

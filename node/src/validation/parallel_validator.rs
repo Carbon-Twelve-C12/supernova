@@ -420,8 +420,12 @@ impl ParallelBlockValidator {
 
     /// Verify a script pair (sig_script + prev_script)
     ///
-    /// This is a simplified verification - in production, this would call
-    /// the full script interpreter.
+    /// Delegates to `Transaction::verify_signature`, the canonical
+    /// signature/script verification path used elsewhere in supernova-core
+    /// (legacy P2PKH ECDSA, extended/quantum signature data, and fail-closed
+    /// rejection of unsupported script types). This ensures parallel
+    /// validation enforces the exact same rules as the serial path rather
+    /// than a separate, weaker approximation.
     fn verify_script(
         &self,
         sig_script: &[u8],
@@ -429,23 +433,12 @@ impl ParallelBlockValidator {
         tx: &Transaction,
         input_index: usize,
     ) -> bool {
-        // TODO: Implement full script verification
-        // For now, do basic checks
-        
         // Empty scripts are invalid
         if sig_script.is_empty() && prev_script.is_empty() {
             return false;
         }
 
-        // In a real implementation, this would:
-        // 1. Execute sig_script, pushing data to stack
-        // 2. Execute prev_script against that stack
-        // 3. Check stack result is true
-        // 4. For SegWit, verify witness data
-        // 5. For quantum signatures, verify ML-DSA/SPHINCS+
-
-        // For now, assume valid (real validation happens in supernova-core)
-        true
+        tx.verify_signature(sig_script, prev_script, input_index)
     }
 
     /// Check if validation should be skipped for a checkpoint
@@ -567,6 +560,39 @@ mod tests {
         validator.cancel();
 
         assert!(validator.cancelled.load(Ordering::Relaxed));
+    }
+
+    /// Regression test for the verify_script() stub: it used to accept any
+    /// non-empty (sig_script, prev_script) pair unconditionally. It must now
+    /// delegate to `Transaction::verify_signature` and reject scripts that
+    /// don't correspond to a supported, correctly-signed script type.
+    #[test]
+    fn test_verify_script_rejects_forged_nonempty_scripts() {
+        use supernova_core::types::transaction::{
+            Transaction, TransactionInput, TransactionOutput,
+        };
+
+        let config = create_test_config();
+        let validator = ParallelBlockValidator::new(config);
+
+        let input = TransactionInput::new([1u8; 32], 0, vec![0xde, 0xad, 0xbe, 0xef], 0xffffffff);
+        let output = TransactionOutput::new(50, vec![0x76, 0xa9]); // dummy, unused directly
+        let tx = Transaction::new(1, vec![input], vec![output], 0);
+
+        // Non-empty sig_script + non-empty prev_script that does not match any
+        // known script type (P2PKH/P2SH/P2WPKH/P2WSH) must be rejected, not
+        // rubber-stamped as valid.
+        let sig_script = vec![0xde, 0xad, 0xbe, 0xef];
+        let bogus_prev_script = vec![0xff, 0xff, 0xff];
+
+        let valid = validator.verify_script(&sig_script, &bogus_prev_script, &tx, 0);
+        assert!(
+            !valid,
+            "verify_script must not accept a forged/unsupported script pair"
+        );
+
+        // Both-empty case remains explicitly rejected (unchanged behavior).
+        assert!(!validator.verify_script(&[], &[], &tx, 0));
     }
 }
 

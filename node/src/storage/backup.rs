@@ -797,38 +797,44 @@ impl RecoveryManager {
             checkpoint.height
         );
 
-        // In a real implementation, this would rebuild the full state
-        // For simplicity, we'll assume the state can be reconstructed correctly
-
-        // Here we would reconstruct:
-        // 1. Reset chain state to the checkpoint
-        // 2. Rebuild UTXO set
-        // 3. Validate chain from genesis to checkpoint
-
-        // For now, we just recreate the chain state with default config
-        let config = supernova_core::storage::chain_state::ChainStateConfig::default();
-        let utxo_set = Arc::new(supernova_core::storage::utxo_set::UtxoSet::new_in_memory(10000));
-        self.chain_state = ChainState::new(config, utxo_set);
-
-        info!("State rebuilt successfully from checkpoint");
-        Ok(())
+        // TODO(F11): This is a stub. A real implementation must:
+        // 1. Reload the persisted UTXO set and block index from disk (not an
+        //    empty in-memory UtxoSet) up to checkpoint.height
+        // 2. Validate the reconstructed tip hash/height against the
+        //    checkpoint's recorded values
+        // 3. Only then update self.chain_state
+        //
+        // Until that exists, fail loudly instead of silently replacing
+        // self.chain_state with an empty, non-persistent UTXO set and
+        // reporting success -- doing so would cause silent chain-state loss
+        // for any caller of verify_and_recover/perform_recovery.
+        Err(StorageError::CheckpointError(format!(
+            "rebuild_from_checkpoint is not implemented: refusing to replace chain state \
+             with an empty UTXO set for checkpoint at height {}. Real checkpoint-based \
+             reconstruction (reload persisted UTXO set/block index and validate against the \
+             checkpoint) is not yet implemented.",
+            checkpoint.height
+        )))
     }
 
     /// Rebuild the database from genesis
     async fn rebuild_from_genesis(&mut self) -> Result<(), StorageError> {
         info!("Rebuilding database from genesis");
 
-        // In a real implementation, this would rebuild the entire blockchain
-        // For now, we'll just clear the database and perform basic initialization
-        self.db.clear()?;
-
-        // Initialize a fresh chain state
-        let config = supernova_core::storage::chain_state::ChainStateConfig::default();
-        let utxo_set = Arc::new(supernova_core::storage::utxo_set::UtxoSet::new_in_memory(10000));
-        self.chain_state = ChainState::new(config, utxo_set);
-
-        info!("Database rebuilt from genesis");
-        Ok(())
+        // TODO(F11): This is a stub. A real implementation must replay and
+        // validate every persisted block from height 0 (or trigger a resync
+        // from peers) to reconstruct chain state and the UTXO set.
+        //
+        // Until that exists, fail loudly instead of clearing the database
+        // and reporting success with an empty, non-persistent UTXO set --
+        // doing so would destroy the existing on-disk data while silently
+        // producing an empty ledger.
+        Err(StorageError::CheckpointError(
+            "rebuild_from_genesis is not implemented: refusing to clear the database and \
+             replace chain state with an empty UTXO set. Real genesis replay/validation of \
+             persisted blocks (or peer resync) is not yet implemented."
+                .to_string(),
+        ))
     }
 }
 
@@ -1010,6 +1016,68 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 2);
+
+        Ok(())
+    }
+
+    // F11: rebuild_from_checkpoint / rebuild_from_genesis are unimplemented
+    // stubs. They must fail loudly rather than silently replace chain state
+    // with an empty, non-persistent UTXO set while reporting success.
+    #[tokio::test]
+    async fn test_rebuild_from_checkpoint_fails_loudly_instead_of_fabricating_success(
+    ) -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let backup_dir = tempdir().unwrap();
+
+        let db_path = temp_dir.path();
+        sled::open(db_path).unwrap();
+        let db = Arc::new(BlockchainDB::new(db_path)?);
+
+        let utxo_set = Arc::new(UtxoSet::new_in_memory(1024));
+        let chain_state = ChainState::new(ChainStateConfig::default(), utxo_set);
+
+        let mut recovery_manager =
+            RecoveryManager::new(Arc::clone(&db), backup_dir.path().to_path_buf(), chain_state);
+
+        let checkpoint = RecoveryCheckpoint {
+            height: 42,
+            block_hash: [1u8; 32],
+            utxo_hash: [2u8; 32],
+            timestamp: 0,
+        };
+
+        let result = recovery_manager.rebuild_from_checkpoint(&checkpoint).await;
+        assert!(
+            result.is_err(),
+            "rebuild_from_checkpoint must not report success until real \
+             checkpoint reconstruction is implemented"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_rebuild_from_genesis_fails_loudly_instead_of_fabricating_success(
+    ) -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let backup_dir = tempdir().unwrap();
+
+        let db_path = temp_dir.path();
+        sled::open(db_path).unwrap();
+        let db = Arc::new(BlockchainDB::new(db_path)?);
+
+        let utxo_set = Arc::new(UtxoSet::new_in_memory(1024));
+        let chain_state = ChainState::new(ChainStateConfig::default(), utxo_set);
+
+        let mut recovery_manager =
+            RecoveryManager::new(Arc::clone(&db), backup_dir.path().to_path_buf(), chain_state);
+
+        let result = recovery_manager.rebuild_from_genesis().await;
+        assert!(
+            result.is_err(),
+            "rebuild_from_genesis must not report success until real \
+             genesis replay is implemented"
+        );
 
         Ok(())
     }

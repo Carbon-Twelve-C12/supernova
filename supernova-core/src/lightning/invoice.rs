@@ -97,6 +97,15 @@ pub struct Invoice {
 
     /// Invoice signature
     signature: Option<Vec<u8>>,
+
+    /// Whether this invoice was created for a private (unadvertised) route
+    is_private: bool,
+
+    /// Whether the invoice has been settled (paid)
+    settled: bool,
+
+    /// Timestamp at which the invoice was settled, if any
+    settled_time: Option<u64>,
 }
 
 impl Invoice {
@@ -106,7 +115,7 @@ impl Invoice {
         amount_mnova: u64,
         description: String,
         expiry: u32,
-        _is_private: bool,
+        is_private: bool,
         node_id: String,
         payment_preimage: PaymentPreimage,
     ) -> Self {
@@ -127,6 +136,9 @@ impl Invoice {
             min_final_cltv_expiry: 40,
             features: 0,
             signature: None,
+            is_private,
+            settled: false,
+            settled_time: None,
         }
     }
 
@@ -142,23 +154,35 @@ impl Invoice {
 
     /// Check if the invoice is settled (paid)
     pub fn is_settled(&self) -> bool {
-        // In a real implementation, this would check payment status
-        // For now, we'll return false as a placeholder
-        false
+        self.settled
     }
 
     /// Get settled timestamp
     pub fn settled_at(&self) -> Option<u64> {
-        // In a real implementation, this would return the settlement timestamp
-        // For now, we'll return None as a placeholder
-        None
+        self.settled_time
     }
 
-    /// Check if the invoice is private
+    /// Mark the invoice as settled (paid) at the current time.
+    ///
+    /// This is the real state transition backing [`Invoice::is_settled`] and
+    /// [`Invoice::settled_at`] — callers (e.g. the Lightning payment manager,
+    /// once an HTLC matching this invoice's payment hash is fulfilled) should
+    /// invoke this instead of relying on external bookkeeping.
+    pub fn mark_settled(&mut self) {
+        if !self.settled {
+            self.settled = true;
+            self.settled_time = Some(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or(Duration::from_secs(0))
+                    .as_secs(),
+            );
+        }
+    }
+
+    /// Check if the invoice is private (uses unadvertised/private route hints)
     pub fn is_private(&self) -> bool {
-        // In a real implementation, this would check if the invoice is private
-        // For now, we'll return false as a placeholder
-        false
+        self.is_private
     }
 
     /// Create a new invoice with preimage and payment hash
@@ -199,6 +223,9 @@ impl Invoice {
             min_final_cltv_expiry: 40, // Default CLTV delta
             features: 0,               // No special features
             signature: None,           // No signature yet
+            is_private: false,
+            settled: false,
+            settled_time: None,
         })
     }
 
@@ -247,16 +274,122 @@ impl Invoice {
             min_final_cltv_expiry: 40, // Default CLTV delta
             features: 0,               // No special features
             signature: None,           // No signature yet
+            is_private: false,
+            settled: false,
+            settled_time: None,
         })
     }
 
-    /// Parse an invoice from a string
-    pub fn from_str(_invoice_str: &str) -> Result<Self, InvoiceError> {
-        // In a real implementation, this would parse a BOLT-11 invoice
-        // For simplicity, we'll just return an error
-        Err(InvoiceError::InvalidFormat(
-            "Invoice parsing not implemented".to_string(),
-        ))
+    /// Invoice string encoding prefix/version tag.
+    const ENCODING_PREFIX: &'static str = "snova1";
+
+    /// Parse an invoice from its encoded string form (see [`Invoice::to_string`]
+    /// for the corresponding encoder).
+    ///
+    /// Performs real field validation rather than a placeholder: the payment
+    /// hash must be a well-formed 32-byte hex string, the amount must be
+    /// non-zero, and the invoice must not already be expired.
+    ///
+    /// Note: like a real BOLT11 invoice handed to a payer, the encoded form
+    /// never carries the payment preimage (only the invoice creator knows
+    /// it), so a parsed [`Invoice`] holds a zeroed placeholder preimage that
+    /// must not be relied upon for payment settlement.
+    pub fn from_str(invoice_str: &str) -> Result<Self, InvoiceError> {
+        let mut parts = invoice_str.split(':');
+
+        let prefix = parts
+            .next()
+            .ok_or_else(|| InvoiceError::InvalidFormat("Empty invoice string".to_string()))?;
+        if prefix != Self::ENCODING_PREFIX {
+            return Err(InvoiceError::InvalidFormat(format!(
+                "Unrecognized invoice prefix: {}",
+                prefix
+            )));
+        }
+
+        let fields: Vec<&str> = parts.collect();
+        if fields.len() != 9 {
+            return Err(InvoiceError::InvalidFormat(format!(
+                "Expected 9 invoice fields, found {}",
+                fields.len()
+            )));
+        }
+
+        let amount_mnova: u64 = fields[0]
+            .parse()
+            .map_err(|_| InvoiceError::InvalidAmount(format!("Invalid amount: {}", fields[0])))?;
+        if amount_mnova == 0 {
+            return Err(InvoiceError::InvalidAmount(
+                "Amount must be greater than zero".to_string(),
+            ));
+        }
+
+        let timestamp: u64 = fields[1]
+            .parse()
+            .map_err(|_| InvoiceError::ParseError(format!("Invalid timestamp: {}", fields[1])))?;
+        let expiry: u32 = fields[2]
+            .parse()
+            .map_err(|_| InvoiceError::ParseError(format!("Invalid expiry: {}", fields[2])))?;
+        let min_final_cltv_expiry: u32 = fields[3].parse().map_err(|_| {
+            InvoiceError::ParseError(format!("Invalid CLTV delta: {}", fields[3]))
+        })?;
+        let features: u64 = fields[4]
+            .parse()
+            .map_err(|_| InvoiceError::ParseError(format!("Invalid features: {}", fields[4])))?;
+        let is_private = match fields[5] {
+            "0" => false,
+            "1" => true,
+            other => {
+                return Err(InvoiceError::ParseError(format!(
+                    "Invalid private flag: {}",
+                    other
+                )))
+            }
+        };
+
+        // Validates length (64 hex chars) and hex encoding of the payment hash.
+        let payment_hash = PaymentHash::from_hex(fields[6])
+            .map_err(|e| InvoiceError::InvalidHash(format!("{:?}", e)))?;
+
+        let destination_bytes = hex::decode(fields[7])
+            .map_err(|e| InvoiceError::ParseError(format!("Invalid destination: {}", e)))?;
+        let destination = String::from_utf8(destination_bytes)
+            .map_err(|e| InvoiceError::ParseError(format!("Invalid destination: {}", e)))?;
+
+        // Description is hex-encoded (like destination) so that arbitrary
+        // human-readable text, including ':' characters, round-trips safely
+        // through the ':'-delimited field format.
+        let description_bytes = hex::decode(fields[8])
+            .map_err(|e| InvoiceError::ParseError(format!("Invalid description: {}", e)))?;
+        let description = String::from_utf8(description_bytes)
+            .map_err(|e| InvoiceError::ParseError(format!("Invalid description: {}", e)))?;
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+        if now > timestamp + expiry as u64 {
+            return Err(InvoiceError::Expired);
+        }
+
+        Ok(Self {
+            payment_hash,
+            // Payer-side invoices never carry the preimage; only the
+            // creator/payee retains it (see doc comment above).
+            payment_preimage: PaymentPreimage::new([0u8; 32]),
+            description,
+            destination,
+            amount_mnova,
+            timestamp,
+            expiry,
+            route_hints: Vec::new(),
+            min_final_cltv_expiry,
+            features,
+            signature: None,
+            is_private,
+            settled: false,
+            settled_time: None,
+        })
     }
 
     /// Get payment hash
@@ -352,15 +485,26 @@ impl Invoice {
         }
     }
 
-    /// Encode the invoice as a string
+    /// Encode the invoice as a string.
+    ///
+    /// This is Supernova's own reversible invoice encoding (tagged
+    /// `snova1`), not raw BOLT11 bech32: it deterministically serializes
+    /// every field needed to reconstruct an equivalent [`Invoice`] via
+    /// [`Invoice::from_str`], with destination and description hex-encoded
+    /// so they safely round-trip through the ':'-delimited format.
     pub fn to_string(&self) -> Result<String, InvoiceError> {
-        // In a real implementation, this would encode a BOLT-11 invoice
-        // For simplicity, we'll just create a placeholder string
         let invoice_str = format!(
-            "lnbc{}{}{}",
-            self.amount_mnova / 1000,
-            self.payment_hash,
-            self.timestamp
+            "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+            Self::ENCODING_PREFIX,
+            self.amount_mnova,
+            self.timestamp,
+            self.expiry,
+            self.min_final_cltv_expiry,
+            self.features,
+            if self.is_private { "1" } else { "0" },
+            self.payment_hash.to_hex(),
+            hex::encode(self.destination.as_bytes()),
+            hex::encode(self.description.as_bytes()),
         );
 
         Ok(invoice_str)
@@ -838,5 +982,123 @@ impl InvoiceDatabase {
         }
 
         to_remove.len()
+    }
+}
+
+#[cfg(test)]
+mod invoice_lifecycle_tests {
+    use super::*;
+
+    fn sample_invoice() -> Invoice {
+        let preimage = PaymentPreimage::new_random();
+        let payment_hash = preimage.payment_hash();
+        Invoice::new(
+            payment_hash,
+            50_000,
+            "coffee".to_string(),
+            3600,
+            true,
+            "029a059f014307e795a31e1ddfdd19c7df6c7b1e2d09d6788c31ca4c38bac0f9ab".to_string(),
+            preimage,
+        )
+    }
+
+    #[test]
+    fn to_string_from_str_round_trips_public_fields() {
+        let invoice = sample_invoice();
+        let encoded = invoice.to_string().expect("encode invoice");
+
+        let parsed = Invoice::from_str(&encoded).expect("parse invoice");
+
+        assert_eq!(parsed.payment_hash(), invoice.payment_hash());
+        assert_eq!(parsed.amount_mnova(), invoice.amount_mnova());
+        assert_eq!(parsed.description(), invoice.description());
+        assert_eq!(parsed.destination(), invoice.destination());
+        assert_eq!(parsed.timestamp(), invoice.timestamp());
+        assert_eq!(parsed.expiry(), invoice.expiry());
+        assert_eq!(parsed.is_private(), invoice.is_private());
+    }
+
+    #[test]
+    fn from_str_rejects_unrecognized_prefix() {
+        let result = Invoice::from_str("notaninvoice:1:2:3");
+        assert!(matches!(result, Err(InvoiceError::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn from_str_rejects_malformed_payment_hash() {
+        let invoice = sample_invoice();
+        let encoded = invoice.to_string().expect("encode invoice");
+        // Corrupt the payment hash field (7th field after the prefix).
+        let mut fields: Vec<&str> = encoded.split(':').collect();
+        fields[7] = "not-hex";
+        let corrupted = fields.join(":");
+
+        let result = Invoice::from_str(&corrupted);
+        assert!(matches!(result, Err(InvoiceError::InvalidHash(_))));
+    }
+
+    #[test]
+    fn from_str_rejects_already_expired_invoice() {
+        let preimage = PaymentPreimage::new_random();
+        let payment_hash = preimage.payment_hash();
+        // Expiry of 0 seconds from creation means it is immediately expired.
+        let invoice = Invoice::new(
+            payment_hash,
+            1_000,
+            "expired".to_string(),
+            0,
+            false,
+            "dest".to_string(),
+            preimage,
+        );
+        let encoded = invoice.to_string().expect("encode invoice");
+
+        // Ensure we're past the expiry boundary.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+
+        let result = Invoice::from_str(&encoded);
+        assert!(matches!(result, Err(InvoiceError::Expired)));
+    }
+
+    #[test]
+    fn is_settled_and_settled_at_reflect_real_state() {
+        let mut invoice = sample_invoice();
+        assert!(!invoice.is_settled());
+        assert_eq!(invoice.settled_at(), None);
+
+        invoice.mark_settled();
+
+        assert!(invoice.is_settled());
+        assert!(invoice.settled_at().is_some());
+    }
+
+    #[test]
+    fn is_private_reflects_constructor_argument() {
+        let preimage = PaymentPreimage::new_random();
+        let payment_hash = preimage.payment_hash();
+        let private_invoice = Invoice::new(
+            payment_hash,
+            1_000,
+            "private".to_string(),
+            3600,
+            true,
+            "dest".to_string(),
+            preimage,
+        );
+        assert!(private_invoice.is_private());
+
+        let preimage2 = PaymentPreimage::new_random();
+        let payment_hash2 = preimage2.payment_hash();
+        let public_invoice = Invoice::new(
+            payment_hash2,
+            1_000,
+            "public".to_string(),
+            3600,
+            false,
+            "dest".to_string(),
+            preimage2,
+        );
+        assert!(!public_invoice.is_private());
     }
 }

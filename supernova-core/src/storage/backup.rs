@@ -34,6 +34,11 @@ pub enum BackupError {
 /// Result type for backup operations
 pub type BackupResult<T> = Result<T, BackupError>;
 
+/// Maximum allowed size (in bytes) for a serialized backup metadata header.
+/// Guards against a corrupted or maliciously crafted backup file forcing a
+/// huge allocation or an out-of-bounds seek before any content validation.
+const MAX_BACKUP_METADATA_SIZE: usize = 1024 * 1024;
+
 /// Type of backup
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BackupType {
@@ -449,6 +454,12 @@ impl BackupManager {
         let mut size_bytes = [0u8; 4];
         file.read_exact(&mut size_bytes)?;
         let metadata_size = u32::from_le_bytes(size_bytes) as usize;
+        if metadata_size > MAX_BACKUP_METADATA_SIZE {
+            return Err(BackupError::InvalidBackup(format!(
+                "metadata size {} exceeds cap of {} bytes",
+                metadata_size, MAX_BACKUP_METADATA_SIZE
+            )));
+        }
 
         // Read metadata
         let mut metadata_bytes = vec![0u8; metadata_size];
@@ -503,6 +514,12 @@ impl BackupManager {
         let mut size_bytes = [0u8; 4];
         file.read_exact(&mut size_bytes)?;
         let metadata_size = u32::from_le_bytes(size_bytes) as usize;
+        if metadata_size > MAX_BACKUP_METADATA_SIZE {
+            return Err(BackupError::InvalidBackup(format!(
+                "metadata size {} exceeds cap of {} bytes",
+                metadata_size, MAX_BACKUP_METADATA_SIZE
+            )));
+        }
         file.seek(SeekFrom::Current(metadata_size as i64))?;
 
         // Read the backup data
@@ -642,6 +659,12 @@ impl BackupManager {
         let mut size_bytes = [0u8; 4];
         file.read_exact(&mut size_bytes)?;
         let metadata_size = u32::from_le_bytes(size_bytes) as usize;
+        if metadata_size > MAX_BACKUP_METADATA_SIZE {
+            return Err(BackupError::InvalidBackup(format!(
+                "metadata size {} exceeds cap of {} bytes",
+                metadata_size, MAX_BACKUP_METADATA_SIZE
+            )));
+        }
         file.seek(SeekFrom::Current(metadata_size as i64))?;
 
         // Read the backup data
@@ -860,5 +883,40 @@ mod tests {
 
         // Verify backup integrity
         assert!(backup_manager.verify_backup(&backup.id).unwrap());
+    }
+
+    #[test]
+    fn test_load_backup_metadata_rejects_oversized_size_prefix() {
+        // Create temporary directory for test
+        let temp_dir = tempdir().unwrap();
+
+        // Create config
+        let config = BackupConfig {
+            backup_dir: temp_dir.path().to_path_buf(),
+            ..Default::default()
+        };
+
+        // Create backup manager
+        let backup_manager = BackupManager::new(config).unwrap();
+
+        // Craft a corrupted backup file whose 4-byte little-endian metadata_size
+        // prefix claims a size larger than MAX_BACKUP_METADATA_SIZE, without
+        // actually providing that much data.
+        let malicious_path = temp_dir.path().join("malicious.backup");
+        let oversized: u32 = (MAX_BACKUP_METADATA_SIZE as u32).saturating_add(1);
+        let mut contents = oversized.to_le_bytes().to_vec();
+        contents.extend_from_slice(b"not really that much data");
+        fs::write(&malicious_path, &contents).unwrap();
+
+        // Loading metadata must reject the oversized size prefix instead of
+        // attempting to allocate/read metadata_size bytes.
+        let result = backup_manager.load_backup_metadata(&malicious_path);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BackupError::InvalidBackup(msg) => {
+                assert!(msg.contains("exceeds cap"));
+            }
+            other => panic!("expected InvalidBackup error, got: {:?}", other),
+        }
     }
 }

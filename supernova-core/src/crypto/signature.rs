@@ -760,87 +760,22 @@ impl Signature {
         }
     }
 
-    /// Verify a message with this signature
+    /// Verify a message with this signature.
+    ///
+    /// Delegates to `SignatureVerifier`, which contains the real, working
+    /// implementations for every advertised signature type (including the
+    /// PQC schemes). Previously this inherent method hardcoded
+    /// "not implemented" errors for Ed25519/Schnorr/Sphincs/Dilithium/Falcon/
+    /// Hybrid regardless of `SignatureVerifier` actually supporting them,
+    /// which meant any caller reaching for the more obviously-named
+    /// `Signature::verify()` API would silently fail for every PQC scheme.
     pub fn verify(&self, message: &[u8]) -> Result<bool, SignatureError> {
-        match self.signature_type {
-            SignatureType::Secp256k1 => self.verify_secp256k1(message),
-            SignatureType::Ed25519 => Err(SignatureError::UnsupportedType(
-                "Ed25519 not implemented".to_string(),
-            )),
-            SignatureType::Schnorr => Err(SignatureError::UnsupportedType(
-                "Schnorr not implemented".to_string(),
-            )),
-            SignatureType::Sphincs => Err(SignatureError::UnsupportedType(
-                "SPHINCS+ not implemented".to_string(),
-            )),
-            SignatureType::Dilithium => Err(SignatureError::UnsupportedType(
-                "Dilithium not implemented".to_string(),
-            )),
-            SignatureType::Falcon => Err(SignatureError::UnsupportedType(
-                "Falcon not implemented".to_string(),
-            )),
-            SignatureType::Hybrid => Err(SignatureError::UnsupportedType(
-                "Hybrid not implemented".to_string(),
-            )),
-            SignatureType::Classical(classical_scheme) => match classical_scheme {
-                ClassicalScheme::Secp256k1 => self.verify_secp256k1(message),
-                ClassicalScheme::Ed25519 => Err(SignatureError::UnsupportedType(
-                    "Ed25519 not implemented".to_string(),
-                )),
-            },
-            SignatureType::Quantum(quantum_scheme) => match quantum_scheme {
-                QuantumScheme::Dilithium => self.verify_dilithium(message),
-                QuantumScheme::Falcon => self.verify_falcon(message),
-                QuantumScheme::SphincsPlus => Err(SignatureError::UnsupportedType(
-                    "SPHINCS+ not implemented".to_string(),
-                )),
-                QuantumScheme::Hybrid(classical_scheme) => match classical_scheme {
-                    ClassicalScheme::Secp256k1 => self.verify_secp256k1(message),
-                    ClassicalScheme::Ed25519 => Err(SignatureError::UnsupportedType(
-                        "Ed25519 not implemented".to_string(),
-                    )),
-                },
-            },
-        }
-    }
-
-    /// Verify a Secp256k1 signature
-    fn verify_secp256k1(&self, message: &[u8]) -> Result<bool, SignatureError> {
-        let secp = Secp256k1::verification_only();
-
-        // Convert message to Message
-        let message = Message::from_slice(message)
-            .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
-
-        // Convert public key bytes to PublicKey
-        let public_key = PublicKey::from_slice(&self.public_key_bytes)
-            .map_err(|e| SignatureError::InvalidKey(e.to_string()))?;
-
-        // Convert signature bytes to Signature
-        let signature = Secp256k1Signature::from_compact(&self.signature_bytes)
-            .map_err(|e| SignatureError::InvalidSignature(e.to_string()))?;
-
-        // Verify
-        match secp.verify_ecdsa(&message, &signature, &public_key) {
-            Ok(_) => Ok(true),
-            Err(e) => Err(SignatureError::VerificationFailed(e.to_string())),
-        }
-    }
-
-    /// Verify a Dilithium signature
-    fn verify_dilithium(&self, message: &[u8]) -> Result<bool, SignatureError> {
-        // Implementation of verify_dilithium method
-        Err(SignatureError::InternalError(
-            "Dilithium verification not implemented".to_string(),
-        ))
-    }
-
-    /// Verify a Falcon signature
-    fn verify_falcon(&self, message: &[u8]) -> Result<bool, SignatureError> {
-        // Implementation of verify_falcon method
-        Err(SignatureError::InternalError(
-            "Falcon verification not implemented".to_string(),
-        ))
+        SignatureVerifier::new().verify(
+            self.signature_type,
+            &self.public_key_bytes,
+            message,
+            &self.signature_bytes,
+        )
     }
 }
 
@@ -881,6 +816,13 @@ impl KeyPair {
     }
 
     /// Sign a message
+    ///
+    /// PQC variants (Sphincs/Dilithium/Falcon/Hybrid) delegate to the real,
+    /// tested `QuantumKeyPair::sign` implementation in `crate::crypto::quantum`,
+    /// mirroring the delegation pattern used by `Signature::verify()` /
+    /// `SignatureVerifier`. Previously these branches hardcoded "not
+    /// implemented" errors even though a working signing implementation for
+    /// every one of these schemes already existed elsewhere in the crate.
     pub fn sign(&self, message: &[u8]) -> Result<Signature, SignatureError> {
         match self.signature_type {
             SignatureType::Secp256k1 => self.sign_secp256k1(message),
@@ -890,42 +832,45 @@ impl KeyPair {
             SignatureType::Schnorr => Err(SignatureError::UnsupportedType(
                 "Schnorr not implemented".to_string(),
             )),
-            SignatureType::Sphincs => Err(SignatureError::UnsupportedType(
-                "SPHINCS+ not implemented".to_string(),
-            )),
-            SignatureType::Dilithium => Err(SignatureError::UnsupportedType(
-                "Dilithium not implemented".to_string(),
-            )),
-            SignatureType::Falcon => Err(SignatureError::UnsupportedType(
-                "Falcon not implemented".to_string(),
-            )),
-            SignatureType::Hybrid => Err(SignatureError::UnsupportedType(
-                "Hybrid not implemented".to_string(),
-            )),
+            SignatureType::Sphincs => self.sign_quantum(message, QuantumScheme::SphincsPlus),
+            SignatureType::Dilithium => self.sign_quantum(message, QuantumScheme::Dilithium),
+            SignatureType::Falcon => self.sign_quantum(message, QuantumScheme::Falcon),
+            SignatureType::Hybrid => {
+                self.sign_quantum(message, QuantumScheme::Hybrid(ClassicalScheme::Secp256k1))
+            }
             SignatureType::Classical(classical_scheme) => match classical_scheme {
                 ClassicalScheme::Secp256k1 => self.sign_secp256k1(message),
                 ClassicalScheme::Ed25519 => Err(SignatureError::UnsupportedType(
                     "Ed25519 not implemented".to_string(),
                 )),
             },
-            SignatureType::Quantum(quantum_scheme) => match quantum_scheme {
-                QuantumScheme::Dilithium => Err(SignatureError::UnsupportedType(
-                    "Dilithium not implemented".to_string(),
-                )),
-                QuantumScheme::Falcon => Err(SignatureError::UnsupportedType(
-                    "Falcon not implemented".to_string(),
-                )),
-                QuantumScheme::SphincsPlus => Err(SignatureError::UnsupportedType(
-                    "SPHINCS+ not implemented".to_string(),
-                )),
-                QuantumScheme::Hybrid(classical_scheme) => match classical_scheme {
-                    ClassicalScheme::Secp256k1 => self.sign_secp256k1(message),
-                    ClassicalScheme::Ed25519 => Err(SignatureError::UnsupportedType(
-                        "Ed25519 not implemented".to_string(),
-                    )),
-                },
-            },
+            SignatureType::Quantum(quantum_scheme) => self.sign_quantum(message, quantum_scheme),
         }
+    }
+
+    /// Sign with a post-quantum scheme by delegating to the real
+    /// `QuantumKeyPair::sign` implementation (see doc comment on `sign()`).
+    fn sign_quantum(
+        &self,
+        message: &[u8],
+        scheme: QuantumScheme,
+    ) -> Result<Signature, SignatureError> {
+        let keypair = crate::crypto::quantum::QuantumKeyPair {
+            public_key: self.public_key.clone(),
+            secret_key: self.secret_key.clone(),
+            parameters: QuantumParameters {
+                scheme,
+                security_level: 2, // Medium security level by default, matching SignatureVerifier::new()
+            },
+        };
+
+        let signature_bytes = keypair.sign(message)?;
+
+        Ok(Signature::new(
+            self.signature_type,
+            signature_bytes,
+            self.public_key.clone(),
+        ))
     }
 
     /// Sign with Secp256k1
@@ -1004,6 +949,53 @@ mod tests {
         // Verify
         let result = signature.verify(&message_hash).unwrap();
         assert!(result);
+    }
+
+    /// Regression test for the F6 finding: `KeyPair::sign()` and
+    /// `Signature::verify()` used to hardcode "not implemented" errors for
+    /// every PQC scheme even though real, working implementations existed
+    /// elsewhere in the crate (`QuantumKeyPair::sign` / `SignatureVerifier`).
+    /// This exercises the full round trip through the inherent `KeyPair`/
+    /// `Signature` API (not just the `SignatureVerifier`/`QuantumKeyPair`
+    /// APIs directly) for a representative PQC scheme.
+    #[test]
+    fn test_dilithium_sign_verify_via_keypair() {
+        use crate::crypto::quantum::{QuantumKeyPair, QuantumParameters};
+
+        let params = QuantumParameters {
+            scheme: QuantumScheme::Dilithium,
+            security_level: 2,
+        };
+        let quantum_keypair =
+            QuantumKeyPair::generate(params).expect("Dilithium key generation should succeed");
+
+        // Construct the (separate) `crypto::signature::KeyPair` abstraction
+        // directly from the real Dilithium key material, since `KeyPair`
+        // only exposes a `new_secp256k1()` constructor publicly.
+        let key_pair = KeyPair {
+            signature_type: SignatureType::Dilithium,
+            secret_key: quantum_keypair.secret_key.clone(),
+            public_key: quantum_keypair.public_key.clone(),
+        };
+
+        let message = b"Dilithium signing must not be a dead stub";
+
+        // Previously this returned Err(UnsupportedType("Dilithium not implemented"))
+        let signature = key_pair
+            .sign(message)
+            .expect("Dilithium signing should delegate to the real implementation");
+        assert_eq!(signature.signature_type, SignatureType::Dilithium);
+
+        // Previously this also returned Err(UnsupportedType(...)) regardless
+        // of the signature's validity.
+        let valid = signature
+            .verify(message)
+            .expect("Dilithium verification should delegate to the real implementation");
+        assert!(valid, "a genuine Dilithium signature must verify as valid");
+
+        // A tampered message must not verify.
+        let tampered = signature.verify(b"different message").unwrap_or(false);
+        assert!(!tampered, "signature must not verify against a different message");
     }
 
     #[test]

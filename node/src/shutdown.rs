@@ -23,6 +23,9 @@ pub enum ShutdownSignal {
     Error,
     /// Upgrade-initiated shutdown
     Upgrade,
+    /// Shutdown requested via the admin API/RPC surface
+    /// (`ApiFacade::shutdown` / `ApiFacade::restart`)
+    Api,
 }
 
 /// Current shutdown phase
@@ -480,6 +483,62 @@ impl ShutdownCoordinator {
     }
 }
 
+/// Sender used to deliver an admin-API-requested shutdown into the same
+/// channel `main`'s signal-handling loop already selects on. Populated the
+/// one time [`register_signal_handlers`] is called by the running node's
+/// event loop; a request made before that (or from a context — such as a
+/// unit test — that never starts a real node loop) simply fails, which is
+/// surfaced to the caller as an error rather than silently doing nothing.
+static ADMIN_SHUTDOWN_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<ShutdownSignal>> =
+    std::sync::OnceLock::new();
+
+/// Set when an admin API/RPC call requested a *restart* rather than a plain
+/// shutdown. Consulted by `main` after the graceful shutdown sequence
+/// completes so it can exit with a distinct code that a process supervisor
+/// (systemd, Docker, Kubernetes) can use to restart the node.
+static ADMIN_RESTART_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Exit code used when an admin API/RPC call requested a restart. Distinct
+/// from a normal `0` exit so a supervisor's restart policy can distinguish
+/// "please bring me back up" from "I stopped on purpose, leave me down".
+pub const ADMIN_RESTART_EXIT_CODE: i32 = 75;
+
+/// Request that the running node process perform a graceful shutdown from
+/// outside the normal OS-signal path — used by the admin API/RPC
+/// `restart`/`shutdown` endpoints (see `ApiFacade::restart`/`shutdown`).
+///
+/// Returns an error if no node event loop has registered its shutdown
+/// channel via [`register_signal_handlers`].
+pub fn request_admin_shutdown(restart: bool) -> Result<(), String> {
+    let tx = ADMIN_SHUTDOWN_TX
+        .get()
+        .ok_or_else(|| "node shutdown channel is not initialized".to_string())?;
+    send_admin_shutdown(tx, restart)
+}
+
+/// Core of [`request_admin_shutdown`], split out so it can be unit tested
+/// against a locally-created channel instead of the process-global
+/// `ADMIN_SHUTDOWN_TX`/`ADMIN_RESTART_REQUESTED` statics (which, being
+/// shared across every test in the binary, aren't safe to assert on from
+/// tests that run concurrently).
+fn send_admin_shutdown(
+    tx: &tokio::sync::mpsc::Sender<ShutdownSignal>,
+    restart: bool,
+) -> Result<(), String> {
+    if restart {
+        ADMIN_RESTART_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    tx.try_send(ShutdownSignal::Api)
+        .map_err(|e| format!("failed to signal shutdown: {}", e))
+}
+
+/// Whether the pending/most recent admin-initiated shutdown was requested
+/// as a restart. Checked by `main` once shutdown completes.
+pub fn admin_restart_requested() -> bool {
+    ADMIN_RESTART_REQUESTED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Register signal handlers for graceful shutdown
 /// Returns a receiver channel that will receive shutdown signals
 pub fn register_signal_handlers() -> tokio::sync::mpsc::Receiver<ShutdownSignal> {
@@ -487,6 +546,10 @@ pub fn register_signal_handlers() -> tokio::sync::mpsc::Receiver<ShutdownSignal>
     use tokio::sync::mpsc;
 
     let (tx, rx) = mpsc::channel(1);
+    // Make this channel reachable from `ApiFacade::restart`/`shutdown` via
+    // `request_admin_shutdown`. Best-effort: if `register_signal_handlers`
+    // is somehow called more than once, the first registration wins.
+    let _ = ADMIN_SHUTDOWN_TX.set(tx.clone());
 
     let tx_clone = tx.clone();
     // Spawn task to handle Ctrl+C
@@ -629,6 +692,25 @@ mod tests {
         let _rx = register_signal_handlers();
         // Test passes if registration doesn't panic
         assert!(true);
+    }
+
+    /// `ApiFacade::shutdown`/`restart` (node/src/api_facade.rs) delegate to
+    /// `request_admin_shutdown`, whose delivery mechanics live in
+    /// `send_admin_shutdown`. Verify a plain shutdown request delivers an
+    /// `Api` signal without flagging a restart, and a restart request both
+    /// delivers the signal and flags `admin_restart_requested()`.
+    #[tokio::test]
+    async fn test_admin_shutdown_delivers_signal_and_restart_flag() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+        send_admin_shutdown(&tx, false).expect("shutdown send should succeed");
+        let signal = rx.recv().await.expect("channel should deliver a signal");
+        assert_eq!(signal, ShutdownSignal::Api);
+
+        send_admin_shutdown(&tx, true).expect("restart send should succeed");
+        let signal = rx.recv().await.expect("channel should deliver a signal");
+        assert_eq!(signal, ShutdownSignal::Api);
+        assert!(admin_restart_requested());
     }
 
     #[tokio::test]

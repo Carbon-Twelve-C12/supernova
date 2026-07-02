@@ -1478,14 +1478,20 @@ impl LightningManager {
         route: &crate::lightning::router::PaymentPath,
         _invoice: &ParsedInvoice,
     ) -> Result<crate::lightning::payment::PaymentPreimage, ManagerError> {
-        // Simplified payment sending - in production would handle onion routing
+        // Onion-routed HTLC dispatch is not yet implemented: no HTLC/onion packet is
+        // actually sent to the first hop. Returning a fabricated preimage here would
+        // tell callers a payment succeeded when nothing was ever transmitted over the
+        // network, so we must fail explicitly instead of inventing a "success".
         info!(
-            "Sending payment through route with {} hops",
+            "Refusing to send payment through route with {} hops: onion routing not implemented",
             route.hops.len()
         );
 
-        // For now, just return a random preimage
-        Ok(crate::lightning::payment::PaymentPreimage::new_random())
+        Err(ManagerError::PaymentFailed(
+            "Payment sending is not implemented: onion routing / HTLC dispatch is not yet \
+             wired up, so no payment can be sent"
+                .to_string(),
+        ))
     }
 
     /// Get network nodes
@@ -1692,5 +1698,42 @@ impl From<LightningNetworkError> for ManagerError {
 impl From<crate::lightning::QuantumSecurityError> for ManagerError {
     fn from(err: crate::lightning::QuantumSecurityError) -> Self {
         ManagerError::QuantumSecurityError(err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lightning::payment::PaymentHash;
+    use crate::lightning::router::PaymentPath;
+
+    /// `send_payment_through_route` must never fabricate a successful payment:
+    /// since no onion routing / HTLC dispatch is actually implemented, it must
+    /// return an explicit error instead of a random preimage that looks like
+    /// cryptographic proof of a payment that was never sent.
+    #[tokio::test]
+    async fn send_payment_through_route_fails_instead_of_fabricating_preimage() {
+        let wallet =
+            LightningWallet::new_test_wallet(1_000_000).expect("failed to create test wallet");
+        let (manager, _events) = LightningManager::new(LightningConfig::default(), wallet)
+            .expect("failed to create manager");
+
+        let route = PaymentPath::new();
+        let invoice = ParsedInvoice {
+            payment_hash: PaymentHash::new([7u8; 32]),
+            amount_mnova: 1_000,
+            destination: "test-destination".to_string(),
+            expiry: 3600,
+            description: "test invoice".to_string(),
+        };
+
+        let result = manager.send_payment_through_route(&route, &invoice).await;
+
+        assert!(
+            matches!(result, Err(ManagerError::PaymentFailed(_))),
+            "expected send_payment_through_route to fail explicitly instead of \
+             fabricating a preimage, got: {:?}",
+            result
+        );
     }
 }

@@ -18,6 +18,11 @@ use tracing::{error, info};
 /// Maximum size of the WAL file before rotation (100MB)
 const MAX_WAL_SIZE: u64 = 100 * 1024 * 1024;
 
+/// Maximum size of a single WAL entry (16MB). Guards against a corrupted or
+/// maliciously modified size prefix triggering an oversized allocation
+/// during crash-recovery replay before the entry's checksum is verified.
+const MAX_WAL_ENTRY_SIZE: usize = 16 * 1024 * 1024;
+
 /// WAL entry types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum JournalEntry {
@@ -351,6 +356,15 @@ impl WriteAheadLog {
 
             let size = u32::from_le_bytes(size_bytes) as usize;
 
+            // Reject an oversized/corrupted length prefix before attempting
+            // the allocation or read, so a single flipped bit cannot force a
+            // large allocation attempt during crash-recovery replay.
+            if size > MAX_WAL_ENTRY_SIZE {
+                return Err(WalError::CorruptedEntry {
+                    sequence: last_sequence,
+                });
+            }
+
             // Read entry data
             buffer.resize(size, 0);
             file.read_exact(&mut buffer)?;
@@ -582,5 +596,27 @@ mod tests {
         // Verify entries
         let entries = wal.get_pending_entries().await.unwrap();
         assert!(entries.len() >= 4); // BatchStart + 2 entries + BatchCommit
+    }
+
+    #[tokio::test]
+    async fn test_wal_rejects_oversized_entry_size_prefix() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path();
+
+        // Craft a WAL file with a corrupted/oversized 4-byte size prefix
+        // (larger than MAX_WAL_ENTRY_SIZE) followed by too little data to
+        // satisfy it. Replay must reject this before attempting to
+        // allocate/read `size` bytes.
+        let current_wal_path = wal_path.join("wal.current");
+        let mut bytes = Vec::new();
+        let bogus_size: u32 = (MAX_WAL_ENTRY_SIZE as u32).saturating_add(1);
+        bytes.extend_from_slice(&bogus_size.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 8]); // far short of `bogus_size`
+        tokio::fs::write(&current_wal_path, &bytes).await.unwrap();
+
+        // Recovery must fail fast (CorruptedEntry) rather than attempting a
+        // multi-gigabyte allocation or hanging on a short read.
+        let result = WriteAheadLog::new(wal_path).await;
+        assert!(matches!(result, Err(WalError::CorruptedEntry { .. })));
     }
 }

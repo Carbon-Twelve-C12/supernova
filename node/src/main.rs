@@ -258,5 +258,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // If the shutdown was triggered by the admin API's `restart` endpoint
+    // (as opposed to `shutdown`), exit with a distinct code so a process
+    // supervisor (systemd, Docker, Kubernetes) configured to restart on
+    // that code brings the node back up.
+    if node::shutdown::admin_restart_requested() {
+        info!("Restart requested via admin API; exiting with restart code");
+        std::process::exit(node::shutdown::ADMIN_RESTART_EXIT_CODE);
+    }
+
     Ok(())
 }

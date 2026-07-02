@@ -431,9 +431,13 @@ impl NetworkProxy {
     }
 
     /// Check if syncing
+    ///
+    /// Uses the same heuristic as `P2PNetwork::is_syncing`: the node is
+    /// considered to be syncing if it has at least one connected peer but
+    /// has not yet received a substantial number of blocks.
     pub fn is_syncing(&self) -> bool {
-        // For now, return false as syncing logic is not implemented
-        false
+        let stats = self.get_stats_sync();
+        stats.peers_connected > 0 && stats.blocks_received < 100
     }
 
     /// Get stats synchronously (returns cached value)
@@ -500,7 +504,48 @@ impl NetworkProxy {
             .send(NetworkCommand::ConnectToPeer(multiaddr_str.to_string()))
             .await
             .map_err(|e| format!("Failed to send connect command: {}", e))?;
-        
+
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod is_syncing_tests {
+    use super::*;
+
+    fn make_proxy() -> NetworkProxy {
+        let (command_tx, _command_rx) = mpsc::channel(1);
+        let (proxy, _request_rx, _cached_stats) =
+            NetworkProxy::new(PeerId::random(), "test-network".to_string(), command_tx);
+        proxy
+    }
+
+    #[tokio::test]
+    async fn is_syncing_false_with_no_peers() {
+        let proxy = make_proxy();
+        // Default stats: no peers connected, so not syncing.
+        assert!(!proxy.is_syncing());
+    }
+
+    #[tokio::test]
+    async fn is_syncing_true_with_peers_and_few_blocks() {
+        let proxy = make_proxy();
+        {
+            let mut stats = proxy.cached_stats.write().await;
+            stats.peers_connected = 3;
+            stats.blocks_received = 10;
+        }
+        assert!(proxy.is_syncing());
+    }
+
+    #[tokio::test]
+    async fn is_syncing_false_once_caught_up() {
+        let proxy = make_proxy();
+        {
+            let mut stats = proxy.cached_stats.write().await;
+            stats.peers_connected = 3;
+            stats.blocks_received = 100;
+        }
+        assert!(!proxy.is_syncing());
     }
 }

@@ -37,6 +37,28 @@ pub type FalconSignature = Vec<u8>;
 pub type SPHINCSSignature = Vec<u8>;
 pub type ECDSASignature = secp256k1::ecdsa::Signature;
 
+/// Map the project-wide `security_level: u8` convention (see
+/// `SecurityLevel::from`) onto Falcon's two NIST parameter sets.
+///
+/// Falcon only defines NIST level 1 (Falcon-512) and level 5 (Falcon-1024) —
+/// unlike Dilithium/SPHINCS+ there is no distinct "Medium" parameter set —
+/// so `SecurityLevel::Low` maps to Falcon-512 and every other tier
+/// (Medium/High/Standard/Enhanced/Maximum) maps to Falcon-1024. This mirrors
+/// how Dilithium/SPHINCS+/Hybrid all tolerate the shared default
+/// `security_level` of 3 (Medium) via `SecurityLevel::from(u8)` instead of
+/// erroring on it, so `QuantumParameters::new(QuantumScheme::Falcon)`
+/// behaves consistently with the other schemes under default construction.
+fn falcon_security_level_for(
+    security_level: u8,
+) -> Result<crate::crypto::falcon_real::FalconSecurityLevel, FalconError> {
+    use crate::crypto::falcon_real::FalconSecurityLevel;
+    let nist_level = match SecurityLevel::from(security_level) {
+        SecurityLevel::Low => 1,
+        _ => 5,
+    };
+    FalconSecurityLevel::from_level(nist_level)
+}
+
 /// Classical cryptographic schemes for hybrid quantum signatures
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum ClassicalScheme {
@@ -630,10 +652,8 @@ impl QuantumParameters {
                 _ => Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
             },
             QuantumScheme::Falcon => {
-                // Placeholder for Falcon implementation
-                Err(QuantumError::CryptoOperationFailed(
-                    "Falcon signature length calculation not yet implemented".to_string(),
-                ))
+                let falcon_security_level = falcon_security_level_for(self.security_level)?;
+                Ok(falcon_security_level.signature_length())
             }
             QuantumScheme::SphincsPlus => match SecurityLevel::from(self.security_level) {
                 SecurityLevel::Low => Ok(sphincsshake128fsimple::signature_bytes()),
@@ -750,10 +770,10 @@ impl QuantumKeyPair {
         security_level: u8,
     ) -> Result<Self, QuantumError> {
         // Use our new Falcon implementation
-        use crate::crypto::falcon_real::{FalconKeyPair as RealFalconKeyPair, FalconSecurityLevel};
+        use crate::crypto::falcon_real::FalconKeyPair as RealFalconKeyPair;
 
-        // Convert numeric security level to FalconSecurityLevel
-        let falcon_security_level = FalconSecurityLevel::from_level(security_level)?;
+        // Convert the project-wide security level to FalconSecurityLevel
+        let falcon_security_level = falcon_security_level_for(security_level)?;
 
         // Create a Falcon keypair
         match RealFalconKeyPair::generate(rng, falcon_security_level) {
@@ -952,10 +972,10 @@ impl QuantumKeyPair {
             },
             QuantumScheme::Falcon => {
                 // Use our new Falcon implementation
-                use crate::crypto::falcon_real::{falcon_sign, FalconSecurityLevel};
+                use crate::crypto::falcon_real::falcon_sign;
 
                 let falcon_security_level =
-                    FalconSecurityLevel::from_level(self.parameters.security_level)?;
+                    falcon_security_level_for(self.parameters.security_level)?;
 
                 // Use the falcon_sign function directly
                 falcon_sign(&self.secret_key, message, falcon_security_level).map_err(|e| {
@@ -1235,10 +1255,10 @@ impl QuantumKeyPair {
             }
             QuantumScheme::Falcon => {
                 // Use our new Falcon implementation
-                use crate::crypto::falcon_real::{falcon_verify, FalconSecurityLevel};
+                use crate::crypto::falcon_real::falcon_verify;
 
                 let falcon_security_level =
-                    FalconSecurityLevel::from_level(self.parameters.security_level)?;
+                    falcon_security_level_for(self.parameters.security_level)?;
 
                 // Use the falcon_verify function directly
                 falcon_verify(&self.public_key, message, signature, falcon_security_level).map_err(
@@ -1824,6 +1844,96 @@ mod tests {
                 Err(e) => panic!("Unexpected error type: {:?}", e),
             }
         }
+    }
+
+    #[test]
+    fn test_falcon_default_security_level_signs_successfully() {
+        // QuantumParameters::new() defaults security_level to 3 (Medium),
+        // which is the natural, documented default-construction pattern for
+        // every scheme in this module. Falcon must not error out on it, even
+        // though Falcon itself only has two underlying parameter sets.
+        let params = QuantumParameters::new(QuantumScheme::Falcon);
+        assert_eq!(params.security_level, 3);
+
+        // expected_signature_length() must also tolerate the default
+        // (Medium) security level instead of erroring like the sign/verify
+        // paths would without the shared SecurityLevel::from(u8) mapping.
+        params
+            .expected_signature_length()
+            .expect("Falcon expected_signature_length should succeed under the default security level");
+
+        let mut rng = OsRng;
+        let keypair = QuantumKeyPair::generate_with_rng(&mut rng, params)
+            .expect("Falcon key generation should succeed under the default security level");
+
+        let message = b"falcon default security level regression message";
+        let signature = keypair
+            .sign(message)
+            .expect("Falcon signing should succeed under the default security level");
+
+        let valid = keypair
+            .verify(message, &signature)
+            .expect("Falcon verification should succeed under the default security level");
+        assert!(valid, "Falcon signature should verify under the default security level");
+    }
+
+    #[test]
+    fn test_falcon_expected_signature_length_matches_real_signature() {
+        use crate::crypto::falcon_real::FalconSecurityLevel;
+
+        // Falcon only supports NIST levels 1 (Falcon-512) and 5 (Falcon-1024).
+        for level_value in [1u8, 5u8] {
+            let params = QuantumParameters::with_security_level(QuantumScheme::Falcon, level_value);
+
+            let expected_len = params
+                .expected_signature_length()
+                .expect("Falcon signature length should be computable, not a placeholder error");
+
+            // expected_signature_length() must delegate to the same real
+            // constant that the rest of the codebase treats as the
+            // authoritative Falcon signature buffer size.
+            let falcon_level = FalconSecurityLevel::from_level(level_value)
+                .expect("supported Falcon level");
+            assert_eq!(
+                expected_len,
+                falcon_level.signature_length(),
+                "expected_signature_length() must match FalconSecurityLevel::signature_length() for level {}",
+                level_value
+            );
+
+            let mut rng = OsRng;
+            let keypair = QuantumKeyPair::generate_with_rng(&mut rng, params)
+                .expect("Falcon key generation should succeed for supported level");
+            let message = b"expected_signature_length regression message";
+            let signature = keypair
+                .sign(message)
+                .expect("Falcon signing should succeed");
+
+            // Falcon is a variable-length (compressed) signature scheme, so a
+            // real signature may be shorter than the declared maximum, but it
+            // must never exceed the buffer size callers are told to expect.
+            assert!(
+                signature.len() <= expected_len,
+                "real Falcon signature ({} bytes) must not exceed expected_signature_length() ({} bytes) for level {}",
+                signature.len(),
+                expected_len,
+                level_value
+            );
+        }
+
+        // The project-wide default security_level (3, Medium) must be
+        // tolerated like every other scheme instead of erroring: it maps to
+        // Falcon-1024 (NIST level 5) via the shared SecurityLevel::from(u8)
+        // convention used by falcon_security_level_for().
+        let default_level = QuantumParameters::with_security_level(QuantumScheme::Falcon, 3);
+        let default_expected_len = default_level
+            .expected_signature_length()
+            .expect("Falcon security level 3 (default Medium) should be tolerated, not error");
+        assert_eq!(
+            default_expected_len,
+            FalconSecurityLevel::Falcon1024.signature_length(),
+            "Falcon security level 3 (Medium) should map to Falcon-1024, matching sign/verify/generate"
+        );
     }
 
     #[test]

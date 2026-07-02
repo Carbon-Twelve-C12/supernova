@@ -915,15 +915,34 @@ impl Transaction {
         // Generate the signature based on the specified scheme
         let signature = match scheme {
             SignatureSchemeType::Legacy => {
-                // Sign with secp256k1
-                // This is a placeholder - in a real implementation, we would use the
-                // appropriate crypto library to generate a real signature
-                vec![0u8; 64] // Placeholder
+                // Sign with secp256k1 ECDSA
+                use secp256k1::{Message, Secp256k1, SecretKey};
+
+                let secp = Secp256k1::signing_only();
+                let msg = Message::from_slice(&tx_hash).map_err(|e| {
+                    SignatureError::CryptoOperationFailed(format!(
+                        "Invalid message hash for secp256k1: {}",
+                        e
+                    ))
+                })?;
+                let sk = SecretKey::from_slice(private_key).map_err(|e| {
+                    SignatureError::InvalidKey(format!("Invalid secp256k1 secret key: {}", e))
+                })?;
+                let sig = secp.sign_ecdsa(&msg, &sk);
+                sig.serialize_compact().to_vec()
             }
             SignatureSchemeType::Ed25519 => {
                 // Sign with Ed25519
-                // This is a placeholder
-                vec![0u8; 64] // Placeholder
+                use ed25519_dalek::{Signer, SigningKey};
+
+                let sk_bytes: [u8; 32] = private_key.try_into().map_err(|_| {
+                    SignatureError::InvalidKey(
+                        "Invalid Ed25519 secret key length: expected 32 bytes".to_string(),
+                    )
+                })?;
+                let signing_key = SigningKey::from_bytes(&sk_bytes);
+                let sig = signing_key.sign(&tx_hash);
+                sig.to_bytes().to_vec()
             }
             SignatureSchemeType::Dilithium => {
                 // Create a quantum keypair for signing
@@ -1272,6 +1291,61 @@ mod tests {
             assert_eq!(sig_data.scheme, SignatureSchemeType::Dilithium);
             assert_eq!(sig_data.security_level, 3);
         }
+    }
+
+    #[test]
+    fn test_sign_legacy_produces_real_secp256k1_signature() {
+        use secp256k1::{PublicKey, Secp256k1, SecretKey};
+
+        let inputs = vec![TransactionInput::new([0u8; 32], 0, vec![], 0xffffffff)];
+        let outputs = vec![TransactionOutput::new(50_000_000, vec![])];
+        let mut tx = Transaction::new(2, inputs, outputs, 0);
+
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[7u8; 32]).unwrap();
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+
+        tx.sign(
+            &secret_key.secret_bytes(),
+            &public_key.serialize(),
+            SignatureSchemeType::Legacy,
+            0,
+        )
+        .expect("legacy signing should succeed");
+
+        let sig_data = tx.signature_data().expect("signature data set");
+        // The fix must not fabricate the old placeholder value.
+        assert_ne!(sig_data.data, vec![0u8; 64]);
+        assert_eq!(sig_data.data.len(), 64);
+
+        // The produced signature must actually verify against the tx hash.
+        assert!(tx.verify_extended_signature(&[], &[], 0));
+    }
+
+    #[test]
+    fn test_sign_ed25519_produces_real_signature() {
+        use ed25519_dalek::SigningKey;
+
+        let inputs = vec![TransactionInput::new([0u8; 32], 0, vec![], 0xffffffff)];
+        let outputs = vec![TransactionOutput::new(50_000_000, vec![])];
+        let mut tx = Transaction::new(2, inputs, outputs, 0);
+
+        let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+
+        tx.sign(
+            &signing_key.to_bytes(),
+            verifying_key.as_bytes(),
+            SignatureSchemeType::Ed25519,
+            0,
+        )
+        .expect("ed25519 signing should succeed");
+
+        let sig_data = tx.signature_data().expect("signature data set");
+        assert_ne!(sig_data.data, vec![0u8; 64]);
+        assert_eq!(sig_data.data.len(), 64);
+
+        assert!(tx.verify_extended_signature(&[], &[], 0));
     }
 
     #[test]

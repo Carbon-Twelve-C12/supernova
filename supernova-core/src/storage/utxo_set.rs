@@ -308,13 +308,22 @@ impl UtxoSet {
 
         // If not in cache and using mmap, check disk (lock-free with DashMap)
         if self.use_mmap && self.index.contains_key(outpoint) {
-            // In a real implementation, we would:
-            // 1. Get the offset from the index
-            // 2. Load from mmap at that offset
-            // 3. Deserialize the entry
-
-            // For the stub implementation, we just return None
-            // Note: In a real implementation, this would add the entry to cache
+            // NOTE: Loading a UTXO entry from the memory-mapped file (using
+            // the offset recorded in `self.index`, then deserializing it and
+            // populating the cache) is not implemented. Previously this
+            // branch silently fell through to a cache-miss `None`, which
+            // would incorrectly report an on-disk UTXO as not found/spent --
+            // a correctness hazard for callers doing spend validation. Fail
+            // loudly instead so this can never be mistaken for "the UTXO
+            // does not exist".
+            let mut stats = self.stats.write().map_err(|e| e.to_string())?;
+            stats.misses += 1;
+            stats.operation_time += start_time.elapsed();
+            return Err(format!(
+                "UTXO {} is present in the on-disk index but mmap-backed disk \
+                 loading is not implemented; refusing to silently report it as not found",
+                outpoint
+            ));
         }
 
         // Update miss statistics
@@ -760,6 +769,45 @@ mod tests {
 
         let stats = utxo_set.get_stats().unwrap();
         assert_eq!(stats.misses, 1);
+    }
+
+    #[test]
+    fn test_mmap_indexed_entry_not_silently_missing() {
+        // Regression test: previously, when `use_mmap` was enabled and an
+        // outpoint was present in `self.index` but not in the in-memory
+        // cache, `get()` silently fell through and returned `Ok(None)`,
+        // incorrectly reporting an existing UTXO as not found. It must now
+        // fail loudly instead, since loading from the mmap file is not
+        // actually implemented.
+        let temp_path = std::env::temp_dir().join(format!(
+            "supernova_utxo_index_test_{}_{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path_str = temp_path.to_str().unwrap();
+
+        let utxo_set = UtxoSet::new_persistent(path_str, 10, true)
+            .expect("failed to create persistent UTXO set");
+
+        let outpoint = OutPoint {
+            txid: [7u8; 32],
+            vout: 0,
+        };
+
+        // Simulate an index entry pointing at disk with no corresponding
+        // cache entry (e.g. restored from a prior session).
+        utxo_set.index.insert(outpoint.clone(), 0);
+
+        let result = utxo_set.get(&outpoint);
+        assert!(
+            result.is_err(),
+            "get() must not silently report an indexed-but-uncached UTXO as not found"
+        );
+
+        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]

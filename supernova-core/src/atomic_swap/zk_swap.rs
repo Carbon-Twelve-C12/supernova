@@ -179,9 +179,9 @@ impl ZKSwapBuilder {
 
         // Convert inputs to field elements
         let amount_scalar = BlsScalar::from(amount);
-        let secret_scalar = bytes_to_scalar(&secret);
-        let commitment_scalar = bytes_to_scalar(&commitment);
-        let hash_scalar = bytes_to_scalar(&hash);
+        let secret_scalar = bytes_to_scalar(&secret)?;
+        let commitment_scalar = bytes_to_scalar(&commitment)?;
+        let hash_scalar = bytes_to_scalar(&hash)?;
 
         // Create circuit with witnesses
         let circuit = SwapValidityCircuit {
@@ -224,7 +224,7 @@ impl ZKSwapBuilder {
             .map_err(|e| ZKSwapError::DeserializationError(e.to_string()))?;
 
         // Prepare public inputs
-        let public_inputs = vec![bytes_to_scalar(&commitment), bytes_to_scalar(&hash)];
+        let public_inputs = vec![bytes_to_scalar(&commitment)?, bytes_to_scalar(&hash)?];
 
         // Prepare verifying key
         let pvk = groth16::prepare_verifying_key(vk);
@@ -281,11 +281,18 @@ impl ZKSwapBuilder {
 }
 
 /// Convert bytes to field scalar
-fn bytes_to_scalar(bytes: &[u8; 32]) -> BlsScalar {
-    // This is a simplified conversion - production code would handle this more carefully
+///
+/// Returns an error instead of panicking when `bytes`, interpreted as a
+/// little-endian integer, is not a valid element of the BLS12-381 scalar
+/// field (i.e. it is >= the field modulus). This is a routine occurrence for
+/// arbitrary 32-byte inputs (e.g. random values or hash digests), not just
+/// adversarial ones, so callers must handle it rather than unwrap.
+fn bytes_to_scalar(bytes: &[u8; 32]) -> Result<BlsScalar, ZKSwapError> {
     let mut scalar_bytes = [0u8; 32];
     scalar_bytes.copy_from_slice(bytes);
-    BlsScalar::from_bytes(&scalar_bytes).unwrap()
+    Option::from(BlsScalar::from_bytes(&scalar_bytes)).ok_or_else(|| {
+        ZKSwapError::InvalidInput("value is not a valid BLS12-381 scalar field element".to_string())
+    })
 }
 
 /// Create a ZK-enhanced swap session
@@ -392,5 +399,26 @@ mod tests {
         let wrong_preimage = generate_secure_random_32();
         let wrong_result = builder.prove_preimage_knowledge(wrong_preimage, hash_bytes);
         assert!(wrong_result.is_err());
+    }
+
+    #[test]
+    fn test_bytes_to_scalar_valid_value() {
+        // The zero scalar is always a valid field element.
+        let zero_bytes = [0u8; 32];
+        let result = bytes_to_scalar(&zero_bytes);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_bytes_to_scalar_out_of_range_returns_error_not_panic() {
+        // 0xFF...FF (2^256 - 1) is well above the BLS12-381 scalar field
+        // modulus (~0.905 * 2^255) regardless of byte-order interpretation,
+        // so this must return an error instead of panicking. Previously this
+        // hit an `.unwrap()` on a `None` `CtOption`, which is reachable from
+        // the public `initiate_zk_swap` RPC handler via arbitrary/random
+        // 32-byte inputs.
+        let out_of_range_bytes = [0xFFu8; 32];
+        let result = bytes_to_scalar(&out_of_range_bytes);
+        assert!(result.is_err());
     }
 }
