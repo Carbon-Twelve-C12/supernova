@@ -620,15 +620,24 @@ impl ChainSync {
                             preferred_peer: Some(peer_id),
                         };
 
-                        let _ = self.command_sender.send(request).await;
-
-                        // Update sync state
-                        self.sync_state = SyncState::SyncingHeaders {
-                            start_height: next_start,
-                            end_height: *end_height,
-                            request_time: Instant::now(),
-                            requesting_peer: Some(peer_id),
-                        };
+                        if let Err(e) = self.command_sender.send(request).await {
+                            // The request was never sent, so do NOT advance sync
+                            // bookkeeping. Leaving the prior request_time in place
+                            // lets the state machine retry or time out cleanly
+                            // instead of claiming a phantom in-flight request.
+                            warn!(
+                                "Failed to send header request for {}-{}: {}",
+                                next_start, next_end, e
+                            );
+                        } else {
+                            // Update sync state
+                            self.sync_state = SyncState::SyncingHeaders {
+                                start_height: next_start,
+                                end_height: *end_height,
+                                request_time: Instant::now(),
+                                requesting_peer: Some(peer_id),
+                            };
+                        }
                     } else {
                         // We've received all headers, now we need to sync blocks
                         debug!("Received all headers, transitioning to block download");
@@ -1785,15 +1794,21 @@ impl ChainSync {
                     preferred_peer: Some(peer_id),
                 };
 
-                let _ = self.command_sender.send(request).await;
-
-                // Update requested blocks in the sync state
-                if let SyncState::SyncingBlocks {
-                    blocks_requested, ..
-                } = &mut self.sync_state
-                {
-                    for hash in block_hashes {
-                        blocks_requested.insert(hash);
+                if let Err(e) = self.command_sender.send(request).await {
+                    // The request was never sent, so skip the bookkeeping. Marking
+                    // these hashes as requested would create phantom in-flight
+                    // requests that only timeout-recovery clears, wrongly
+                    // penalizing this peer for a failure it did not cause.
+                    warn!("Failed to send block request to peer {}: {}", peer_id, e);
+                } else {
+                    // Update requested blocks in the sync state
+                    if let SyncState::SyncingBlocks {
+                        blocks_requested, ..
+                    } = &mut self.sync_state
+                    {
+                        for hash in block_hashes {
+                            blocks_requested.insert(hash);
+                        }
                     }
                 }
             }
@@ -2034,6 +2049,50 @@ mod tests {
         sync.create_checkpoint(1000, [1u8; 32]).await.unwrap();
 
         assert!(sync.checkpoints.iter().any(|cp| cp.height == 1000));
+    }
+
+    #[tokio::test]
+    async fn test_start_block_download_skips_bookkeeping_on_send_failure() {
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+        let chain_state = ChainState::new(Arc::clone(&db)).unwrap();
+
+        // Drop the receiver so every command_sender.send() fails.
+        let (tx, rx) = mpsc::channel(32);
+        drop(rx);
+
+        let mut sync = ChainSync::new(chain_state, Arc::clone(&db), tx);
+
+        // Register a peer so get_peers_for_block_requests yields a target.
+        let peer_id = PeerId::random();
+        sync.register_peer(peer_id);
+        sync.update_peer_height(&peer_id, 100, 1000);
+
+        // Put the state machine into SyncingBlocks with a real header.
+        let header = BlockHeader::new(1, [1u8; 32], [0u8; 32], 0, 0x1d00ffff, 0);
+        sync.sync_state = SyncState::SyncingBlocks {
+            headers: vec![header],
+            blocks_requested: HashSet::new(),
+            blocks_received: HashMap::new(),
+            last_request_time: Instant::now(),
+        };
+
+        // The receiver is gone, so the block request can never be sent.
+        let _ = sync.start_block_download().await;
+
+        // A request that was never sent must NOT be recorded as in-flight,
+        // otherwise timeout recovery would wrongly penalize the peer.
+        match &sync.sync_state {
+            SyncState::SyncingBlocks {
+                blocks_requested, ..
+            } => {
+                assert!(
+                    blocks_requested.is_empty(),
+                    "blocks_requested must stay empty when the command channel send fails"
+                );
+            }
+            _ => panic!("expected SyncingBlocks state"),
+        }
     }
 
     #[test]

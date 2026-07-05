@@ -10,7 +10,10 @@ use crate::{
         peer::{self, PeerInfo, PeerState},
         peer_manager::{ConnectionLimits, PeerManager},
         protocol::Message,
-        rate_limiter::{NetworkRateLimiter as RateLimiter, RateLimitConfig, RateLimitMetrics},
+        rate_limiter::{
+            MessageType, NetworkRateLimiter as RateLimiter, RateLimitConfig, RateLimitError,
+            RateLimitMetrics,
+        },
     },
 };
 use supernova_core::{Block, BlockHeader, Transaction};
@@ -261,6 +264,8 @@ pub enum NetworkEvent {
 enum SwarmCommand {
     Dial(Multiaddr),
     Publish(TopicHash, Vec<u8>),
+    /// Forcibly disconnect a peer (e.g. when the peer cap is exceeded)
+    Disconnect(PeerId),
     Stop,
 }
 
@@ -669,8 +674,9 @@ impl P2PNetwork {
             self.connected_peers.write().await.remove(peer_id);
 
             // Update stats
-            self.stats.write().await.peers_connected =
-                self.stats.write().await.peers_connected.saturating_sub(1);
+            let mut stats = self.stats.write().await;
+            stats.peers_connected = stats.peers_connected.saturating_sub(1);
+            drop(stats);
 
             // Send event
             let _ = self
@@ -882,6 +888,14 @@ impl P2PNetwork {
                                         Err(e) => {
                                             error!("Failed to publish to gossipsub: {:?}", e);
                                         }
+                                    }
+                                }
+                                SwarmCommand::Disconnect(peer_id) => {
+                                    // Best-effort disconnect; Err simply means the peer
+                                    // was already gone. This closes the underlying
+                                    // connection(s), freeing the socket/file descriptor.
+                                    if swarm.disconnect_peer_id(peer_id).is_err() {
+                                        debug!("Disconnect requested for already-disconnected peer: {}", peer_id);
                                     }
                                 }
                                 SwarmCommand::Stop => {
@@ -1133,6 +1147,11 @@ impl P2PNetwork {
             .clone()
             .ok_or_else(|| Box::<dyn Error>::from("Swarm command sender not initialized"))?;
 
+        // Maximum number of simultaneously connected peers (DoS bound on the
+        // connected_peers map). Captured by value so the event-loop task can
+        // enforce the cap without holding a reference to `self`.
+        let max_peers = self.peer_manager.max_peers();
+
         let task = tokio::spawn(async move {
             info!("Event loop task spawned, acquiring command_receiver...");
             
@@ -1217,8 +1236,11 @@ impl P2PNetwork {
                             &stats,
                             &connected_peers,
                             &bandwidth_tracker,
+                            &swarm_cmd_tx,
+                            max_peers,
+                            &rate_limiter,
                         ).await;
-                        
+
                         // CRITICAL: Check for pending commands before processing more swarm events
                         // This ensures commands are never starved even with continuous heartbeats
                         while let Ok(cmd) = command_rx.try_recv() {
@@ -1261,6 +1283,9 @@ impl P2PNetwork {
                                         &stats,
                                         &connected_peers,
                                         &bandwidth_tracker,
+                                        &swarm_cmd_tx,
+                                        max_peers,
+                                        &rate_limiter,
                                     ).await;
                                     batch_count += 1;
                                 }
@@ -1555,6 +1580,50 @@ impl P2PNetwork {
         }
     }
 
+    /// Extract the IP address component from a libp2p `Multiaddr`, if present.
+    ///
+    /// Used to key the per-peer message rate limiter (which operates on
+    /// `IpAddr`) off the remote address captured at connection time.
+    fn multiaddr_to_ip(addr: &Multiaddr) -> Option<IpAddr> {
+        use libp2p::multiaddr::Protocol;
+        addr.iter().find_map(|proto| match proto {
+            Protocol::Ip4(ip) => Some(IpAddr::V4(ip)),
+            Protocol::Ip6(ip) => Some(IpAddr::V6(ip)),
+            _ => None,
+        })
+    }
+
+    /// Map an inbound protocol `Message` to its rate-limiting category so the
+    /// existing per-message-type token buckets can throttle floods of a given
+    /// class independently.
+    fn message_to_rate_type(message: &Message) -> MessageType {
+        match message {
+            Message::Transaction { .. }
+            | Message::BroadcastTransaction(_)
+            | Message::TransactionAnnouncement { .. } => MessageType::TransactionBroadcast,
+            Message::Block(_)
+            | Message::NewBlock { .. }
+            | Message::CompactBlock(_)
+            | Message::CompactBlockTxs(_)
+            | Message::GetBlocks(_)
+            | Message::GetBlocksByHeight { .. }
+            | Message::GetBlocksByHash { .. }
+            | Message::GetHeaders { .. }
+            | Message::GetData(_)
+            | Message::GetCompactBlockTxs { .. }
+            | Message::Blocks { .. }
+            | Message::BlockResponse { .. }
+            | Message::Headers { .. } => MessageType::BlockRequest,
+            Message::GetAddr
+            | Message::Addr(_)
+            | Message::GetStatus
+            | Message::Status { .. }
+            | Message::Version(_)
+            | Message::Verack => MessageType::PeerDiscovery,
+            _ => MessageType::General,
+        }
+    }
+
     /// Handle wrapped swarm events
     async fn handle_wrapped_swarm_event(
         event: SwarmEventWrapper,
@@ -1562,13 +1631,44 @@ impl P2PNetwork {
         stats: &Arc<RwLock<NetworkStats>>,
         connected_peers: &Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
         bandwidth_tracker: &Arc<Mutex<BandwidthTracker>>,
+        swarm_cmd_tx: &mpsc::Sender<SwarmCommand>,
+        max_peers: usize,
+        rate_limiter: &Arc<RateLimiter>,
     ) {
         match event {
             SwarmEventWrapper::ConnectionEstablished { peer_id, endpoint } => {
+                // DoS bound: enforce the configured peer cap before allocating and
+                // inserting into the unbounded connected_peers map. Without this an
+                // attacker could open unlimited inbound connections and exhaust
+                // memory + file descriptors. Already-known peers (reconnections /
+                // additional connections to the same peer) are always allowed through
+                // since they do not grow the map.
+                {
+                    let peers = connected_peers.read().await;
+                    if !peers.contains_key(&peer_id) && peers.len() >= max_peers {
+                        drop(peers);
+                        warn!(
+                            "Peer cap reached ({} peers): rejecting new connection from {}",
+                            max_peers, peer_id
+                        );
+                        // Ask the swarm thread to close the connection.
+                        let _ = swarm_cmd_tx
+                            .send(SwarmCommand::Disconnect(peer_id))
+                            .await;
+                        return;
+                    }
+                }
+
+                // Capture the remote address so the per-peer message rate
+                // limiter (keyed by IpAddr) can resolve this peer's IP on the
+                // inbound message path. `addresses` was previously left empty.
+                let remote_addrs: Vec<Multiaddr> =
+                    endpoint.parse::<Multiaddr>().ok().into_iter().collect();
+
                 let peer_info = PeerInfo {
                     peer_id,
                     state: PeerState::Connected,
-                    addresses: vec![],
+                    addresses: remote_addrs,
                     first_seen: Instant::now(),
                     last_seen: Instant::now(),
                     last_sent: None,
@@ -1602,8 +1702,10 @@ impl P2PNetwork {
             }
             SwarmEventWrapper::ConnectionClosed { peer_id } => {
                 connected_peers.write().await.remove(&peer_id);
-                stats.write().await.peers_connected =
-                    stats.write().await.peers_connected.saturating_sub(1);
+                {
+                    let mut s = stats.write().await;
+                    s.peers_connected = s.peers_connected.saturating_sub(1);
+                }
 
                 let _ = event_sender
                     .send(NetworkEvent::PeerDisconnected(peer_id))
@@ -1646,14 +1748,41 @@ impl P2PNetwork {
                     tracker.record_received(data.len() as u64);
                 }
 
-                // Update peer info
+                // Update peer info and capture the peer's IP for rate limiting.
+                let mut peer_ip: Option<IpAddr> = None;
                 if let Some(peer_info) = connected_peers.write().await.get_mut(&peer_id) {
                     peer_info.metadata.transactions_received += 1;
                     peer_info.last_seen = Instant::now();
+                    peer_ip = peer_info.addresses.iter().find_map(Self::multiaddr_to_ip);
                 }
 
                 // NOW SAFE: Deserialize after size validation
                 if let Ok(message) = bincode::deserialize::<Message>(&data) {
+                    // SECURITY FIX [R5-88]: Per-peer, per-message-type rate limiting.
+                    // The 4MB size cap above bounds a single message, but without a
+                    // per-peer throttle one connected peer could flood
+                    // Transaction/Block/CompactBlock/GetData messages, each triggering
+                    // expensive inner deserialization, event dispatch, and mempool
+                    // validation. Gate here — after the cheap envelope decode but
+                    // before any expensive per-message work — using the existing
+                    // token-bucket rate limiter keyed by the peer's IP.
+                    if let Some(ip) = peer_ip {
+                        let msg_type = Self::message_to_rate_type(&message);
+                        if let Err(e) = rate_limiter.check_message(ip, msg_type) {
+                            warn!(
+                                "Dropping {:?} message from peer {} ({}): rate limited: {}",
+                                msg_type, peer_id, ip, e
+                            );
+                            // Penalize repeat offenders: once the limiter has banned
+                            // the IP, drop the connection entirely.
+                            if matches!(e, RateLimitError::IpBanned(..)) {
+                                let _ = swarm_cmd_tx
+                                    .send(SwarmCommand::Disconnect(peer_id))
+                                    .await;
+                            }
+                            return;
+                        }
+                    }
                     match message {
                         Message::Transaction { transaction } => {
                             // Deserialize transaction bytes
@@ -1697,22 +1826,104 @@ impl P2PNetwork {
                                 }
                             }
                         }
-                        Message::CompactBlock(_compact_block) => {
-                            // Handle compact block - decode and dispatch
-                            // In a real implementation, we'd request missing transactions
+                        Message::CompactBlock(compact_block) => {
                             trace!("Received compact block from peer {}", peer_id);
-                            // For now, fallback to requesting full block
-                            warn!("Compact block received but full reconstruction not yet implemented - requesting full block");
+
+                            // This network layer has no mempool reference, and the
+                            // SipHash keys the sender used to generate short IDs are
+                            // per-encoder-instance and not part of the wire format, so
+                            // short-ID-only entries cannot be resolved here. Decoding
+                            // with an empty mempool still fully reconstructs blocks
+                            // where every transaction was prefilled by the sender, and
+                            // fails safely (without panicking or silently dropping the
+                            // block) otherwise.
+                            let decoder =
+                                crate::network::compact_block::CompactBlockDecoder::new(0, 0, &[]);
+                            match decoder.decode(&compact_block, &[]) {
+                                Ok(block) => {
+                                    let height = block.height();
+                                    trace!(
+                                        "Reconstructed compact block from peer {} ({} txs, fully prefilled)",
+                                        peer_id,
+                                        block.transactions().len()
+                                    );
+                                    let _ = event_sender
+                                        .send(NetworkEvent::NewBlock {
+                                            block,
+                                            height,
+                                            total_difficulty: 1, // Will be calculated by chain
+                                            from_peer: Some(peer_id),
+                                        })
+                                        .await;
+                                }
+                                Err(e) => {
+                                    // Can't reconstruct locally - fall back to requesting
+                                    // the full block instead of silently dropping the
+                                    // announcement.
+                                    debug!(
+                                        "Compact block from peer {} could not be reconstructed locally ({}) - requesting full block",
+                                        peer_id, e
+                                    );
+                                    let block_hash = compact_block.header.hash();
+                                    let request = Message::GetBlocksByHash {
+                                        block_hashes: vec![block_hash],
+                                    };
+                                    if let Ok(data) = bincode::serialize(&request) {
+                                        let data_len = data.len();
+                                        if swarm_cmd_tx
+                                            .send(SwarmCommand::Publish(
+                                                TopicHash::from_raw("blocks"),
+                                                data,
+                                            ))
+                                            .await
+                                            .is_ok()
+                                        {
+                                            let mut stats_guard = stats.write().await;
+                                            stats_guard.messages_sent += 1;
+                                            stats_guard.bytes_sent += data_len as u64;
+                                            drop(stats_guard);
+                                            if let Ok(mut tracker) = bandwidth_tracker.lock() {
+                                                tracker.record_sent(data_len as u64);
+                                            }
+                                        } else {
+                                            warn!(
+                                                "Failed to request full block after compact block decode failure from peer {}",
+                                                peer_id
+                                            );
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Message::GetCompactBlockTxs { short_ids } => {
-                            // Handle request for missing transactions
-                            trace!("Received request for {} missing transactions from peer {}", short_ids.len(), peer_id);
-                            // In a real implementation, we'd look up transactions by short ID and send them
+                            trace!(
+                                "Received request for {} missing transactions from peer {}",
+                                short_ids.len(),
+                                peer_id
+                            );
+                            // No mempool reference is available at this network layer.
+                            // Forward to the event bus (same path used for GetData /
+                            // GetMempool) so a higher layer with mempool access can
+                            // respond, rather than silently discarding the request.
+                            let _ = event_sender
+                                .send(NetworkEvent::MessageReceived {
+                                    peer_id,
+                                    message: Message::GetCompactBlockTxs { short_ids },
+                                })
+                                .await;
                         }
                         Message::CompactBlockTxs(transactions) => {
-                            // Handle missing transactions response
-                            trace!("Received {} missing transactions from peer {}", transactions.len(), peer_id);
-                            // In a real implementation, we'd use these to reconstruct the compact block
+                            trace!(
+                                "Received {} missing transactions from peer {}",
+                                transactions.len(),
+                                peer_id
+                            );
+                            let _ = event_sender
+                                .send(NetworkEvent::MessageReceived {
+                                    peer_id,
+                                    message: Message::CompactBlockTxs(transactions),
+                                })
+                                .await;
                         }
                         _ => {
                             // For other message types, use existing handler
@@ -2952,6 +3163,230 @@ mod tests {
         let (send_rate, recv_rate) = tracker.get_rates(1);
         assert!(send_rate > 0.0);
         assert!(recv_rate > 0.0);
+    }
+
+    /// Build a minimal PeerInfo for connection-cap tests.
+    fn dummy_peer_info(peer_id: PeerId) -> PeerInfo {
+        PeerInfo {
+            peer_id,
+            state: PeerState::Connected,
+            addresses: vec![],
+            first_seen: Instant::now(),
+            last_seen: Instant::now(),
+            last_sent: None,
+            is_inbound: true,
+            protocol_version: None,
+            user_agent: None,
+            height: None,
+            best_hash: None,
+            total_difficulty: None,
+            network_info: None,
+            reputation: 0,
+            failed_attempts: 0,
+            ping_ms: None,
+            verified: false,
+            services: 0,
+            bytes_sent: 0,
+            bytes_received: 0,
+            metadata: peer::PeerMetadata::default(),
+        }
+    }
+
+    /// A new inbound connection beyond the peer cap must be rejected: the
+    /// connected_peers map must not grow, and a Disconnect command must be
+    /// issued to close the offending connection (DoS bound, finding R3-55).
+    #[tokio::test]
+    async fn test_connection_cap_rejects_over_limit() {
+        let max_peers = 3usize;
+        let connected_peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        // Fill the map to capacity with distinct peers.
+        {
+            let mut peers = connected_peers.write().await;
+            for _ in 0..max_peers {
+                let id = PeerId::random();
+                peers.insert(id, dummy_peer_info(id));
+            }
+        }
+
+        let stats = Arc::new(RwLock::new(NetworkStats::default()));
+        let bandwidth_tracker = Arc::new(Mutex::new(BandwidthTracker::new()));
+        let (event_tx, _event_rx) = mpsc::channel::<NetworkEvent>(16);
+        let (swarm_cmd_tx, mut swarm_cmd_rx) = mpsc::channel::<SwarmCommand>(16);
+        let rate_limiter = Arc::new(RateLimiter::new(RateLimitConfig::default()));
+
+        let new_peer = PeerId::random();
+        let event = SwarmEventWrapper::ConnectionEstablished {
+            peer_id: new_peer,
+            endpoint: "/ip4/127.0.0.1/tcp/1".to_string(),
+        };
+
+        P2PNetwork::handle_wrapped_swarm_event(
+            event,
+            &event_tx,
+            &stats,
+            &connected_peers,
+            &bandwidth_tracker,
+            &swarm_cmd_tx,
+            max_peers,
+            &rate_limiter,
+        )
+        .await;
+
+        // The over-cap peer must NOT have been inserted.
+        assert_eq!(connected_peers.read().await.len(), max_peers);
+        assert!(!connected_peers.read().await.contains_key(&new_peer));
+
+        // A Disconnect command for the rejected peer must have been queued.
+        match swarm_cmd_rx.try_recv() {
+            Ok(SwarmCommand::Disconnect(id)) => assert_eq!(id, new_peer),
+            other => panic!("expected Disconnect command, got {:?}", other),
+        }
+    }
+
+    /// A new inbound connection under the peer cap must be accepted: the map
+    /// grows and no Disconnect command is issued.
+    #[tokio::test]
+    async fn test_connection_cap_accepts_under_limit() {
+        let max_peers = 5usize;
+        let connected_peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        let stats = Arc::new(RwLock::new(NetworkStats::default()));
+        let bandwidth_tracker = Arc::new(Mutex::new(BandwidthTracker::new()));
+        let (event_tx, _event_rx) = mpsc::channel::<NetworkEvent>(16);
+        let (swarm_cmd_tx, mut swarm_cmd_rx) = mpsc::channel::<SwarmCommand>(16);
+        let rate_limiter = Arc::new(RateLimiter::new(RateLimitConfig::default()));
+
+        let new_peer = PeerId::random();
+        let event = SwarmEventWrapper::ConnectionEstablished {
+            peer_id: new_peer,
+            endpoint: "/ip4/127.0.0.1/tcp/1".to_string(),
+        };
+
+        P2PNetwork::handle_wrapped_swarm_event(
+            event,
+            &event_tx,
+            &stats,
+            &connected_peers,
+            &bandwidth_tracker,
+            &swarm_cmd_tx,
+            max_peers,
+            &rate_limiter,
+        )
+        .await;
+
+        assert!(connected_peers.read().await.contains_key(&new_peer));
+        assert_eq!(connected_peers.read().await.len(), 1);
+        assert!(
+            swarm_cmd_rx.try_recv().is_err(),
+            "no Disconnect command should be issued under the cap"
+        );
+    }
+
+    /// Inbound gossipsub messages from a single peer must be throttled by the
+    /// per-message-type rate limiter (finding R5-88). With a block-request
+    /// limit of 2/min, the third `GetData` from the same peer IP must be
+    /// dropped (not forwarded to the event bus) instead of being deserialized
+    /// and dispatched unbounded.
+    #[tokio::test]
+    async fn test_inbound_message_rate_limited_per_peer() {
+        let max_peers = 8usize;
+        let peer_id = PeerId::random();
+
+        // Register the peer with a resolvable remote address so the limiter can
+        // key on its IP (mirrors what ConnectionEstablished now populates).
+        let mut info = dummy_peer_info(peer_id);
+        info.addresses = vec!["/ip4/9.9.9.9/tcp/1"
+            .parse::<Multiaddr>()
+            .expect("valid multiaddr")];
+        let connected_peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+        connected_peers.write().await.insert(peer_id, info);
+
+        let stats = Arc::new(RwLock::new(NetworkStats::default()));
+        let bandwidth_tracker = Arc::new(Mutex::new(BandwidthTracker::new()));
+        let (event_tx, mut event_rx) = mpsc::channel::<NetworkEvent>(16);
+        let (swarm_cmd_tx, _swarm_cmd_rx) = mpsc::channel::<SwarmCommand>(16);
+
+        let config = RateLimitConfig {
+            block_request_limit: 2,
+            ..RateLimitConfig::default()
+        };
+        let rate_limiter = Arc::new(RateLimiter::new(config));
+
+        // GetData maps to the BlockRequest bucket.
+        let data = bincode::serialize(&Message::GetData(vec![[0u8; 32]]))
+            .expect("serialize GetData");
+
+        for _ in 0..3 {
+            let event = SwarmEventWrapper::Message {
+                peer_id,
+                topic: "blocks".to_string(),
+                data: data.clone(),
+            };
+            P2PNetwork::handle_wrapped_swarm_event(
+                event,
+                &event_tx,
+                &stats,
+                &connected_peers,
+                &bandwidth_tracker,
+                &swarm_cmd_tx,
+                max_peers,
+                &rate_limiter,
+            )
+            .await;
+        }
+
+        // Exactly two messages should have been forwarded; the third throttled.
+        let mut forwarded = 0usize;
+        while event_rx.try_recv().is_ok() {
+            forwarded += 1;
+        }
+        assert_eq!(
+            forwarded, 2,
+            "third message from the same peer must be rate-limited"
+        );
+    }
+
+    /// `disconnect_from_peer` must complete and decrement the connected-peer
+    /// count exactly once. A prior double `stats.write().await` in a single
+    /// statement self-deadlocked the caller forever (finding R5-79); this test
+    /// wraps the call in a timeout so a regression fails fast instead of hanging.
+    #[tokio::test]
+    async fn test_disconnect_from_peer_no_self_deadlock() {
+        let (network, _, _) = P2PNetwork::new(None, [0u8; 32], "supernova-test", None, None)
+            .await
+            .unwrap();
+
+        // Arm the swarm command channel so disconnect_from_peer enters its body.
+        let (swarm_cmd_tx, _swarm_cmd_rx) = mpsc::channel::<SwarmCommand>(16);
+        network.swarm_cmd_tx.write().await.replace(swarm_cmd_tx);
+
+        // Seed a connected peer and a non-zero peer count.
+        let peer_id = PeerId::random();
+        network
+            .connected_peers
+            .write()
+            .await
+            .insert(peer_id, dummy_peer_info(peer_id));
+        network.stats.write().await.peers_connected = 1;
+
+        // Must not deadlock: bound the call so a regression fails instead of hanging.
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            network.disconnect_from_peer(&peer_id),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "disconnect_from_peer deadlocked (double stats.write().await)"
+        );
+        assert!(result.unwrap().is_ok());
+        assert_eq!(network.stats.read().await.peers_connected, 0);
+        assert!(!network.connected_peers.read().await.contains_key(&peer_id));
     }
 }
 

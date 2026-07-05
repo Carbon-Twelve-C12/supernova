@@ -440,6 +440,21 @@ impl NetworkProxy {
         stats.peers_connected > 0 && stats.blocks_received < 100
     }
 
+    /// Estimate sync progress in the range `0.0..=1.0`.
+    ///
+    /// Mirrors `P2PNetwork::get_sync_progress`: while syncing, progress is
+    /// estimated from the number of blocks received (capped below 1.0 so the
+    /// node is never reported fully synced until `is_syncing` clears);
+    /// otherwise the node is considered fully verified.
+    pub fn get_sync_progress(&self) -> f64 {
+        if self.is_syncing() {
+            let stats = self.get_stats_sync();
+            (stats.blocks_received as f64 / 1000.0).min(0.99)
+        } else {
+            1.0
+        }
+    }
+
     /// Get stats synchronously (returns cached value)
     pub fn get_stats_sync(&self) -> NetworkStats {
         // Try non-blocking read of cached stats

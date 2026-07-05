@@ -306,8 +306,106 @@ impl EclipsePreventionSystem {
             pow_completed: !is_inbound || !self.config.require_pow_challenge,
         };
 
-        let mut connections = self.connections.write().await;
-        connections.insert(peer_id, info);
+        // Scope the write guards so they are dropped before the awaited calls
+        // below. record_connection_event / analyze_connection_patterns acquire
+        // `self.connections` (read) again on the same non-reentrant tokio RwLock;
+        // holding the write guard across those awaits would self-deadlock.
+        {
+            let mut connections = self.connections.write().await;
+            connections.insert(peer_id, info);
+        }
+
+        if is_anchor {
+            let mut anchors = self.anchor_peers.write().await;
+            anchors.insert(peer_id);
+        }
+
+        // Record connection event
+        self.record_connection_event(peer_id, ip_address, ConnectionEventType::Connected)
+            .await;
+
+        // Check for eclipse attack indicators
+        self.analyze_connection_patterns().await;
+
+        Ok(())
+    }
+
+    /// Atomically re-check admission gates and register the connection.
+    ///
+    /// `should_allow_connection` evaluates the diversity caps under a
+    /// `connections.read()` guard that is released before the caller separately
+    /// invokes `register_connection`, which inserts under a distinct
+    /// `connections.write()` guard. Two concurrent inbound dials from a subnet
+    /// already at cap-1 can therefore both pass the read-guarded check and then
+    /// both insert, pushing the subnet past its cap and eroding the very
+    /// eclipse-resistance margin this module enforces.
+    ///
+    /// This method closes that check-then-act window by re-validating the
+    /// diversity predicate under the same write guard that performs the insert,
+    /// so racing admissions are serialized and the cap holds. The ban /
+    /// flooding / PoW gates read independent state (not the connections map)
+    /// and are evaluated up front, mirroring `should_allow_connection`.
+    ///
+    /// Callers wiring peer admission into the network layer should prefer this
+    /// method over the check-then-`register_connection` sequence.
+    pub async fn check_and_register_connection(
+        &self,
+        peer_id: PeerId,
+        ip_address: IpAddr,
+        is_inbound: bool,
+        is_anchor: bool,
+    ) -> Result<(), String> {
+        // Ban check
+        if self.is_banned(&peer_id, &ip_address).await {
+            return Err("Peer or IP is banned".to_string());
+        }
+
+        // Connection flooding check
+        if self.detect_connection_flooding(&ip_address).await {
+            self.ban_ip(
+                ip_address,
+                "Connection flooding detected",
+                Duration::from_secs(3600),
+            )
+            .await;
+            return Err("Connection flooding detected".to_string());
+        }
+
+        // PoW gate for inbound peers
+        if self.config.require_pow_challenge
+            && is_inbound
+            && !self.has_completed_pow_challenge(&peer_id).await
+        {
+            return Err("PoW challenge not completed".to_string());
+        }
+
+        let subnet = self.calculate_subnet(&ip_address);
+        let asn = self.lookup_asn(&ip_address).await;
+        let region = self.lookup_region(&ip_address).await;
+
+        // Atomically re-validate the diversity caps and insert under a single
+        // write guard so two racing admissions cannot both pass the cap check.
+        // `check_diversity_map` does not await, so holding the write guard
+        // across it cannot self-deadlock on this non-reentrant RwLock.
+        {
+            let mut connections = self.connections.write().await;
+            self.check_diversity_map(&connections, &subnet, asn, is_inbound)?;
+
+            let info = PeerConnectionInfo {
+                peer_id,
+                ip_address,
+                subnet,
+                asn,
+                region,
+                is_inbound,
+                is_anchor,
+                connected_at: Instant::now(),
+                last_useful_at: Instant::now(),
+                behavior_score: 100.0,
+                pow_completed: !is_inbound || !self.config.require_pow_challenge,
+            };
+            connections.insert(peer_id, info);
+        }
 
         if is_anchor {
             let mut anchors = self.anchor_peers.write().await;
@@ -445,21 +543,29 @@ impl EclipsePreventionSystem {
         }
     }
 
-    /// Check diversity requirements
-    async fn check_diversity_requirements(
+    /// Evaluate the subnet / ASN / inbound diversity caps against a specific
+    /// snapshot of the connection map.
+    ///
+    /// This is the single source of truth for the diversity predicate so that
+    /// the read-guarded pre-admission check (`check_diversity_requirements`)
+    /// and the write-guarded atomic admission path
+    /// (`check_and_register_connection`) cannot drift apart. It takes the map
+    /// by reference so the caller may hold either a read or a write guard while
+    /// calling it, and pre-resolved `subnet` / `asn` values so it does not need
+    /// to `await` (avoiding a re-entrant lock acquisition under a write guard).
+    fn check_diversity_map(
         &self,
-        ip_address: &IpAddr,
+        connections: &HashMap<PeerId, PeerConnectionInfo>,
+        subnet: &str,
+        asn: Option<u32>,
         is_inbound: bool,
-    ) -> Result<bool, String> {
-        let connections = self.connections.read().await;
-
+    ) -> Result<(), String> {
         // Skip diversity checks if we have too few connections
         if connections.len() < self.config.min_connections_for_diversity {
-            return Ok(true);
+            return Ok(());
         }
 
         let total_connections = connections.len() as f64;
-        let subnet = self.calculate_subnet(ip_address);
 
         // Check subnet diversity
         let subnet_count = connections
@@ -477,7 +583,7 @@ impl EclipsePreventionSystem {
         }
 
         // Check ASN diversity
-        if let Some(asn) = self.lookup_asn(ip_address).await {
+        if let Some(asn) = asn {
             let asn_count = connections
                 .values()
                 .filter(|info| info.asn == Some(asn))
@@ -506,6 +612,20 @@ impl EclipsePreventionSystem {
             }
         }
 
+        Ok(())
+    }
+
+    /// Check diversity requirements
+    async fn check_diversity_requirements(
+        &self,
+        ip_address: &IpAddr,
+        is_inbound: bool,
+    ) -> Result<bool, String> {
+        let subnet = self.calculate_subnet(ip_address);
+        let asn = self.lookup_asn(ip_address).await;
+
+        let connections = self.connections.read().await;
+        self.check_diversity_map(&connections, &subnet, asn, is_inbound)?;
         Ok(true)
     }
 
@@ -854,6 +974,56 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// The atomic admission path must enforce the same diversity caps as
+    /// `should_allow_connection`, but under the write guard that performs the
+    /// insert. This closes the check-then-act (TOCTOU) window in which two
+    /// racing admissions from a subnet at cap-1 both pass a separate
+    /// read-guarded check and then both insert. Here we fill past the subnet
+    /// cap and assert the very next same-subnet admission is atomically
+    /// rejected rather than inserted.
+    #[tokio::test]
+    async fn test_check_and_register_enforces_diversity_atomically() {
+        let config = EclipsePreventionConfig::default();
+        let system = EclipsePreventionSystem::new(config);
+
+        // Seed the map past the diversity threshold with same-subnet peers via
+        // the low-level (unchecked) registration used for test setup.
+        for i in 0..10 {
+            let peer_id = PeerId::random();
+            let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, i));
+            system
+                .register_connection(peer_id, ip, true, false)
+                .await
+                .unwrap();
+        }
+
+        let before = system.test_connections_snapshot().await.len();
+
+        // The atomic admission of another same-subnet peer must be rejected...
+        let peer_id = PeerId::random();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
+        let result = system
+            .check_and_register_connection(peer_id, ip, true, false)
+            .await;
+        assert!(
+            result.is_err(),
+            "same-subnet admission past the cap must be rejected"
+        );
+
+        // ...and, crucially, must NOT have inserted the connection (a leaky
+        // check-then-act would have grown the map).
+        let after = system.test_connections_snapshot().await;
+        assert_eq!(
+            after.len(),
+            before,
+            "rejected admission must not insert the peer"
+        );
+        assert!(
+            !after.contains_key(&peer_id),
+            "rejected peer must be absent from the connection map"
+        );
+    }
+
     #[tokio::test]
     async fn test_pow_challenge() {
         let mut config = EclipsePreventionConfig::default();
@@ -900,5 +1070,36 @@ mod tests {
 
         // Should detect flooding
         assert!(system.detect_connection_flooding(&subnet_ip).await);
+    }
+
+    /// Regression: register_connection must not self-deadlock. Previously it held
+    /// the `connections` write guard across an awaited call to
+    /// analyze_connection_patterns(), which re-acquires the same non-reentrant
+    /// RwLock for reading. With behavioral analysis enabled (the default), the
+    /// first registration would hang forever. A bounded timeout proves it now
+    /// completes.
+    #[tokio::test]
+    async fn test_register_connection_no_self_deadlock() {
+        let config = EclipsePreventionConfig::default();
+        assert!(
+            config.enable_behavioral_analysis,
+            "default must exercise the analyze_connection_patterns path"
+        );
+        let system = EclipsePreventionSystem::new(config);
+
+        let peer_id = PeerId::random();
+        let ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
+
+        let result =
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                system.register_connection(peer_id, ip, true, false).await
+            })
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "register_connection deadlocked (timed out) — reentrant lock regression"
+        );
+        result.unwrap().unwrap();
     }
 }

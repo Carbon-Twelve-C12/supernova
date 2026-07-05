@@ -225,6 +225,11 @@ impl PeerManager {
         (total, inbound, outbound)
     }
 
+    /// Maximum number of peers this manager will allow to be connected
+    pub fn max_peers(&self) -> usize {
+        self.connection_limits.max_peers
+    }
+
     /// Check if we can accept more connections
     pub async fn can_accept_connection(&self, is_inbound: bool) -> bool {
         let (total, inbound, outbound) = self.get_connection_counts().await;

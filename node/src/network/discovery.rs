@@ -17,6 +17,13 @@ use std::{
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+/// Maximum number of addresses retained per peer in the known-peers map.
+///
+/// Bounds attacker-influenced memory growth: without this cap, repeated mDNS
+/// discovery of the same peer with slightly varied multiaddrs would grow the
+/// per-peer `Vec<Multiaddr>` without bound.
+const MAX_ADDRS_PER_PEER: usize = 16;
+
 /// Events emitted by the discovery system
 #[derive(Debug, Clone)]
 pub enum DiscoveryEvent {
@@ -250,7 +257,14 @@ impl PeerDiscovery {
                     // Add to known peers
                     {
                         if let Ok(mut known_peers) = self.known_peers.lock() {
-                            known_peers.entry(peer_id).or_default().push(addr.clone());
+                            let addresses = known_peers.entry(peer_id).or_default();
+                            // Deduplicate and cap per-peer address list to bound
+                            // attacker-influenced memory growth.
+                            if !addresses.contains(&addr)
+                                && addresses.len() < MAX_ADDRS_PER_PEER
+                            {
+                                addresses.push(addr.clone());
+                            }
                         }
                     }
 
@@ -341,5 +355,50 @@ impl PeerDiscovery {
 
         // In libp2p v0.52, addresses are added through the routing table when connected
         debug!("Bootstrap node added: {} at {}", peer_id, addr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Repeated mDNS discovery of a peer must not grow its address list without
+    /// bound: duplicate addresses are ignored and the per-peer list is capped at
+    /// `MAX_ADDRS_PER_PEER`.
+    #[tokio::test]
+    async fn mdns_known_peers_dedup_and_cap() {
+        let keypair = Keypair::generate_ed25519();
+        let (mut discovery, _rx) = PeerDiscovery::new(&keypair, Vec::new(), false)
+            .await
+            .expect("discovery init");
+
+        let peer_id = PeerId::random();
+        let addr: Multiaddr = "/ip4/127.0.0.1/tcp/9000".parse().unwrap();
+
+        // Discover the same (peer_id, addr) many times: should dedup to one entry.
+        for _ in 0..50 {
+            discovery
+                .handle_mdns_event(MdnsEvent::Discovered(vec![(peer_id, addr.clone())]))
+                .await
+                .expect("handle discovered");
+        }
+
+        let known = discovery.get_known_peers();
+        assert_eq!(known.get(&peer_id).map(|v| v.len()), Some(1));
+
+        // Now flood with distinct addresses: should cap at MAX_ADDRS_PER_PEER.
+        for port in 10000..10000 + (MAX_ADDRS_PER_PEER as u16 * 4) {
+            let varied: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}", port).parse().unwrap();
+            discovery
+                .handle_mdns_event(MdnsEvent::Discovered(vec![(peer_id, varied)]))
+                .await
+                .expect("handle discovered");
+        }
+
+        let known = discovery.get_known_peers();
+        assert_eq!(
+            known.get(&peer_id).map(|v| v.len()),
+            Some(MAX_ADDRS_PER_PEER)
+        );
     }
 }

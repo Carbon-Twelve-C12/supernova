@@ -36,6 +36,27 @@ use crate::network::message::MessageSizeLimits;
 /// checking afterwards.
 const MAX_DECOMPRESSED_SIZE: usize = MessageSizeLimits::MAX_BLOCK_SIZE;
 
+/// Conservative lower bound on the serialized size of a single transaction.
+///
+/// Used only to derive a sane upper bound on how many transactions a valid
+/// block can possibly contain. A minimal transaction (version, one input, one
+/// output, lock time) serializes to well over this many bytes, so this is a
+/// safe floor that never rejects a legitimate block.
+const MIN_TRANSACTION_SIZE: usize = 64;
+
+/// Maximum number of transactions a valid block can hold, and therefore the
+/// maximum length we accept for any of the attacker-controlled, per-index
+/// vectors in a decoded [`CompactBlock`] (`short_ids`, `prefilled_txs`,
+/// `missing_indices`).
+///
+/// A `CompactBlock` is a fully peer-supplied `Deserialize` struct with no
+/// intrinsic length caps. Without this bound a malicious peer could send a
+/// ~4 MiB message whose vectors are large enough to force expensive
+/// allocation and reconstruction work *before* any block/PoW validation runs.
+/// This equals `MAX_BLOCK_SIZE / MIN_TRANSACTION_SIZE` (65536), which also
+/// matches the `u16` index space used for `prefilled_txs`/`missing_indices`.
+const MAX_COMPACT_BLOCK_TXS: usize = MessageSizeLimits::MAX_BLOCK_SIZE / MIN_TRANSACTION_SIZE;
+
 /// Compact block structure optimized for Supernova
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactBlock {
@@ -393,25 +414,52 @@ impl CompactBlockDecoder {
         missing_txs: &[Transaction],
     ) -> Result<Block, CompactBlockError> {
         let start_time = Instant::now();
+
+        // Reject malformed/oversized compact blocks before doing any
+        // reconstruction work. `short_ids`, `prefilled_txs`, and
+        // `missing_indices` are all attacker-controlled and otherwise
+        // uncapped; a peer could otherwise send a ~4 MiB message whose
+        // vectors force large allocations and scans before any block/PoW
+        // validation runs. A valid block holds at most
+        // `MAX_COMPACT_BLOCK_TXS` transactions.
+        if compact.short_ids.len() > MAX_COMPACT_BLOCK_TXS
+            || compact.prefilled_txs.len() > MAX_COMPACT_BLOCK_TXS
+            || compact.missing_indices.len() > MAX_COMPACT_BLOCK_TXS
+        {
+            return Err(CompactBlockError::TooManyTransactions);
+        }
+
+        // Build O(1) lookup structures so reconstruction runs in O(n) rather
+        // than the naive O(n^2) linear `find`/`contains` scan per index, which
+        // an attacker could otherwise weaponize into an algorithmic-complexity
+        // DoS.
+        let prefilled_by_index: std::collections::HashMap<u16, &PrefilledTransaction> = compact
+            .prefilled_txs
+            .iter()
+            .map(|p| (p.index, p))
+            .collect();
+        let missing_set: HashSet<u16> = compact.missing_indices.iter().copied().collect();
+
         let mut transactions = Vec::new();
         let mut missing_index = 0;
 
         // Reconstruct transactions in order
         for (i, short_id) in compact.short_ids.iter().enumerate() {
+            let index = i as u16;
             // Check if this index is prefilled. The encoder wraps each
             // prefilled transaction in the QSC compression envelope (see
             // `compress_transaction`), so we must decompress before the
             // bincode deserialization — going straight to bincode would
             // try to parse the QSC magic bytes as a `Transaction` and fail
             // every single time.
-            if let Some(prefilled) = compact.prefilled_txs.iter().find(|p| p.index == i as u16) {
+            if let Some(prefilled) = prefilled_by_index.get(&index) {
                 let tx = CompactBlockEncoder::decompress_transaction(&prefilled.transaction)?;
                 transactions.push(tx);
                 continue;
             }
 
             // Check if this index is missing
-            if compact.missing_indices.contains(&(i as u16)) {
+            if missing_set.contains(&index) {
                 if missing_index >= missing_txs.len() {
                     return Err(CompactBlockError::MissingTransaction(i));
                 }
@@ -462,6 +510,8 @@ pub enum CompactBlockError {
     MissingTransaction(usize),
     #[error("Extra transactions provided")]
     ExtraTransactions,
+    #[error("Compact block declares more transactions than a valid block can hold")]
+    TooManyTransactions,
     #[error("Deserialization error: {0}")]
     DeserializationError(String),
     #[error("Reconstruction failed: {0}")]
@@ -635,6 +685,27 @@ mod tests {
         let result = decoder.decode(&compact, &[]);
 
         assert!(matches!(result, Err(CompactBlockError::MissingTransaction(_))));
+    }
+
+    #[test]
+    fn test_oversized_compact_block_rejected() {
+        // A peer-supplied compact block whose vectors exceed the maximum number
+        // of transactions a valid block can hold must be rejected up-front,
+        // before any per-index reconstruction work runs. This guards the
+        // O(n^2)-shaped decode path against an algorithmic-complexity DoS.
+        let header = BlockHeader::new(1, [0u8; 32], [0u8; 32], 1000, 0x1d00ffff, 0);
+        let oversized = CompactBlock {
+            header,
+            short_ids: vec![0u64; MAX_COMPACT_BLOCK_TXS + 1],
+            missing_indices: Vec::new(),
+            environmental_delta: None,
+            lightning_updates: Vec::new(),
+            prefilled_txs: Vec::new(),
+        };
+
+        let decoder = CompactBlockDecoder::new(0, 0, &[]);
+        let result = decoder.decode(&oversized, &[]);
+        assert!(matches!(result, Err(CompactBlockError::TooManyTransactions)));
     }
 
     #[test]

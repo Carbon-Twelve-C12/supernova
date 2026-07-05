@@ -11,7 +11,7 @@ use libp2p::{core::transport::Transport, identity, noise, tcp, yamux, PeerId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::Zeroizing;
 
 /// Quantum-safe P2P configuration
 #[derive(Debug, Clone)]
@@ -95,25 +95,6 @@ pub struct QuantumMessage {
     pub timestamp: u64,
 }
 
-/// Quantum session keys derived from KEM exchange
-///
-/// SECURITY FIX (P1-007): Added Zeroize and ZeroizeOnDrop to ensure
-/// session keys are securely erased from memory when the session ends.
-/// This prevents key material from lingering in memory after use.
-#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
-pub struct QuantumSession {
-    /// Ciphertext to send to peer for key derivation (public, skip zeroization)
-    #[zeroize(skip)]
-    pub ciphertext: Vec<u8>,
-    /// Encryption key for message confidentiality - will be zeroized
-    pub encryption_key: [u8; 32],
-    /// MAC key for message authenticity - will be zeroized
-    pub mac_key: [u8; 32],
-    /// Session establishment timestamp (not sensitive, skip)
-    #[zeroize(skip)]
-    pub established_at: u64,
-}
-
 impl QuantumP2PConfig {
     /// Create new quantum P2P configuration
     pub fn new(security_level: u8) -> Result<Self, P2PError> {
@@ -176,54 +157,6 @@ impl QuantumP2PConfig {
         // Full quantum transport integration requires libp2p changes or custom protocol
 
         Ok(transport)
-    }
-
-    /// Create a quantum-protected session after classical connection
-    ///
-    /// This performs a post-quantum key exchange to derive session keys
-    /// that are resistant to quantum attacks.
-    pub fn establish_quantum_session(
-        &self,
-        peer_kem_pubkey: &[u8],
-    ) -> Result<QuantumSession, P2PError> {
-        // Encapsulate a shared secret using the peer's KEM public key
-        let (ciphertext, shared_secret) = encapsulate(peer_kem_pubkey)?;
-
-        // Derive session keys from shared secret using HKDF
-        let (encryption_key, mac_key) = self.derive_session_keys(&shared_secret)?;
-
-        Ok(QuantumSession {
-            ciphertext,
-            encryption_key,
-            mac_key,
-            established_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or(std::time::Duration::ZERO)
-                .as_secs(),
-        })
-    }
-
-    /// Derive session keys from shared secret using HKDF
-    fn derive_session_keys(&self, shared_secret: &[u8]) -> Result<([u8; 32], [u8; 32]), P2PError> {
-        use sha2::{Digest, Sha256};
-
-        // Simple key derivation (in production, use proper HKDF)
-        let mut hasher = Sha256::new();
-        hasher.update(shared_secret);
-        hasher.update(b"supernova-quantum-encryption-key");
-        let enc_key_hash = hasher.finalize();
-
-        let mut hasher = Sha256::new();
-        hasher.update(shared_secret);
-        hasher.update(b"supernova-quantum-mac-key");
-        let mac_key_hash = hasher.finalize();
-
-        let mut encryption_key = [0u8; 32];
-        let mut mac_key = [0u8; 32];
-        encryption_key.copy_from_slice(&enc_key_hash);
-        mac_key.copy_from_slice(&mac_key_hash);
-
-        Ok((encryption_key, mac_key))
     }
 
     /// Perform quantum handshake with peer
@@ -297,6 +230,10 @@ impl QuantumP2PConfig {
         // by decapsulating with their secret key. This is the standard KEM usage
         // pattern for hybrid encryption (KEM + symmetric cipher).
         let (ciphertext_key, shared_secret) = encapsulate(&peer_info.kem_pubkey)?;
+        // SECURITY FIX (R5-16): Wrap the KEM shared secret in Zeroizing so the live
+        // ChaCha20 session key is securely erased from memory when this scope ends,
+        // instead of leaving a plaintext copy in a dropped Vec<u8>.
+        let shared_secret = Zeroizing::new(shared_secret);
 
         // Encrypt message with the KEM-derived shared secret (32 bytes, matches ChaCha20)
         let ciphertext = self.symmetric_encrypt(data, &shared_secret)?;
@@ -342,11 +279,27 @@ impl QuantumP2PConfig {
         message_data.extend_from_slice(message.encrypted_key.as_ref());
         message_data.extend_from_slice(message.ciphertext.as_ref());
 
+        // CORRECTNESS FIX (R5-18): Verify against the peer's negotiated scheme/level
+        // (cached in peer_info during the handshake), NOT our own self.security_params.
+        // Our params are always Dilithium from ::new(), so verifying a peer that signed
+        // with Falcon or SPHINCS+ (both advertised at handshake) against our own scheme
+        // would misparse the key/signature bytes. Use the peer's preferred (first)
+        // advertised scheme and its cached security level for verification.
+        let peer_scheme = peer_info
+            .supported_schemes
+            .first()
+            .copied()
+            .unwrap_or(QuantumScheme::Dilithium);
+        let peer_params = QuantumParameters {
+            scheme: peer_scheme,
+            security_level: peer_info.security_level,
+        };
+
         let verified = verify_quantum_signature(
             &peer_info.quantum_pubkey,
             &message_data,
             &message.signature,
-            self.security_params,
+            peer_params,
         )?;
 
         if !verified {
@@ -354,7 +307,11 @@ impl QuantumP2PConfig {
         }
 
         // Decapsulate symmetric key
-        let symmetric_key = decapsulate(&self.kem_keypair.secret_key, &message.encrypted_key)?;
+        // SECURITY FIX (R5-16): Wrap the KEM shared secret in Zeroizing so the live
+        // ChaCha20 session key is securely erased from memory when this scope ends,
+        // instead of leaving a plaintext copy in a dropped Vec<u8>.
+        let symmetric_key =
+            Zeroizing::new(decapsulate(&self.kem_keypair.secret_key, &message.encrypted_key)?);
 
         // Decrypt message
         let plaintext = self.symmetric_decrypt(&message.ciphertext, &symmetric_key)?;
@@ -464,9 +421,13 @@ impl QuantumP2PConfig {
         let encrypted_data = &ciphertext[12..];
 
         // Decrypt and verify
+        // Note: AEAD authentication and decryption failures are indistinguishable
+        // here by design (no padding/error oracle). Map to a dedicated transport
+        // error rather than InvalidSignature so decryption failures are not
+        // conflated with quantum-signature verification failures.
         cipher
             .decrypt(nonce, encrypted_data)
-            .map_err(|_| P2PError::InvalidSignature) // Auth failed or decryption failed
+            .map_err(|_| P2PError::DecryptionFailed) // Auth tag mismatch or decryption failed
     }
 }
 
@@ -547,6 +508,9 @@ pub enum P2PError {
 
     #[error("Invalid signature")]
     InvalidSignature,
+
+    #[error("Decryption failed")]
+    DecryptionFailed,
 
     #[error("Invalid message")]
     InvalidMessage,
@@ -646,6 +610,112 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_quantum_message_roundtrip_zeroized() {
+        // R5-16: Ensure wrapping KEM shared secrets in Zeroizing does not break the
+        // encrypt (send) / decrypt (receive) round-trip. The Zeroizing wrapper must
+        // still deref cleanly into the symmetric cipher key.
+        let config1 = QuantumP2PConfig::new(3).unwrap();
+        let config2 = QuantumP2PConfig::new(3).unwrap();
+
+        let peer_id1 = PeerId::random();
+        let peer_id2 = PeerId::random();
+
+        // config1 knows config2's KEM/quantum keys (recipient).
+        config1.peer_keys.write().unwrap().insert(
+            peer_id2,
+            QuantumPeerInfo {
+                quantum_pubkey: config2.quantum_identity.public_key.clone(),
+                kem_pubkey: config2.kem_keypair.public_key.clone(),
+                supported_schemes: vec![QuantumScheme::Dilithium],
+                key_rotation: 0,
+                security_level: 3,
+            },
+        );
+
+        // config2 knows config1's quantum key (to verify the sender signature).
+        config2.peer_keys.write().unwrap().insert(
+            peer_id1,
+            QuantumPeerInfo {
+                quantum_pubkey: config1.quantum_identity.public_key.clone(),
+                kem_pubkey: config1.kem_keypair.public_key.clone(),
+                supported_schemes: vec![QuantumScheme::Dilithium],
+                key_rotation: 0,
+                security_level: 3,
+            },
+        );
+
+        let plaintext = b"Quantum shared secrets must zeroize after use";
+        let encrypted = config1
+            .send_quantum_message(&peer_id2, plaintext)
+            .await
+            .unwrap();
+
+        let decrypted = config2
+            .receive_quantum_message(&peer_id1, &encrypted)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            decrypted,
+            plaintext.to_vec(),
+            "Round-trip must recover the original plaintext after Zeroizing wrapping"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_receive_uses_peer_negotiated_scheme() {
+        // R5-18: receive_quantum_message must verify using the peer's negotiated
+        // scheme (cached in peer_info.supported_schemes), NOT our own security_params.
+        // Here config1 signs with its Dilithium identity, but config2 caches a peer_info
+        // whose preferred (first) advertised scheme is Falcon. Because verification now
+        // sources the scheme from peer_info, the Falcon/Dilithium mismatch must be
+        // rejected. Before the fix, verification used self.security_params (Dilithium)
+        // and would have wrongly succeeded, ignoring the negotiated scheme entirely.
+        let config1 = QuantumP2PConfig::new(3).unwrap();
+        let config2 = QuantumP2PConfig::new(3).unwrap();
+
+        let peer_id1 = PeerId::random();
+        let peer_id2 = PeerId::random();
+
+        // config1 knows config2's KEM/quantum keys (recipient).
+        config1.peer_keys.write().unwrap().insert(
+            peer_id2,
+            QuantumPeerInfo {
+                quantum_pubkey: config2.quantum_identity.public_key.clone(),
+                kem_pubkey: config2.kem_keypair.public_key.clone(),
+                supported_schemes: vec![QuantumScheme::Dilithium],
+                key_rotation: 0,
+                security_level: 3,
+            },
+        );
+
+        // config2 caches config1 with a mismatched preferred scheme (Falcon first).
+        config2.peer_keys.write().unwrap().insert(
+            peer_id1,
+            QuantumPeerInfo {
+                quantum_pubkey: config1.quantum_identity.public_key.clone(),
+                kem_pubkey: config1.kem_keypair.public_key.clone(),
+                supported_schemes: vec![QuantumScheme::Falcon, QuantumScheme::Dilithium],
+                key_rotation: 0,
+                security_level: 3,
+            },
+        );
+
+        let encrypted = config1
+            .send_quantum_message(&peer_id2, b"scheme negotiation matters")
+            .await
+            .unwrap();
+
+        // Verification must consult the negotiated scheme (Falcon) and reject the
+        // Dilithium-signed message rather than silently accepting under our own scheme.
+        let result = config2.receive_quantum_message(&peer_id1, &encrypted).await;
+        assert!(
+            result.is_err(),
+            "receive must use the peer's negotiated scheme, not self.security_params"
+        );
+    }
+
+    #[tokio::test]
     async fn test_key_rotation() {
         let mut config = QuantumP2PConfig::new(3).unwrap();
 
@@ -656,5 +726,34 @@ mod tests {
 
         assert_ne!(config.quantum_identity.public_key, old_pubkey);
         assert_ne!(config.kem_keypair.public_key, old_kem);
+    }
+
+    #[test]
+    fn test_symmetric_decrypt_tamper_reports_decryption_failure() {
+        // R5-19: A tampered ciphertext (AEAD auth-tag mismatch) must surface as
+        // P2PError::DecryptionFailed, NOT P2PError::InvalidSignature. Conflating
+        // transport-decryption failure with quantum-signature failure misdirects
+        // debugging and peer-scoring. The error message is kept generic to avoid
+        // acting as a decryption oracle.
+        let config = QuantumP2PConfig::new(3).unwrap();
+        let key = [7u8; 32];
+
+        let ciphertext = config
+            .symmetric_encrypt(b"authenticated payload", &key)
+            .unwrap();
+
+        // A clean round-trip still succeeds.
+        let recovered = config.symmetric_decrypt(&ciphertext, &key).unwrap();
+        assert_eq!(recovered, b"authenticated payload".to_vec());
+
+        // Flip a byte in the authenticated ciphertext body (past the 12-byte nonce).
+        let mut tampered = ciphertext.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0xFF;
+
+        match config.symmetric_decrypt(&tampered, &key) {
+            Err(P2PError::DecryptionFailed) => {}
+            other => panic!("expected DecryptionFailed, got {:?}", other),
+        }
     }
 }
