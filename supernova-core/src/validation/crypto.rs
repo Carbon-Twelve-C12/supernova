@@ -182,9 +182,14 @@ impl CryptoValidator {
                     ))),
                 }
             }
-            // For classical or other signature types, use the general verifier
+            // For classical or other signature types, use the general verifier.
+            // Honor the declared security level so post-quantum schemes
+            // (Dilithium/Falcon/Sphincs) are verified with the same parameter
+            // set the signer used instead of a fixed default level.
             _ => {
-                let verifier = SignatureVerifier::new();
+                let verifier = SignatureVerifier {
+                    security_level: params.security_level,
+                };
 
                 match verifier.verify(params.sig_type, public_key, message, signature) {
                     Ok(valid) => Ok(valid),
@@ -200,3 +205,86 @@ impl CryptoValidator {
 
 /// Alias for backward compatibility
 pub type SignatureValidator = CryptoValidator;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
+    use crate::crypto::signature::SignatureParams;
+
+    fn dilithium5_params(security_level: u8) -> SignatureParams {
+        SignatureParams {
+            sig_type: SignatureType::Dilithium,
+            security_level,
+            enable_batch: false,
+            additional_params: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Regression test for R5-1: `CryptoValidator::validate_signature` routed
+    /// Dilithium/Falcon/Sphincs through `SignatureVerifier::new()` (fixed
+    /// level 2 => Dilithium2), discarding `params.security_level`. A genuine
+    /// Dilithium5 (level 5) signature — as produced by the quantum wallet —
+    /// could therefore never verify (Dilithium2 public-key length mismatch).
+    /// After the fix the verifier is constructed with `params.security_level`,
+    /// so the declared level round-trips correctly.
+    #[test]
+    fn test_validate_signature_honors_declared_security_level_dilithium5() {
+        let keypair = QuantumKeyPair::generate(QuantumParameters {
+            scheme: QuantumScheme::Dilithium,
+            security_level: 5,
+        })
+        .expect("Dilithium5 key generation should succeed");
+
+        let message = b"declared PQC security level must round-trip";
+        let signature = keypair
+            .sign(message)
+            .expect("Dilithium5 signing should succeed");
+
+        // Default config allows Dilithium and sets min_signature_security_level = 2.
+        let validator = CryptoValidator::new(CryptoValidationConfig::default());
+
+        // Verify at the declared level (5): must accept the genuine signature.
+        let valid = validator
+            .validate_signature(
+                &signature,
+                &keypair.public_key,
+                message,
+                dilithium5_params(5),
+            )
+            .expect("Dilithium5 verification must not error");
+        assert!(
+            valid,
+            "a genuine Dilithium5 signature must verify at its declared level"
+        );
+
+        // A tampered message must not verify.
+        let tampered = validator
+            .validate_signature(
+                &signature,
+                &keypair.public_key,
+                b"different message",
+                dilithium5_params(5),
+            )
+            .expect("verification of a tampered message must not error");
+        assert!(
+            !tampered,
+            "signature must not verify against a different message"
+        );
+
+        // The old hardcoded level (1) is rejected outright by the default
+        // min_signature_security_level (2) gate — demonstrating why the caller
+        // must pass the transaction's declared level, not a fixed constant.
+        assert!(
+            validator
+                .validate_signature(
+                    &signature,
+                    &keypair.public_key,
+                    message,
+                    dilithium5_params(1),
+                )
+                .is_err(),
+            "a security level below the configured minimum must be rejected"
+        );
+    }
+}

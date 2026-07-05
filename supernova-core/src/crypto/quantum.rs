@@ -662,9 +662,23 @@ impl QuantumParameters {
                 _ => Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
             },
             QuantumScheme::Hybrid(classical) => {
-                // For hybrid, combine classical and quantum signature lengths
-                let classical_len = match classical {
-                    ClassicalScheme::Secp256k1 => 64, // r, s format
+                // Hybrid signatures produced by `sign` are:
+                //   2-byte big-endian classical-length prefix
+                //   || classical signature
+                //   || detached Dilithium signature
+                // (see the Hybrid branch of `sign`). The classical part is
+                // DER-encoded for secp256k1, whose length is variable
+                // (typically ~70-72 bytes), so this is an UPPER BOUND on the
+                // real signature size, mirroring the variable-length caveat
+                // for Falcon. Callers must size-check with `<=`, never `==`.
+                const HYBRID_LEN_PREFIX: usize = 2;
+
+                // Maximum classical signature length.
+                let max_classical_len = match classical {
+                    // Secp256k1 ECDSA is DER-encoded; the maximum DER encoding
+                    // of two 256-bit integers is 72 bytes.
+                    ClassicalScheme::Secp256k1 => 72,
+                    // Ed25519 signatures are a fixed 64 bytes (R || s).
                     ClassicalScheme::Ed25519 => 64,
                 };
 
@@ -676,7 +690,7 @@ impl QuantumParameters {
                     _ => return Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
                 };
 
-                Ok(classical_len + quantum_len)
+                Ok(HYBRID_LEN_PREFIX + max_classical_len + quantum_len)
             }
         }
     }
@@ -1934,6 +1948,47 @@ mod tests {
             FalconSecurityLevel::Falcon1024.signature_length(),
             "Falcon security level 3 (Medium) should map to Falcon-1024, matching sign/verify/generate"
         );
+    }
+
+    #[test]
+    fn test_hybrid_expected_signature_length_is_upper_bound() {
+        // Hybrid signatures are `2-byte length prefix || classical_sig ||
+        // dilithium_sig`, where the secp256k1 classical part is DER-encoded
+        // and therefore variable-length. expected_signature_length() must
+        // report an UPPER BOUND that a real signature never exceeds, so that
+        // any size-based validation accepts genuine hybrid signatures.
+        for classical in [ClassicalScheme::Secp256k1, ClassicalScheme::Ed25519] {
+            let params = QuantumParameters::with_security_level(
+                QuantumScheme::Hybrid(classical),
+                SecurityLevel::Medium as u8,
+            );
+
+            let expected_len = params
+                .expected_signature_length()
+                .expect("Hybrid signature length should be computable");
+
+            let mut rng = OsRng;
+            let keypair = QuantumKeyPair::generate_with_rng(&mut rng, params)
+                .expect("Hybrid key generation should succeed");
+            let message = b"hybrid expected_signature_length regression message";
+
+            // Sign several times: ECDSA DER encoding length varies with the
+            // signature values, so exercise multiple signatures to guard
+            // against the previous under-count (64 + dilithium) that rejected
+            // real DER-encoded signatures.
+            for _ in 0..16 {
+                let signature = keypair
+                    .sign(message)
+                    .expect("Hybrid signing should succeed");
+                assert!(
+                    signature.len() <= expected_len,
+                    "real hybrid signature ({} bytes) must not exceed expected_signature_length() ({} bytes) for {:?}",
+                    signature.len(),
+                    expected_len,
+                    classical
+                );
+            }
+        }
     }
 
     #[test]

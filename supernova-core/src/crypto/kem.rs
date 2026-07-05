@@ -22,6 +22,9 @@ pub enum KemError {
     #[error("Invalid ciphertext: {0}")]
     InvalidCiphertext(String),
 
+    #[error("Invalid secret key: {0}")]
+    InvalidSecretKey(String),
+
     #[error("Decapsulation failed: {0}")]
     DecapsulationFailed(String),
 
@@ -36,13 +39,32 @@ pub enum KemError {
 ///
 /// SECURITY FIX (P1-001): Added Zeroize and ZeroizeOnDrop to ensure
 /// secret key material is securely erased from memory when dropped.
-#[derive(Debug, Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+///
+/// SECURITY FIX (R5-17): Replaced the derived `Debug` with a manual impl that
+/// redacts `secret_key`, preventing the raw Kyber-768 secret key from leaking
+/// into logs via `{:?}` formatting (directly or through containers such as
+/// `QuantumP2PConfig`, whose derived `Debug` delegates to this impl).
+///
+/// NOTE: `Serialize`/`Deserialize` are intentionally retained (required by
+/// `test_kem_serialization` and persistence paths). Be aware that
+/// serialization emits the secret key as plaintext bytes; callers must only
+/// persist `KemKeyPair` through an appropriately encrypted/protected channel.
+#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct KemKeyPair {
     /// Public key - can be safely shared
     #[zeroize(skip)]
     pub public_key: Vec<u8>,
     /// Secret key - will be zeroized on drop
     pub secret_key: Vec<u8>,
+}
+
+impl std::fmt::Debug for KemKeyPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KemKeyPair")
+            .field("public_key", &hex::encode(&self.public_key))
+            .field("secret_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl KemKeyPair {
@@ -136,7 +158,7 @@ pub fn encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, Vec<u8>), KemError> {
 pub fn decapsulate(secret_key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, KemError> {
     // Validate secret key size (Kyber-768 secret key is 2400 bytes)
     if secret_key.len() != kyber768::secret_key_bytes() {
-        return Err(KemError::InvalidCiphertext(format!(
+        return Err(KemError::InvalidSecretKey(format!(
             "Invalid secret key size: expected {} bytes, got {}",
             kyber768::secret_key_bytes(),
             secret_key.len()
@@ -154,7 +176,7 @@ pub fn decapsulate(secret_key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, KemE
 
     // Parse secret key
     let sk = kyber768::SecretKey::from_bytes(secret_key)
-        .map_err(|e| KemError::InvalidCiphertext(format!("Failed to parse secret key: {:?}", e)))?;
+        .map_err(|e| KemError::InvalidSecretKey(format!("Failed to parse secret key: {:?}", e)))?;
 
     // Parse ciphertext
     let ct = kyber768::Ciphertext::from_bytes(ciphertext)
@@ -170,6 +192,23 @@ pub fn decapsulate(secret_key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, KemE
 mod tests {
     use super::*;
     use pqcrypto_kyber::kyber768;
+
+#[test]
+fn test_kem_debug_redacts_secret_key() {
+    // SECURITY FIX (R5-17): Debug formatting must never leak the raw secret key.
+    let keypair = KemKeyPair::generate().expect("Key generation should succeed");
+    let debug_str = format!("{:?}", keypair);
+
+    // Secret key must be redacted, not printed.
+    assert!(debug_str.contains("[REDACTED]"), "secret_key must be redacted");
+    let secret_hex = hex::encode(&keypair.secret_key);
+    assert!(
+        !debug_str.contains(&secret_hex),
+        "Debug output must not contain the raw secret key bytes"
+    );
+    // Public key remains visible for diagnostics.
+    assert!(debug_str.contains(&hex::encode(&keypair.public_key)));
+}
 
 #[test]
 fn test_kem_key_generation() {
@@ -288,23 +327,26 @@ fn test_kem_invalid_ciphertext() {
     // SECURITY FIX (P0-001): Verify invalid ciphertexts are rejected
     let keypair = KemKeyPair::generate().expect("Key generation should succeed");
 
-    // Test with wrong ciphertext size
+    // Test with wrong ciphertext size (valid-size secret key isolates the ciphertext branch)
     let invalid_ciphertext = vec![0u8; 100];
     let result = decapsulate(&keypair.secret_key, &invalid_ciphertext);
-    assert!(
-        result.is_err(),
-        "Decapsulation with invalid ciphertext size should fail"
-    );
+    match result {
+        Err(KemError::InvalidCiphertext(_)) => {}
+        other => panic!("Expected InvalidCiphertext error, got {:?}", other),
+    }
 
     // Test with wrong secret key size
     let invalid_secret_key = vec![0u8; 100];
     let (valid_ciphertext, _) = encapsulate(&keypair.public_key)
         .expect("Encapsulation should succeed");
     let result = decapsulate(&invalid_secret_key, &valid_ciphertext);
-    assert!(
-        result.is_err(),
-        "Decapsulation with invalid secret key size should fail"
-    );
+    // R5-20: a wrong-size secret key must be reported as InvalidSecretKey, not
+    // InvalidCiphertext, so local key-management bugs are not misattributed to
+    // peer-supplied ciphertext.
+    match result {
+        Err(KemError::InvalidSecretKey(_)) => {}
+        other => panic!("Expected InvalidSecretKey error, got {:?}", other),
+    }
 }
 
 #[test]

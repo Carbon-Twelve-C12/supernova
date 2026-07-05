@@ -358,8 +358,20 @@ impl SignatureScheme for FalconScheme {
     ) -> Result<bool, SignatureError> {
         use crate::crypto::falcon_real::{falcon_verify, FalconError, FalconSecurityLevel};
 
-        // Convert numeric security level to FalconSecurityLevel
-        let security_level = FalconSecurityLevel::from_level(self.security_level).map_err(|e| {
+        // Convert numeric security level to FalconSecurityLevel using the same
+        // lenient mapping as `crypto::quantum::falcon_security_level_for`
+        // (via `SecurityLevel::from(u8)`). Falcon only defines NIST level 1
+        // (Falcon-512) and level 5 (Falcon-1024), so `Low` maps to Falcon-512
+        // and every other tier maps to Falcon-1024. A strict `from_level` would
+        // reject the shared default `security_level` of 2 (=> Low => Falcon-512),
+        // used by `KeyPair::sign_quantum`/`SignatureVerifier`, and break the
+        // Falcon sign/verify round-trip (fail-closed, no forgery).
+        use crate::validation::SecurityLevel;
+        let nist_level = match SecurityLevel::from(self.security_level) {
+            SecurityLevel::Low => 1,
+            _ => 5,
+        };
+        let security_level = FalconSecurityLevel::from_level(nist_level).map_err(|e| {
             SignatureError::CryptoOperationFailed(format!("Invalid security level: {}", e))
         })?;
 
@@ -415,9 +427,17 @@ impl SignatureScheme for SphincsScheme {
         message: &[u8],
         signature: &[u8],
     ) -> Result<bool, SignatureError> {
-        // Verify using the appropriate SPHINCS+ variant based on security level
-        match self.security_level {
-            1 => {
+        // Verify using the appropriate SPHINCS+ variant based on security level.
+        //
+        // The numeric `security_level` MUST be mapped through
+        // `SecurityLevel::from(u8)` — the same conversion used by
+        // `QuantumKeyPair::sign`/`verify` and `generate_sphincs` in
+        // `crypto::quantum` — so that signing and verification agree on the
+        // variant. A raw numeric match (e.g. 2 => 192f) would diverge from the
+        // canonical mapping (2 => Low => 128f) and break the round-trip.
+        use crate::validation::SecurityLevel;
+        match SecurityLevel::from(self.security_level) {
+            SecurityLevel::Low => {
                 // Low/128-bit security: SPHINCS+-SHAKE-128f-simple
                 let pk = sphincsshake128fsimple::PublicKey::from_bytes(public_key).map_err(
                     |_| SignatureError::InvalidKey("Invalid SPHINCS+ public key".to_string()),
@@ -432,7 +452,7 @@ impl SignatureScheme for SphincsScheme {
                     )?;
                 Ok(sphincsshake128fsimple::verify_detached_signature(&sig, message, &pk).is_ok())
             }
-            2 => {
+            SecurityLevel::Medium => {
                 // Medium/192-bit security: SPHINCS+-SHAKE-192f-simple
                 let pk = sphincsshake192fsimple::PublicKey::from_bytes(public_key).map_err(
                     |_| SignatureError::InvalidKey("Invalid SPHINCS+ public key".to_string()),
@@ -447,7 +467,7 @@ impl SignatureScheme for SphincsScheme {
                     )?;
                 Ok(sphincsshake192fsimple::verify_detached_signature(&sig, message, &pk).is_ok())
             }
-            3 | _ => {
+            _ => {
                 // High/256-bit security (default): SPHINCS+-SHAKE-256f-simple
                 let pk = sphincsshake256fsimple::PublicKey::from_bytes(public_key).map_err(
                     |_| SignatureError::InvalidKey("Invalid SPHINCS+ public key".to_string()),
@@ -710,28 +730,6 @@ impl SignatureVerifier {
             }
         }
         Ok(true)
-    }
-
-    /// Verify a Falcon signature
-    fn verify_falcon(&self, public_key: &[u8], signature: &[u8]) -> Result<bool, SignatureError> {
-        use crate::crypto::falcon_real::{falcon_verify, FalconSecurityLevel};
-
-        // Convert numeric security level to FalconSecurityLevel
-        let security_level = FalconSecurityLevel::from_level(self.security_level).map_err(|e| {
-            SignatureError::CryptoOperationFailed(format!("Invalid security level: {}", e))
-        })?;
-
-        // Note: We're not using message here since the hash was pre-computed
-        let hash = [0u8; 32]; // Placeholder - in real implementation we'd use the hash
-
-        // Verify the signature using the falcon_verify function
-        match falcon_verify(public_key, &hash, signature, security_level) {
-            Ok(valid) => Ok(valid),
-            Err(e) => Err(SignatureError::CryptoOperationFailed(format!(
-                "Falcon verification error: {}",
-                e
-            ))),
-        }
     }
 }
 
@@ -996,6 +994,107 @@ mod tests {
         // A tampered message must not verify.
         let tampered = signature.verify(b"different message").unwrap_or(false);
         assert!(!tampered, "signature must not verify against a different message");
+    }
+
+    /// Regression test for the R3-2 finding: `SphincsScheme::verify` used a
+    /// raw numeric match (`1 => 128f, 2 => 192f, 3 | _ => 256f`) that
+    /// disagreed with `SecurityLevel::from(u8)` (2 => Low => 128f) used by
+    /// `QuantumKeyPair::sign`/`generate_sphincs` everywhere else. Because
+    /// `KeyPair::sign_quantum` signs SPHINCS+ at the default `security_level = 2`
+    /// (128f, 32-byte public key) while `SignatureVerifier::new()` routed
+    /// verification through `SphincsScheme::new(2)` -> 192f (48-byte public
+    /// key), `PublicKey::from_bytes` failed on length and the round trip was
+    /// broken. This exercises the full sign/verify round trip through the
+    /// inherent `KeyPair`/`Signature` API for SPHINCS+.
+    #[test]
+    fn test_sphincs_sign_verify_via_keypair() {
+        use crate::crypto::quantum::{QuantumKeyPair, QuantumParameters};
+
+        // Default level used by KeyPair::sign_quantum / SignatureVerifier::new().
+        let params = QuantumParameters {
+            scheme: QuantumScheme::SphincsPlus,
+            security_level: 2,
+        };
+        let quantum_keypair =
+            QuantumKeyPair::generate(params).expect("SPHINCS+ key generation should succeed");
+
+        let key_pair = KeyPair {
+            signature_type: SignatureType::Sphincs,
+            secret_key: quantum_keypair.secret_key.clone(),
+            public_key: quantum_keypair.public_key.clone(),
+        };
+
+        let message = b"SPHINCS+ sign/verify variant mapping must agree";
+
+        let signature = key_pair
+            .sign(message)
+            .expect("SPHINCS+ signing should delegate to the real implementation");
+        assert_eq!(signature.signature_type, SignatureType::Sphincs);
+
+        // Before the fix this returned Err(InvalidKey("Invalid SPHINCS+ public
+        // key")) because verify selected the 192f variant for a 128f key.
+        let valid = signature
+            .verify(message)
+            .expect("SPHINCS+ verification must select the same variant as signing");
+        assert!(valid, "a genuine SPHINCS+ signature must verify as valid");
+
+        // A tampered message must not verify.
+        let tampered = signature.verify(b"different message").unwrap_or(false);
+        assert!(
+            !tampered,
+            "signature must not verify against a different message"
+        );
+    }
+
+    /// Regression test for the R3-3 finding: `FalconScheme::verify` converted
+    /// the numeric level via the strict
+    /// `FalconSecurityLevel::from_level`, which only accepts 1 or 5 and errors
+    /// on the shared default `security_level = 2`. But `KeyPair::sign_quantum`
+    /// signs Falcon at level 2, which `falcon_security_level_for`
+    /// (`SecurityLevel::from(2)` => Low) maps to Falcon-512. So a genuine Falcon
+    /// signature produced through the `KeyPair` API could never be verified via
+    /// `Signature::verify()` / `SignatureVerifier` (fail-closed,
+    /// `CryptoOperationFailed("...UnsupportedSecurityLevel(2)")`). This exercises
+    /// the full Falcon sign/verify round trip through the inherent API.
+    #[test]
+    fn test_falcon_sign_verify_via_keypair() {
+        use crate::crypto::quantum::{QuantumKeyPair, QuantumParameters};
+
+        // Default level used by KeyPair::sign_quantum / SignatureVerifier::new().
+        let params = QuantumParameters {
+            scheme: QuantumScheme::Falcon,
+            security_level: 2,
+        };
+        let quantum_keypair =
+            QuantumKeyPair::generate(params).expect("Falcon key generation should succeed");
+
+        let key_pair = KeyPair {
+            signature_type: SignatureType::Falcon,
+            secret_key: quantum_keypair.secret_key.clone(),
+            public_key: quantum_keypair.public_key.clone(),
+        };
+
+        let message = b"Falcon sign/verify level mapping must agree";
+
+        let signature = key_pair
+            .sign(message)
+            .expect("Falcon signing should delegate to the real implementation");
+        assert_eq!(signature.signature_type, SignatureType::Falcon);
+
+        // Before the fix this returned
+        // Err(CryptoOperationFailed("Invalid security level: Unsupported
+        // security level: 2")) because verify rejected level 2 outright.
+        let valid = signature
+            .verify(message)
+            .expect("Falcon verification must accept the same level as signing");
+        assert!(valid, "a genuine Falcon signature must verify as valid");
+
+        // A tampered message must not verify.
+        let tampered = signature.verify(b"different message").unwrap_or(false);
+        assert!(
+            !tampered,
+            "signature must not verify against a different message"
+        );
     }
 
     #[test]

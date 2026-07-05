@@ -10,7 +10,7 @@
 use colored::*;
 use pqcrypto_dilithium::{dilithium2, dilithium3, dilithium5};
 use pqcrypto_sphincsplus::{
-    sphincsshake256128fsimple, sphincsshake256192fsimple, sphincsshake256256fsimple,
+    sphincsshake128fsimple, sphincsshake192fsimple, sphincsshake256fsimple,
 };
 use pqcrypto_traits::sign::PublicKey as _;
 
@@ -116,9 +116,9 @@ fn main() {
 
     // --- SPHINCS+ (all three NIST security levels, SHAKE/simple variants,
     //     matching the parameter sets used in supernova-core) ---
-    validate_dilithium_scheme!(sphincsshake256128fsimple, "SPHINCS+-SHAKE-128f-simple (NIST L1)", results);
-    validate_dilithium_scheme!(sphincsshake256192fsimple, "SPHINCS+-SHAKE-192f-simple (NIST L3)", results);
-    validate_dilithium_scheme!(sphincsshake256256fsimple, "SPHINCS+-SHAKE-256f-simple (NIST L5)", results);
+    validate_dilithium_scheme!(sphincsshake128fsimple, "SPHINCS+-SHAKE-128f-simple (NIST L1)", results);
+    validate_dilithium_scheme!(sphincsshake192fsimple, "SPHINCS+-SHAKE-192f-simple (NIST L3)", results);
+    validate_dilithium_scheme!(sphincsshake256fsimple, "SPHINCS+-SHAKE-256f-simple (NIST L5)", results);
 
     let mut any_failed = false;
     for result in &results {
@@ -166,17 +166,17 @@ mod tests {
         validate_dilithium_scheme!(dilithium3, "Dilithium3 (NIST L3)", results);
         validate_dilithium_scheme!(dilithium5, "Dilithium5 (NIST L5)", results);
         validate_dilithium_scheme!(
-            sphincsshake256128fsimple,
+            sphincsshake128fsimple,
             "SPHINCS+-SHAKE-128f-simple (NIST L1)",
             results
         );
         validate_dilithium_scheme!(
-            sphincsshake256192fsimple,
+            sphincsshake192fsimple,
             "SPHINCS+-SHAKE-192f-simple (NIST L3)",
             results
         );
         validate_dilithium_scheme!(
-            sphincsshake256256fsimple,
+            sphincsshake256fsimple,
             "SPHINCS+-SHAKE-256f-simple (NIST L5)",
             results
         );
