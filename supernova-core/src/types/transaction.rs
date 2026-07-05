@@ -503,6 +503,80 @@ impl Transaction {
         Ok(())
     }
 
+    /// Verify **only** the cryptographic signature over the canonical sighash,
+    /// without binding the signing key to the outputs being spent.
+    ///
+    /// This is the standalone crypto portion of
+    /// [`Transaction::verify_authorization`] step (1). Unlike full
+    /// authorization it needs no UTXO / prevout access, so it is suitable for
+    /// **relay / mempool policy**: it lets a node reject transactions carrying a
+    /// missing, malformed, or forged post-quantum signature *before* accepting
+    /// and re-gossiping them, closing a cheap DoS / relay-pollution vector.
+    ///
+    /// **Fail-closed**: a missing signature, an unsupported scheme, or a failed
+    /// verification all return `Err`. Coinbase transactions have no spendable
+    /// inputs and are accepted here (their issuance is checked by consensus
+    /// subsidy rules, not by signatures).
+    ///
+    /// This is a strict *subset* of the checks performed by
+    /// [`Transaction::verify_authorization`]; it does **not** replace it. Full
+    /// authorization (the key-to-output binding in step (2)) is still enforced
+    /// by consensus at block-inclusion time.
+    pub fn verify_signature_only(&self) -> Result<(), TransactionError> {
+        if self.is_coinbase() {
+            return Ok(());
+        }
+
+        let sig = self.signature_data.as_ref().ok_or_else(|| {
+            TransactionError::InvalidSignature("transaction carries no signature".to_string())
+        })?;
+
+        let message = self.signature_hash();
+        let crypto_ok = match sig.scheme {
+            SignatureSchemeType::Dilithium
+            | SignatureSchemeType::Falcon
+            | SignatureSchemeType::SphincsPlus => {
+                let scheme = match sig.scheme {
+                    SignatureSchemeType::Dilithium => QuantumScheme::Dilithium,
+                    SignatureSchemeType::Falcon => QuantumScheme::Falcon,
+                    _ => QuantumScheme::SphincsPlus,
+                };
+                let params = QuantumParameters {
+                    scheme,
+                    security_level: sig.security_level,
+                };
+                crate::crypto::quantum::verify_quantum_signature(
+                    &sig.public_key,
+                    &message,
+                    &sig.data,
+                    params,
+                )
+                .map_err(|e| TransactionError::QuantumSignatureError(e.to_string()))?
+            }
+            SignatureSchemeType::Legacy => SignatureVerifier::new()
+                .verify(
+                    SignatureType::Secp256k1,
+                    &sig.public_key,
+                    &message,
+                    &sig.data,
+                )
+                .map_err(TransactionError::from)?,
+            SignatureSchemeType::Ed25519 => SignatureVerifier::new()
+                .verify(SignatureType::Ed25519, &sig.public_key, &message, &sig.data)
+                .map_err(TransactionError::from)?,
+            SignatureSchemeType::Hybrid => {
+                return Err(TransactionError::InvalidSignature(
+                    "hybrid signature scheme is not yet supported".to_string(),
+                ));
+            }
+        };
+        if !crypto_ok {
+            return Err(TransactionError::SignatureVerificationFailed);
+        }
+
+        Ok(())
+    }
+
     /// Get the transaction version
     pub fn version(&self) -> u32 {
         self.version
@@ -664,11 +738,23 @@ impl Transaction {
         }
     }
 
-    /// Verify a signature using the extended signature data
+    /// Verify a signature using the extended signature data.
+    ///
+    /// Enforces the SAME two conditions as the canonical
+    /// [`Transaction::verify_authorization`] so this path can never be a weaker,
+    /// spend-anyone's-UTXO shortcut if it is ever wired onto the consensus path
+    /// (today it is reached only via [`Transaction::validate`] and the
+    /// test-only parallel validator):
+    ///   1. the signature verifies over the canonical [`Transaction::signature_hash`]
+    ///      (the sighash), not the txid, and
+    ///   2. the embedded public key actually owns the spent output —
+    ///      `pub_key_script == SHA3-512(public_key)[..32]`. Without (2) an
+    ///      attacker's own valid signature would authorize spending a
+    ///      victim-locked UTXO.
     fn verify_extended_signature(
         &self,
         _signature_script: &[u8],
-        _pub_key_script: &[u8],
+        pub_key_script: &[u8],
         _input_index: usize,
     ) -> bool {
         let signature_data = match &self.signature_data {
@@ -676,8 +762,16 @@ impl Transaction {
             None => return false, // No signature data available
         };
 
-        // Calculate the transaction hash for signing (this excludes the signature data itself)
-        let message_hash = self.hash();
+        // (2) Key-to-output binding (fail-closed). Mirrors verify_authorization
+        // step (2): the signing key must commit to the output being spent.
+        if pub_key_script != pubkey_commitment(&signature_data.public_key).as_slice() {
+            return false;
+        }
+
+        // (1) Verify over the canonical sighash (all authorization material
+        // stripped), matching verify_authorization / verify_signature_only —
+        // NOT self.hash() (the txid).
+        let message_hash = self.signature_hash();
 
         // Create a signature verifier
         let signature_verifier = SignatureVerifier::new();
@@ -1318,8 +1412,10 @@ mod tests {
         assert_ne!(sig_data.data, vec![0u8; 64]);
         assert_eq!(sig_data.data.len(), 64);
 
-        // The produced signature must actually verify against the tx hash.
-        assert!(tx.verify_extended_signature(&[], &[], 0));
+        // The produced signature must actually verify against the sighash,
+        // and only when the prevout script commits to the signing key.
+        let script = pubkey_commitment(&public_key.serialize());
+        assert!(tx.verify_extended_signature(&[], &script, 0));
     }
 
     #[test]
@@ -1345,7 +1441,41 @@ mod tests {
         assert_ne!(sig_data.data, vec![0u8; 64]);
         assert_eq!(sig_data.data.len(), 64);
 
-        assert!(tx.verify_extended_signature(&[], &[], 0));
+        let script = pubkey_commitment(verifying_key.as_bytes());
+        assert!(tx.verify_extended_signature(&[], &script, 0));
+    }
+
+    /// The extended-signature path must enforce the key-to-output binding, so a
+    /// perfectly valid signature made with the signer's OWN key cannot pass
+    /// against a prevout locked to a DIFFERENT key (defense-in-depth mirror of
+    /// `attacker_key_cannot_spend_victim_utxo` for the `verify_signature` path).
+    #[test]
+    fn extended_signature_enforces_key_to_output_binding() {
+        use ed25519_dalek::SigningKey;
+
+        let inputs = vec![TransactionInput::new([0u8; 32], 0, vec![], 0xffffffff)];
+        let outputs = vec![TransactionOutput::new(50_000_000, vec![])];
+        let mut tx = Transaction::new(2, inputs, outputs, 0);
+
+        let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+        tx.sign(
+            &signing_key.to_bytes(),
+            verifying_key.as_bytes(),
+            SignatureSchemeType::Ed25519,
+            0,
+        )
+        .expect("ed25519 signing should succeed");
+
+        // Correct commitment -> authorized.
+        let owner_script = pubkey_commitment(verifying_key.as_bytes());
+        assert!(tx.verify_extended_signature(&[], &owner_script, 0));
+
+        // A different key's commitment (or any mismatched script) -> rejected,
+        // even though the signature itself is cryptographically valid.
+        let victim_script = pubkey_commitment(&[0xabu8; 32]);
+        assert!(!tx.verify_extended_signature(&[], &victim_script, 0));
+        assert!(!tx.verify_extended_signature(&[], &[], 0));
     }
 
     #[test]

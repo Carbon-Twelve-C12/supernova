@@ -882,11 +882,107 @@ impl PredicateFactory {
 mod tests {
     use super::*;
 
-    // Tests would go here in a real implementation
-    // For now, just add a placeholder to compile
+    use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+
+    /// Minimal chain state; the transaction-structure predicate ignores it.
+    fn dummy_chain_state() -> ChainState {
+        ChainState {
+            height: 0,
+            difficulty_target: 0,
+            current_timestamp: 0,
+            latest_block_hash: [0u8; 32],
+            utxo_set: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Build a well-formed non-coinbase transaction: a single spending input
+    /// (non-null prev hash, so `is_coinbase()` is false) and one positive-value
+    /// output.
+    fn well_formed_tx() -> Transaction {
+        let input = TransactionInput::new([1u8; 32], 0, vec![0xAB], 0xffffffff);
+        let output = TransactionOutput::new(1_000, vec![0xCD]);
+        Transaction::new(1, vec![input], vec![output], 0)
+    }
+
     #[test]
-    fn test_verification_framework() {
-        // This would be a real test in the implementation
-        assert!(true);
+    fn transaction_structure_predicate_metadata() {
+        let predicate = PredicateFactory::create_transaction_structure_predicate();
+        assert!(
+            predicate.is_critical(),
+            "transaction structure predicate must be critical"
+        );
+        assert_eq!(
+            predicate.description(),
+            "Verifies transaction structure, inputs, and outputs"
+        );
+    }
+
+    #[test]
+    fn transaction_structure_predicate_accepts_well_formed_tx() {
+        let predicate = PredicateFactory::create_transaction_structure_predicate();
+        let chain_state = dummy_chain_state();
+        let tx = well_formed_tx();
+
+        assert_eq!(
+            predicate
+                .verify_transaction(&tx, &chain_state)
+                .expect("verification should not error"),
+            true,
+            "a well-formed transaction must be accepted"
+        );
+    }
+
+    #[test]
+    fn transaction_structure_predicate_rejects_zero_amount_output() {
+        let predicate = PredicateFactory::create_transaction_structure_predicate();
+        let chain_state = dummy_chain_state();
+
+        // Same shape as the well-formed tx but with a zero-value output.
+        let input = TransactionInput::new([1u8; 32], 0, vec![0xAB], 0xffffffff);
+        let output = TransactionOutput::new(0, vec![0xCD]);
+        let tx = Transaction::new(1, vec![input], vec![output], 0);
+
+        assert_eq!(
+            predicate
+                .verify_transaction(&tx, &chain_state)
+                .expect("verification should not error"),
+            false,
+            "a transaction with a zero-amount output must be rejected"
+        );
+    }
+
+    #[test]
+    fn transaction_structure_predicate_rejects_no_outputs() {
+        let predicate = PredicateFactory::create_transaction_structure_predicate();
+        let chain_state = dummy_chain_state();
+
+        let input = TransactionInput::new([1u8; 32], 0, vec![0xAB], 0xffffffff);
+        let tx = Transaction::new(1, vec![input], vec![], 0);
+
+        assert_eq!(
+            predicate
+                .verify_transaction(&tx, &chain_state)
+                .expect("verification should not error"),
+            false,
+            "a non-coinbase transaction with no outputs must be rejected"
+        );
+    }
+
+    #[test]
+    fn transaction_structure_predicate_rejects_non_coinbase_without_inputs() {
+        let predicate = PredicateFactory::create_transaction_structure_predicate();
+        let chain_state = dummy_chain_state();
+
+        // No inputs and non-coinbase → must be rejected.
+        let output = TransactionOutput::new(1_000, vec![0xCD]);
+        let tx = Transaction::new(1, vec![], vec![output], 0);
+
+        assert_eq!(
+            predicate
+                .verify_transaction(&tx, &chain_state)
+                .expect("verification should not error"),
+            false,
+            "a non-coinbase transaction with no inputs must be rejected"
+        );
     }
 }

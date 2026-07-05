@@ -304,18 +304,70 @@ impl QuantumTransaction {
                     )));
                 }
 
-                // Use the SPHINCS+ verification
-                use pqcrypto_sphincsplus::sphincsshake128fsimple;
+                // Use the SPHINCS+ verification, selecting the variant that matches the
+                // security level (128f / 192f / 256f) so it mirrors sign_transaction and
+                // QuantumKeyPair::verify. A single hardcoded variant would reject the
+                // level-3/5 public keys and signatures validated above.
+                use pqcrypto_sphincsplus::{
+                    sphincsshake128fsimple, sphincsshake192fsimple, sphincsshake256fsimple,
+                };
 
-                let pk =
-                    sphincsshake128fsimple::PublicKey::from_bytes(public_key).map_err(|_| {
-                        QuantumError::InvalidKey("Invalid SPHINCS+ public key".to_string())
-                    })?;
-                let sig = sphincsshake128fsimple::DetachedSignature::from_bytes(&self.signature)
-                    .map_err(|_| {
-                        QuantumError::InvalidSignature("Invalid SPHINCS+ signature".into())
-                    })?;
-                Ok(sphincsshake128fsimple::verify_detached_signature(&sig, &tx_hash, &pk).is_ok())
+                match self.security_level {
+                    1 => {
+                        let pk = sphincsshake128fsimple::PublicKey::from_bytes(public_key)
+                            .map_err(|_| {
+                                QuantumError::InvalidKey("Invalid SPHINCS+ public key".to_string())
+                            })?;
+                        let sig =
+                            sphincsshake128fsimple::DetachedSignature::from_bytes(&self.signature)
+                                .map_err(|_| {
+                                    QuantumError::InvalidSignature(
+                                        "Invalid SPHINCS+ signature".into(),
+                                    )
+                                })?;
+                        Ok(
+                            sphincsshake128fsimple::verify_detached_signature(&sig, &tx_hash, &pk)
+                                .is_ok(),
+                        )
+                    }
+                    3 => {
+                        let pk = sphincsshake192fsimple::PublicKey::from_bytes(public_key)
+                            .map_err(|_| {
+                                QuantumError::InvalidKey("Invalid SPHINCS+ public key".to_string())
+                            })?;
+                        let sig =
+                            sphincsshake192fsimple::DetachedSignature::from_bytes(&self.signature)
+                                .map_err(|_| {
+                                    QuantumError::InvalidSignature(
+                                        "Invalid SPHINCS+ signature".into(),
+                                    )
+                                })?;
+                        Ok(
+                            sphincsshake192fsimple::verify_detached_signature(&sig, &tx_hash, &pk)
+                                .is_ok(),
+                        )
+                    }
+                    5 => {
+                        let pk = sphincsshake256fsimple::PublicKey::from_bytes(public_key)
+                            .map_err(|_| {
+                                QuantumError::InvalidKey("Invalid SPHINCS+ public key".to_string())
+                            })?;
+                        let sig =
+                            sphincsshake256fsimple::DetachedSignature::from_bytes(&self.signature)
+                                .map_err(|_| {
+                                    QuantumError::InvalidSignature(
+                                        "Invalid SPHINCS+ signature".into(),
+                                    )
+                                })?;
+                        Ok(
+                            sphincsshake256fsimple::verify_detached_signature(&sig, &tx_hash, &pk)
+                                .is_ok(),
+                        )
+                    }
+                    _ => Err(QuantumError::InvalidKey(
+                        "Invalid security level for SPHINCS+".to_string(),
+                    )),
+                }
             }
             QuantumScheme::Hybrid(classical_scheme) => {
                 // Split signature into quantum and classical parts
@@ -723,15 +775,54 @@ impl QuantumTransactionBuilder {
                 })?
             }
             QuantumScheme::SphincsPlus => {
-                // Use the actual SPHINCS+ signing
-                use pqcrypto_sphincsplus::sphincsshake128fsimple;
+                // Use the actual SPHINCS+ signing, selecting the variant that matches
+                // the requested security level (128f / 192f / 256f). Using a single
+                // hardcoded variant would reject the level-3/5 secret keys validated
+                // above, so dispatch on security_level to stay self-consistent with
+                // verify_signature and QuantumKeyPair::sign.
+                use pqcrypto_sphincsplus::{
+                    sphincsshake128fsimple, sphincsshake192fsimple, sphincsshake256fsimple,
+                };
 
-                let sk = <sphincsshake128fsimple::SecretKey as SignSecretKeyTrait>::from_bytes(
-                    private_key,
-                )
-                .map_err(|_| QuantumError::InvalidKey("Invalid SPHINCS+ secret key".to_string()))?;
-                let sig = sphincsshake128fsimple::detached_sign(&tx_hash, &sk);
-                sig.as_bytes().to_vec()
+                match self.security_level {
+                    1 => {
+                        let sk =
+                            <sphincsshake128fsimple::SecretKey as SignSecretKeyTrait>::from_bytes(
+                                private_key,
+                            )
+                            .map_err(|_| {
+                                QuantumError::InvalidKey("Invalid SPHINCS+ secret key".to_string())
+                            })?;
+                        sphincsshake128fsimple::detached_sign(&tx_hash, &sk)
+                            .as_bytes()
+                            .to_vec()
+                    }
+                    3 => {
+                        let sk =
+                            <sphincsshake192fsimple::SecretKey as SignSecretKeyTrait>::from_bytes(
+                                private_key,
+                            )
+                            .map_err(|_| {
+                                QuantumError::InvalidKey("Invalid SPHINCS+ secret key".to_string())
+                            })?;
+                        sphincsshake192fsimple::detached_sign(&tx_hash, &sk)
+                            .as_bytes()
+                            .to_vec()
+                    }
+                    5 => {
+                        let sk =
+                            <sphincsshake256fsimple::SecretKey as SignSecretKeyTrait>::from_bytes(
+                                private_key,
+                            )
+                            .map_err(|_| {
+                                QuantumError::InvalidKey("Invalid SPHINCS+ secret key".to_string())
+                            })?;
+                        sphincsshake256fsimple::detached_sign(&tx_hash, &sk)
+                            .as_bytes()
+                            .to_vec()
+                    }
+                    _ => return Err(QuantumError::UnsupportedSecurityLevel(self.security_level)),
+                }
             }
             QuantumScheme::Hybrid(classical_scheme) => {
                 // For hybrid schemes, we need to:
@@ -1010,5 +1101,63 @@ impl ConfidentialTransactionBuilder {
         // Return both the transaction and the blinding factors that must be stored securely
         // by the creator to later prove ownership and spend these outputs
         Ok((transaction, blinding_factors))
+    }
+}
+
+#[cfg(test)]
+mod sphincs_level_tests {
+    use super::*;
+    use crate::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
+    use crate::types::transaction::{Transaction, TransactionInput};
+
+    fn sample_transaction() -> Transaction {
+        let input = TransactionInput::new([1u8; 32], 0, vec![], 0xffff_ffff);
+        Transaction::new(1, vec![input], vec![], 0)
+    }
+
+    /// Regression test: SPHINCS+ QuantumTransactions must sign and verify at every
+    /// advertised security level, not only level 1. Prior to the fix the sign and
+    /// verify paths hardcoded the 128f variant, so levels 3 and 5 always errored.
+    fn sphincs_round_trip_at_level(security_level: u8) {
+        let params = QuantumParameters {
+            scheme: QuantumScheme::SphincsPlus,
+            security_level,
+        };
+        let keypair =
+            QuantumKeyPair::generate(params).expect("SPHINCS+ keypair generation should succeed");
+
+        let builder = QuantumTransactionBuilder::new(QuantumScheme::SphincsPlus, security_level);
+        let signed = builder
+            .sign_transaction(sample_transaction(), &keypair.secret_key)
+            .unwrap_or_else(|e| {
+                panic!("SPHINCS+ level {} signing should succeed: {:?}", security_level, e)
+            });
+
+        assert_eq!(signed.security_level(), security_level);
+
+        let valid = signed
+            .verify_signature(&keypair.public_key)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "SPHINCS+ level {} verification should succeed: {:?}",
+                    security_level, e
+                )
+            });
+        assert!(valid, "SPHINCS+ level {} signature should verify", security_level);
+    }
+
+    #[test]
+    fn test_sphincs_level_1_round_trip() {
+        sphincs_round_trip_at_level(1);
+    }
+
+    #[test]
+    fn test_sphincs_level_3_round_trip() {
+        sphincs_round_trip_at_level(3);
+    }
+
+    #[test]
+    fn test_sphincs_level_5_round_trip() {
+        sphincs_round_trip_at_level(5);
     }
 }

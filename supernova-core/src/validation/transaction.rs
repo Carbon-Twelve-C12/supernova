@@ -357,10 +357,12 @@ impl TransactionValidator {
                 SignatureSchemeType::Hybrid => SignatureType::Hybrid,
             };
 
-            // Create signature params
+            // Create signature params, honoring the transaction's declared PQC
+            // security level so extended-signature verification uses the same
+            // parameter set the signer used (e.g. Dilithium5 => level 5).
             let params = SignatureParams {
                 sig_type,
-                security_level: 1,
+                security_level: sig_data.security_level,
                 enable_batch: false,
                 additional_params: std::collections::HashMap::new(),
             };
@@ -488,20 +490,19 @@ impl TransactionValidator {
         }
     }
 
-    /// Sign a transaction using quantum-resistant signature scheme
+    /// Sign a transaction using quantum-resistant signature scheme.
+    ///
+    /// The caller must supply a fully-populated [`QuantumKeyPair`] containing the
+    /// secret key used for signing and the matching public key, which is embedded
+    /// in the transaction's signature data so that [`Self::verify_quantum_transaction`]
+    /// can later authenticate it. The scheme and security level are taken from the
+    /// key pair's own parameters to guarantee a consistent sign/verify round-trip.
     pub fn sign_quantum_transaction(
         &self,
         transaction: &mut Transaction,
-        scheme: QuantumScheme,
+        keypair: &QuantumKeyPair,
     ) -> Result<ValidationResult, ValidationError> {
-        let keypair = QuantumKeyPair {
-            public_key: vec![],
-            secret_key: vec![],
-            parameters: QuantumParameters {
-                scheme,
-                security_level: self.config.security_level.into(),
-            },
-        };
+        let scheme = keypair.parameters.scheme;
 
         // Sign the transaction using the selected signature scheme
         let msg = transaction.hash();
@@ -516,7 +517,7 @@ impl TransactionValidator {
                         QuantumScheme::SphincsPlus => SignatureSchemeType::SphincsPlus,
                         QuantumScheme::Hybrid(_) => SignatureSchemeType::Hybrid,
                     },
-                    security_level: self.config.security_level.into(),
+                    security_level: keypair.parameters.security_level,
                     data: signature,
                     public_key: keypair.public_key.to_vec(),
                 };
@@ -580,5 +581,66 @@ impl TransactionValidator {
                 ValidationError::MissingSignatureData,
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod sign_quantum_transaction_tests {
+    use super::*;
+    use crate::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
+    use crate::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+
+    fn sample_transaction() -> Transaction {
+        let input = TransactionInput::new([1u8; 32], 0, vec![], 0xffff_ffff);
+        let output = TransactionOutput::new(50_000, vec![0xaa, 0xbb]);
+        // Version 2: extended signature data is stripped from `hash()` so the
+        // signer and verifier commit to identical bytes.
+        Transaction::new(2, vec![input], vec![output], 0)
+    }
+
+    #[test]
+    fn sign_then_verify_roundtrip_succeeds() {
+        let params = QuantumParameters {
+            scheme: QuantumScheme::Dilithium,
+            security_level: 2,
+        };
+        let keypair = QuantumKeyPair::generate(params).expect("keypair generation");
+        assert!(
+            !keypair.public_key.is_empty(),
+            "generated public key must be non-empty"
+        );
+
+        let validator = TransactionValidator::new();
+        let mut tx = sample_transaction();
+
+        // Signing must succeed with real key material.
+        let sign_result = validator
+            .sign_quantum_transaction(&mut tx, &keypair)
+            .expect("signing should not error");
+        assert!(
+            matches!(sign_result, ValidationResult::Valid),
+            "expected Valid signing result, got {:?}",
+            sign_result
+        );
+
+        // Signature data must be populated with the real public key (not empty).
+        let sig_data = tx
+            .signature_data()
+            .expect("transaction must have signature data after signing");
+        assert_eq!(
+            sig_data.public_key, keypair.public_key,
+            "embedded public key must match the signing key pair"
+        );
+        assert!(!sig_data.data.is_empty(), "signature bytes must be present");
+
+        // The freshly signed transaction must verify.
+        let verify_result = validator
+            .verify_quantum_transaction(&tx)
+            .expect("verification should not error");
+        assert!(
+            matches!(verify_result, ValidationResult::Valid),
+            "expected Valid verification result, got {:?}",
+            verify_result
+        );
     }
 }
