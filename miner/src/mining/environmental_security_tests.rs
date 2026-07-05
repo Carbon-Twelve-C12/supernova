@@ -41,6 +41,7 @@ mod environmental_security_tests {
                 EnvironmentalProfile::default(),
                 vec![cert.clone()],
                 None,
+                100.0,
             )
             .await;
         assert!(result1.is_ok());
@@ -52,6 +53,7 @@ mod environmental_security_tests {
                 EnvironmentalProfile::default(),
                 vec![cert.clone()],
                 None,
+                100.0,
             )
             .await;
 
@@ -92,6 +94,7 @@ mod environmental_security_tests {
                 EnvironmentalProfile::default(),
                 vec![expired_cert],
                 None,
+                100.0,
             )
             .await;
 
@@ -123,6 +126,7 @@ mod environmental_security_tests {
                 EnvironmentalProfile::default(),
                 vec![cert],
                 None,
+                100.0,
             )
             .await;
 
@@ -170,6 +174,7 @@ mod environmental_security_tests {
                 EnvironmentalProfile::default(),
                 vec![tampered_cert],
                 None,
+                100.0,
             )
             .await;
 
@@ -200,6 +205,7 @@ mod environmental_security_tests {
                 EnvironmentalProfile::default(),
                 vec![],
                 Some(fake_audit),
+                100.0,
             )
             .await;
 
@@ -233,6 +239,7 @@ mod environmental_security_tests {
                 EnvironmentalProfile::default(),
                 vec![cert],
                 None,
+                100.0,
             )
             .await;
         assert!(result.is_ok());
@@ -293,6 +300,7 @@ mod environmental_security_tests {
                         EnvironmentalProfile::default(),
                         vec![cert],
                         None,
+                        100.0,
                     )
                     .await
             });
@@ -334,6 +342,7 @@ mod environmental_security_tests {
                 EnvironmentalProfile::default(),
                 certs,
                 None,
+                100.0,
             )
             .await;
 

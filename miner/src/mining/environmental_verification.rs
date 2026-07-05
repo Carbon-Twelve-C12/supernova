@@ -104,17 +104,22 @@ impl EnvironmentalVerifier {
         issuer.trim().to_ascii_uppercase()
     }
 
+    /// Default set of trusted REC issuers.
+    fn default_trusted_issuers() -> Vec<String> {
+        vec![
+            "US-EPA".to_string(),
+            "EU-ETS".to_string(),
+            "GREEN-E".to_string(),
+        ]
+    }
+
     pub fn new() -> Self {
         let fraud_config = FraudDetectionConfig::default();
 
         Self {
             verified_miners: Arc::new(RwLock::new(HashMap::new())),
             rec_registry: Arc::new(RwLock::new(RECRegistry {
-                trusted_issuers: vec![
-                    "US-EPA".to_string(),
-                    "EU-ETS".to_string(),
-                    "GREEN-E".to_string(),
-                ],
+                trusted_issuers: Self::default_trusted_issuers(),
                 ..Default::default()
             })),
             consumed_certificates: Arc::new(RwLock::new(ConsumedCertificates::default())),
@@ -122,13 +127,61 @@ impl EnvironmentalVerifier {
         }
     }
 
-    /// Verify a miner's environmental claims
+    /// Construct a verifier whose REC registry is seeded from a trusted,
+    /// out-of-band feed (e.g. a registry oracle the operator trusts).
+    ///
+    /// This is the only production path for populating the certificate
+    /// registry. Certificates are deliberately NOT self-registerable by
+    /// claimants: exposing an open insert into the same registry that
+    /// [`Self::verify_rec_certificates`] later consults would make the
+    /// existence check circular, letting a miner fabricate and register its
+    /// own "trusted" certificate and have it verify against itself.
+    pub fn with_trusted_registry(
+        trusted_issuers: Vec<String>,
+        certificates: Vec<RECCertificate>,
+    ) -> Self {
+        let fraud_config = FraudDetectionConfig::default();
+
+        let mut issuers = Self::default_trusted_issuers();
+        for issuer in trusted_issuers {
+            let norm = Self::normalize_issuer(&issuer);
+            if !issuers.contains(&norm) {
+                issuers.push(norm);
+            }
+        }
+
+        let mut cert_map = HashMap::new();
+        for cert in certificates {
+            cert_map.insert(cert.certificate_id.clone(), cert);
+        }
+
+        Self {
+            verified_miners: Arc::new(RwLock::new(HashMap::new())),
+            rec_registry: Arc::new(RwLock::new(RECRegistry {
+                certificates: cert_map,
+                trusted_issuers: issuers,
+            })),
+            consumed_certificates: Arc::new(RwLock::new(ConsumedCertificates::default())),
+            fraud_detector: Arc::new(FraudDetector::new(fraud_config)),
+        }
+    }
+
+    /// Verify a miner's environmental claims.
+    ///
+    /// `consumption_mwh` is the miner's actual measured energy consumption for
+    /// the coverage period. The renewable percentage is verified REC coverage
+    /// relative to this figure — not a self-supplied claim — so a miner cannot
+    /// inflate its renewable share by presenting more certificate MWh than it
+    /// actually consumed.
     pub async fn verify_miner_profile(
         &self,
         miner_id: String,
-        claimed_profile: EnvironmentalProfile,
+        // Claims are deliberately ignored: the verified profile is recomputed
+        // from authenticated inputs, never trusted from the claimant.
+        _claimed_profile: EnvironmentalProfile,
         rec_certificates: Vec<RECCertificate>,
         efficiency_audit: Option<EfficiencyAudit>,
+        consumption_mwh: f64,
     ) -> Result<VerifiedMinerProfile, VerificationError> {
         // First check if any certificates are already consumed
         let consumed = self.consumed_certificates.read().await;
@@ -144,8 +197,10 @@ impl EnvironmentalVerifier {
         // Verify REC certificates
         let verified_recs = self.verify_rec_certificates(&rec_certificates).await?;
 
-        // Calculate actual renewable percentage based on verified RECs
-        let renewable_percentage = self.calculate_renewable_percentage(&verified_recs)?;
+        // Calculate actual renewable percentage: verified REC coverage measured
+        // against the miner's real consumption (not a self-declared claim).
+        let renewable_percentage =
+            self.calculate_renewable_percentage(&verified_recs, consumption_mwh)?;
 
         // Verify efficiency audit if provided
         let verified_efficiency = if let Some(audit) = &efficiency_audit {
@@ -208,7 +263,8 @@ impl EnvironmentalVerifier {
 
     /// Get a verified miner's environmental profile
     pub async fn get_verified_profile(&self, miner_id: &str) -> Option<EnvironmentalProfile> {
-        self.get_verified_profile_at(miner_id, current_timestamp()).await
+        self.get_verified_profile_at(miner_id, current_timestamp())
+            .await
     }
 
     /// Get a verified miner's environmental profile at a specific timestamp.
@@ -260,21 +316,26 @@ impl EnvironmentalVerifier {
         Ok(verified)
     }
 
-    /// Calculate renewable percentage based on verified RECs
+    /// Calculate renewable percentage as verified REC coverage relative to the
+    /// miner's actual energy consumption.
+    ///
+    /// Returns 0.0 when no RECs verified or when consumption is unknown /
+    /// non-positive (we cannot substantiate a renewable share without a real
+    /// consumption baseline). The result is clamped to `[0.0, 1.0]` so surplus
+    /// certificates cannot push coverage above 100%.
     fn calculate_renewable_percentage(
         &self,
         verified_recs: &[RECCertificate],
+        consumption_mwh: f64,
     ) -> Result<f64, VerificationError> {
-        if verified_recs.is_empty() {
+        if verified_recs.is_empty() || consumption_mwh <= 0.0 {
             return Ok(0.0);
         }
 
-        // Sum total MWh coverage
+        // Sum total verified MWh coverage and measure it against real consumption.
         let total_mwh: f64 = verified_recs.iter().map(|cert| cert.coverage_mwh).sum();
 
-        // For simplicity, assume 100% coverage if > 100 MWh/month
-        // In production, this would be compared against actual consumption
-        Ok((total_mwh / 100.0).min(1.0_f64))
+        Ok((total_mwh / consumption_mwh).clamp(0.0, 1.0))
     }
 
     /// Verify efficiency audit
@@ -318,7 +379,14 @@ impl EnvironmentalVerifier {
         }
     }
 
-    /// Register a REC certificate in the registry
+    /// Register a REC certificate directly in the registry.
+    ///
+    /// Test-only. In production the registry is seeded exclusively from a
+    /// trusted feed via [`Self::with_trusted_registry`]; an open, unauthenticated
+    /// insert reachable by claimants would make the later existence check
+    /// circular (a miner could fabricate a certificate, register it here, and
+    /// have it "verify" against itself).
+    #[cfg(test)]
     pub async fn register_rec_certificate(&self, certificate: RECCertificate) {
         let mut registry = self.rec_registry.write().await;
         registry
@@ -413,6 +481,7 @@ mod tests {
                 claimed_profile,
                 vec![rec],
                 Some(audit),
+                100.0,
             )
             .await;
 
@@ -421,6 +490,75 @@ mod tests {
         assert!(verified.environmental_profile.verified);
         assert_eq!(verified.environmental_profile.renewable_percentage, 1.0);
         assert!(verified.environmental_profile.efficiency_score > 0.8);
+    }
+
+    #[tokio::test]
+    async fn test_renewable_percentage_is_consumption_based() {
+        // A verified 50 MWh certificate against 200 MWh of real consumption
+        // must yield 25% renewable, not a fixed heuristic value.
+        let verifier = EnvironmentalVerifier::new();
+        verifier
+            .register_trusted_issuer("TrustedIssuer".to_string())
+            .await;
+
+        let rec = RECCertificate {
+            certificate_id: "CONS-001".to_string(),
+            issuer: "TrustedIssuer".to_string(),
+            coverage_mwh: 50.0,
+            valid_from: current_timestamp() - 3600,
+            valid_until: current_timestamp() + 3600,
+            verified: false,
+        };
+        verifier.register_rec_certificate(rec.clone()).await;
+
+        let verified = verifier
+            .verify_miner_profile(
+                "miner-cons".to_string(),
+                EnvironmentalProfile::default(),
+                vec![rec],
+                None,
+                200.0,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            verified.environmental_profile.renewable_percentage, 0.25,
+            "50 MWh covered / 200 MWh consumed must be 25% renewable"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_trusted_registry_constructor_seeds_certificates() {
+        // Certificates injected via the trusted-feed constructor verify without
+        // any self-registration path being reachable in production.
+        let rec = RECCertificate {
+            certificate_id: "SEED-001".to_string(),
+            issuer: "TrustedIssuer".to_string(),
+            coverage_mwh: 100.0,
+            valid_from: current_timestamp() - 3600,
+            valid_until: current_timestamp() + 3600,
+            verified: false,
+        };
+
+        let verifier = EnvironmentalVerifier::with_trusted_registry(
+            vec!["TrustedIssuer".to_string()],
+            vec![rec.clone()],
+        );
+
+        let verified = verifier
+            .verify_miner_profile(
+                "miner-seed".to_string(),
+                EnvironmentalProfile::default(),
+                vec![rec],
+                None,
+                100.0,
+            )
+            .await
+            .unwrap();
+
+        assert!(verified.environmental_profile.verified);
+        assert_eq!(verified.environmental_profile.renewable_percentage, 1.0);
     }
 
     #[tokio::test]

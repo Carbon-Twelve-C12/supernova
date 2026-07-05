@@ -76,8 +76,12 @@ pub struct OracleDataPoint {
 /// Environmental metrics for carbon tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvironmentalMetrics {
-    /// Energy efficiency (hashrate per MW)
-    pub energy_efficiency: f64,
+    /// Energy efficiency (hashrate per MW).
+    ///
+    /// `None` when no hashrate input is available to derive a real value; the
+    /// carbon-footprint path does not receive hashrate, so it must not fabricate
+    /// a measured efficiency here.
+    pub energy_efficiency: Option<f64>,
 
     /// Carbon intensity (kg CO2e per kWh)
     pub carbon_intensity: f64,
@@ -265,8 +269,9 @@ impl CarbonTracker {
             verification_proofs,
         };
 
-        // Update tracking data
-        self.update_tracking_data(entity_id, &result)?;
+        // Update tracking data (thread the validated energy-source mix through
+        // so the tracked record reflects the same data the calculation used).
+        self.update_tracking_data(entity_id, &result, energy_sources)?;
 
         // Store historical data
         self.historical_data
@@ -356,19 +361,29 @@ impl CarbonTracker {
         Ok(true)
     }
 
-    /// Implement real-time carbon tracking
+    /// Activate real-time carbon tracking.
+    ///
+    /// Honest behavior: real-time tracking requires live, external data streams
+    /// (e.g. smart-meter feeds, grid-carbon-intensity APIs, oracle push
+    /// subscriptions) to be wired into this tracker. No such stream is currently
+    /// connected. The previous implementation merely stamped
+    /// `monitoring.last_calculation = Utc::now()` and returned `Ok(())`,
+    /// reporting real-time tracking as ACTIVE when nothing was actually
+    /// streaming — a no-op presented as success.
+    ///
+    /// Until a live feed is wired, this fails closed (mirroring
+    /// [`Self::request_oracle_verification`]) so callers cannot mistake an idle
+    /// tracker for an active one. Refreshing the monitoring timestamp is
+    /// deliberately NOT done here, because doing so would falsely imply a fresh
+    /// real-time calculation had occurred.
     pub fn implement_real_time_carbon_tracking(&self) -> Result<(), OracleError> {
-
-        // Initialize monitoring components
-        let mut monitoring = self
-            .monitoring_data
-            .write()
-            .map_err(|_| OracleError::LockPoisoned)?;
-        monitoring.last_calculation = Utc::now();
-
-        // Set up real-time data streams (simulated)
-
-        Ok(())
+        Err(OracleError::NetworkError(
+            "real-time carbon tracking is not active: no live data stream \
+             (smart-meter feed / grid-carbon-intensity API / oracle push \
+             subscription) is wired into this tracker. Refusing to report \
+             real-time tracking as active."
+                .to_string(),
+        ))
     }
 
     // Helper methods
@@ -392,49 +407,31 @@ impl CarbonTracker {
     async fn request_oracle_verification(
         &self,
         _entity_id: &str,
-        energy_consumption_mwh: f64,
-        energy_sources: &HashMap<EnergySourceType, f64>,
-        region: &Region,
+        _energy_consumption_mwh: f64,
+        _energy_sources: &HashMap<EnergySourceType, f64>,
+        _region: &Region,
     ) -> Result<Vec<OracleDataPoint>, OracleError> {
-        // In production, this would make actual oracle requests
-        // For now, simulate oracle responses
-        let mock_oracles = vec![
-            OracleDataPoint {
-                oracle_id: "oracle1".to_string(),
-                submitted_value: self.calculate_local_emissions(
-                    energy_consumption_mwh,
-                    energy_sources,
-                    region,
-                )? * 1.02, // 2% variance
-                timestamp: Utc::now(),
-                confidence_score: 0.95,
-                data_sources: vec!["grid_api".to_string(), "meter_data".to_string()],
-            },
-            OracleDataPoint {
-                oracle_id: "oracle2".to_string(),
-                submitted_value: self.calculate_local_emissions(
-                    energy_consumption_mwh,
-                    energy_sources,
-                    region,
-                )? * 0.98, // 2% variance
-                timestamp: Utc::now(),
-                confidence_score: 0.90,
-                data_sources: vec!["carbon_registry".to_string()],
-            },
-            OracleDataPoint {
-                oracle_id: "oracle3".to_string(),
-                submitted_value: self.calculate_local_emissions(
-                    energy_consumption_mwh,
-                    energy_sources,
-                    region,
-                )? * 1.01, // 1% variance
-                timestamp: Utc::now(),
-                confidence_score: 0.92,
-                data_sources: vec!["environmental_db".to_string()],
-            },
-        ];
-
-        Ok(mock_oracles)
+        // Honest behavior: this tracker is NOT wired to an external, independent
+        // environmental-oracle feed. The previous implementation manufactured
+        // three "oracle" submissions by taking the SAME local emissions estimate
+        // and perturbing it by +2% / -2% / +1%, with hardcoded confidence scores
+        // and fabricated data_sources, then presented those three copies of one
+        // local number as an agreeing multi-oracle consensus. That is fabricated
+        // data presented as measured.
+        //
+        // Real multi-oracle consensus requires independently registered, bonded
+        // oracles to submit signed data through `EnvironmentalOracle`
+        // (see oracle.rs: request_verification / submit_verification /
+        // process_consensus). Until such a live feed exists, we must not invent
+        // agreement. Report the true state via the real oracle registry: if no
+        // active oracle is available, the carbon footprint is unverified.
+        let active_oracles = self.oracle.active_oracle_count();
+        Err(OracleError::ConsensusNotReached(format!(
+            "carbon footprint unverified: no independent environmental-oracle \
+             submissions available ({active_oracles} active registered oracle(s), \
+             none wired to a live signed-data feed). Refusing to fabricate \
+             multi-oracle consensus from the local estimate."
+        )))
     }
 
     fn process_oracle_consensus(
@@ -535,7 +532,10 @@ impl CarbonTracker {
         }
 
         EnvironmentalMetrics {
-            energy_efficiency: 1000.0, // Placeholder - would calculate actual hashrate/MW
+            // No hashrate is supplied to the carbon-footprint path, so a real
+            // hashrate/MW efficiency cannot be computed here; report it as
+            // unavailable rather than emitting a fabricated constant.
+            energy_efficiency: None,
             carbon_intensity,
             green_mining_percentage: renewable_percentage,
             offset_efficiency,
@@ -590,13 +590,12 @@ impl CarbonTracker {
         &self,
         entity_id: &str,
         result: &CarbonTrackingResult,
+        energy_sources: HashMap<EnergySourceType, f64>,
     ) -> Result<(), OracleError> {
         let mut tracking = self
             .tracking_data
             .write()
             .map_err(|_| OracleError::LockPoisoned)?;
-
-        let energy_sources = HashMap::new(); // Would be populated from result
 
         tracking.insert(
             entity_id.to_string(),
@@ -653,22 +652,64 @@ impl CarbonTracker {
         Ok(emission_factor)
     }
 
-    fn verify_rec_proof(&self, _proof: &VerificationProof) -> Result<bool, OracleError> {
-        // Verify REC certificate hash and validity
-        // In production, this would check against registry APIs
-        Ok(true)
+    /// Baseline structural integrity gate shared by every proof verifier.
+    ///
+    /// This is deliberately fail-closed: a proof carrying no payload, no
+    /// issuer, a future-dated timestamp, or an elapsed expiry is rejected
+    /// outright. It does NOT (yet) perform registry-API lookups or
+    /// cryptographic signature verification — those require external
+    /// infrastructure that is not wired in-tree. Until they are, this ensures
+    /// a trivially forged / malformed proof can no longer bypass integrity
+    /// checking by simply being present, which the previous unconditional
+    /// `Ok(true)` allowed.
+    ///
+    /// Returns `false` when the proof fails a baseline check; the caller
+    /// treats `false` as "integrity not verified".
+    fn validate_proof_structure(&self, proof: &VerificationProof) -> bool {
+        // A genuine proof always carries a payload and a named issuer;
+        // a forged empty proof carries neither.
+        if proof.proof_data.is_empty() || proof.issuer.trim().is_empty() {
+            return false;
+        }
+
+        let now = Utc::now();
+
+        // Reject proofs stamped in the future (allow small clock skew).
+        if proof.timestamp > now + chrono::Duration::minutes(5) {
+            return false;
+        }
+
+        // Reject expired proofs.
+        if let Some(expiry) = proof.expiry {
+            if expiry <= now {
+                return false;
+            }
+        }
+
+        true
     }
 
-    fn verify_offset_proof(&self, _proof: &VerificationProof) -> Result<bool, OracleError> {
-        // Verify carbon offset certificate
-        // In production, this would check against carbon registries
-        Ok(true)
+    fn verify_rec_proof(&self, proof: &VerificationProof) -> Result<bool, OracleError> {
+        // Verify REC certificate hash and validity.
+        // NOTE: registry-API cross-checking is not yet wired; until it is, this
+        // fail-closed structural gate rejects malformed/expired/forged-empty
+        // proofs instead of blindly accepting them.
+        Ok(self.validate_proof_structure(proof))
     }
 
-    fn verify_meter_proof(&self, _proof: &VerificationProof) -> Result<bool, OracleError> {
-        // Verify smart meter reading attestation
-        // In production, this would validate cryptographic signatures
-        Ok(true)
+    fn verify_offset_proof(&self, proof: &VerificationProof) -> Result<bool, OracleError> {
+        // Verify carbon offset certificate.
+        // NOTE: carbon-registry cross-checking is not yet wired; fail-closed
+        // structural validation applies until it is.
+        Ok(self.validate_proof_structure(proof))
+    }
+
+    fn verify_meter_proof(&self, proof: &VerificationProof) -> Result<bool, OracleError> {
+        // Verify smart meter reading attestation.
+        // NOTE: cryptographic signature verification against a registered meter
+        // key is not yet wired; fail-closed structural validation applies until
+        // it is.
+        Ok(self.validate_proof_structure(proof))
     }
 }
 
@@ -707,4 +748,281 @@ pub fn verify_environmental_data_integrity(
 
 pub fn implement_real_time_carbon_tracking(tracker: &CarbonTracker) -> Result<(), OracleError> {
     tracker.implement_real_time_carbon_tracking()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::environmental::emissions::EmissionsCalculator;
+    use crate::environmental::oracle::EnvironmentalOracle;
+
+    fn tracker_with_no_oracles() -> CarbonTracker {
+        // Oracle registry with zero registered/active oracles — i.e. no live feed.
+        let oracle = Arc::new(EnvironmentalOracle::new(1_000));
+        let calculator = Arc::new(EmissionsCalculator::new());
+        CarbonTracker::new(oracle, calculator)
+    }
+
+    /// With no independent oracles registered, the tracker must report the
+    /// footprint as UNVERIFIED rather than fabricating an agreeing multi-oracle
+    /// consensus out of a single local estimate.
+    #[tokio::test]
+    async fn no_oracles_yields_unverified_not_fabricated_consensus() {
+        let tracker = tracker_with_no_oracles();
+        let mut sources = HashMap::new();
+        sources.insert(EnergySourceType::Coal, 100.0);
+
+        let result = tracker
+            .validate_carbon_footprint_calculation(
+                "miner-1",
+                10.0,
+                sources,
+                Region::NorthAmerica,
+            )
+            .await;
+
+        match result {
+            Err(OracleError::ConsensusNotReached(msg)) => {
+                assert!(
+                    msg.contains("unverified"),
+                    "error must state the footprint is unverified, got: {msg}"
+                );
+            }
+            other => panic!(
+                "expected ConsensusNotReached (unverified) when no oracles are \
+                 registered; fabricated consensus must never be returned, got: {other:?}"
+            ),
+        }
+    }
+
+    /// The internal request path must never manufacture synthetic oracle
+    /// submissions from the local estimate.
+    #[tokio::test]
+    async fn request_oracle_verification_does_not_fabricate() {
+        let tracker = tracker_with_no_oracles();
+        let mut sources = HashMap::new();
+        sources.insert(EnergySourceType::NaturalGas, 100.0);
+
+        let submissions = tracker
+            .request_oracle_verification("miner-1", 5.0, &sources, &Region::Europe)
+            .await;
+
+        assert!(
+            submissions.is_err(),
+            "request_oracle_verification must not return fabricated submissions \
+             when no real oracle feed exists"
+        );
+    }
+
+    /// Real-time carbon tracking must not report itself as active when no live
+    /// data stream is wired. It must fail closed rather than return a no-op
+    /// `Ok(())` that stamps a timestamp and implies live tracking is running.
+    #[test]
+    fn real_time_tracking_fails_closed_when_no_stream_wired() {
+        let tracker = tracker_with_no_oracles();
+
+        // The monitoring timestamp must be untouched by a failed activation,
+        // so a caller cannot mistake an idle tracker for a freshly updated one.
+        let before = tracker
+            .monitoring_data
+            .read()
+            .expect("lock")
+            .last_calculation;
+
+        let result = tracker.implement_real_time_carbon_tracking();
+
+        match result {
+            Err(OracleError::NetworkError(msg)) => {
+                assert!(
+                    msg.contains("not active"),
+                    "error must state real-time tracking is not active, got: {msg}"
+                );
+            }
+            other => panic!(
+                "expected NetworkError (not active) when no live data stream is \
+                 wired; a no-op success must never be returned, got: {other:?}"
+            ),
+        }
+
+        let after = tracker
+            .monitoring_data
+            .read()
+            .expect("lock")
+            .last_calculation;
+        assert_eq!(
+            before, after,
+            "failed real-time activation must not mutate monitoring state"
+        );
+    }
+
+    /// Energy efficiency must not be a fabricated placeholder: with no hashrate
+    /// input available to this path it must be reported as `None`, while the
+    /// genuinely derivable metrics are still computed from the inputs.
+    #[test]
+    fn energy_efficiency_is_not_fabricated() {
+        let tracker = tracker_with_no_oracles();
+
+        let metrics = tracker.calculate_environmental_metrics(
+            1.0,  // total_emissions (tonnes CO2e)
+            0.5,  // total_offsets
+            40.0, // renewable_percentage
+            2.0,  // energy_consumption_mwh
+        );
+
+        assert_eq!(
+            metrics.energy_efficiency, None,
+            "energy_efficiency must be None when no hashrate is available, \
+             not a fabricated constant"
+        );
+        // Sibling metrics remain genuinely computed from the inputs.
+        assert_eq!(metrics.carbon_intensity, (1.0 * 1000.0) / 2.0);
+        assert_eq!(metrics.green_mining_percentage, 40.0);
+        assert_eq!(metrics.offset_efficiency, (0.5 / 1.0) * 100.0);
+    }
+
+    fn sample_env_data() -> EnvironmentalData {
+        EnvironmentalData::CarbonOffset {
+            offset_id: "offset-1".to_string(),
+            issuer: "registry".to_string(),
+            amount_tonnes: 10.0,
+            project_type: "reforestation".to_string(),
+            project_location: "somewhere".to_string(),
+            vintage_year: 2025,
+            registry_url: "https://registry.example".to_string(),
+        }
+    }
+
+    /// A forged proof with no payload / no issuer must NOT pass integrity
+    /// verification — the previous unconditional `Ok(true)` accepted anything.
+    #[test]
+    fn empty_proof_is_rejected() {
+        let tracker = tracker_with_no_oracles();
+        let data = sample_env_data();
+
+        let forged = VerificationProof {
+            proof_type: ProofType::CarbonOffsetCertificate,
+            proof_data: Vec::new(),
+            issuer: String::new(),
+            timestamp: Utc::now(),
+            expiry: None,
+        };
+
+        let ok = tracker
+            .verify_environmental_data_integrity(&data, std::slice::from_ref(&forged))
+            .expect("verification must not error");
+        assert!(!ok, "empty forged proof must fail integrity verification");
+    }
+
+    /// An expired proof must be rejected (fail-closed on staleness).
+    #[test]
+    fn expired_proof_is_rejected() {
+        let tracker = tracker_with_no_oracles();
+        let data = sample_env_data();
+
+        let expired = VerificationProof {
+            proof_type: ProofType::RenewableEnergyCertificate,
+            proof_data: vec![1, 2, 3],
+            issuer: "registry".to_string(),
+            timestamp: Utc::now() - chrono::Duration::days(2),
+            expiry: Some(Utc::now() - chrono::Duration::days(1)),
+        };
+
+        let ok = tracker
+            .verify_environmental_data_integrity(&data, std::slice::from_ref(&expired))
+            .expect("verification must not error");
+        assert!(!ok, "expired proof must fail integrity verification");
+    }
+
+    /// A future-dated proof (beyond clock-skew tolerance) must be rejected.
+    #[test]
+    fn future_dated_proof_is_rejected() {
+        let tracker = tracker_with_no_oracles();
+        let data = sample_env_data();
+
+        let future = VerificationProof {
+            proof_type: ProofType::SmartMeterReading,
+            proof_data: vec![9, 9, 9],
+            issuer: "meter-op".to_string(),
+            timestamp: Utc::now() + chrono::Duration::hours(1),
+            expiry: None,
+        };
+
+        let ok = tracker
+            .verify_environmental_data_integrity(&data, std::slice::from_ref(&future))
+            .expect("verification must not error");
+        assert!(!ok, "future-dated proof must fail integrity verification");
+    }
+
+    /// A well-formed, unexpired proof still passes the baseline gate (the gate
+    /// tightens the check without breaking legitimate proofs).
+    #[test]
+    fn well_formed_proof_passes_baseline() {
+        let tracker = tracker_with_no_oracles();
+        let data = sample_env_data();
+
+        let good = VerificationProof {
+            proof_type: ProofType::CarbonOffsetCertificate,
+            proof_data: vec![1, 2, 3, 4],
+            issuer: "registry".to_string(),
+            timestamp: Utc::now(),
+            expiry: Some(Utc::now() + chrono::Duration::days(30)),
+        };
+
+        let ok = tracker
+            .verify_environmental_data_integrity(&data, std::slice::from_ref(&good))
+            .expect("verification must not error");
+        assert!(ok, "well-formed unexpired proof must pass baseline gate");
+    }
+
+    /// The validated energy-source mix must be persisted into the tracked
+    /// record — not silently dropped as an empty map while the record is
+    /// stamped `Verified`. Previously `update_tracking_data` stored
+    /// `HashMap::new()`, presenting an empty mix as verified data.
+    #[test]
+    fn update_tracking_data_persists_energy_sources() {
+        let tracker = tracker_with_no_oracles();
+
+        let mut energy_sources = HashMap::new();
+        energy_sources.insert(EnergySourceType::Wind, 60.0);
+        energy_sources.insert(EnergySourceType::Coal, 40.0);
+
+        let result = CarbonTrackingResult {
+            total_emissions: 3.0,
+            total_offsets: 1.0,
+            net_carbon_footprint: 2.0,
+            renewable_percentage: 60.0,
+            timestamp: Utc::now(),
+            oracle_consensus: OracleConsensusResult {
+                participating_oracles: 0,
+                consensus_percentage: 0.0,
+                oracle_submissions: Vec::new(),
+                consensus_value: 3.0,
+                consensus_achieved: false,
+            },
+            metrics: EnvironmentalMetrics {
+                energy_efficiency: None,
+                carbon_intensity: 0.0,
+                green_mining_percentage: 60.0,
+                offset_efficiency: 0.0,
+                environmental_score: 0.0,
+            },
+            verification_proofs: Vec::new(),
+        };
+
+        tracker
+            .update_tracking_data("miner-1", &result, energy_sources.clone())
+            .expect("update must succeed");
+
+        let tracking = tracker.tracking_data.read().expect("lock");
+        let stored = tracking
+            .get("miner-1")
+            .expect("tracking record must exist");
+
+        assert_eq!(
+            stored.energy_sources, energy_sources,
+            "the validated energy-source mix must be stored, not dropped"
+        );
+        // A record carrying the real mix is what may be stamped Verified.
+        assert_eq!(stored.verification_status, VerificationStatus::Verified);
+    }
 }

@@ -7,6 +7,23 @@ use crate::environmental::emissions::VerificationStatus;
 use crate::environmental::miner_reporting::MinerVerificationStatus;
 use crate::environmental::verification::{CarbonOffset, RenewableCertificate};
 
+/// Kilowatt-hours per megawatt-hour, used to convert certificate energy
+/// amounts (recorded in kWh) into the MWh figures shown in transparency reports.
+const KWH_PER_MWH: f64 = 1000.0;
+
+/// Map an emissions [`VerificationStatus`] onto the reporting-facing
+/// [`MinerVerificationStatus`] used in transparency breakdowns.
+fn map_verification_status(status: VerificationStatus) -> MinerVerificationStatus {
+    match status {
+        VerificationStatus::Verified => MinerVerificationStatus::Verified,
+        VerificationStatus::Pending => MinerVerificationStatus::Pending,
+        VerificationStatus::Failed => MinerVerificationStatus::Rejected,
+        VerificationStatus::None | VerificationStatus::Expired => {
+            MinerVerificationStatus::Unverified
+        }
+    }
+}
+
 /// Level of transparency in reporting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TransparencyLevel {
@@ -197,8 +214,11 @@ impl TransparencyDashboard {
     fn add_certificates_to_report(&self, report: &mut ReportData) {
         let certificates = &self.certificates;
 
-        // Calculate total MWh
-        let total_mwh: f64 = certificates.iter().map(|c| c.amount_kwh).sum();
+        // Calculate total MWh (certificate amounts are in kWh; convert to MWh)
+        let total_mwh: f64 = certificates
+            .iter()
+            .map(|c| c.amount_kwh / KWH_PER_MWH)
+            .sum();
 
         report.total_renewable_energy_mwh = total_mwh;
 
@@ -208,14 +228,15 @@ impl TransparencyDashboard {
         let mut verification_status_breakdown = HashMap::new();
 
         for cert in certificates {
-            // Add to energy type breakdown
+            // Add to energy type breakdown keyed by the certificate's actual
+            // energy type (e.g. Solar/Wind/Hydro) (convert kWh to MWh)
             *energy_type_breakdown
-                .entry("Renewable".to_string())
-                .or_insert(0.0) += cert.amount_kwh;
+                .entry(cert.certificate_type.clone())
+                .or_insert(0.0) += cert.amount_kwh / KWH_PER_MWH;
 
-            // Count certificates by verification status
+            // Count certificates by their actual verification status
             *verification_status_breakdown
-                .entry(MinerVerificationStatus::Verified)
+                .entry(map_verification_status(cert.verification_status))
                 .or_insert(0) += 1;
 
             // Track verification providers
@@ -223,9 +244,9 @@ impl TransparencyDashboard {
                 verification_providers.push(cert.issuer.clone());
             }
 
-            // Check verification status
+            // Check verification status (convert kWh to MWh)
             if cert.verification_status == VerificationStatus::Verified {
-                report.verified_mwh += cert.amount_kwh;
+                report.verified_mwh += cert.amount_kwh / KWH_PER_MWH;
             }
         }
 
@@ -253,9 +274,10 @@ impl TransparencyDashboard {
         let mut verification_status_breakdown = HashMap::new();
 
         for offset in offsets {
-            // Add to project type breakdown
+            // Add to project type breakdown keyed by the offset's actual
+            // project type (e.g. Reforestation/DAC)
             *project_type_breakdown
-                .entry("Carbon Offset".to_string())
+                .entry(offset.offset_type.clone())
                 .or_insert(0.0) += offset.amount_tonnes;
 
             // Track verification providers
@@ -263,9 +285,9 @@ impl TransparencyDashboard {
                 verification_providers.push(offset.issuer.clone());
             }
 
-            // Count offsets by verification status
+            // Count offsets by their actual verification status
             *verification_status_breakdown
-                .entry(MinerVerificationStatus::Verified)
+                .entry(map_verification_status(offset.verification_status))
                 .or_insert(0) += 1;
 
             // Check verification status
@@ -313,9 +335,204 @@ impl TransparencyDashboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::environmental::types::Region;
+    use std::collections::HashMap;
+
+    fn make_cert(issuer: &str, kwh: f64, status: VerificationStatus) -> RenewableCertificate {
+        RenewableCertificate {
+            certificate_id: format!("cert-{}", issuer),
+            issuer: issuer.to_string(),
+            certificate_type: "Solar".to_string(),
+            amount_kwh: kwh,
+            generation_start: Utc::now(),
+            generation_end: Utc::now(),
+            location: Region::Global,
+            verification_status: status,
+            verification_url: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn make_offset(issuer: &str, tonnes: f64, status: VerificationStatus) -> CarbonOffset {
+        CarbonOffset {
+            offset_id: format!("offset-{}", issuer),
+            issuer: issuer.to_string(),
+            offset_type: "Reforestation".to_string(),
+            amount_tonnes: tonnes,
+            period_start: Utc::now(),
+            period_end: None,
+            location: Region::Global,
+            verification_status: status,
+            verification_url: None,
+            metadata: HashMap::new(),
+        }
+    }
 
     #[test]
-    fn test_report_generation() {
-        // This is just a stub test implementation
+    fn test_verification_status_mapping() {
+        assert_eq!(
+            map_verification_status(VerificationStatus::Verified),
+            MinerVerificationStatus::Verified
+        );
+        assert_eq!(
+            map_verification_status(VerificationStatus::Pending),
+            MinerVerificationStatus::Pending
+        );
+        assert_eq!(
+            map_verification_status(VerificationStatus::Failed),
+            MinerVerificationStatus::Rejected
+        );
+        assert_eq!(
+            map_verification_status(VerificationStatus::None),
+            MinerVerificationStatus::Unverified
+        );
+        assert_eq!(
+            map_verification_status(VerificationStatus::Expired),
+            MinerVerificationStatus::Unverified
+        );
+    }
+
+    #[test]
+    fn test_breakdown_reflects_actual_status() {
+        let mut dashboard = TransparencyDashboard::new();
+        // One verified, one pending, one failed certificate.
+        dashboard
+            .certificates
+            .push(make_cert("issuer-a", 100.0, VerificationStatus::Verified));
+        dashboard
+            .certificates
+            .push(make_cert("issuer-b", 50.0, VerificationStatus::Pending));
+        dashboard
+            .certificates
+            .push(make_cert("issuer-c", 25.0, VerificationStatus::Failed));
+        // One verified, one unverified (None) offset.
+        dashboard
+            .offsets
+            .push(make_offset("issuer-d", 10.0, VerificationStatus::Verified));
+        dashboard
+            .offsets
+            .push(make_offset("issuer-e", 5.0, VerificationStatus::None));
+
+        let report = dashboard.generate_report();
+
+        let rec_breakdown = report
+            .rec_stats
+            .expect("rec_stats present")
+            .verification_status_breakdown;
+        assert_eq!(
+            rec_breakdown.get(&MinerVerificationStatus::Verified),
+            Some(&1)
+        );
+        assert_eq!(
+            rec_breakdown.get(&MinerVerificationStatus::Pending),
+            Some(&1)
+        );
+        assert_eq!(
+            rec_breakdown.get(&MinerVerificationStatus::Rejected),
+            Some(&1)
+        );
+        // Not every certificate should be labeled Verified.
+        assert_ne!(
+            rec_breakdown.get(&MinerVerificationStatus::Verified),
+            Some(&3)
+        );
+
+        let offset_breakdown = report
+            .offset_stats
+            .expect("offset_stats present")
+            .verification_status_breakdown;
+        assert_eq!(
+            offset_breakdown.get(&MinerVerificationStatus::Verified),
+            Some(&1)
+        );
+        assert_eq!(
+            offset_breakdown.get(&MinerVerificationStatus::Unverified),
+            Some(&1)
+        );
+    }
+
+    #[test]
+    fn test_breakdown_keyed_by_actual_type() {
+        let mut dashboard = TransparencyDashboard::new();
+        // Two distinct energy types: Solar (3.0 MWh) and Wind (2.0 MWh).
+        let mut solar = make_cert("issuer-a", 3000.0, VerificationStatus::Verified);
+        solar.certificate_type = "Solar".to_string();
+        let mut wind = make_cert("issuer-b", 2000.0, VerificationStatus::Verified);
+        wind.certificate_type = "Wind".to_string();
+        dashboard.certificates.push(solar);
+        dashboard.certificates.push(wind);
+
+        // Two distinct project types: Reforestation (10t) and DAC (4t).
+        let mut reforest = make_offset("issuer-c", 10.0, VerificationStatus::Verified);
+        reforest.offset_type = "Reforestation".to_string();
+        let mut dac = make_offset("issuer-d", 4.0, VerificationStatus::Verified);
+        dac.offset_type = "DirectAirCapture".to_string();
+        dashboard.offsets.push(reforest);
+        dashboard.offsets.push(dac);
+
+        let report = dashboard.generate_report();
+
+        let energy = report
+            .rec_stats
+            .expect("rec_stats present")
+            .energy_type_breakdown;
+        // Breakdown must reflect real types, not a single "Renewable" bucket.
+        assert!(!energy.contains_key("Renewable"));
+        assert!((energy.get("Solar").copied().unwrap_or(0.0) - 3.0).abs() < 1e-9);
+        assert!((energy.get("Wind").copied().unwrap_or(0.0) - 2.0).abs() < 1e-9);
+
+        let projects = report
+            .offset_stats
+            .expect("offset_stats present")
+            .project_type_breakdown;
+        // Breakdown must reflect real project types, not a single bucket.
+        assert!(!projects.contains_key("Carbon Offset"));
+        assert!((projects.get("Reforestation").copied().unwrap_or(0.0) - 10.0).abs() < 1e-9);
+        assert!((projects.get("DirectAirCapture").copied().unwrap_or(0.0) - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_renewable_energy_reported_in_mwh() {
+        let mut dashboard = TransparencyDashboard::new();
+        // 3,000 kWh verified + 1,500 kWh verified = 4,500 kWh = 4.5 MWh.
+        dashboard
+            .certificates
+            .push(make_cert("issuer-a", 3000.0, VerificationStatus::Verified));
+        dashboard
+            .certificates
+            .push(make_cert("issuer-b", 1500.0, VerificationStatus::Verified));
+
+        let report = dashboard.generate_report();
+
+        // MWh-labeled fields must be in MWh, not kWh (no 1000x inflation).
+        assert!(
+            (report.total_renewable_energy_mwh - 4.5).abs() < 1e-9,
+            "expected 4.5 MWh, got {}",
+            report.total_renewable_energy_mwh
+        );
+
+        let rec_stats = report.rec_stats.expect("rec_stats present");
+        assert!(
+            (rec_stats.total_mwh - 4.5).abs() < 1e-9,
+            "expected 4.5 MWh summary, got {}",
+            rec_stats.total_mwh
+        );
+        let breakdown_mwh = rec_stats
+            .energy_type_breakdown
+            .get("Solar")
+            .copied()
+            .expect("solar breakdown present");
+        assert!(
+            (breakdown_mwh - 4.5).abs() < 1e-9,
+            "expected 4.5 MWh breakdown, got {}",
+            breakdown_mwh
+        );
+
+        // Both certificates verified, so verification percentage is 100%.
+        assert!(
+            (report.renewable_verification_percentage - 100.0).abs() < 1e-9,
+            "expected 100% verified, got {}",
+            report.renewable_verification_percentage
+        );
     }
 }

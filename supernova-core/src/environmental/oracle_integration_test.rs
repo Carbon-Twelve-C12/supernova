@@ -27,6 +27,7 @@ mod oracle_integration_tests {
             generation_start: Utc::now() - chrono::Duration::days(30),
             generation_end: Utc::now() - chrono::Duration::days(1),
             generation_location: Some(Region::new("US")),
+            energy_type: Some(EnergySourceType::Wind),
             verification_status: VerificationStatus::None,
             certificate_url: Some("https://fake-certs.com/REC123".to_string()),
         };
@@ -73,6 +74,7 @@ mod oracle_integration_tests {
             generation_start: Utc::now() - chrono::Duration::days(60),
             generation_end: Utc::now() - chrono::Duration::days(30),
             generation_location: Some(Region::new("US")),
+            energy_type: Some(EnergySourceType::Solar),
             verification_status: VerificationStatus::None,
             certificate_url: Some("https://greenpower.org/REC-2024-SOLAR-001".to_string()),
         };

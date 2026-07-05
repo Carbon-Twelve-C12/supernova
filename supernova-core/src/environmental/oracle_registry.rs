@@ -22,6 +22,33 @@ use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 use super::oracle::{OracleInfo, SlashingEvent};
+use crate::crypto::quantum::{verify_quantum_signature, QuantumParameters};
+
+/// Domain separator for oracle-application governance votes (versioned).
+const ORACLE_VOTE_DOMAIN: &[u8] = b"SUPERNOVA_ORACLE_VOTE_V1";
+
+/// Domain separator for slashing-proposal contest votes (versioned).
+const SLASH_CONTEST_DOMAIN: &[u8] = b"SUPERNOVA_ORACLE_SLASH_CONTEST_V1";
+
+/// Build the canonical, domain-separated, length-delimited message that a
+/// voter must sign to authorize a governance vote. Length prefixes make the
+/// encoding unambiguous so `id` and `voter_id` cannot be shifted against each
+/// other to forge an equivalent message.
+fn governance_signing_message(
+    domain: &[u8],
+    id: &str,
+    decision: bool,
+    voter_id: &str,
+) -> Vec<u8> {
+    let mut msg = Vec::with_capacity(domain.len() + id.len() + voter_id.len() + 17);
+    msg.extend_from_slice(domain);
+    msg.extend_from_slice(&(id.len() as u64).to_le_bytes());
+    msg.extend_from_slice(id.as_bytes());
+    msg.push(decision as u8);
+    msg.extend_from_slice(&(voter_id.len() as u64).to_le_bytes());
+    msg.extend_from_slice(voter_id.as_bytes());
+    msg
+}
 
 /// Minimum stake required to apply as oracle (in NOVA)
 pub const MIN_ORACLE_STAKE: u64 = 10_000;
@@ -76,6 +103,9 @@ pub enum RegistryError {
 
     #[error("Oracle slashed: {oracle_id}")]
     OracleSlashed { oracle_id: String },
+
+    #[error("Signature verification failed for voter: {voter_id}")]
+    SignatureMismatch { voter_id: String },
 
     #[error("Lock poisoned")]
     LockPoisoned,
@@ -342,6 +372,10 @@ pub struct OracleRegistry {
     slashing_proposals: Arc<RwLock<HashMap<String, SlashingProposal>>>,
     /// Voter stake balances (would come from staking module in production)
     voter_stakes: Arc<RwLock<HashMap<String, u64>>>,
+    /// Voter public keys used to authenticate governance votes. Keyed by
+    /// voter id; value is the registered PQC public key plus the quantum
+    /// parameters (scheme + security level) it was issued under.
+    voter_pubkeys: Arc<RwLock<HashMap<String, (Vec<u8>, QuantumParameters)>>>,
 }
 
 impl OracleRegistry {
@@ -354,6 +388,7 @@ impl OracleRegistry {
             slashing_conditions: Arc::new(RwLock::new(HashMap::new())),
             slashing_proposals: Arc::new(RwLock::new(HashMap::new())),
             voter_stakes: Arc::new(RwLock::new(HashMap::new())),
+            voter_pubkeys: Arc::new(RwLock::new(HashMap::new())),
         };
 
         // Initialize default slashing conditions
@@ -572,6 +607,15 @@ impl OracleRegistry {
                 actual: stake_weight,
             });
         }
+
+        // Authenticate the vote: the voter must sign a canonical,
+        // domain-separated message over (application_id, approve, voter_id)
+        // with the PQC key they registered. Fail closed if the signature is
+        // absent, malformed, or does not verify — otherwise anyone able to
+        // reference a staked voter's id could vote on their behalf.
+        let vote_message =
+            governance_signing_message(ORACLE_VOTE_DOMAIN, application_id, approve, &voter_id);
+        self.verify_voter_signature(&voter_id, &vote_message, &signature)?;
 
         let mut applications = self.applications.write()
             .map_err(|_| RegistryError::LockPoisoned)?;
@@ -802,6 +846,17 @@ impl OracleRegistry {
             });
         }
 
+        // Authenticate the contest vote against the voter's registered PQC key
+        // over a canonical, domain-separated message. Fail closed on any
+        // absent/malformed/invalid signature.
+        let contest_message = governance_signing_message(
+            SLASH_CONTEST_DOMAIN,
+            proposal_id,
+            uphold_slash,
+            &voter_id,
+        );
+        self.verify_voter_signature(&voter_id, &contest_message, &signature)?;
+
         let mut proposals = self.slashing_proposals.write()
             .map_err(|_| RegistryError::LockPoisoned)?;
 
@@ -943,6 +998,46 @@ impl OracleRegistry {
         Ok(())
     }
 
+    /// Register (or update) the PQC public key a voter uses to authenticate
+    /// governance and slashing-contest votes. Without a registered key a
+    /// voter cannot cast an authenticated vote (verification fails closed).
+    pub fn register_voter_key(
+        &self,
+        voter_id: String,
+        public_key: Vec<u8>,
+        parameters: QuantumParameters,
+    ) -> RegistryResult<()> {
+        let mut keys = self.voter_pubkeys.write()
+            .map_err(|_| RegistryError::LockPoisoned)?;
+        keys.insert(voter_id, (public_key, parameters));
+        Ok(())
+    }
+
+    /// Verify a governance-vote signature against the voter's registered PQC
+    /// public key. Fails closed with `SignatureMismatch` when no key is
+    /// registered, the signature is malformed, or verification returns false.
+    fn verify_voter_signature(
+        &self,
+        voter_id: &str,
+        message: &[u8],
+        signature: &[u8],
+    ) -> RegistryResult<()> {
+        let keys = self.voter_pubkeys.read()
+            .map_err(|_| RegistryError::LockPoisoned)?;
+        let (public_key, parameters) = keys.get(voter_id).ok_or_else(|| {
+            RegistryError::SignatureMismatch {
+                voter_id: voter_id.to_string(),
+            }
+        })?;
+
+        match verify_quantum_signature(public_key, message, signature, *parameters) {
+            Ok(true) => Ok(()),
+            _ => Err(RegistryError::SignatureMismatch {
+                voter_id: voter_id.to_string(),
+            }),
+        }
+    }
+
     /// Get oracle by ID
     pub fn get_oracle(&self, oracle_id: &str) -> RegistryResult<Option<RegisteredOracle>> {
         let oracles = self.oracles.read()
@@ -1022,6 +1117,12 @@ pub struct RegistryStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::quantum::{QuantumKeyPair, QuantumScheme};
+
+    fn dilithium_keypair() -> QuantumKeyPair {
+        QuantumKeyPair::generate(QuantumParameters::new(QuantumScheme::Dilithium))
+            .expect("keypair generation")
+    }
 
     fn create_test_registry() -> OracleRegistry {
         let config = RegistryConfig {
@@ -1068,9 +1169,18 @@ mod tests {
     fn test_voting_on_application() {
         let registry = create_test_registry();
 
-        // Register voter stake
+        // Register voter stake and authentication keys
+        let kp1 = dilithium_keypair();
+        let kp2 = dilithium_keypair();
+        let params = QuantumParameters::new(QuantumScheme::Dilithium);
         registry.register_voter_stake("voter_001".to_string(), 1000).unwrap();
         registry.register_voter_stake("voter_002".to_string(), 2000).unwrap();
+        registry
+            .register_voter_key("voter_001".to_string(), kp1.public_key.clone(), params)
+            .unwrap();
+        registry
+            .register_voter_key("voter_002".to_string(), kp2.public_key.clone(), params)
+            .unwrap();
 
         // Submit application
         let app_id = registry.submit_application(
@@ -1081,21 +1191,27 @@ mod tests {
             vec![],
         ).unwrap();
 
-        // Vote
+        // Vote (with valid signatures over the canonical message)
+        let msg1 =
+            governance_signing_message(ORACLE_VOTE_DOMAIN, &app_id, true, "voter_001");
+        let sig1 = kp1.sign(&msg1).expect("sign");
         registry.vote_on_application(
             &app_id,
             "voter_001".to_string(),
             true,
             None,
-            vec![1, 2, 3],
+            sig1,
         ).unwrap();
 
+        let msg2 =
+            governance_signing_message(ORACLE_VOTE_DOMAIN, &app_id, true, "voter_002");
+        let sig2 = kp2.sign(&msg2).expect("sign");
         registry.vote_on_application(
             &app_id,
             "voter_002".to_string(),
             true,
             Some("Good oracle".to_string()),
-            vec![4, 5, 6],
+            sig2,
         ).unwrap();
 
         // Check application
@@ -1105,6 +1221,78 @@ mod tests {
         // Note: has_quorum() uses MIN_VOTES_FOR_QUORUM constant (10), not the config value
         // Since this test only has 2 voters, we verify votes were recorded but not quorum
         assert!(!app.has_quorum(), "2 votes should not meet quorum of 10");
+    }
+
+    #[test]
+    fn test_vote_forged_signature_rejected() {
+        let registry = create_test_registry();
+
+        let kp = dilithium_keypair();
+        let params = QuantumParameters::new(QuantumScheme::Dilithium);
+        registry.register_voter_stake("voter_001".to_string(), 1000).unwrap();
+        registry
+            .register_voter_key("voter_001".to_string(), kp.public_key.clone(), params)
+            .unwrap();
+
+        let app_id = registry.submit_application(
+            "oracle_forge".to_string(),
+            15_000,
+            HashSet::new(),
+            "Test".to_string(),
+            vec![],
+        ).unwrap();
+
+        // Garbage signature must be rejected (the exact bypass being fixed).
+        let result = registry.vote_on_application(
+            &app_id,
+            "voter_001".to_string(),
+            true,
+            None,
+            vec![0xAA; 64],
+        );
+        assert!(matches!(result, Err(RegistryError::SignatureMismatch { .. })));
+
+        // A valid signature for a DIFFERENT decision must not authorize this vote.
+        let wrong_msg =
+            governance_signing_message(ORACLE_VOTE_DOMAIN, &app_id, false, "voter_001");
+        let wrong_sig = kp.sign(&wrong_msg).expect("sign");
+        let result = registry.vote_on_application(
+            &app_id,
+            "voter_001".to_string(),
+            true, // approve, but signed over `false`
+            None,
+            wrong_sig,
+        );
+        assert!(matches!(result, Err(RegistryError::SignatureMismatch { .. })));
+
+        // No vote should have been recorded.
+        let app = registry.get_application(&app_id).unwrap().unwrap();
+        assert_eq!(app.votes.len(), 0);
+    }
+
+    #[test]
+    fn test_vote_without_registered_key_rejected() {
+        let registry = create_test_registry();
+
+        // Stake but no registered key -> cannot authenticate a vote.
+        registry.register_voter_stake("voter_001".to_string(), 1000).unwrap();
+
+        let app_id = registry.submit_application(
+            "oracle_nokey".to_string(),
+            15_000,
+            HashSet::new(),
+            "Test".to_string(),
+            vec![],
+        ).unwrap();
+
+        let result = registry.vote_on_application(
+            &app_id,
+            "voter_001".to_string(),
+            true,
+            None,
+            vec![1, 2, 3],
+        );
+        assert!(matches!(result, Err(RegistryError::SignatureMismatch { .. })));
     }
 
     #[test]

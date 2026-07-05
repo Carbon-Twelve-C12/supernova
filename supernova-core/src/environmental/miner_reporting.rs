@@ -1,10 +1,11 @@
+use crate::environmental::score_validation::EnvironmentalScoreValidator;
 use crate::environmental::types::{
     EmissionFactor, EnergySource as TypesEnergySource, HardwareType as TypesHardwareType, Region,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tracing::info;
+use std::collections::{HashMap, HashSet};
+use tracing::{info, warn};
 
 /// Status of miner verification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -457,10 +458,30 @@ impl MinerEnvironmentalInfo {
         let total_score =
             renewable_score + rec_score + offset_score + location_score + efficiency_score;
 
-        // Update the score
-        self.environmental_score = Some(total_score);
+        // Guard the computed score against out-of-range / non-finite manipulation before
+        // it can drive green-mining incentives. Inputs such as `renewable_percentage` are
+        // self-reported, so a bad or manipulated report could otherwise yield a score
+        // outside the valid 0-100 band. Reject (clamp) any such score.
+        let validator = EnvironmentalScoreValidator::default();
+        let validated_score = match validator.validate_score(total_score) {
+            Ok(()) => total_score,
+            Err(reason) => {
+                warn!(
+                    "Environmental score {} for miner {} failed validation: {}. Clamping to valid range.",
+                    total_score, self.miner_id, reason
+                );
+                if total_score.is_finite() {
+                    total_score.clamp(0.0, 100.0)
+                } else {
+                    0.0
+                }
+            }
+        };
 
-        total_score
+        // Update the score
+        self.environmental_score = Some(validated_score);
+
+        validated_score
     }
 
     /// Calculate carbon footprint with REC and offset prioritization
@@ -563,6 +584,12 @@ pub struct MinerReportingManager {
     hardware_baselines: HashMap<TypesHardwareType, f64>,
     /// Reports by miner ID
     reports: HashMap<String, MinerEnvironmentalReport>,
+    /// Trusted REC issuers (normalized to UPPERCASE). Only certificates issued by
+    /// one of these organizations may be marked `Verified`.
+    trusted_rec_issuers: HashSet<String>,
+    /// Maps a REC certificate ID to the miner that has already claimed it, preventing
+    /// the same certificate (generation period) from being double-claimed by two miners.
+    consumed_rec_certificates: HashMap<String, String>,
 }
 
 impl Default for MinerReportingManager {
@@ -579,7 +606,23 @@ impl MinerReportingManager {
             emission_factors: HashMap::new(),
             hardware_baselines: HashMap::new(),
             reports: HashMap::new(),
+            // Default trusted REC registries. Operators can extend this set via
+            // `register_trusted_rec_issuer`. Matching is case-insensitive.
+            trusted_rec_issuers: HashSet::from([
+                "US-EPA".to_string(),
+                "EU-ETS".to_string(),
+                "GREEN-E".to_string(),
+            ]),
+            consumed_rec_certificates: HashMap::new(),
         }
+    }
+
+    /// Register a trusted REC issuer. Certificates are only eligible to be marked
+    /// `Verified` when their issuer matches one of the registered organizations.
+    /// Issuer names are matched case-insensitively (leading/trailing whitespace ignored).
+    pub fn register_trusted_rec_issuer(&mut self, issuer: &str) {
+        self.trusted_rec_issuers
+            .insert(issuer.trim().to_ascii_uppercase());
     }
 
     /// Register a new miner
@@ -858,7 +901,28 @@ impl MinerReportingManager {
         }
     }
 
-    /// Verify miner location using multiple methods
+    /// Record a miner location verification claim.
+    ///
+    /// The resulting [`LocationVerification::status`] is derived from the method and
+    /// the supporting evidence; it is NEVER unconditionally
+    /// [`MinerVerificationStatus::Verified`]. A [`MinerVerificationStatus::Verified`]
+    /// status is what unlocks the location fee discount (see
+    /// [`Self::calculate_fee_discount_with_rec_priority`], `location_bonus`), so
+    /// treating an unproven claim as `Verified` would let a miner earn renewable
+    /// incentives with no evidence.
+    ///
+    /// Status rules:
+    /// 1. [`LocationVerificationMethod::SelfDeclared`] is a bare claim and can never be
+    ///    self-verified — it is always recorded as [`MinerVerificationStatus::Pending`]
+    ///    awaiting external verification, regardless of any `evidence` string.
+    /// 2. Evidence-backed methods (Audit, GovernmentRegistry, MultiFactor,
+    ///    CryptographicProof, IPGeolocation) are recorded as
+    ///    [`MinerVerificationStatus::Verified`] only when a non-empty `evidence`
+    ///    reference is supplied; otherwise they stay [`MinerVerificationStatus::Pending`].
+    ///
+    /// This function records the claim and its evidence reference but does not itself
+    /// cryptographically validate the evidence or identify an independent verifier, so
+    /// no method is auto-verified without at least a supporting evidence reference.
     pub fn verify_miner_location(
         &mut self,
         miner_id: &str,
@@ -880,14 +944,36 @@ impl MinerReportingManager {
             LocationVerificationMethod::SelfDeclared => 0.3,
         };
 
+        // A non-empty evidence reference is the minimum objective basis this function
+        // can attest to.
+        let has_evidence = evidence
+            .as_ref()
+            .map(|e| !e.trim().is_empty())
+            .unwrap_or(false);
+
+        // Derive status honestly instead of rubber-stamping every claim as Verified.
+        let status = match method {
+            // Self-declaration is never itself proof — always pending external review.
+            LocationVerificationMethod::SelfDeclared => MinerVerificationStatus::Pending,
+            // All other methods require a supporting evidence reference to count as
+            // verified; without one the claim remains pending.
+            _ => {
+                if has_evidence {
+                    MinerVerificationStatus::Verified
+                } else {
+                    MinerVerificationStatus::Pending
+                }
+            }
+        };
+
         // Create verification record
         let verification = LocationVerification {
             method,
             timestamp: Utc::now(),
             confidence,
-            verifier: None, // Would be set in a real implementation
+            verifier: None,
             evidence_reference: evidence,
-            status: MinerVerificationStatus::Verified,
+            status,
         };
 
         // Update miner record
@@ -896,35 +982,114 @@ impl MinerReportingManager {
         Ok(())
     }
 
-    /// Verify REC certificate
+    /// Verify a REC certificate against the trusted-issuer registry and double-claim
+    /// tracking, then record the result on the miner's certificate.
+    ///
+    /// A certificate is only marked [`MinerVerificationStatus::Verified`] when ALL of the
+    /// following hold:
+    /// 1. Its issuer is on the trusted-issuer list (see [`Self::register_trusted_rec_issuer`]).
+    /// 2. Its generation period is well-formed (`start < end`) and not in the future.
+    /// 3. Its claimed amount is positive.
+    /// 4. The certificate has not already been claimed by a different miner.
+    ///
+    /// If any check fails the certificate is marked [`MinerVerificationStatus::Rejected`]
+    /// (never silently `Verified`) and the failure reason is returned as an error. This
+    /// prevents a caller from obtaining renewable-energy incentives (environmental score,
+    /// fee discounts, carbon-footprint reductions) for unproven or double-claimed RECs.
     pub fn verify_rec_certificate(
         &mut self,
         miner_id: &str,
         certificate_id: &str,
     ) -> Result<(), String> {
-        let miner = match self.miners.get_mut(miner_id) {
-            Some(miner) => miner,
-            None => return Err(format!("Miner with ID {} not found", miner_id)),
+        // Extract the details we need to validate without holding a mutable borrow.
+        let (cert_index, issuer, generation_start, generation_end, amount_mwh) = {
+            let miner = self
+                .miners
+                .get(miner_id)
+                .ok_or_else(|| format!("Miner with ID {} not found", miner_id))?;
+
+            let idx = miner
+                .rec_certificates
+                .iter()
+                .position(|cert| cert.certificate_id == certificate_id)
+                .ok_or_else(|| format!("Certificate with ID {} not found", certificate_id))?;
+
+            let cert = &miner.rec_certificates[idx];
+            (
+                idx,
+                cert.issuer.clone(),
+                cert.generation_start,
+                cert.generation_end,
+                cert.amount_mwh,
+            )
         };
 
-        // Find the certificate
-        let cert_index = miner
-            .rec_certificates
-            .iter()
-            .position(|cert| cert.certificate_id == certificate_id)
-            .ok_or_else(|| format!("Certificate with ID {} not found", certificate_id))?;
+        // Run all validation checks. Any Err means the certificate is Rejected.
+        let validation: Result<(), String> = (|| {
+            // 1. Issuer must be on the trusted list.
+            let issuer_norm = issuer.trim().to_ascii_uppercase();
+            if !self.trusted_rec_issuers.contains(&issuer_norm) {
+                return Err(format!(
+                    "REC issuer '{}' is not a trusted issuer",
+                    issuer
+                ));
+            }
 
-        // In a real system, this would connect to a REC verification service
-        // For now, we just simulate verification
+            // 2. Generation period must be well-formed and not claimed for the future.
+            if generation_start >= generation_end {
+                return Err("REC generation period is invalid (start >= end)".to_string());
+            }
+            if generation_end > Utc::now() {
+                return Err("REC generation period ends in the future".to_string());
+            }
 
-        // Update verification status
-        miner.rec_certificates[cert_index].verification_status = MinerVerificationStatus::Verified;
-        miner.rec_certificates[cert_index].last_verified = Some(Utc::now());
+            // 3. Claimed amount must be a positive, finite value (rejects 0, negatives, NaN, infinity).
+            if !amount_mwh.is_finite() || amount_mwh <= 0.0 {
+                return Err("REC amount must be greater than zero".to_string());
+            }
 
-        // Update miner's REC status
-        miner.has_rec_certificates = true;
+            // 4. Certificate must not already be claimed by a different miner.
+            if let Some(existing) = self.consumed_rec_certificates.get(certificate_id) {
+                if existing != miner_id {
+                    return Err(format!(
+                        "REC certificate {} has already been claimed by miner {}",
+                        certificate_id, existing
+                    ));
+                }
+            }
 
-        Ok(())
+            Ok(())
+        })();
+
+        let miner = self
+            .miners
+            .get_mut(miner_id)
+            .ok_or_else(|| format!("Miner with ID {} not found", miner_id))?;
+
+        match validation {
+            Ok(()) => {
+                miner.rec_certificates[cert_index].verification_status =
+                    MinerVerificationStatus::Verified;
+                miner.rec_certificates[cert_index].last_verified = Some(Utc::now());
+                // Only reflect "has RECs" when at least one certificate is verified.
+                miner.has_rec_certificates = true;
+                // Record the claim so no other miner can double-claim this certificate.
+                self.consumed_rec_certificates
+                    .insert(certificate_id.to_string(), miner_id.to_string());
+                Ok(())
+            }
+            Err(reason) => {
+                miner.rec_certificates[cert_index].verification_status =
+                    MinerVerificationStatus::Rejected;
+                miner.rec_certificates[cert_index].last_verified = Some(Utc::now());
+                // Recompute the flag: true only if some other certificate is verified.
+                miner.has_rec_certificates = miner
+                    .rec_certificates
+                    .iter()
+                    .any(|c| c.verification_status == MinerVerificationStatus::Verified);
+                Err(reason)
+            }
+        }
     }
 
     /// Calculate fee discount with REC prioritization
@@ -934,17 +1099,31 @@ impl MinerReportingManager {
             None => return 0.0, // No discount for non-registered miners
         };
 
-        // Base discount from renewable percentage
-        let base_discount = if info.renewable_percentage >= 95.0 {
-            10.0 // 10% discount for 95%+ renewable
-        } else if info.renewable_percentage >= 75.0 {
-            7.0 // 7% discount for 75%+ renewable
-        } else if info.renewable_percentage >= 50.0 {
-            5.0 // 5% discount for 50%+ renewable
-        } else if info.renewable_percentage >= 25.0 {
-            2.0 // 2% discount for 25%+ renewable
+        // Base discount from renewable percentage.
+        //
+        // `renewable_percentage` is a pure self-report (set by the miner via
+        // `update_energy_sources` with no supporting evidence), so it must NOT grant a
+        // fee discount on its own. Gate the base tier on verified evidence: the miner
+        // must both hold a valid external verification (`is_verification_valid`) AND back
+        // the renewable claim with at least one verified REC certificate
+        // (`has_verified_recs`, which round-3 hardening ties to trusted issuers and
+        // no double-claiming). Without that evidence the self-reported percentage yields
+        // no base discount — mirroring how the REC/offset/location bonuses below are
+        // already gated on `Verified` status.
+        let base_discount = if info.is_verification_valid() && info.has_verified_recs() {
+            if info.renewable_percentage >= 95.0 {
+                10.0 // 10% discount for 95%+ renewable
+            } else if info.renewable_percentage >= 75.0 {
+                7.0 // 7% discount for 75%+ renewable
+            } else if info.renewable_percentage >= 50.0 {
+                5.0 // 5% discount for 50%+ renewable
+            } else if info.renewable_percentage >= 25.0 {
+                2.0 // 2% discount for 25%+ renewable
+            } else {
+                0.0 // No discount for less than 25% renewable
+            }
         } else {
-            0.0 // No discount for less than 25% renewable
+            0.0 // Unverified self-reported renewable claim earns no base discount
         };
 
         // REC bonus - prioritize RECs over everything else
@@ -1151,6 +1330,47 @@ mod tests {
     }
 
     #[test]
+    fn test_environmental_score_manipulation_is_rejected() {
+        // A manipulated self-reported renewable percentage well above 100% would,
+        // without validation, push the environmental score outside the valid 0-100
+        // band. The wired-in EnvironmentalScoreValidator must clamp it back.
+        let mut miner = MinerEnvironmentalInfo::new(
+            "attacker".to_string(),
+            "Manipulated Miner".to_string(),
+            Region::NorthAmerica,
+        );
+
+        // renewable_score = (renewable_percentage / 100) * 50 => 150 with 300%.
+        miner.renewable_percentage = 300.0;
+
+        let score = miner.calculate_environmental_score();
+
+        // The out-of-range score must be rejected/clamped to the valid maximum.
+        assert!(
+            (0.0..=100.0).contains(&score),
+            "score {} escaped the valid 0-100 range",
+            score
+        );
+        assert_eq!(score, 100.0);
+        assert_eq!(miner.environmental_score, Some(100.0));
+    }
+
+    #[test]
+    fn test_environmental_score_valid_input_unchanged() {
+        // A legitimate in-range score must pass through validation unmodified.
+        let mut miner = MinerEnvironmentalInfo::new(
+            "honest".to_string(),
+            "Honest Miner".to_string(),
+            Region::NorthAmerica,
+        );
+        miner.renewable_percentage = 50.0; // renewable_score = 25.0, no other components
+
+        let score = miner.calculate_environmental_score();
+        assert_eq!(score, 25.0);
+        assert_eq!(miner.environmental_score, Some(25.0));
+    }
+
+    #[test]
     fn test_rec_and_offset_impact() {
         // Create emission factors
         let mut emission_factors = HashMap::new();
@@ -1200,5 +1420,283 @@ mod tests {
 
         // Adding offsets should reduce further
         assert!(with_both < with_recs);
+    }
+
+    fn sample_rec(certificate_id: &str, issuer: &str) -> RECCertificate {
+        RECCertificate {
+            certificate_id: certificate_id.to_string(),
+            issuer: issuer.to_string(),
+            amount_mwh: 100.0,
+            generation_start: Utc::now() - chrono::Duration::days(60),
+            generation_end: Utc::now() - chrono::Duration::days(30),
+            generation_location: Some(Region::NorthAmerica),
+            energy_type: TypesEnergySource::Solar,
+            verification_status: MinerVerificationStatus::Pending,
+            certificate_url: None,
+            last_verified: None,
+            blockchain_tx_id: None,
+        }
+    }
+
+    fn register_miner_with_cert(
+        manager: &mut MinerReportingManager,
+        miner_id: &str,
+        cert: RECCertificate,
+    ) {
+        let mut miner = MinerEnvironmentalInfo::new(
+            miner_id.to_string(),
+            miner_id.to_string(),
+            Region::NorthAmerica,
+        );
+        miner.add_rec_certificate(cert);
+        manager.register_miner(miner).unwrap();
+    }
+
+    #[test]
+    fn test_verify_rec_certificate_trusted_issuer_is_verified() {
+        let mut manager = MinerReportingManager::new();
+        register_miner_with_cert(&mut manager, "miner1", sample_rec("REC-1", "US-EPA"));
+
+        assert!(manager.verify_rec_certificate("miner1", "REC-1").is_ok());
+
+        let miner = manager.get_miner("miner1").unwrap();
+        assert_eq!(
+            miner.rec_certificates[0].verification_status,
+            MinerVerificationStatus::Verified
+        );
+        assert!(miner.has_verified_recs());
+    }
+
+    #[test]
+    fn test_verify_rec_certificate_untrusted_issuer_is_rejected() {
+        let mut manager = MinerReportingManager::new();
+        // "Totally Fake Registry" is not on the trusted list.
+        register_miner_with_cert(
+            &mut manager,
+            "miner1",
+            sample_rec("REC-1", "Totally Fake Registry"),
+        );
+
+        let result = manager.verify_rec_certificate("miner1", "REC-1");
+        assert!(result.is_err());
+
+        let miner = manager.get_miner("miner1").unwrap();
+        assert_eq!(
+            miner.rec_certificates[0].verification_status,
+            MinerVerificationStatus::Rejected
+        );
+        // A rejected certificate must NOT drive incentives.
+        assert!(!miner.has_verified_recs());
+        assert!(!miner.has_rec_certificates);
+    }
+
+    #[test]
+    fn test_verify_rec_certificate_future_period_is_rejected() {
+        let mut manager = MinerReportingManager::new();
+        let mut cert = sample_rec("REC-1", "US-EPA");
+        // Generation period ends in the future.
+        cert.generation_start = Utc::now() + chrono::Duration::days(1);
+        cert.generation_end = Utc::now() + chrono::Duration::days(30);
+        register_miner_with_cert(&mut manager, "miner1", cert);
+
+        assert!(manager.verify_rec_certificate("miner1", "REC-1").is_err());
+        assert_eq!(
+            manager.get_miner("miner1").unwrap().rec_certificates[0].verification_status,
+            MinerVerificationStatus::Rejected
+        );
+    }
+
+    #[test]
+    fn test_verify_rec_certificate_double_claim_is_rejected() {
+        let mut manager = MinerReportingManager::new();
+        register_miner_with_cert(&mut manager, "miner1", sample_rec("REC-DUP", "GREEN-E"));
+        register_miner_with_cert(&mut manager, "miner2", sample_rec("REC-DUP", "GREEN-E"));
+
+        // First miner legitimately claims the certificate.
+        assert!(manager.verify_rec_certificate("miner1", "REC-DUP").is_ok());
+        // Second miner attempts to claim the SAME certificate ID -> rejected.
+        assert!(manager.verify_rec_certificate("miner2", "REC-DUP").is_err());
+
+        assert_eq!(
+            manager.get_miner("miner2").unwrap().rec_certificates[0].verification_status,
+            MinerVerificationStatus::Rejected
+        );
+        assert!(manager.get_miner("miner1").unwrap().has_verified_recs());
+    }
+
+    #[test]
+    fn test_verify_rec_certificate_infinite_amount_is_rejected() {
+        let mut manager = MinerReportingManager::new();
+        // Trusted issuer but a non-finite (infinite) claimed amount.
+        let mut cert = sample_rec("REC-INF", "US-EPA");
+        cert.amount_mwh = f64::INFINITY;
+        register_miner_with_cert(&mut manager, "miner1", cert);
+
+        // An infinite amount would poison total_verified_recs_mwh() and rec_coverage,
+        // so it must be rejected just like NaN, zero, and negatives.
+        assert!(manager.verify_rec_certificate("miner1", "REC-INF").is_err());
+        let miner = manager.get_miner("miner1").unwrap();
+        assert_eq!(
+            miner.rec_certificates[0].verification_status,
+            MinerVerificationStatus::Rejected
+        );
+        assert!(!miner.has_verified_recs());
+    }
+
+    #[test]
+    fn test_register_trusted_rec_issuer_enables_verification() {
+        let mut manager = MinerReportingManager::new();
+        register_miner_with_cert(&mut manager, "miner1", sample_rec("REC-1", "Green-e Custom"));
+
+        // Not trusted yet -> rejected.
+        assert!(manager.verify_rec_certificate("miner1", "REC-1").is_err());
+
+        // Register the issuer (case-insensitive) then re-verify -> accepted.
+        manager.register_trusted_rec_issuer("green-e custom");
+        assert!(manager.verify_rec_certificate("miner1", "REC-1").is_ok());
+        assert_eq!(
+            manager.get_miner("miner1").unwrap().rec_certificates[0].verification_status,
+            MinerVerificationStatus::Verified
+        );
+    }
+
+    fn register_bare_miner(manager: &mut MinerReportingManager, miner_id: &str) {
+        let miner = MinerEnvironmentalInfo::new(
+            miner_id.to_string(),
+            miner_id.to_string(),
+            Region::NorthAmerica,
+        );
+        manager.register_miner(miner).unwrap();
+    }
+
+    #[test]
+    fn test_verify_miner_location_self_declared_is_pending() {
+        let mut manager = MinerReportingManager::new();
+        register_bare_miner(&mut manager, "miner1");
+
+        // Self-declaration, even with an evidence string, must never be Verified.
+        assert!(manager
+            .verify_miner_location(
+                "miner1",
+                LocationVerificationMethod::SelfDeclared,
+                Some("i-swear-im-in-iceland".to_string()),
+            )
+            .is_ok());
+
+        let v = manager
+            .get_miner("miner1")
+            .unwrap()
+            .location_verification
+            .clone()
+            .unwrap();
+        assert_eq!(v.status, MinerVerificationStatus::Pending);
+
+        // A pending self-declaration must not unlock the location fee discount.
+        assert_eq!(manager.calculate_fee_discount_with_rec_priority("miner1"), 0.0);
+    }
+
+    #[test]
+    fn test_verify_miner_location_no_evidence_is_pending() {
+        let mut manager = MinerReportingManager::new();
+        register_bare_miner(&mut manager, "miner1");
+
+        // A high-trust method with no supporting evidence stays Pending.
+        assert!(manager
+            .verify_miner_location("miner1", LocationVerificationMethod::Audit, None)
+            .is_ok());
+
+        let v = manager
+            .get_miner("miner1")
+            .unwrap()
+            .location_verification
+            .clone()
+            .unwrap();
+        assert_eq!(v.status, MinerVerificationStatus::Pending);
+        assert_eq!(manager.calculate_fee_discount_with_rec_priority("miner1"), 0.0);
+    }
+
+    #[test]
+    fn test_verify_miner_location_with_evidence_is_verified() {
+        let mut manager = MinerReportingManager::new();
+        register_bare_miner(&mut manager, "miner1");
+
+        // Evidence-backed audit -> Verified, and unlocks the location fee bonus.
+        assert!(manager
+            .verify_miner_location(
+                "miner1",
+                LocationVerificationMethod::Audit,
+                Some("audit-report-2026-Q1".to_string()),
+            )
+            .is_ok());
+
+        let v = manager
+            .get_miner("miner1")
+            .unwrap()
+            .location_verification
+            .clone()
+            .unwrap();
+        assert_eq!(v.status, MinerVerificationStatus::Verified);
+        // location_bonus = confidence(0.9) * 3.0 = 2.7 (miner has 0% renewable so no base).
+        assert!((manager.calculate_fee_discount_with_rec_priority("miner1") - 2.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_base_discount_requires_verified_evidence() {
+        // A miner self-reports 100% renewable energy with NO verified RECs and NO
+        // external verification. The self-report alone must NOT unlock any base discount.
+        let mut manager = MinerReportingManager::new();
+        let mut miner = MinerEnvironmentalInfo::new(
+            "miner1".to_string(),
+            "miner1".to_string(),
+            Region::NorthAmerica,
+        );
+        miner.update_performance_metrics(100.0, 2400.0).unwrap();
+        let mut sources = HashMap::new();
+        sources.insert(TypesEnergySource::Solar, 100.0);
+        miner.update_energy_sources(sources).unwrap();
+        assert_eq!(miner.renewable_percentage, 100.0);
+        manager.register_miner(miner).unwrap();
+
+        // Pure self-report earns nothing: base tier is gated on verified evidence.
+        assert_eq!(
+            manager.calculate_fee_discount_with_rec_priority("miner1"),
+            0.0
+        );
+    }
+
+    #[test]
+    fn test_base_discount_unlocked_by_verified_rec_and_verification() {
+        // Same 100% self-reported renewable claim, but now backed by a verified REC
+        // certificate AND a valid external verification. The base tier now applies.
+        let mut manager = MinerReportingManager::new();
+        let mut miner = MinerEnvironmentalInfo::new(
+            "miner1".to_string(),
+            "miner1".to_string(),
+            Region::NorthAmerica,
+        );
+        miner.update_performance_metrics(100.0, 2400.0).unwrap();
+        let mut sources = HashMap::new();
+        sources.insert(TypesEnergySource::Solar, 100.0);
+        miner.update_energy_sources(sources).unwrap();
+
+        // Attach a verified REC certificate (evidence backing the renewable claim).
+        let mut cert = sample_rec("REC-1", "US-EPA");
+        cert.verification_status = MinerVerificationStatus::Verified;
+        miner.add_rec_certificate(cert);
+        assert!(miner.has_verified_recs());
+
+        // Attach a valid external verification.
+        miner.add_verification(
+            "US-EPA".to_string(),
+            "attestation-2026".to_string(),
+            MinerVerificationStatus::Verified,
+        );
+        assert!(miner.is_verification_valid());
+
+        manager.register_miner(miner).unwrap();
+
+        // With verified evidence, the 95%+ base tier (10%) applies on top of the REC
+        // bonus, so the total discount must be at least the base tier.
+        assert!(manager.calculate_fee_discount_with_rec_priority("miner1") >= 10.0);
     }
 }

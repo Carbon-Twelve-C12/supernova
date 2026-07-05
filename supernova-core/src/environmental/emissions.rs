@@ -249,6 +249,10 @@ pub struct RECCertificateInfo {
     pub generation_end: DateTime<Utc>,
     /// Generation location
     pub generation_location: Option<Region>,
+    /// Generation energy source (e.g. Solar, Wind). `None` when the issuer did
+    /// not specify one; certificates without an energy type must not be
+    /// attested to oracles with a fabricated value.
+    pub energy_type: Option<EnergySourceType>,
     /// Verification status
     pub verification_status: VerificationStatus,
     /// Certificate URL
@@ -268,6 +272,10 @@ pub struct CarbonOffsetInfo {
     pub project_type: String,
     /// Project location
     pub project_location: Option<Region>,
+    /// Vintage year of the offset (year the emission reduction occurred).
+    /// `None` when the issuer did not specify one; offsets without a vintage
+    /// must not be attested to oracles with a fabricated value.
+    pub vintage_year: Option<u16>,
     /// Verification status
     pub verification_status: VerificationStatus,
     /// Certificate URL
@@ -819,10 +827,9 @@ impl EmissionsTracker {
         &self,
         transaction: &Transaction,
     ) -> Result<f64, EmissionsError> {
-        // For now, use a simple size-based estimation
+        // Coarse size-based estimate using the network-calibration constant.
         let tx_size = transaction.calculate_size();
-        let energy_per_byte = 0.0000002; // kWh per byte (example value)
-        Ok(tx_size as f64 * energy_per_byte)
+        Ok(tx_size as f64 * TX_ENERGY_PER_BYTE_KWH)
     }
 
     /// Calculate emissions for an entire block
@@ -837,9 +844,9 @@ impl EmissionsTracker {
             total_energy += self.estimate_transaction_energy(tx)?;
         }
 
-        // Add block mining energy (example: 50 kWh per block)
-        let mining_energy = 50.0;
-        total_energy += mining_energy;
+        // Add the Proof-of-Work search energy attributable to this block using
+        // the network-calibration constant.
+        total_energy += BLOCK_MINING_ENERGY_KWH;
 
         // Get current emission factor
         let emission_factor = self.get_current_emission_factor()?;
@@ -863,10 +870,19 @@ impl EmissionsTracker {
         Ok(self.config.default_emission_factor)
     }
 
-    /// Get the current renewable energy percentage
+    /// Get the current renewable energy percentage (0-100).
+    ///
+    /// Derives the value from the network's weighted pool renewable data via
+    /// [`Self::calculate_network_renewable_percentage`] (the same source used
+    /// by the per-transaction path). When no pool data is available it falls
+    /// back to the configured default (stored as a 0-1 fraction).
     fn get_renewable_percentage(&self) -> Option<f64> {
-        // Return a default value for now
-        Some(25.0) // 25% renewable
+        let network_renewable = self.calculate_network_renewable_percentage();
+        if network_renewable > 0.0 {
+            Some(network_renewable)
+        } else {
+            Some(self.config.default_renewable_percentage * 100.0)
+        }
     }
 
     /// Calculate weighted emission factor based on hashrate distribution
@@ -1236,6 +1252,25 @@ pub const DEFAULT_CARBON_INTENSITY: f64 = 475.0;
 
 /// Average energy consumption per hash calculation (J/hash)
 pub const ENERGY_PER_HASH: f64 = 0.0000015; // 1.5 μJ/hash for modern ASIC miners
+
+/// Network-calibration heuristic for the marginal energy attributable to
+/// storing and propagating one byte of transaction data (kWh/byte).
+///
+/// This is a network-level calibration constant, not a per-node measurement.
+/// The authoritative time-window energy figure is produced by
+/// `EmissionsTracker::calculate_network_emissions` from hashrate and hardware
+/// efficiency; this constant is only used for coarse per-transaction and
+/// per-block reporting estimates.
+pub const TX_ENERGY_PER_BYTE_KWH: f64 = 0.0000002;
+
+/// Network-calibration heuristic for the additional energy attributable to the
+/// Proof-of-Work search that produces a single block (kWh/block), on top of the
+/// energy accounted for the block's transactions.
+///
+/// This is a network-level calibration constant, not a per-node measurement.
+/// For an authoritative figure derived from live hashrate and efficiency over a
+/// time window, use `EmissionsTracker::calculate_network_emissions`.
+pub const BLOCK_MINING_ENERGY_KWH: f64 = 50.0;
 
 /// Network hashrate estimate (in hashes per second)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -1904,5 +1939,53 @@ mod tests {
             "Energy consumption should be positive"
         );
         assert!(result.tonnes_co2e > 0.0, "Emissions should be positive");
+    }
+
+    #[test]
+    fn test_block_renewable_percentage_is_derived_not_hardcoded() {
+        // With no pool data, the block path must fall back to the configured
+        // default (0.3 fraction -> 30%), NOT the old hardcoded 25%.
+        let tracker = EmissionsTracker::default();
+        let default_pct = tracker
+            .get_renewable_percentage()
+            .expect("renewable percentage should be present");
+        assert!(
+            (default_pct - 30.0).abs() < f64::EPSILON,
+            "expected configured default 30%, got {default_pct}"
+        );
+        assert!(
+            (default_pct - 25.0).abs() > f64::EPSILON,
+            "renewable percentage must not be the old hardcoded 25% placeholder"
+        );
+
+        // With real pool data, the block path must reflect the weighted
+        // network renewable percentage.
+        let mut tracker = EmissionsTracker::default();
+        tracker.update_region_hashrate(Region::new("US"), HashRate(20.0));
+        tracker.register_pool_energy_info(
+            PoolId("pool-1".to_string()),
+            PoolEnergyInfo {
+                renewable_percentage: 80.0,
+                verified: true,
+                regions: vec![Region::new("US")],
+                last_updated: Utc::now(),
+                energy_sources: vec![],
+                rec_certificates: None,
+                carbon_offsets: None,
+            },
+        );
+
+        let derived = tracker
+            .get_renewable_percentage()
+            .expect("renewable percentage should be present");
+        assert!(
+            (derived - 80.0).abs() < 1e-9,
+            "expected derived 80% from pool data, got {derived}"
+        );
+        // Sanity: matches the per-transaction path's source function.
+        assert!(
+            (derived - tracker.calculate_network_renewable_percentage()).abs() < 1e-9,
+            "block path must agree with calculate_network_renewable_percentage"
+        );
     }
 }

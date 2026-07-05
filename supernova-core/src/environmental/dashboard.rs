@@ -2,7 +2,7 @@ use crate::environmental::api::{AssetPurchaseRecord, EnvironmentalApiTrait, Netw
 use crate::environmental::emissions::EmissionsTracker;
 use crate::environmental::miner_reporting::{MinerReportingManager, MinerVerificationStatus};
 use crate::environmental::treasury::{
-    EnvironmentalAssetPurchase, EnvironmentalAssetType, EnvironmentalTreasury,
+    EnvironmentalAssetPurchase, EnvironmentalAssetType, EnvironmentalTreasury, VerificationStatus,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -350,40 +350,68 @@ impl EnvironmentalDashboard {
     }
 
     /// Generate geographic emissions breakdown
+    ///
+    /// Derives per-region emissions, energy, and renewable percentages from the
+    /// actual registered miners (their reported region, energy consumption, and
+    /// renewable mix) rather than fabricating fixed country ratios. When no miner
+    /// data is available, the breakdown is set to `None` so that
+    /// `export_geographic_json` fails honestly instead of serving invented splits.
     fn generate_geographic_breakdown(&mut self, metrics: &EnvironmentalMetrics) {
-        // This would use data from emissions_tracker to build detailed geographic insights
-        // In a production system, this would create a detailed map of emissions by region
+        let miners = match self.api.get_all_miners() {
+            Ok(m) => m,
+            Err(_) => {
+                self.geographic_breakdown = None;
+                return;
+            }
+        };
 
-        let mut country_emissions = HashMap::new();
+        // Aggregate each region's actual share of network energy consumption from
+        // miner-reported data. `region_renewable_weighted` accumulates
+        // energy-weighted renewable percentages so we can compute a real
+        // per-region average.
+        let mut region_energy: HashMap<String, f64> = HashMap::new();
+        let mut region_renewable_weighted: HashMap<String, f64> = HashMap::new();
+        let mut total_energy = 0.0;
+
+        for miner in &miners {
+            let region = miner.region.to_string();
+            let energy = miner.energy_consumption_kwh_day;
+            *region_energy.entry(region.clone()).or_insert(0.0) += energy;
+            *region_renewable_weighted.entry(region).or_insert(0.0) +=
+                energy * miner.renewable_percentage;
+            total_energy += energy;
+        }
+
+        // Without any reported energy we cannot derive real regional shares, so
+        // report no breakdown rather than an invented one.
+        if total_energy <= 0.0 {
+            self.geographic_breakdown = None;
+            return;
+        }
+
         let mut region_emissions = HashMap::new();
         let mut country_energy = HashMap::new();
         let mut country_renewable = HashMap::new();
 
-        // Example data - in production would use actual regional data
-        country_emissions.insert("US".to_string(), metrics.total_emissions * 0.3);
-        country_emissions.insert("CN".to_string(), metrics.total_emissions * 0.25);
-        country_emissions.insert("EU".to_string(), metrics.total_emissions * 0.2);
-        country_emissions.insert("Other".to_string(), metrics.total_emissions * 0.25);
-
-        region_emissions.insert("US-West".to_string(), metrics.total_emissions * 0.15);
-        region_emissions.insert("US-East".to_string(), metrics.total_emissions * 0.15);
-        region_emissions.insert("CN-North".to_string(), metrics.total_emissions * 0.15);
-        region_emissions.insert("CN-South".to_string(), metrics.total_emissions * 0.1);
-        region_emissions.insert("EU-Central".to_string(), metrics.total_emissions * 0.2);
-        region_emissions.insert("Other".to_string(), metrics.total_emissions * 0.25);
-
-        country_energy.insert("US".to_string(), metrics.energy_consumption * 0.3);
-        country_energy.insert("CN".to_string(), metrics.energy_consumption * 0.25);
-        country_energy.insert("EU".to_string(), metrics.energy_consumption * 0.2);
-        country_energy.insert("Other".to_string(), metrics.energy_consumption * 0.25);
-
-        country_renewable.insert("US".to_string(), 35.0);
-        country_renewable.insert("CN".to_string(), 30.0);
-        country_renewable.insert("EU".to_string(), 60.0);
-        country_renewable.insert("Other".to_string(), 20.0);
+        for (region, energy) in &region_energy {
+            let share = energy / total_energy;
+            // Attribute the period's total emissions and energy to each region by
+            // its real share of network energy consumption.
+            region_emissions.insert(region.clone(), metrics.total_emissions * share);
+            country_energy.insert(region.clone(), metrics.energy_consumption * share);
+            // Energy-weighted average renewable percentage for the region.
+            let weighted = region_renewable_weighted
+                .get(region)
+                .copied()
+                .unwrap_or(0.0);
+            country_renewable.insert(region.clone(), weighted / energy);
+        }
 
         self.geographic_breakdown = Some(GeographicEmissionsBreakdown {
-            country_emissions,
+            // Region is the finest geographic granularity miners report, so the
+            // country-keyed map is populated with real region-level data instead
+            // of an invented country split.
+            country_emissions: region_emissions.clone(),
             region_emissions,
             country_energy,
             country_renewable,
@@ -408,29 +436,40 @@ impl EnvironmentalDashboard {
                 EnvironmentalAssetType::REC => {
                     rec_mwh += asset.amount;
                     rec_count += 1;
-                    rec_verified += 1; // In a real system would check verification status
+                    // Only count assets whose verification actually succeeded, rather
+                    // than assuming every purchased asset is verified.
+                    if asset.verification_status == VerificationStatus::Verified {
+                        rec_verified += 1;
+                    }
 
-                    // Add to energy type breakdown - simulated data
-                    *rec_types.entry("Solar".to_string()).or_insert(0.0) += asset.amount * 0.4;
-                    *rec_types.entry("Wind".to_string()).or_insert(0.0) += asset.amount * 0.3;
-                    *rec_types.entry("Hydro".to_string()).or_insert(0.0) += asset.amount * 0.2;
-                    *rec_types.entry("Other".to_string()).or_insert(0.0) += asset.amount * 0.1;
+                    // Attribute the full amount to the energy source recorded on the
+                    // asset's metadata (populated at purchase time). Fall back to
+                    // "Unspecified" instead of inventing a fixed source split.
+                    let energy_type = asset
+                        .metadata
+                        .get("source")
+                        .cloned()
+                        .unwrap_or_else(|| "Unspecified".to_string());
+                    *rec_types.entry(energy_type).or_insert(0.0) += asset.amount;
                 }
                 EnvironmentalAssetType::CarbonOffset => {
                     offset_tonnes += asset.amount;
                     offset_count += 1;
-                    offset_verified += 1; // In a real system would check verification status
+                    // Only count assets whose verification actually succeeded, rather
+                    // than assuming every purchased asset is verified.
+                    if asset.verification_status == VerificationStatus::Verified {
+                        offset_verified += 1;
+                    }
 
-                    // Add to project type breakdown - simulated data
-                    *offset_types.entry("Forestry".to_string()).or_insert(0.0) +=
-                        asset.amount * 0.4;
-                    *offset_types
-                        .entry("Renewable Energy".to_string())
-                        .or_insert(0.0) += asset.amount * 0.3;
-                    *offset_types
-                        .entry("Methane Capture".to_string())
-                        .or_insert(0.0) += asset.amount * 0.2;
-                    *offset_types.entry("Other".to_string()).or_insert(0.0) += asset.amount * 0.1;
+                    // Attribute the full amount to the project type recorded on the
+                    // asset's metadata (populated at purchase time). Fall back to
+                    // "Unspecified" instead of inventing a fixed project split.
+                    let project_type = asset
+                        .metadata
+                        .get("project")
+                        .cloned()
+                        .unwrap_or_else(|| "Unspecified".to_string());
+                    *offset_types.entry(project_type).or_insert(0.0) += asset.amount;
                 }
                 EnvironmentalAssetType::GreenInvestment => {
                     // Green investments don't directly contribute to offsets or RECs
@@ -700,9 +739,17 @@ impl EnvironmentalDashboard {
             .filter(|m| m.renewable_percentage > 75.0)
             .count();
 
-        // Calculate renewable percentage across network
-        let renewable_percentage = if total_miners > 0 {
-            miners.iter().map(|m| m.renewable_percentage).sum::<f64>() / total_miners as f64
+        // Calculate renewable percentage across network, energy-weighted so a
+        // fleet of tiny 100%-renewable miners cannot mask one large fossil
+        // miner. Uses sum(energy_i * renewable_i) / sum(energy_i), falling back
+        // to 0.0 when no energy is reported (mirrors generate_geographic_breakdown).
+        let total_energy_kwh: f64 = miners.iter().map(|m| m.energy_consumption_kwh_day).sum();
+        let renewable_percentage = if total_energy_kwh > 0.0 {
+            miners
+                .iter()
+                .map(|m| m.energy_consumption_kwh_day * m.renewable_percentage)
+                .sum::<f64>()
+                / total_energy_kwh
         } else {
             0.0
         };
@@ -1015,5 +1062,238 @@ mod tests {
             report.contains(&format!("Transactions Processed: {}", transaction_count)),
             "Report should have transaction count"
         );
+    }
+
+    // Mock API returning real miners across regions, used to verify the
+    // geographic breakdown is derived from actual miner data.
+    struct MockApiWithMiners {
+        miners: Vec<MinerEnvironmentalInfo>,
+    }
+
+    impl EnvironmentalApiTrait for MockApiWithMiners {
+        fn get_all_miners(&self) -> Result<Vec<MinerEnvironmentalInfo>, String> {
+            Ok(self.miners.clone())
+        }
+        fn get_miner_by_id(&self, _miner_id: &str) -> Result<MinerEnvironmentalInfo, String> {
+            Err("not needed".to_string())
+        }
+        fn get_network_emissions(&self) -> Result<NetworkEmissionsData, String> {
+            Err("not needed".to_string())
+        }
+        fn get_miner_emissions(&self, _miner_id: &str) -> Result<MinerEmissionsData, String> {
+            Err("not needed".to_string())
+        }
+        fn get_recent_asset_purchases(
+            &self,
+            _limit: usize,
+        ) -> Result<Vec<AssetPurchaseRecord>, String> {
+            Ok(vec![])
+        }
+        fn get_all_asset_purchases(&self) -> Result<Vec<AssetPurchaseRecord>, String> {
+            Ok(vec![])
+        }
+        fn get_treasury_balance(&self) -> Result<f64, String> {
+            Ok(0.0)
+        }
+        fn get_emissions_history(&self, _days: usize) -> Result<Vec<(DateTime<Utc>, f64)>, String> {
+            Ok(vec![])
+        }
+    }
+
+    fn make_miner(
+        region: crate::environmental::types::Region,
+        energy_kwh_day: f64,
+        renewable_percentage: f64,
+    ) -> MinerEnvironmentalInfo {
+        let mut m = MinerEnvironmentalInfo::new(
+            "m".to_string(),
+            "Miner".to_string(),
+            region,
+        );
+        m.energy_consumption_kwh_day = energy_kwh_day;
+        m.renewable_percentage = renewable_percentage;
+        m
+    }
+
+    fn make_dashboard(api: Box<dyn EnvironmentalApiTrait>) -> EnvironmentalDashboard {
+        let emissions_tracker = EmissionsTracker::new(EmissionsConfig::default());
+        let treasury = EnvironmentalTreasury::default();
+        EnvironmentalDashboard::new(emissions_tracker, treasury, api)
+    }
+
+    fn metrics_with(total_emissions: f64, energy_consumption: f64) -> EnvironmentalMetrics {
+        EnvironmentalMetrics {
+            period: EmissionsTimePeriod::Day,
+            total_emissions,
+            energy_consumption,
+            renewable_percentage: None,
+            emissions_per_transaction: 0.0,
+            transaction_count: 0,
+            assets_purchased: vec![],
+            total_assets: 0.0,
+            net_emissions: total_emissions,
+            location_based_emissions: None,
+            market_based_emissions: None,
+            marginal_emissions_impact: None,
+            rec_coverage_percentage: None,
+            calculation_time: Utc::now(),
+            confidence_level: None,
+        }
+    }
+
+    #[test]
+    fn test_geographic_breakdown_derived_from_real_miners() {
+        use crate::environmental::types::Region;
+
+        // Two miners in North America (energy-weighted renewable 50%) and one in
+        // Europe (80%). Regional shares must come from actual reported energy.
+        let miners = vec![
+            make_miner(Region::NorthAmerica, 100.0, 40.0),
+            make_miner(Region::NorthAmerica, 100.0, 60.0),
+            make_miner(Region::Europe, 200.0, 80.0),
+        ];
+        let mut dashboard = make_dashboard(Box::new(MockApiWithMiners { miners }));
+
+        let metrics = metrics_with(1000.0, 800.0);
+        dashboard.generate_geographic_breakdown(&metrics);
+
+        let b = dashboard
+            .geographic_breakdown
+            .as_ref()
+            .expect("breakdown should be derived from miner data");
+
+        // Total energy = 400; NA share 0.5, EU share 0.5.
+        let na_em = b.region_emissions.get("NA").copied().unwrap();
+        let eu_em = b.region_emissions.get("EU").copied().unwrap();
+        assert!((na_em - 500.0).abs() < 1e-6, "NA emissions from real share");
+        assert!((eu_em - 500.0).abs() < 1e-6, "EU emissions from real share");
+        assert!(
+            (na_em + eu_em - metrics.total_emissions).abs() < 1e-6,
+            "regional emissions must sum to the period total"
+        );
+
+        // Energy attributed by the same real shares.
+        assert!((b.country_energy.get("NA").copied().unwrap() - 400.0).abs() < 1e-6);
+        assert!((b.country_energy.get("EU").copied().unwrap() - 400.0).abs() < 1e-6);
+
+        // Renewable percentages are energy-weighted averages, not hardcoded.
+        assert!((b.country_renewable.get("NA").copied().unwrap() - 50.0).abs() < 1e-6);
+        assert!((b.country_renewable.get("EU").copied().unwrap() - 80.0).abs() < 1e-6);
+
+        // The old fabricated country/region keys must be gone.
+        assert!(!b.country_emissions.contains_key("US"));
+        assert!(!b.country_emissions.contains_key("CN"));
+        assert!(!b.region_emissions.contains_key("US-West"));
+    }
+
+    #[test]
+    fn test_geographic_breakdown_none_without_miners() {
+        // No registered miners -> no invented breakdown, and the export fails
+        // honestly instead of serving fabricated country splits.
+        let mut dashboard = make_dashboard(Box::new(MockEnvironmentalApi::new()));
+        dashboard.generate_geographic_breakdown(&metrics_with(1000.0, 800.0));
+        assert!(dashboard.geographic_breakdown.is_none());
+        assert!(dashboard.export_geographic_json().is_err());
+    }
+
+    fn make_asset(
+        asset_type: EnvironmentalAssetType,
+        amount: f64,
+        status: VerificationStatus,
+        metadata: &[(&str, &str)],
+    ) -> EnvironmentalAssetPurchase {
+        let mut md = HashMap::new();
+        for (k, v) in metadata {
+            md.insert(k.to_string(), v.to_string());
+        }
+        EnvironmentalAssetPurchase {
+            purchase_id: "PUR-TEST".to_string(),
+            asset_type,
+            provider: "TestProvider".to_string(),
+            amount,
+            cost: 0,
+            purchase_date: Utc::now(),
+            verification_status: status,
+            verification_reference: None,
+            region: None,
+            metadata: md,
+        }
+    }
+
+    #[test]
+    fn test_asset_summary_uses_real_verification_and_metadata() {
+        let mut dashboard = make_dashboard(Box::new(MockEnvironmentalApi::new()));
+
+        let mut metrics = metrics_with(100.0, 1_000_000.0);
+        metrics.assets_purchased = vec![
+            // Two RECs from wind, only one actually verified.
+            make_asset(
+                EnvironmentalAssetType::REC,
+                1000.0,
+                VerificationStatus::Verified,
+                &[("source", "Wind Power")],
+            ),
+            make_asset(
+                EnvironmentalAssetType::REC,
+                500.0,
+                VerificationStatus::Pending,
+                &[("source", "Wind Power")],
+            ),
+            // A solar REC with no recorded source metadata -> "Unspecified".
+            make_asset(
+                EnvironmentalAssetType::REC,
+                250.0,
+                VerificationStatus::Verified,
+                &[],
+            ),
+            // One offset, verified, from a reforestation project.
+            make_asset(
+                EnvironmentalAssetType::CarbonOffset,
+                40.0,
+                VerificationStatus::Verified,
+                &[("project", "Reforestation")],
+            ),
+            // One offset, failed verification, no project metadata.
+            make_asset(
+                EnvironmentalAssetType::CarbonOffset,
+                10.0,
+                VerificationStatus::Failed,
+                &[],
+            ),
+        ];
+
+        dashboard.generate_asset_summary(&metrics);
+        let summary = dashboard.asset_summary.expect("summary generated");
+
+        let rec = summary.rec_summary.expect("rec summary present");
+        assert_eq!(rec.certificate_count, 3, "counts every REC record");
+        // Only the two Verified RECs count as verified, not all three.
+        assert_eq!(rec.verified_certificates, 2, "verified count gated on status");
+        // Energy-type breakdown reflects real metadata sources, not a fixed split.
+        let wind = rec.energy_type_breakdown.get("Wind Power").copied().unwrap();
+        assert!((wind - 1500.0).abs() < 1e-6, "full amount attributed to Wind Power");
+        let unspecified = rec
+            .energy_type_breakdown
+            .get("Unspecified")
+            .copied()
+            .unwrap();
+        assert!((unspecified - 250.0).abs() < 1e-6, "missing source -> Unspecified");
+        // The fabricated fixed-split buckets must be gone.
+        assert!(!rec.energy_type_breakdown.contains_key("Solar"));
+        assert!(!rec.energy_type_breakdown.contains_key("Hydro"));
+
+        let offset = summary
+            .carbon_offset_summary
+            .expect("offset summary present");
+        assert_eq!(offset.offset_count, 2, "counts every offset record");
+        assert_eq!(offset.verified_offsets, 1, "only the Verified offset counts");
+        let forestry = offset
+            .project_type_breakdown
+            .get("Reforestation")
+            .copied()
+            .unwrap();
+        assert!((forestry - 40.0).abs() < 1e-6, "full amount to real project");
+        assert!(!offset.project_type_breakdown.contains_key("Forestry"));
+        assert!(!offset.project_type_breakdown.contains_key("Methane Capture"));
     }
 }

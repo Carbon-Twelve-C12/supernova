@@ -754,6 +754,15 @@ impl EnvironmentalOracle {
         &self,
         certificate: &RECCertificateInfo,
     ) -> Result<VerificationStatus, OracleError> {
+        // The generation energy type is material to a REC's meaning; never
+        // attest a fabricated value. Reject certificates that do not carry a
+        // real energy type.
+        let energy_type = certificate.energy_type.ok_or_else(|| {
+            OracleError::VerificationFailed(format!(
+                "REC certificate {} is missing an energy type",
+                certificate.certificate_id
+            ))
+        })?;
         let data = EnvironmentalData::RECCertificate {
             certificate_id: certificate.certificate_id.clone(),
             issuer: certificate.issuer.clone(),
@@ -771,7 +780,7 @@ impl EnvironmentalOracle {
                     )
                 })
                 .unwrap_or_default(),
-            energy_type: EnergySourceType::Other, // Would be specified in real cert
+            energy_type,
             registry_url: certificate.certificate_url.clone().unwrap_or_default(),
         };
 
@@ -792,6 +801,14 @@ impl EnvironmentalOracle {
         &self,
         offset: &CarbonOffsetInfo,
     ) -> Result<VerificationStatus, OracleError> {
+        // Vintage is material to offset validity; never attest a fabricated
+        // value. Reject offsets that do not carry a real vintage year.
+        let vintage_year = offset.vintage_year.ok_or_else(|| {
+            OracleError::VerificationFailed(format!(
+                "carbon offset {} is missing a vintage year",
+                offset.offset_id
+            ))
+        })?;
         let data = EnvironmentalData::CarbonOffset {
             offset_id: offset.offset_id.clone(),
             issuer: offset.issuer.clone(),
@@ -808,7 +825,7 @@ impl EnvironmentalOracle {
                     )
                 })
                 .unwrap_or_default(),
-            vintage_year: 2024, // Would be specified in real offset
+            vintage_year,
             registry_url: offset.certificate_url.clone().unwrap_or_default(),
         };
 
@@ -1100,6 +1117,20 @@ impl EnvironmentalOracle {
         }
     }
 
+    /// Number of currently-active registered oracles. Read-only accessor used
+    /// by dependent subsystems (e.g. carbon tracking) to determine whether any
+    /// independent oracle is available before requesting verification, instead
+    /// of fabricating oracle agreement. Recovers from lock poisoning so the
+    /// query never panics.
+    pub fn active_oracle_count(&self) -> usize {
+        self.oracles
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .values()
+            .filter(|o| o.is_active)
+            .count()
+    }
+
     /// Get verification result. Read-only; recovers from lock poisoning.
     pub fn get_verification_result(&self, request_id: &str) -> Option<VerificationResult> {
         self.completed_verifications
@@ -1191,6 +1222,65 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(!result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn carbon_offset_without_vintage_rejected() {
+        let oracle_system = EnvironmentalOracle::new(1000);
+
+        // An offset that carries no vintage year must be rejected rather than
+        // attested to oracles with a fabricated vintage.
+        let missing = CarbonOffsetInfo {
+            offset_id: "OFF-1".to_string(),
+            issuer: "Verra".to_string(),
+            amount_tonnes: 10.0,
+            project_type: "reforestation".to_string(),
+            project_location: None,
+            vintage_year: None,
+            verification_status: VerificationStatus::None,
+            certificate_url: None,
+        };
+        assert!(matches!(
+            oracle_system.verify_carbon_offset(&missing),
+            Err(OracleError::VerificationFailed(_))
+        ));
+
+        // An offset with a real vintage year proceeds to verification.
+        let present = CarbonOffsetInfo {
+            vintage_year: Some(2025),
+            ..missing
+        };
+        assert!(oracle_system.verify_carbon_offset(&present).is_ok());
+    }
+
+    #[test]
+    fn rec_without_energy_type_rejected() {
+        let oracle_system = EnvironmentalOracle::new(1000);
+
+        // A REC that carries no energy type must be rejected rather than
+        // attested to oracles with a fabricated energy source.
+        let missing = RECCertificateInfo {
+            certificate_id: "REC-1".to_string(),
+            issuer: "GreenCerts".to_string(),
+            amount_mwh: 100.0,
+            generation_start: Utc::now() - chrono::Duration::days(30),
+            generation_end: Utc::now() - chrono::Duration::days(1),
+            generation_location: None,
+            energy_type: None,
+            verification_status: VerificationStatus::None,
+            certificate_url: None,
+        };
+        assert!(matches!(
+            oracle_system.verify_rec_certificate(&missing),
+            Err(OracleError::VerificationFailed(_))
+        ));
+
+        // A REC with a real energy type proceeds to verification.
+        let present = RECCertificateInfo {
+            energy_type: Some(EnergySourceType::Solar),
+            ..missing
+        };
+        assert!(oracle_system.verify_rec_certificate(&present).is_ok());
     }
 
     // --- carbon-negative Step 1: real ML-DSA oracle attestation signatures ---

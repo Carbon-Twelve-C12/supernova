@@ -188,8 +188,15 @@ pub struct ManualVerificationResult {
     pub valid_from: DateTime<Utc>,
     pub valid_until: DateTime<Utc>,
 
-    /// Digital signature
-    pub reviewer_signature: String,
+    /// Tamper-evident digest of this review's content.
+    ///
+    /// NOTE: this is a keyless SHA-256 digest of the review fields, NOT an
+    /// asymmetric digital signature. It provides integrity (detects accidental
+    /// mutation of a stored result) but NO authentication or non-repudiation:
+    /// it does not cryptographically prove which reviewer authored the decision.
+    /// Reviewer authorization is enforced separately via the authorized-reviewer
+    /// registry in `process_manual_verification`.
+    pub review_digest: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -400,6 +407,21 @@ impl ManualVerificationSystem {
             .get(reviewer_id)
             .ok_or_else(|| OracleError::OracleNotRegistered(reviewer_id.to_string()))?;
 
+        // Reject re-processing of an already-completed request. A finalized
+        // decision must not be silently overwritten — doing so would let an
+        // approved-MWh figure be rewritten after the fact and would double-count
+        // completed_reviews / total_mwh_verified in the metrics.
+        if self
+            .completed_verifications
+            .read()
+            .map_err(|_| OracleError::LockPoisoned)?
+            .contains_key(request_id)
+        {
+            return Err(OracleError::VerificationFailed(format!(
+                "Request {request_id} has already been verified and cannot be re-processed"
+            )));
+        }
+
         // Get the request
         let mut requests = self
             .pending_requests
@@ -409,23 +431,67 @@ impl ManualVerificationSystem {
             .get_mut(request_id)
             .ok_or_else(|| OracleError::VerificationFailed("Request not found".to_string()))?;
 
+        // Enforce reviewer assignment: once a request has an assigned reviewer,
+        // only that reviewer may finalize it. Unassigned requests may still be
+        // claimed by any authorized reviewer.
+        if let Some(assigned) = &request.assigned_reviewer {
+            if assigned != reviewer_id {
+                return Err(OracleError::VerificationFailed(format!(
+                    "Request {request_id} is assigned to reviewer {assigned}, not {reviewer_id}"
+                )));
+            }
+        }
+
+        // Bound the approved renewable amount by what was actually claimed and
+        // reject non-finite / negative figures, so verified MWh cannot be
+        // inflated beyond the request's claim (which would corrupt
+        // total_mwh_verified).
+        let claimed_renewable_mwh = request.energy_data.claimed_renewable_mwh;
+        if !approved_mwh.is_finite() || approved_mwh < 0.0 {
+            return Err(OracleError::VerificationFailed(format!(
+                "approved_mwh must be a non-negative finite value, got {approved_mwh}"
+            )));
+        }
+        if approved_mwh > claimed_renewable_mwh {
+            return Err(OracleError::VerificationFailed(format!(
+                "approved_mwh {approved_mwh} exceeds claimed_renewable_mwh {claimed_renewable_mwh}"
+            )));
+        }
+
         // Update request status
         request.status = decision.status.clone();
         request.assigned_reviewer = Some(reviewer_id.to_string());
+
+        // Capture the review timestamp once so the exact value that feeds the
+        // tamper-evident digest is also the value stored in `reviewed_at`. This
+        // lets a verifier recompute the digest from the stored result's fields;
+        // if the digest hashed a fresh `Utc::now()` it could never be
+        // reproduced and the integrity check would be unrealizable.
+        let reviewed_at = Utc::now();
+
+        // Compute the tamper-evident content digest before `decision` is moved
+        // into the result struct.
+        let review_digest = Self::review_digest_at(
+            reviewer_id,
+            request_id,
+            &decision,
+            approved_mwh,
+            reviewed_at.timestamp(),
+        );
 
         // Create verification result
         let result = ManualVerificationResult {
             request_id: request_id.to_string(),
             reviewer_id: reviewer_id.to_string(),
             reviewer_name: reviewer.name.clone(),
-            reviewed_at: Utc::now(),
+            reviewed_at,
             decision,
             approved_renewable_mwh: approved_mwh,
             findings,
             recommendations,
             valid_from: request.energy_data.coverage_period.0,
             valid_until: request.energy_data.coverage_period.1,
-            reviewer_signature: self.generate_signature(reviewer_id, request_id),
+            review_digest,
         };
 
         // Store completed verification
@@ -507,6 +573,15 @@ impl ManualVerificationSystem {
 
         // Simple round-robin assignment
         let reviewer_ids: Vec<String> = reviewers.keys().cloned().collect();
+
+        // Guard against remainder-by-zero: with no authorized reviewers there
+        // is nobody to assign to, so fail closed instead of panicking below.
+        if reviewer_ids.is_empty() {
+            return Err(OracleError::VerificationFailed(
+                "no authorized reviewers registered".to_string(),
+            ));
+        }
+
         let mut reviewer_index = 0;
 
         for request_id in &batch.requests {
@@ -746,11 +821,50 @@ impl ManualVerificationSystem {
         Ok(())
     }
 
-    fn generate_signature(&self, reviewer_id: &str, request_id: &str) -> String {
+    /// Compute a keyless, tamper-evident digest binding a review's identity and
+    /// decision content.
+    ///
+    /// This is deliberately NOT a digital signature: it uses no secret key and
+    /// therefore provides no authentication or non-repudiation. Its sole purpose
+    /// is to detect accidental corruption/mutation of a stored review result.
+    /// Reviewer authenticity is enforced by the authorized-reviewer registry, not
+    /// by this value.
+    /// Recompute a stored result's tamper-evident digest from its own fields and
+    /// compare it against the stored `review_digest`. Returns `true` iff the
+    /// content is intact.
+    ///
+    /// This is realizable precisely because `reviewed_at` retains the timestamp
+    /// that fed the original digest: the same inputs (reviewer id, request id,
+    /// decision status/confidence, approved MWh, and `reviewed_at.timestamp()`)
+    /// reproduce the same hash. As with the digest itself, this detects
+    /// accidental mutation only — it provides no authentication.
+    pub fn verify_review_digest(result: &ManualVerificationResult) -> bool {
+        let recomputed = Self::review_digest_at(
+            &result.reviewer_id,
+            &result.request_id,
+            &result.decision,
+            result.approved_renewable_mwh,
+            result.reviewed_at.timestamp(),
+        );
+        recomputed == result.review_digest
+    }
+
+    /// Pure, timestamp-explicit digest computation (factored out so the content
+    /// binding can be tested deterministically).
+    fn review_digest_at(
+        reviewer_id: &str,
+        request_id: &str,
+        decision: &VerificationDecision,
+        approved_mwh: f64,
+        timestamp: i64,
+    ) -> String {
         let mut hasher = Sha256::new();
         hasher.update(reviewer_id.as_bytes());
         hasher.update(request_id.as_bytes());
-        hasher.update(Utc::now().timestamp().to_string().as_bytes());
+        hasher.update(format!("{:?}", decision.status).as_bytes());
+        hasher.update(decision.confidence_score.to_le_bytes());
+        hasher.update(approved_mwh.to_le_bytes());
+        hasher.update(timestamp.to_string().as_bytes());
         hex::encode(hasher.finalize())
     }
 
@@ -860,4 +974,272 @@ pub fn generate_quarterly_report(
     quarter_id: &str,
 ) -> QuarterlyReport {
     system.generate_quarterly_report(quarter_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decision(status: ManualVerificationStatus, confidence: f64) -> VerificationDecision {
+        VerificationDecision {
+            status,
+            confidence_score: confidence,
+            notes: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn review_digest_is_deterministic_and_hex64() {
+        let d = decision(ManualVerificationStatus::Approved, 0.9);
+        let a = ManualVerificationSystem::review_digest_at("rev-1", "MV-abc", &d, 42.0, 1_000);
+        let b = ManualVerificationSystem::review_digest_at("rev-1", "MV-abc", &d, 42.0, 1_000);
+        assert_eq!(a, b, "same inputs must produce the same digest");
+        assert_eq!(a.len(), 64, "SHA-256 hex digest must be 64 chars");
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn review_digest_binds_decision_content() {
+        let base = decision(ManualVerificationStatus::Approved, 0.9);
+        let d0 = ManualVerificationSystem::review_digest_at("rev-1", "MV-abc", &base, 42.0, 1_000);
+
+        // Changing the decision status changes the digest.
+        let rejected = decision(ManualVerificationStatus::Rejected(vec!["bad".to_string()]), 0.9);
+        let d_status =
+            ManualVerificationSystem::review_digest_at("rev-1", "MV-abc", &rejected, 42.0, 1_000);
+        assert_ne!(d0, d_status, "decision status must be bound into the digest");
+
+        // Changing the approved MWh changes the digest.
+        let d_mwh =
+            ManualVerificationSystem::review_digest_at("rev-1", "MV-abc", &base, 99.0, 1_000);
+        assert_ne!(d0, d_mwh, "approved_mwh must be bound into the digest");
+
+        // Changing reviewer or request identifiers changes the digest.
+        let d_rev =
+            ManualVerificationSystem::review_digest_at("rev-2", "MV-abc", &base, 42.0, 1_000);
+        assert_ne!(d0, d_rev, "reviewer_id must be bound into the digest");
+        let d_req =
+            ManualVerificationSystem::review_digest_at("rev-1", "MV-xyz", &base, 42.0, 1_000);
+        assert_ne!(d0, d_req, "request_id must be bound into the digest");
+    }
+
+    fn reviewer(id: &str) -> ReviewerProfile {
+        ReviewerProfile {
+            reviewer_id: id.to_string(),
+            name: format!("Reviewer {id}"),
+            email: format!("{id}@example.org"),
+            expertise: vec![],
+            regions: vec![Region::NorthAmerica],
+            max_quarterly_reviews: 100,
+            current_assignments: 0,
+        }
+    }
+
+    /// Build a system with a registered reviewer and a single pending request
+    /// whose claimed renewable MWh and assigned reviewer are configurable.
+    fn system_with_request(
+        reviewer_id: &str,
+        assigned_reviewer: Option<&str>,
+        claimed_renewable_mwh: f64,
+    ) -> (ManualVerificationSystem, String) {
+        let system = ManualVerificationSystem::new();
+        system
+            .authorized_reviewers
+            .write()
+            .unwrap()
+            .insert(reviewer_id.to_string(), reviewer(reviewer_id));
+
+        let now = Utc::now();
+        let request_id = "MV-test-1".to_string();
+        let request = ManualVerificationRequest {
+            request_id: request_id.clone(),
+            requester_id: "miner-1".to_string(),
+            verification_type: VerificationType::LargeScaleRenewable,
+            submitted_documents: vec![],
+            energy_data: EnergyVerificationData {
+                total_consumption_mwh: claimed_renewable_mwh,
+                claimed_renewable_mwh,
+                energy_sources: HashMap::new(),
+                coverage_period: (now, now),
+                location: LocationData {
+                    region: Region::NorthAmerica,
+                    country: "US".to_string(),
+                    state_province: None,
+                    city: None,
+                    coordinates: None,
+                },
+                additional_claims: vec![],
+            },
+            submitted_at: now,
+            status: ManualVerificationStatus::Pending,
+            priority: PriorityLevel::Low,
+            assigned_reviewer: assigned_reviewer.map(|s| s.to_string()),
+            review_deadline: now,
+        };
+        system
+            .pending_requests
+            .write()
+            .unwrap()
+            .insert(request_id.clone(), request);
+        (system, request_id)
+    }
+
+    #[test]
+    fn approved_mwh_exceeding_claim_is_rejected() {
+        let (system, req) = system_with_request("rev-1", None, 100.0);
+        let res = system.process_manual_verification(
+            &req,
+            "rev-1",
+            decision(ManualVerificationStatus::Approved, 0.9),
+            150.0, // exceeds claimed 100.0
+            vec![],
+            vec![],
+        );
+        assert!(res.is_err(), "approving more MWh than claimed must be rejected");
+        // No result should have been stored, and metrics must not be inflated.
+        assert!(system.completed_verifications.read().unwrap().is_empty());
+        assert_eq!(system.metrics.read().unwrap().total_mwh_verified, 0.0);
+    }
+
+    #[test]
+    fn negative_or_nonfinite_approved_mwh_is_rejected() {
+        let (system, req) = system_with_request("rev-1", None, 100.0);
+        for bad in [-1.0_f64, f64::NAN, f64::INFINITY] {
+            let res = system.process_manual_verification(
+                &req,
+                "rev-1",
+                decision(ManualVerificationStatus::Approved, 0.9),
+                bad,
+                vec![],
+                vec![],
+            );
+            assert!(res.is_err(), "approved_mwh {bad} must be rejected");
+        }
+    }
+
+    #[test]
+    fn wrong_assigned_reviewer_is_rejected() {
+        // Request is assigned to rev-1; rev-2 must not be able to finalize it.
+        let (system, req) = system_with_request("rev-2", Some("rev-1"), 100.0);
+        system
+            .authorized_reviewers
+            .write()
+            .unwrap()
+            .insert("rev-1".to_string(), reviewer("rev-1"));
+        let res = system.process_manual_verification(
+            &req,
+            "rev-2",
+            decision(ManualVerificationStatus::Approved, 0.9),
+            50.0,
+            vec![],
+            vec![],
+        );
+        assert!(res.is_err(), "a non-assigned reviewer must be rejected");
+        assert!(system.completed_verifications.read().unwrap().is_empty());
+    }
+
+    #[test]
+    fn already_completed_request_cannot_be_reprocessed() {
+        let (system, req) = system_with_request("rev-1", None, 100.0);
+        let first = system.process_manual_verification(
+            &req,
+            "rev-1",
+            decision(ManualVerificationStatus::Approved, 0.9),
+            40.0,
+            vec![],
+            vec![],
+        );
+        assert!(first.is_ok(), "first valid review should succeed");
+
+        // A second attempt (e.g. rewriting approved MWh) must be rejected.
+        let second = system.process_manual_verification(
+            &req,
+            "rev-1",
+            decision(ManualVerificationStatus::Approved, 0.9),
+            90.0,
+            vec![],
+            vec![],
+        );
+        assert!(second.is_err(), "re-processing a completed request must be rejected");
+
+        // Stored result and metrics reflect only the first review.
+        let stored = system.completed_verifications.read().unwrap();
+        assert_eq!(stored.get(&req).unwrap().approved_renewable_mwh, 40.0);
+        assert_eq!(system.metrics.read().unwrap().completed_reviews, 1);
+        assert_eq!(system.metrics.read().unwrap().total_mwh_verified, 40.0);
+    }
+
+    #[test]
+    fn valid_review_within_claim_succeeds() {
+        let (system, req) = system_with_request("rev-1", Some("rev-1"), 100.0);
+        let res = system.process_manual_verification(
+            &req,
+            "rev-1",
+            decision(ManualVerificationStatus::Approved, 0.9),
+            80.0,
+            vec![],
+            vec![],
+        );
+        let result = res.expect("assigned reviewer approving within claim should succeed");
+        assert_eq!(result.approved_renewable_mwh, 80.0);
+    }
+
+    #[test]
+    fn assign_with_no_reviewers_errs_instead_of_panicking() {
+        // A pending, unassigned request with an empty authorized-reviewers set
+        // must fail closed rather than panic on remainder-by-zero.
+        let (system, _req) = system_with_request("rev-1", None, 100.0);
+        system.authorized_reviewers.write().unwrap().clear();
+
+        let quarter_id = system
+            .create_quarterly_batch()
+            .expect("creating a quarterly batch should succeed");
+
+        let res = system.assign_requests_to_reviewers(&quarter_id);
+        assert!(
+            matches!(res, Err(OracleError::VerificationFailed(_))),
+            "assigning with no reviewers must return VerificationFailed, got {res:?}"
+        );
+    }
+
+    #[test]
+    fn stored_result_digest_recomputes_and_detects_mutation() {
+        // A result produced by the real path must carry a digest that a verifier
+        // can recompute from the stored fields alone (proving the timestamp that
+        // fed the digest is retained in `reviewed_at`), and any mutation of a
+        // bound field must break that recomputation.
+        let (system, req) = system_with_request("rev-1", Some("rev-1"), 100.0);
+        let stored = system
+            .process_manual_verification(
+                &req,
+                "rev-1",
+                decision(ManualVerificationStatus::Approved, 0.9),
+                80.0,
+                vec![],
+                vec![],
+            )
+            .expect("valid review should succeed");
+
+        assert!(
+            ManualVerificationSystem::verify_review_digest(&stored),
+            "digest must recompute from the stored result's own fields"
+        );
+
+        // Mutating the approved MWh must break the digest.
+        let mut tampered_mwh = stored.clone();
+        tampered_mwh.approved_renewable_mwh = 81.0;
+        assert!(
+            !ManualVerificationSystem::verify_review_digest(&tampered_mwh),
+            "mutating approved_mwh must be detected by the digest"
+        );
+
+        // Mutating the stored timestamp must break the digest (confirms the
+        // digest is genuinely bound to the retained `reviewed_at`).
+        let mut tampered_time = stored.clone();
+        tampered_time.reviewed_at = stored.reviewed_at + chrono::Duration::seconds(1);
+        assert!(
+            !ManualVerificationSystem::verify_review_digest(&tampered_time),
+            "mutating reviewed_at must be detected by the digest"
+        );
+    }
 }

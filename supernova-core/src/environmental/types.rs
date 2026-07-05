@@ -83,7 +83,7 @@ impl EnergySource {
             EnergySource::Oil => 0.65,
             EnergySource::Grid => 0.475,  // Global average
             EnergySource::Other => 0.5,   // Conservative estimate
-            EnergySource::Unknown => 0.0, // Default to zero for unknown sources
+            EnergySource::Unknown => 0.5, // Conservative estimate: undisclosed sources must not read as carbon-free
         }
     }
 }
@@ -456,3 +456,26 @@ impl DefaultEmissionsFactors {
 
 // Type alias for backwards compatibility
 pub type EnergySourceType = EnergySource;
+
+#[cfg(test)]
+mod emissions_factor_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_source_is_conservative_not_carbon_free() {
+        // An undisclosed energy source must never read as cleaner than the grid
+        // average; otherwise non-disclosure is rewarded with the best figure.
+        let unknown = EnergySource::Unknown.default_emissions_factor();
+        assert!(
+            unknown > 0.0,
+            "Unknown must not be treated as carbon-free, got {unknown}"
+        );
+        assert!(
+            unknown >= EnergySource::Grid.default_emissions_factor(),
+            "Unknown ({unknown}) must be at least the grid average ({})",
+            EnergySource::Grid.default_emissions_factor()
+        );
+        // Consistency with the Other conservative default.
+        assert_eq!(unknown, EnergySource::Other.default_emissions_factor());
+    }
+}

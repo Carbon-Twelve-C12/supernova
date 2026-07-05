@@ -120,6 +120,13 @@ pub struct RenewableEnergyValidator {
     /// Validated certificates cache
     validated_certificates: Arc<RwLock<HashMap<String, ValidatedREC>>>,
 
+    /// Ledger of consumed REC certificate ids -> claiming miner id.
+    ///
+    /// Prevents a single renewable-energy certificate from being credited to
+    /// more than one miner (cross-miner double-claim). Mirrors
+    /// `MinerReportingManager::consumed_rec_certificates`.
+    consumed_rec_certificates: Arc<RwLock<HashMap<String, String>>>,
+
     /// Green mining incentives
     incentive_structure: Arc<RwLock<GreenMiningIncentive>>,
 
@@ -192,6 +199,7 @@ impl RenewableEnergyValidator {
             verification_service,
             oracle,
             validated_certificates: Arc::new(RwLock::new(HashMap::new())),
+            consumed_rec_certificates: Arc::new(RwLock::new(HashMap::new())),
             incentive_structure: Arc::new(RwLock::new(default_incentives)),
             registries: Arc::new(RwLock::new(HashMap::new())),
             grid_data: Arc::new(RwLock::new(GridDataCache {
@@ -206,7 +214,7 @@ impl RenewableEnergyValidator {
     /// Validate renewable energy certificates
     pub async fn validate_renewable_energy_certificates(
         &self,
-        _miner_id: &str,
+        miner_id: &str,
         certificates: Vec<RenewableCertificate>,
         energy_consumption_mwh: f64,
     ) -> Result<RenewableValidationResult, OracleError> {
@@ -214,12 +222,37 @@ impl RenewableEnergyValidator {
         let mut validated_certificates = Vec::new();
         let mut total_renewable_mwh = 0.0;
         let mut energy_by_type: HashMap<EnergySourceType, f64> = HashMap::new();
+        // Certificate ids already credited within THIS call, to reject a
+        // duplicate id submitted twice in a single request.
+        let mut claimed_in_call: HashSet<String> = HashSet::new();
 
         // Validate each certificate
         for cert in certificates {
             match self.validate_single_certificate(&cert).await {
                 Ok(validated) => {
                     if validated.validation_status == ValidationStatus::Valid {
+                        // Reject a certificate already consumed by a *different*
+                        // miner (cross-miner double-claim) or already credited
+                        // earlier in this same call (intra-call duplicate). On
+                        // success the claim is recorded against `miner_id`.
+                        if !self.try_claim_certificate(
+                            miner_id,
+                            &validated.certificate_id,
+                            &mut claimed_in_call,
+                        ) {
+                            continue;
+                        }
+
+                        // Persist to the validated-certificate cache so dashboard
+                        // totals reflect real validated energy.
+                        {
+                            let mut cache = self
+                                .validated_certificates
+                                .write()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            cache.insert(validated.certificate_id.clone(), validated.clone());
+                        }
+
                         total_renewable_mwh += validated.energy_amount_mwh;
                         *energy_by_type.entry(validated.energy_type).or_insert(0.0) +=
                             validated.energy_amount_mwh;
@@ -276,6 +309,38 @@ impl RenewableEnergyValidator {
         Ok(result)
     }
 
+    /// Attempt to claim a validated certificate for `miner_id`.
+    ///
+    /// Returns `false` (no credit) when the certificate id was already consumed
+    /// by a *different* miner, or has already been credited earlier in the same
+    /// call (`claimed_in_call`). On a `true` result the id is recorded in both
+    /// `claimed_in_call` and the persistent `consumed_rec_certificates` ledger
+    /// so it can never be double-claimed across miners.
+    fn try_claim_certificate(
+        &self,
+        miner_id: &str,
+        certificate_id: &str,
+        claimed_in_call: &mut HashSet<String>,
+    ) -> bool {
+        let claimed_by_other = {
+            let consumed = self
+                .consumed_rec_certificates
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            matches!(consumed.get(certificate_id), Some(owner) if owner != miner_id)
+        };
+        if claimed_by_other || !claimed_in_call.insert(certificate_id.to_string()) {
+            return false;
+        }
+
+        let mut consumed = self
+            .consumed_rec_certificates
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        consumed.insert(certificate_id.to_string(), miner_id.to_string());
+        true
+    }
+
     /// Implement green mining incentives
     pub fn implement_green_mining_incentives(
         &self,
@@ -290,19 +355,43 @@ impl RenewableEnergyValidator {
         Ok(())
     }
 
-    /// Verify carbon-negative operations
+    /// Verify carbon-negative operations.
+    ///
+    /// Renewable energy MUST be substantiated by validated certificates rather
+    /// than trusted from a caller-supplied MWh figure: only certificates whose
+    /// verification returns `Valid` count toward the miner's renewable total.
+    ///
+    /// Emissions are charged solely on the non-renewable portion of consumption
+    /// (renewable MWh is already zero-rated there). Renewables are therefore
+    /// **not** subtracted a second time as "emissions avoided" — doing so
+    /// double-counted them and let any miner claiming renewables above half of
+    /// consumption be certified carbon-negative with no verified offsets at all.
+    /// Carbon-negativity now requires verified offsets to strictly exceed the
+    /// residual non-renewable emissions.
     pub async fn verify_carbon_negative_operations(
         &self,
-        _miner_id: &str,
-        renewable_mwh: f64,
+        miner_id: &str,
+        renewable_certificates: Vec<RenewableCertificate>,
         total_consumption_mwh: f64,
         carbon_offsets: Vec<CarbonOffset>,
     ) -> Result<bool, OracleError> {
+        // Substantiate renewable energy through certificate validation; only
+        // certificates that pass verification contribute renewable MWh.
+        let validation = self
+            .validate_renewable_energy_certificates(
+                miner_id,
+                renewable_certificates,
+                total_consumption_mwh,
+            )
+            .await?;
+        let verified_renewable_mwh: f64 = validation
+            .validated_certificates
+            .iter()
+            .map(|c| c.energy_amount_mwh)
+            .sum();
 
-        // Calculate emissions avoided by renewable energy
-        let emissions_avoided = self.calculate_emissions_avoided(renewable_mwh);
-
-        // Validate and sum carbon offsets
+        // Validate and sum carbon offsets. An offset that fails verification is
+        // simply not counted, so an unverified offset can never help a claim.
         let mut total_offset_tonnes = 0.0;
         for offset in carbon_offsets {
             if self
@@ -315,15 +404,13 @@ impl RenewableEnergyValidator {
             }
         }
 
-        // Calculate net emissions
-        let non_renewable_mwh = total_consumption_mwh - renewable_mwh;
+        // Charge emissions only on the non-renewable portion; renewables are not
+        // credited a second time.
+        let non_renewable_mwh = (total_consumption_mwh - verified_renewable_mwh).max(0.0);
         let estimated_emissions = non_renewable_mwh * 0.5; // Average emission factor
-        let net_emissions = estimated_emissions - emissions_avoided - total_offset_tonnes;
+        let net_emissions = estimated_emissions - total_offset_tonnes;
 
-        let is_carbon_negative = net_emissions < 0.0;
-
-
-        Ok(is_carbon_negative)
+        Ok(net_emissions < 0.0)
     }
 
     /// Create environmental impact dashboard data. Read-only; recovers
@@ -354,8 +441,12 @@ impl RenewableEnergyValidator {
             total_renewable_mwh,
             total_co2_avoided: co2_avoided,
             total_incentives_paid: metrics.total_incentives_paid,
-            average_renewable_percentage: 75.0, // Placeholder
-            carbon_negative_miners: 42,         // Placeholder
+            // Not derivable from held state: a renewable percentage needs a
+            // total-consumption denominator that is not tracked here, and no
+            // per-miner carbon-negative registry is held. Report as explicitly
+            // unavailable rather than emitting fabricated placeholder constants.
+            average_renewable_percentage: None,
+            carbon_negative_miners: None,
             timestamp: Utc::now(),
         }
     }
@@ -548,8 +639,19 @@ pub struct EnvironmentalDashboard {
     pub total_renewable_mwh: f64,
     pub total_co2_avoided: f64,
     pub total_incentives_paid: f64,
-    pub average_renewable_percentage: f64,
-    pub carbon_negative_miners: u64,
+    /// Average renewable percentage across the network.
+    ///
+    /// `None` when the validator does not currently hold the data required to
+    /// derive this figure honestly (a renewable percentage requires a total
+    /// energy-consumption denominator, which is not tracked here). Emitting a
+    /// fabricated constant would misrepresent the network's environmental
+    /// status, so the field is reported as explicitly unavailable instead.
+    pub average_renewable_percentage: Option<f64>,
+    /// Number of miners operating carbon-negative.
+    ///
+    /// `None` when no per-miner carbon-negative registry is held by this
+    /// validator, so the count cannot be derived from verified data.
+    pub carbon_negative_miners: Option<u64>,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -576,14 +678,14 @@ pub fn implement_green_mining_incentives(
 pub async fn verify_carbon_negative_operations(
     validator: &RenewableEnergyValidator,
     miner_id: &str,
-    renewable_mwh: f64,
+    renewable_certificates: Vec<RenewableCertificate>,
     total_consumption_mwh: f64,
     carbon_offsets: Vec<CarbonOffset>,
 ) -> Result<bool, OracleError> {
     validator
         .verify_carbon_negative_operations(
             miner_id,
-            renewable_mwh,
+            renewable_certificates,
             total_consumption_mwh,
             carbon_offsets,
         )
@@ -594,4 +696,257 @@ pub fn create_environmental_impact_dashboard(
     validator: &RenewableEnergyValidator,
 ) -> EnvironmentalDashboard {
     validator.create_environmental_impact_dashboard()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::environmental::verification::VerificationService;
+
+    fn make_validator() -> RenewableEnergyValidator {
+        let verification_service = Arc::new(VerificationService::default());
+        let oracle = Arc::new(EnvironmentalOracle::new(0));
+        RenewableEnergyValidator::new(verification_service, oracle)
+    }
+
+    /// The dashboard must never emit fabricated headline figures. Fields that
+    /// cannot be derived from held state are reported as explicitly
+    /// unavailable (`None`) rather than plausible-looking constants.
+    #[test]
+    fn dashboard_reports_unavailable_instead_of_fabricated_constants() {
+        let validator = make_validator();
+        let dashboard = validator.create_environmental_impact_dashboard();
+
+        // These two figures have no honest source in the validator's held
+        // state and must not be fabricated.
+        assert_eq!(dashboard.average_renewable_percentage, None);
+        assert_eq!(dashboard.carbon_negative_miners, None);
+
+        // Fields that ARE derived from held state remain populated (and are
+        // zero on a fresh validator with no validated certificates).
+        assert_eq!(dashboard.total_validations, 0);
+        assert_eq!(dashboard.total_renewable_mwh, 0.0);
+    }
+
+    /// `implement_green_mining_incentives` must persist the supplied structure
+    /// so subsequent reward calculations use the updated parameters.
+    #[test]
+    fn implement_green_mining_incentives_stores_new_structure() {
+        let validator = make_validator();
+
+        // A distinct structure so we can detect it was actually stored.
+        let new_incentives = GreenMiningIncentive {
+            base_multiplier: 2.0,
+            full_renewable_bonus: 1.0,
+            carbon_negative_bonus: 0.5,
+            regional_multipliers: HashMap::new(),
+            time_based_incentives: TimeBasedIncentives {
+                solar_peak_bonus: 0.0,
+                wind_peak_bonus: 0.0,
+                off_peak_penalty: 0.0,
+            },
+        };
+
+        validator
+            .implement_green_mining_incentives(new_incentives)
+            .expect("storing incentives should succeed");
+
+        let stored = validator
+            .incentive_structure
+            .read()
+            .expect("incentive lock should not be poisoned");
+        assert_eq!(stored.base_multiplier, 2.0);
+        assert_eq!(stored.full_renewable_bonus, 1.0);
+        assert_eq!(stored.carbon_negative_bonus, 0.5);
+    }
+
+    /// A miner with no verified renewable energy (e.g. all RECs invalid or
+    /// unverified, yielding 0% renewable) earns only the base reward: no
+    /// renewable multiplier and no full-renewable bonus tier.
+    #[test]
+    fn unverified_rec_yields_base_reward_only() {
+        let validator = make_validator();
+
+        // score = 100, consumption = 100 (sqrt = 10) makes the base reward an
+        // exact, deterministic 100 * 1.0 * 1.0 * 10 = 1000.0.
+        let none = validator.calculate_green_incentives(0.0, 100.0, 100.0);
+        assert!(
+            (none - 1000.0).abs() < 1e-9,
+            "0% renewable must earn only the base reward, got {none}"
+        );
+    }
+
+    /// A fully-renewable miner must earn strictly more than an
+    /// otherwise-identical miner with 0% renewable, and crossing the 100%
+    /// threshold must engage the discrete full-renewable bonus tier.
+    #[test]
+    fn full_renewable_out_earns_nonrenewable_and_applies_bonus() {
+        let validator = make_validator();
+
+        let none = validator.calculate_green_incentives(0.0, 100.0, 100.0);
+        let full = validator.calculate_green_incentives(100.0, 100.0, 100.0);
+
+        assert!(
+            full > none,
+            "100% renewable ({full}) must out-earn 0% renewable ({none})"
+        );
+
+        // The full-renewable tier is a discrete multiplier applied only at
+        // >= 100%; a value just below the threshold must not receive it, so
+        // the jump from 99.9% to 100% exceeds the marginal linear increase.
+        let below = validator.calculate_green_incentives(99.9, 100.0, 100.0);
+        let just_above = validator.calculate_green_incentives(100.0, 100.0, 100.0);
+        let bonus = validator
+            .incentive_structure
+            .read()
+            .expect("incentive lock should not be poisoned")
+            .full_renewable_bonus;
+        assert!(
+            just_above > below * (1.0 + bonus * 0.5),
+            "crossing 100% must engage the full-renewable bonus tier"
+        );
+    }
+
+    /// The consumed-certificate ledger must credit a REC to exactly one miner:
+    /// once `miner-a` has claimed it, `miner-b` presenting the same id gets no
+    /// credit, closing the cross-miner double-claim. The rightful owner may
+    /// still re-present it.
+    #[test]
+    fn certificate_cannot_be_claimed_by_a_second_miner() {
+        let validator = make_validator();
+        let mut call_a: HashSet<String> = HashSet::new();
+        let mut call_b: HashSet<String> = HashSet::new();
+
+        // First miner claims the certificate: credited.
+        assert!(
+            validator.try_claim_certificate("miner-a", "REC-1", &mut call_a),
+            "first miner to present a certificate must be credited"
+        );
+
+        // A different miner presenting the SAME certificate id: rejected.
+        assert!(
+            !validator.try_claim_certificate("miner-b", "REC-1", &mut call_b),
+            "a second miner must not be able to double-claim the same certificate"
+        );
+
+        // The original owner re-presenting its own certificate: still credited.
+        let mut call_a2: HashSet<String> = HashSet::new();
+        assert!(
+            validator.try_claim_certificate("miner-a", "REC-1", &mut call_a2),
+            "the certificate's rightful owner may re-present it"
+        );
+    }
+
+    /// The same certificate id submitted twice within a single call must be
+    /// credited only once (intra-call duplicate guard).
+    #[test]
+    fn duplicate_certificate_within_one_call_is_credited_once() {
+        let validator = make_validator();
+        let mut in_call: HashSet<String> = HashSet::new();
+
+        assert!(
+            validator.try_claim_certificate("miner-a", "REC-DUP", &mut in_call),
+            "first occurrence in a call must be credited"
+        );
+        assert!(
+            !validator.try_claim_certificate("miner-a", "REC-DUP", &mut in_call),
+            "a duplicate id in the same call must not be credited twice"
+        );
+    }
+
+    fn make_certificate(id: &str, amount_kwh: f64) -> RenewableCertificate {
+        RenewableCertificate {
+            certificate_id: id.to_string(),
+            issuer: "Test Issuer".to_string(),
+            certificate_type: "Solar".to_string(),
+            amount_kwh,
+            generation_start: Utc::now() - Duration::days(30),
+            generation_end: Utc::now() + Duration::days(30),
+            location: Region::new("US"),
+            verification_status:
+                crate::environmental::emissions::VerificationStatus::Pending,
+            verification_url: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn make_offset(id: &str, amount_tonnes: f64) -> CarbonOffset {
+        CarbonOffset {
+            offset_id: id.to_string(),
+            issuer: "Test Issuer".to_string(),
+            offset_type: "Reforestation".to_string(),
+            amount_tonnes,
+            period_start: Utc::now() - Duration::days(30),
+            period_end: Some(Utc::now() + Duration::days(30)),
+            location: Region::new("US"),
+            verification_status:
+                crate::environmental::emissions::VerificationStatus::Pending,
+            verification_url: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// The headline exploit: a miner presenting renewable certificates for more
+    /// than half of consumption but ZERO carbon offsets must NOT be certified
+    /// carbon-negative. Renewable energy is only credited when substantiated by
+    /// certificate validation (the default validator has no verification
+    /// endpoint, so certificates stay unverified and contribute no MWh), and it
+    /// is never double-counted as "emissions avoided" on top of already being
+    /// zero-rated. With no offsets there is nothing to drive net emissions below
+    /// zero.
+    #[tokio::test]
+    async fn unverified_renewables_without_offsets_are_not_carbon_negative() {
+        let validator = make_validator();
+
+        // 100 MWh of renewable claims against 100 MWh consumption (i.e. 100%,
+        // far above the old > total/2 trigger), but no carbon offsets at all.
+        let certs = vec![make_certificate("CERT-1", 100_000.0)];
+
+        let is_negative = validator
+            .verify_carbon_negative_operations("miner-1", certs, 100.0, Vec::new())
+            .await
+            .expect("verification should succeed");
+
+        assert!(
+            !is_negative,
+            "unverified renewables with zero offsets must not be certified carbon-negative"
+        );
+    }
+
+    /// Carbon-negativity is driven strictly by verified offsets exceeding the
+    /// residual non-renewable emissions (0.5 t/MWh). With no renewables, 100 MWh
+    /// of consumption carries 50 t of emissions: 60 t of offsets clears it
+    /// (net -10 t), 40 t does not (net +10 t).
+    #[tokio::test]
+    async fn carbon_negative_requires_offsets_to_exceed_residual_emissions() {
+        let validator = make_validator();
+
+        let sufficient = validator
+            .verify_carbon_negative_operations(
+                "miner-1",
+                Vec::new(),
+                100.0,
+                vec![make_offset("OFF-A", 60.0)],
+            )
+            .await
+            .expect("verification should succeed");
+        assert!(
+            sufficient,
+            "offsets (60 t) exceeding residual emissions (50 t) must be carbon-negative"
+        );
+
+        let insufficient = validator
+            .verify_carbon_negative_operations(
+                "miner-1",
+                Vec::new(),
+                100.0,
+                vec![make_offset("OFF-B", 40.0)],
+            )
+            .await
+            .expect("verification should succeed");
+        assert!(
+            !insufficient,
+            "offsets (40 t) below residual emissions (50 t) must not be carbon-negative"
+        );
+    }
 }

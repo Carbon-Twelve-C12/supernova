@@ -237,6 +237,84 @@ impl VerificationService {
     }
 }
 
+/// Compare two energy/carbon amounts for equality, allowing only benign
+/// floating-point rounding introduced by JSON round-tripping.
+fn amounts_match(a: f64, b: f64) -> bool {
+    if !a.is_finite() || !b.is_finite() {
+        return false;
+    }
+    let diff = (a - b).abs();
+    let scale = a.abs().max(b.abs()).max(1.0);
+    diff / scale <= 1e-6
+}
+
+/// Compare a JSON timestamp field against an expected instant at
+/// whole-second granularity. Absent, non-string, or unparseable values
+/// never match (fail-closed).
+fn json_time_matches(value: Option<&serde_json::Value>, expected: DateTime<Utc>) -> bool {
+    match value.and_then(|v| v.as_str()) {
+        Some(s) => match DateTime::parse_from_rfc3339(s) {
+            Ok(dt) => dt.timestamp() == expected.timestamp(),
+            Err(_) => false,
+        },
+        None => false,
+    }
+}
+
+/// Cross-check that a registry response echoes the certificate's own claimed
+/// fields. Querying only by `certificate_id` and trusting a bare `status`
+/// lets a miner replay a real certificate ID with an inflated `amount_kwh`
+/// (the field `renewable_validation` credits) and receive full green credit.
+/// The registry's authoritative amount, issuer, and generation period must
+/// all be echoed and match the miner's submission, or the certificate is not
+/// treated as independently verified.
+fn response_matches_certificate(
+    result: &serde_json::Value,
+    certificate: &RenewableCertificate,
+) -> bool {
+    let amount_ok = result
+        .get("amount_kwh")
+        .and_then(|v| v.as_f64())
+        .map(|v| amounts_match(v, certificate.amount_kwh))
+        .unwrap_or(false);
+
+    let issuer_ok = result
+        .get("issuer")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().eq_ignore_ascii_case(certificate.issuer.trim()))
+        .unwrap_or(false);
+
+    let period_ok = json_time_matches(result.get("generation_start"), certificate.generation_start)
+        && json_time_matches(result.get("generation_end"), certificate.generation_end);
+
+    amount_ok && issuer_ok && period_ok
+}
+
+/// Cross-check that a registry response echoes the offset's own claimed
+/// fields (see `response_matches_certificate`). The authoritative tonnage,
+/// issuer, and period must be echoed and match the miner's submission.
+fn response_matches_offset(result: &serde_json::Value, offset: &CarbonOffset) -> bool {
+    let amount_ok = result
+        .get("amount_tonnes")
+        .and_then(|v| v.as_f64())
+        .map(|v| amounts_match(v, offset.amount_tonnes))
+        .unwrap_or(false);
+
+    let issuer_ok = result
+        .get("issuer")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().eq_ignore_ascii_case(offset.issuer.trim()))
+        .unwrap_or(false);
+
+    let period_ok = json_time_matches(result.get("period_start"), offset.period_start)
+        && match offset.period_end {
+            Some(end) => json_time_matches(result.get("period_end"), end),
+            None => true,
+        };
+
+    amount_ok && issuer_ok && period_ok
+}
+
 #[async_trait]
 impl VerificationProvider for VerificationService {
     async fn verify_certificate(
@@ -273,11 +351,15 @@ impl VerificationProvider for VerificationService {
             api_url = match config.api_endpoint.as_ref() {
                 Some(endpoint) => endpoint.clone(),
                 None => {
-                    let status = if config.accept_self_reported {
-                        VerificationStatus::Verified
-                    } else {
-                        VerificationStatus::Pending
-                    };
+                    // No external verification endpoint is configured, so the
+                    // certificate has received zero independent verification.
+                    // Never map self-reported acceptance to `Verified` — doing
+                    // so would let unverified data flow into transparency
+                    // `verified_mwh`/`verified_tonnes` and "verification
+                    // percentage" figures as though it were independently
+                    // verified. Self-reported claims stay `Pending` so the
+                    // reporting layers can count them separately.
+                    let status = VerificationStatus::Pending;
                     drop(config);
                     self.add_to_cache(certificate.certificate_id.clone(), status);
                     return Ok(status);
@@ -318,7 +400,18 @@ impl VerificationProvider for VerificationService {
                                 .unwrap_or("pending");
 
                             let status = match status_str.to_lowercase().as_str() {
-                                "verified" => VerificationStatus::Verified,
+                                "verified" => {
+                                    // A bare "verified" for this ID is not enough: the
+                                    // registry must also echo the certificate's own
+                                    // amount/issuer/period so a real ID can't be
+                                    // replayed with an inflated amount_kwh. On any
+                                    // mismatch, deny green credit.
+                                    if response_matches_certificate(&result, certificate) {
+                                        VerificationStatus::Verified
+                                    } else {
+                                        VerificationStatus::Failed
+                                    }
+                                }
                                 "failed" => VerificationStatus::Failed,
                                 "expired" => VerificationStatus::Expired,
                                 _ => VerificationStatus::Pending,
@@ -369,11 +462,12 @@ impl VerificationProvider for VerificationService {
             api_url = match config.api_endpoint.as_ref() {
                 Some(endpoint) => endpoint.clone(),
                 None => {
-                    let status = if config.accept_self_reported {
-                        VerificationStatus::Verified
-                    } else {
-                        VerificationStatus::Pending
-                    };
+                    // No external verification endpoint is configured, so the
+                    // offset has received zero independent verification. Never
+                    // map self-reported acceptance to `Verified` — self-reported
+                    // claims stay `Pending` so downstream reporting counts them
+                    // separately rather than as independently verified tonnes.
+                    let status = VerificationStatus::Pending;
                     drop(config);
                     self.add_to_cache(offset.offset_id.clone(), status);
                     return Ok(status);
@@ -411,7 +505,17 @@ impl VerificationProvider for VerificationService {
                                 .unwrap_or("pending");
 
                             let status = match status_str.to_lowercase().as_str() {
-                                "verified" => VerificationStatus::Verified,
+                                "verified" => {
+                                    // As with certificates, require the registry to
+                                    // echo the offset's own amount/issuer/period so a
+                                    // real offset ID can't be replayed with inflated
+                                    // tonnage. On any mismatch, deny credit.
+                                    if response_matches_offset(&result, offset) {
+                                        VerificationStatus::Verified
+                                    } else {
+                                        VerificationStatus::Failed
+                                    }
+                                }
                                 "failed" => VerificationStatus::Failed,
                                 "expired" => VerificationStatus::Expired,
                                 _ => VerificationStatus::Pending,
@@ -478,5 +582,193 @@ mod tests {
         };
 
         assert!(!service.is_certificate_expired(&valid_cert));
+    }
+
+    /// A self-reported certificate (no verification endpoint configured, even
+    /// with `accept_self_reported = true`) must NOT be reported as `Verified`,
+    /// since it received zero independent verification. It stays `Pending`.
+    #[tokio::test]
+    async fn test_self_reported_certificate_is_not_verified() {
+        let config = VerificationConfig {
+            api_endpoint: None,
+            accept_self_reported: true,
+            ..Default::default()
+        };
+        let service = VerificationService::new(config);
+
+        let cert = RenewableCertificate {
+            certificate_id: "CERT-SELF-1".to_string(),
+            issuer: "Self Reporter".to_string(),
+            certificate_type: "Solar".to_string(),
+            amount_kwh: 1000.0,
+            generation_start: Utc::now() - chrono::Duration::days(30),
+            generation_end: Utc::now() - chrono::Duration::days(10),
+            location: Region::new("US"),
+            verification_status: VerificationStatus::Pending,
+            verification_url: None,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let status = service.verify_certificate(&cert).await.expect("verify");
+        assert_eq!(
+            status,
+            VerificationStatus::Pending,
+            "self-reported certificate must not be marked Verified"
+        );
+        assert_ne!(status, VerificationStatus::Verified);
+    }
+
+    /// Same guarantee for carbon offsets on the self-reported path.
+    #[tokio::test]
+    async fn test_self_reported_offset_is_not_verified() {
+        let config = VerificationConfig {
+            api_endpoint: None,
+            accept_self_reported: true,
+            ..Default::default()
+        };
+        let service = VerificationService::new(config);
+
+        let offset = CarbonOffset {
+            offset_id: "OFFSET-SELF-1".to_string(),
+            issuer: "Self Reporter".to_string(),
+            offset_type: "Reforestation".to_string(),
+            amount_tonnes: 50.0,
+            period_start: Utc::now() - chrono::Duration::days(30),
+            period_end: Some(Utc::now() - chrono::Duration::days(10)),
+            location: Region::new("US"),
+            verification_status: VerificationStatus::Pending,
+            verification_url: None,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let status = service.verify_offset(&offset).await.expect("verify");
+        assert_eq!(
+            status,
+            VerificationStatus::Pending,
+            "self-reported offset must not be marked Verified"
+        );
+        assert_ne!(status, VerificationStatus::Verified);
+    }
+
+    fn sample_certificate() -> RenewableCertificate {
+        RenewableCertificate {
+            certificate_id: "CERT-XCHK".to_string(),
+            issuer: "Green Registry".to_string(),
+            certificate_type: "Solar".to_string(),
+            amount_kwh: 1000.0,
+            generation_start: DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            generation_end: DateTime::parse_from_rfc3339("2026-02-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            location: Region::new("US"),
+            verification_status: VerificationStatus::Pending,
+            verification_url: None,
+            metadata: std::collections::HashMap::new(),
+        }
+    }
+
+    /// A registry response that echoes the certificate's own fields is a match.
+    #[test]
+    fn test_response_matches_certificate_ok() {
+        let cert = sample_certificate();
+        let result = serde_json::json!({
+            "status": "verified",
+            "amount_kwh": 1000.0,
+            "issuer": "green registry",
+            "generation_start": "2026-01-01T00:00:00Z",
+            "generation_end": "2026-02-01T00:00:00Z",
+        });
+        assert!(response_matches_certificate(&result, &cert));
+    }
+
+    /// Replaying a real certificate ID with an inflated amount_kwh must NOT
+    /// match, even though the registry reports the ID as verified.
+    #[test]
+    fn test_inflated_amount_does_not_match() {
+        let cert = sample_certificate();
+        let result = serde_json::json!({
+            "status": "verified",
+            "amount_kwh": 1_000_000.0, // registry's real value is 1000
+            "issuer": "Green Registry",
+            "generation_start": "2026-01-01T00:00:00Z",
+            "generation_end": "2026-02-01T00:00:00Z",
+        });
+        assert!(!response_matches_certificate(&result, &cert));
+    }
+
+    /// A "verified" response that omits the amount cannot be trusted, since the
+    /// credited field is never confirmed.
+    #[test]
+    fn test_missing_amount_does_not_match() {
+        let cert = sample_certificate();
+        let result = serde_json::json!({
+            "status": "verified",
+            "issuer": "Green Registry",
+            "generation_start": "2026-01-01T00:00:00Z",
+            "generation_end": "2026-02-01T00:00:00Z",
+        });
+        assert!(!response_matches_certificate(&result, &cert));
+    }
+
+    /// A mismatched issuer or generation period must not match.
+    #[test]
+    fn test_wrong_issuer_or_period_does_not_match() {
+        let cert = sample_certificate();
+        let wrong_issuer = serde_json::json!({
+            "amount_kwh": 1000.0,
+            "issuer": "Impostor Registry",
+            "generation_start": "2026-01-01T00:00:00Z",
+            "generation_end": "2026-02-01T00:00:00Z",
+        });
+        assert!(!response_matches_certificate(&wrong_issuer, &cert));
+
+        let wrong_period = serde_json::json!({
+            "amount_kwh": 1000.0,
+            "issuer": "Green Registry",
+            "generation_start": "2025-01-01T00:00:00Z",
+            "generation_end": "2026-02-01T00:00:00Z",
+        });
+        assert!(!response_matches_certificate(&wrong_period, &cert));
+    }
+
+    /// Offset cross-check: echoed fields match; inflated tonnage does not.
+    #[test]
+    fn test_response_matches_offset() {
+        let offset = CarbonOffset {
+            offset_id: "OFFSET-XCHK".to_string(),
+            issuer: "Carbon Registry".to_string(),
+            offset_type: "Reforestation".to_string(),
+            amount_tonnes: 50.0,
+            period_start: DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            period_end: Some(
+                DateTime::parse_from_rfc3339("2026-02-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            location: Region::new("US"),
+            verification_status: VerificationStatus::Pending,
+            verification_url: None,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let good = serde_json::json!({
+            "amount_tonnes": 50.0,
+            "issuer": "Carbon Registry",
+            "period_start": "2026-01-01T00:00:00Z",
+            "period_end": "2026-02-01T00:00:00Z",
+        });
+        assert!(response_matches_offset(&good, &offset));
+
+        let inflated = serde_json::json!({
+            "amount_tonnes": 5000.0,
+            "issuer": "Carbon Registry",
+            "period_start": "2026-01-01T00:00:00Z",
+            "period_end": "2026-02-01T00:00:00Z",
+        });
+        assert!(!response_matches_offset(&inflated, &offset));
     }
 }

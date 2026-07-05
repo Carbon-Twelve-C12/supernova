@@ -10,6 +10,7 @@ use crate::api::types::environmental::{
     EnergySource as ApiEnergySource, EnergyUsageHistory, EnvironmentalImpact,
     EnvironmentalSettings, ResourceUtilization,
 };
+use supernova_core::environmental::score_validation::EnvironmentalScoreValidator;
 
 /// Internal settings for environmental monitoring with extended fields
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +78,9 @@ pub struct EnvironmentalMonitor {
     node_location: String,
     /// Start time of the node for tracking uptime
     start_time: SystemTime,
+    /// Validator guarding accepted environmental scores against out-of-range and
+    /// statistical-outlier manipulation before they earn green-mining incentives.
+    score_validator: Mutex<EnvironmentalScoreValidator>,
 }
 
 impl EnvironmentalMonitor {
@@ -127,6 +131,7 @@ impl EnvironmentalMonitor {
             energy_mix,
             node_location: "global".to_string(),
             start_time: SystemTime::now(),
+            score_validator: Mutex::new(EnvironmentalScoreValidator::default()),
         }
     }
 
@@ -174,7 +179,7 @@ impl EnvironmentalMonitor {
             carbon_intensity: carbon_data.intensity,
             carbon_offsets_tons: self.calculate_carbon_offsets(&carbon_data),
             net_emissions_g_per_hour: carbon_data.net_emissions_g,
-            is_carbon_negative: false,
+            is_carbon_negative: carbon_data.net_emissions_g < 0.0,
             environmental_score: self.calculate_environmental_score(&energy_data, &carbon_data),
             green_mining_bonus: self.calculate_green_mining_bonus(&energy_data),
             data_sources: vec![
@@ -416,6 +421,11 @@ impl EnvironmentalMonitor {
             0.0
         };
 
+        // Release the system lock before calling calculate_network_usage, which
+        // re-acquires self.system. std::sync::Mutex is non-reentrant, so holding
+        // the guard across that call would self-deadlock the calling thread.
+        drop(system);
+
         // Calculate disk usage
         let mut total_disk = 0.0;
         let mut used_disk = 0.0;
@@ -593,7 +603,41 @@ impl EnvironmentalMonitor {
         // Lower emissions = better score
         let renewable_score = self.calculate_renewable_percentage();
         let emission_score = 100.0 - (carbon_data.total_emissions_g / 1000.0).min(100.0);
-        (renewable_score + emission_score) / 2.0
+        let raw_score = (renewable_score + emission_score) / 2.0;
+
+        // Guard the accepted score against out-of-range and statistical-outlier
+        // manipulation before it drives green-mining incentives. On rejection, fall back
+        // to the established historical baseline (or a range-clamped value) so a
+        // manipulated / implausible score cannot earn incentives.
+        match self.score_validator.lock() {
+            Ok(mut validator) => match validator.validate_with_outlier_detection(raw_score) {
+                Ok(()) => raw_score,
+                Err(reason) => {
+                    tracing::warn!(
+                        "Environmental score {} rejected: {}. Falling back to baseline.",
+                        raw_score,
+                        reason
+                    );
+                    let stats = validator.get_statistics();
+                    if stats.count > 0 {
+                        stats.mean
+                    } else if raw_score.is_finite() {
+                        raw_score.clamp(0.0, 100.0)
+                    } else {
+                        0.0
+                    }
+                }
+            },
+            Err(_) => {
+                // Poisoned lock: fall back to a range-clamped value rather than trusting
+                // a potentially manipulated raw score.
+                if raw_score.is_finite() {
+                    raw_score.clamp(0.0, 100.0)
+                } else {
+                    0.0
+                }
+            }
+        }
     }
 
     /// Calculate green mining bonus
@@ -742,5 +786,45 @@ mod tests {
         assert!(impact.carbon_emissions_g_per_hour > 0.0);
         assert!(impact.renewable_percentage >= 0.0);
         assert!(impact.renewable_percentage <= 100.0);
+    }
+
+    /// Regression guard: is_carbon_negative must be DERIVED from the measured
+    /// net emissions, never hardcoded. Previously this field was hardcoded to
+    /// `false`, so the API could never report carbon-negative status regardless
+    /// of the measured value. This asserts the reported flag is exactly
+    /// consistent with the sign of net_emissions_g_per_hour.
+    #[test]
+    fn test_is_carbon_negative_derived_from_net_emissions() {
+        let monitor = EnvironmentalMonitor::new();
+        let impact = monitor.get_environmental_impact(86400, "standard").unwrap();
+
+        assert_eq!(
+            impact.is_carbon_negative,
+            impact.net_emissions_g_per_hour < 0.0,
+            "is_carbon_negative must be derived from net_emissions_g_per_hour, not hardcoded"
+        );
+    }
+
+    /// Regression guard: get_resource_utilization holds the system mutex while
+    /// computing CPU/memory and then calls calculate_network_usage, which
+    /// re-acquires the same non-reentrant std::sync::Mutex. If the guard is not
+    /// dropped first, the call self-deadlocks. Run it on a worker thread with a
+    /// timeout so a regression fails the test instead of hanging the suite.
+    #[test]
+    fn test_get_resource_utilization_does_not_deadlock() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let monitor = EnvironmentalMonitor::new();
+            let result = monitor.get_resource_utilization(300);
+            let _ = tx.send(result.is_ok());
+        });
+
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(ok) => assert!(ok, "get_resource_utilization returned an error"),
+            Err(_) => panic!("get_resource_utilization deadlocked (no result within timeout)"),
+        }
     }
 }
