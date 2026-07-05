@@ -2773,6 +2773,22 @@ impl BlockchainDB {
     pub fn get_utxo_count(&self) -> Result<u64, StorageError> {
         Ok(self.utxos.len() as u64)
     }
+
+    /// Get the total number of transactions stored in the database.
+    ///
+    /// Returns the actual number of entries in the transactions tree rather
+    /// than an estimate, so callers can report a real statistic.
+    pub fn get_transaction_count(&self) -> Result<u64, StorageError> {
+        Ok(self.transactions.len() as u64)
+    }
+
+    /// Get the actual on-disk size of the database in bytes.
+    ///
+    /// Delegates to the underlying storage engine so callers report the real
+    /// disk footprint rather than a block-count-based estimate.
+    pub fn get_chain_size_bytes(&self) -> Result<u64, StorageError> {
+        Ok(self.db.size_on_disk()?)
+    }
 }
 
 /// Build the `utxos` tree key for an outpoint: `tx_hash || index.to_be_bytes()`
@@ -3011,6 +3027,28 @@ mod tests {
 
         let retrieved = db.get_transaction(&tx_hash)?.unwrap();
         assert_eq!(tx.hash(), retrieved.hash());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_transaction_count_and_chain_size_are_real() -> Result<(), StorageError> {
+        let temp_dir = tempdir().unwrap();
+        let db = BlockchainDB::new(temp_dir.path())?;
+
+        // Empty database reports zero transactions.
+        assert_eq!(db.get_transaction_count()?, 0);
+
+        // Store a couple of distinct transactions and confirm the count
+        // reflects the actual number stored (not an estimate).
+        let tx1 = Transaction::new(1, Vec::new(), Vec::new(), 0);
+        let tx2 = Transaction::new(2, Vec::new(), Vec::new(), 0);
+        db.store_transaction(&tx1.hash(), &bincode::serialize(&tx1)?)?;
+        db.store_transaction(&tx2.hash(), &bincode::serialize(&tx2)?)?;
+        assert_eq!(db.get_transaction_count()?, 2);
+
+        // On-disk size is a real, non-panicking measurement.
+        let _ = db.get_chain_size_bytes()?;
 
         Ok(())
     }

@@ -7,6 +7,7 @@ use supernova_core::types::block_subsidy;
 use supernova_core::types::transaction::{Transaction, TransactionOutput};
 use crate::blockchain::checkpoint::{validate_checkpoint, can_reorganize_below};
 use crate::blockchain::invalidation::{InvalidBlockTracker, InvalidBlockTrackerConfig, InvalidationReason};
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -916,8 +917,23 @@ impl ChainState {
     /// missing prevout returns `Ok(false)` (reject) rather than risking a wrap
     /// that could mint coins. Returns `Ok(true)` if the block conserves value.
     fn check_block_value(&self, block: &Block) -> Result<bool, StorageError> {
+        // Distinguish a genuinely-missing UTXO (fail-closed reject) from a
+        // *transient* DB read error (IO/lock/corrupt page). Swallowing the latter
+        // into `None` collapses to `Ok(false)`, which the caller turns into a
+        // PERMANENT `mark_invalid` (see `check_block`) — a consensus-divergence
+        // hazard where a node wedges on an otherwise-valid block. Capture the
+        // first real error and propagate it as `Err` (retryable) instead.
+        let db_err: RefCell<Option<StorageError>> = RefCell::new(None);
         let get_prevout = |txid: &[u8; 32], vout: u32| -> Option<TransactionOutput> {
-            self.db.get_utxo(txid, vout).ok().flatten()
+            match self.db.get_utxo(txid, vout) {
+                Ok(v) => v,
+                Err(e) => {
+                    if db_err.borrow().is_none() {
+                        *db_err.borrow_mut() = Some(e);
+                    }
+                    None
+                }
+            }
         };
 
         let mut total_fees: u64 = 0;
@@ -938,7 +954,15 @@ impl ChainState {
                 // re-checked here so it can never poison the fee total).
                 let fee = match tx.calculate_fee(&get_prevout) {
                     Some(v) => v,
-                    None => return Ok(false),
+                    None => {
+                        // A transient DB read error must propagate (retryable),
+                        // never be conflated with a value-creating tx that would
+                        // permanently mark this block invalid.
+                        if let Some(e) = db_err.borrow_mut().take() {
+                            return Err(e);
+                        }
+                        return Ok(false);
+                    }
                 };
                 total_fees = match total_fees.checked_add(fee) {
                     Some(v) => v,
@@ -1030,12 +1054,27 @@ impl ChainState {
         // (`total_input`/`total_output` return `None` on overflow or a missing
         // prevout); a `None` rejects the transaction (fail-closed), since release
         // builds disable overflow-checks and a silent wrap could mint coins.
+        let db_err: RefCell<Option<StorageError>> = RefCell::new(None);
         let get_prevout = |txid: &[u8; 32], vout: u32| -> Option<TransactionOutput> {
-            self.db.get_utxo(txid, vout).ok().flatten()
+            match self.db.get_utxo(txid, vout) {
+                Ok(v) => v,
+                Err(e) => {
+                    if db_err.borrow().is_none() {
+                        *db_err.borrow_mut() = Some(e);
+                    }
+                    None
+                }
+            }
         };
         let total_in = match tx.total_input(&get_prevout) {
             Some(v) => v,
             None => {
+                // A transient DB read error must propagate (retryable), not be
+                // conflated with a value-creating tx and permanently reject the
+                // block (consensus-divergence hazard).
+                if let Some(e) = db_err.borrow_mut().take() {
+                    return Err(e);
+                }
                 tracing::warn!(
                     "Value conservation: input sum overflow or missing prevout for tx {}",
                     hex::encode(tx.hash())
@@ -1066,13 +1105,21 @@ impl ChainState {
         // Cryptographically verify every input is authorized to spend its UTXO
         // (audit Critical #1). Fail-closed: a missing, invalid, or unbound
         // signature rejects the transaction and therefore the block.
-        if let Err(e) = self.verify_transaction_authorization(tx) {
-            tracing::warn!(
-                "Signature authorization failed for tx {}: {}",
-                hex::encode(tx.hash()),
-                e
-            );
-            return Ok(false);
+        match self.verify_transaction_authorization(tx) {
+            Ok(()) => {}
+            // A genuine authorization failure (missing/invalid/unbound signature)
+            // is a validity verdict -> reject. A transient DB read error is NOT a
+            // validity verdict and must propagate so the block is retried rather
+            // than permanently marked invalid (consensus-divergence hazard).
+            Err(StorageError::InvalidTransaction(msg)) => {
+                tracing::warn!(
+                    "Signature authorization failed for tx {}: {}",
+                    hex::encode(tx.hash()),
+                    msg
+                );
+                return Ok(false);
+            }
+            Err(e) => return Err(e),
         }
 
         Ok(true)
@@ -1086,11 +1133,28 @@ impl ChainState {
     /// transactions carry no spendable inputs and pass. See
     /// [`supernova_core::types::transaction::Transaction::verify_authorization`].
     pub fn verify_transaction_authorization(&self, tx: &Transaction) -> Result<(), StorageError> {
+        // Capture the first transient DB read error separately so it propagates
+        // as `Err` (retryable) instead of surfacing as a spurious
+        // `InvalidTransaction`, which callers treat as a permanent validity
+        // verdict (see `validate_transaction`/`check_block`). `get_utxo` never
+        // yields `InvalidTransaction`, so the two cases are cleanly separable.
+        let db_err: RefCell<Option<StorageError>> = RefCell::new(None);
         let get_prevout = |txid: &[u8; 32], vout: u32| -> Option<TransactionOutput> {
-            self.db.get_utxo(txid, vout).ok().flatten()
+            match self.db.get_utxo(txid, vout) {
+                Ok(v) => v,
+                Err(e) => {
+                    if db_err.borrow().is_none() {
+                        *db_err.borrow_mut() = Some(e);
+                    }
+                    None
+                }
+            }
         };
-        tx.verify_authorization(&get_prevout)
-            .map_err(|e| StorageError::InvalidTransaction(e.to_string()))
+        let result = tx.verify_authorization(&get_prevout);
+        if let Some(e) = db_err.borrow_mut().take() {
+            return Err(e);
+        }
+        result.map_err(|e| StorageError::InvalidTransaction(e.to_string()))
     }
 
     /// Retrieve a specific output from a block by transaction hash and output index
@@ -1493,11 +1557,13 @@ impl ChainState {
         // First collect the hashes that should be kept
         for hash in &self.fork_points {
             if let Ok(Some(block)) = self.db.get_block(hash) {
-                let age = SystemTime::now()
+                let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map_err(|e| StorageError::DatabaseError(e.to_string()))?
-                    .as_secs()
-                    - self.header_timestamp(&block);
+                    .as_secs();
+                // saturating_sub guards against a fork block whose header
+                // timestamp is ahead of the local clock (age would be 0, kept).
+                let age = now.saturating_sub(self.header_timestamp(&block));
 
                 if age < 86400 {
                     hashes_to_keep.insert(*hash);
@@ -1512,14 +1578,10 @@ impl ChainState {
     }
 
     // Helper method to get timestamp from block header
-    fn header_timestamp(&self, _block: &Block) -> u64 {
-        // In a real implementation, this would access the timestamp directly
-        // Here we're using a default value of current time - 1 hour
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            - 3600
+    fn header_timestamp(&self, block: &Block) -> u64 {
+        // Return the block's real header timestamp so prune_fork_points can
+        // actually age out stale fork points against the 24h retention window.
+        block.timestamp()
     }
 
     pub fn get_block_at_height(&self, height: u64) -> Result<Block, StorageError> {
@@ -1941,6 +2003,62 @@ mod tests {
                 .ops
                 .contains(&ReorgOp::DelHeightIndex(2u64.to_be_bytes())),
             "the disconnected block's height index entry must be dropped"
+        );
+    }
+
+    /// A *transient* DB read error during value-conservation must propagate as
+    /// `Err` (retryable) — NOT collapse into `Ok(false)`, which the caller turns
+    /// into a PERMANENT `mark_invalid`, wedging a node on an otherwise-valid block
+    /// (consensus-divergence hazard). A genuinely-missing UTXO must still reject
+    /// with `Ok(false)`, so the fix changes behavior for the DB-error case ONLY.
+    #[test]
+    fn db_read_error_propagates_not_permanent_reject() {
+        use supernova_core::types::transaction::{
+            Transaction, TransactionInput, TransactionOutput,
+        };
+
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+
+        let prev_txid = [0x11u8; 32];
+        // A block with a coinbase plus one non-coinbase tx that spends prev_txid:0.
+        let coinbase = Transaction::new(
+            1,
+            vec![TransactionInput::new_coinbase(vec![0u8])],
+            vec![TransactionOutput::new(50_000_000, vec![0x88, 0xac])],
+            0,
+        );
+        let spend = Transaction::new(
+            1,
+            vec![TransactionInput::new(
+                prev_txid,
+                0,
+                b"sig".to_vec(),
+                0xffff_ffff,
+            )],
+            vec![TransactionOutput::new(1_000, vec![0xab; 4])],
+            0,
+        );
+        let mut block =
+            Block::new_with_params(1, [0u8; 32], vec![coinbase, spend], 0x207f_ffff);
+        block.set_height(2);
+
+        let cs = regtest_chain_state(db.clone()).unwrap();
+
+        // (1) Genuinely-missing prevout: fail-closed reject — unchanged behavior.
+        assert!(
+            matches!(cs.check_block_value(&block), Ok(false)),
+            "a genuinely-missing UTXO must still reject with Ok(false)"
+        );
+
+        // (2) Transient DB read error: store CORRUPT bytes under the prevout key so
+        // `get_utxo`'s bincode::deserialize fails — a real fallible read error,
+        // like a temporarily-unreadable page. The block is otherwise well-formed,
+        // so the error MUST propagate as Err, not be conflated with invalidity.
+        db.store_utxo(&prev_txid, 0, &[0xAB, 0xCD]).unwrap();
+        assert!(
+            matches!(cs.check_block_value(&block), Err(_)),
+            "a transient DB read error must propagate as Err, not Ok(false)"
         );
     }
 
@@ -2542,6 +2660,54 @@ mod tests {
         assert!(
             cs.process_block(good).await.unwrap(),
             "a block with a current timestamp must be accepted"
+        );
+    }
+
+    #[test]
+    fn prune_fork_points_ages_out_stale_entries() {
+        // header_timestamp must reflect each block's real header timestamp so
+        // prune_fork_points can age fork points against the 24h window. The old
+        // stub returned `now - 3600` for every block, so age was always ~1h and
+        // NOTHING was ever pruned (unbounded growth). Here a fork point on a
+        // >24h-old block is dropped while one on a fresh block is retained.
+        let temp_dir = tempdir().unwrap();
+        let db = Arc::new(BlockchainDB::new(temp_dir.path()).unwrap());
+        let bits = 0x207f_ffff;
+        let mut cs = regtest_chain_state(db.clone()).unwrap();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Stale: header timestamp two days in the past -> age > 86400 -> pruned.
+        let mut stale = unique_coinbase_block([0u8; 32], bits, 400);
+        stale.header.set_timestamp(now - 2 * 86400);
+        let stale = mine(stale);
+        let stale_hash = stale.hash();
+        db.store_block(&stale_hash, &bincode::serialize(&stale).unwrap())
+            .unwrap();
+
+        // Fresh: header timestamp now -> age ~0 -> retained.
+        let mut fresh = unique_coinbase_block([0u8; 32], bits, 401);
+        fresh.header.set_timestamp(now);
+        let fresh = mine(fresh);
+        let fresh_hash = fresh.hash();
+        db.store_block(&fresh_hash, &bincode::serialize(&fresh).unwrap())
+            .unwrap();
+
+        cs.fork_points.insert(stale_hash);
+        cs.fork_points.insert(fresh_hash);
+
+        cs.prune_fork_points().unwrap();
+
+        assert!(
+            !cs.fork_points.contains(&stale_hash),
+            "a fork point older than 24h must be pruned"
+        );
+        assert!(
+            cs.fork_points.contains(&fresh_hash),
+            "a recent fork point must be retained"
         );
     }
 }

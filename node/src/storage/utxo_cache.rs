@@ -329,33 +329,107 @@ impl UtxoCache {
     /// * `Some(UnspentOutput)` - The spent UTXO
     /// * `None` - If the UTXO doesn't exist
     pub fn spend(&self, outpoint: &OutPoint) -> Option<UnspentOutput> {
-        // First, try to get the UTXO (this ensures it's in cache)
-        let utxo = self.get(outpoint)?;
+        // SECURITY (TOCTOU / double-spend accounting): the existence check and
+        // the tombstone insertion must be atomic. Performing a separate get()
+        // and then re-locking to write the tombstone leaves a window in which
+        // two concurrent spend() calls both observe the same live UTXO and both
+        // return Some, i.e. both callers believe they spent it.
+        //
+        // We therefore resolve the entry and write the tombstone inside a single
+        // cache-lock critical section. On a cache miss we must consult the
+        // database, but we MUST NOT hold the cache lock while acquiring
+        // db.read(): flush() locks db.write() then cache.lock(), so taking them
+        // in the opposite order here would invert the lock ordering and risk a
+        // deadlock. Instead we drop the cache lock, read the database, then
+        // re-acquire the cache lock and re-check the entry state before writing
+        // the tombstone.
 
-        // Mark as deleted in cache
+        // Fast path: entry already resolved in cache.
         {
             let mut cache = self.cache.lock();
-            let entry = CacheEntry::deleted();
-            let memory_change = entry.memory_size;
-
-            if let Some(old_entry) = cache.put(*outpoint, entry) {
-                // Subtract old entry's memory, add tombstone memory
-                let old_size = old_entry.memory_size;
-                if old_size > memory_change {
-                    self.memory_usage
-                        .fetch_sub(old_size - memory_change, Ordering::Relaxed);
-                } else {
-                    self.memory_usage
-                        .fetch_add(memory_change - old_size, Ordering::Relaxed);
+            match cache.peek(outpoint).map(|e| (e.state, e.utxo.clone())) {
+                Some((CacheEntryState::Deleted, _)) => {
+                    // Already spent (by us or another thread): nothing to spend.
+                    return None;
                 }
-            } else {
-                self.memory_usage.fetch_add(memory_change, Ordering::Relaxed);
+                Some((_, Some(utxo))) => {
+                    // Live entry present: tombstone it atomically and win the spend.
+                    self.tombstone_locked(&mut cache, outpoint);
+                    drop(cache);
+                    self.after_spend();
+                    return Some(utxo);
+                }
+                Some((_, None)) => {
+                    // Non-Deleted entry with no payload: treat as absent and
+                    // fall through to the database lookup.
+                }
+                None => {}
             }
-
-            // Track dirty entry
-            self.dirty_set.lock().insert(*outpoint);
         }
 
+        // Cache miss: consult the database WITHOUT holding the cache lock.
+        let db_utxo = {
+            let db = self.db.read();
+            db.get(outpoint)
+        }?;
+
+        // Re-acquire the cache lock and re-check before writing the tombstone,
+        // so a spend that raced in while we read the database wins alone.
+        let result = {
+            let mut cache = self.cache.lock();
+            match cache.peek(outpoint).map(|e| (e.state, e.utxo.clone())) {
+                Some((CacheEntryState::Deleted, _)) => {
+                    // Another thread spent it while we were reading the database.
+                    return None;
+                }
+                Some((_, Some(utxo))) => {
+                    // Another thread inserted a live entry; spend that instead.
+                    self.tombstone_locked(&mut cache, outpoint);
+                    utxo
+                }
+                _ => {
+                    // Still absent: insert the tombstone and report the db value.
+                    self.tombstone_locked(&mut cache, outpoint);
+                    db_utxo
+                }
+            }
+        };
+
+        self.after_spend();
+        Some(result)
+    }
+
+    /// Insert a deletion tombstone for `outpoint`, updating memory accounting
+    /// and the dirty set. Caller MUST hold the cache lock (passed in as `cache`)
+    /// to keep the check-then-tombstone sequence atomic.
+    fn tombstone_locked(
+        &self,
+        cache: &mut LruCache<OutPoint, CacheEntry>,
+        outpoint: &OutPoint,
+    ) {
+        let entry = CacheEntry::deleted();
+        let memory_change = entry.memory_size;
+
+        if let Some(old_entry) = cache.put(*outpoint, entry) {
+            // Subtract old entry's memory, add tombstone memory
+            let old_size = old_entry.memory_size;
+            if old_size > memory_change {
+                self.memory_usage
+                    .fetch_sub(old_size - memory_change, Ordering::Relaxed);
+            } else {
+                self.memory_usage
+                    .fetch_add(memory_change - old_size, Ordering::Relaxed);
+            }
+        } else {
+            self.memory_usage.fetch_add(memory_change, Ordering::Relaxed);
+        }
+
+        // Track dirty entry (cache -> dirty_set lock order matches add()/flush()).
+        self.dirty_set.lock().insert(*outpoint);
+    }
+
+    /// Post-spend bookkeeping run after the cache lock is released.
+    fn after_spend(&self) {
         // Update stats
         if self.config.collect_stats {
             let mut stats = self.stats.write();
@@ -364,8 +438,6 @@ impl UtxoCache {
 
         // Check if we should flush
         self.maybe_auto_flush();
-
-        Some(utxo)
     }
 
     /// Check if a UTXO exists
@@ -857,6 +929,40 @@ mod tests {
         assert_eq!(spent.unwrap().value, 1000);
 
         // Should no longer exist
+        assert!(cache.get(&outpoint).is_none());
+    }
+
+    #[test]
+    fn test_concurrent_spend_single_winner() {
+        // Regression test for the TOCTOU double-spend race in spend(): with the
+        // entry live in the cache, N threads racing to spend the same outpoint
+        // must yield exactly one Some(); everyone else must observe the tombstone
+        // and get None.
+        let (cache, _temp) = create_test_cache();
+        let cache = Arc::new(cache);
+
+        let outpoint = OutPoint::new([7u8; 32], 0);
+        cache.add(outpoint, create_test_utxo(5000, 1));
+
+        const THREADS: usize = 8;
+        let barrier = Arc::new(std::sync::Barrier::new(THREADS));
+        let mut handles = Vec::with_capacity(THREADS);
+        for _ in 0..THREADS {
+            let c = Arc::clone(&cache);
+            let b = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                b.wait();
+                c.spend(&outpoint)
+            }));
+        }
+
+        let results: Vec<_> = handles
+            .into_iter()
+            .map(|h| h.join().expect("spend thread panicked"))
+            .collect();
+
+        let winners = results.iter().filter(|r| r.is_some()).count();
+        assert_eq!(winners, 1, "exactly one spender must win the race");
         assert!(cache.get(&outpoint).is_none());
     }
 

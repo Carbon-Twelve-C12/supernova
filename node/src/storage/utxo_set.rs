@@ -155,27 +155,63 @@ impl UtxoSet {
 
         // Read the header to get the size
         let header_size = std::mem::size_of::<usize>();
+        let header_slice = mmap.get(0..header_size).ok_or_else(|| {
+            StorageError::DatabaseError("UTXO snapshot corrupted: missing header".into())
+        })?;
         let mut header_buf = [0u8; 8]; // usize is 8 bytes
-        header_buf.copy_from_slice(&mmap[0..header_size]);
+        header_buf.copy_from_slice(header_slice);
         let entry_count = usize::from_le_bytes(header_buf);
+
+        // Sanity-check entry_count against the file size: each entry requires at
+        // least a 4-byte length prefix, so entry_count can never legitimately
+        // exceed (file_len - header_size) / 4. This guards against a corrupted,
+        // truncated, or tampered snapshot causing a huge allocation/iteration
+        // count or an out-of-bounds panic below.
+        const MIN_ENTRY_SIZE: usize = 4;
+        let max_possible_entries = mmap.len().saturating_sub(header_size) / MIN_ENTRY_SIZE;
+        if entry_count > max_possible_entries {
+            return Err(StorageError::DatabaseError(format!(
+                "UTXO snapshot corrupted: entry_count {} exceeds maximum possible entries {} for file size {}",
+                entry_count,
+                max_possible_entries,
+                mmap.len()
+            )));
+        }
 
         // Read each UTXO entry
         let mut offset = header_size;
         for _ in 0..entry_count {
             // Read length of serialized UTXO
+            let len_slice = offset
+                .checked_add(4)
+                .and_then(|end| mmap.get(offset..end))
+                .ok_or_else(|| {
+                    StorageError::DatabaseError(
+                        "UTXO snapshot corrupted: truncated entry length prefix".into(),
+                    )
+                })?;
             let mut len_buf = [0u8; 4];
-            len_buf.copy_from_slice(&mmap[offset..offset + 4]);
+            len_buf.copy_from_slice(len_slice);
             let entry_len = u32::from_le_bytes(len_buf) as usize;
             offset += 4;
 
             // Read serialized UTXO
-            let entry_data = &mmap[offset..offset + entry_len];
+            let entry_end = offset.checked_add(entry_len).ok_or_else(|| {
+                StorageError::DatabaseError(
+                    "UTXO snapshot corrupted: entry length overflow".into(),
+                )
+            })?;
+            let entry_data = mmap.get(offset..entry_end).ok_or_else(|| {
+                StorageError::DatabaseError(
+                    "UTXO snapshot corrupted: entry data out of bounds".into(),
+                )
+            })?;
             let (outpoint, output): (OutPoint, UnspentOutput) = bincode::deserialize(entry_data)?;
 
             // Add to in-memory map
             self.utxos.insert(outpoint, output);
 
-            offset += entry_len;
+            offset = entry_end;
         }
 
         // Read the commitment if present
@@ -660,5 +696,67 @@ mod tests {
         for i in 0..5 {
             assert_eq!(*stats.count_by_height.get(&(i as u64)).unwrap_or(&0), 1);
         }
+    }
+
+    #[test]
+    fn test_load_rejects_corrupted_entry_count() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("utxo_corrupt.db");
+
+        // Create the backing file the same way `UtxoSet::new` would, then
+        // write a header claiming an absurdly large `entry_count` that could
+        // never fit in the file. This simulates disk corruption, a partial
+        // write, or tampering of a UTXO snapshot file.
+        {
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&db_path)
+                .unwrap();
+            file.set_len(64 * 1024 * 1024).unwrap();
+            let mut file = file;
+            // entry_count = usize::MAX, far beyond what the file could hold
+            file.write_all(&usize::MAX.to_le_bytes()).unwrap();
+        }
+
+        // Loading must return a graceful error instead of panicking with an
+        // out-of-bounds slice index.
+        let result = UtxoSet::new(&db_path);
+        assert!(
+            result.is_err(),
+            "loading a corrupted UTXO snapshot with an impossible entry_count must fail gracefully, not panic"
+        );
+    }
+
+    #[test]
+    fn test_load_rejects_truncated_entry_length() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("utxo_truncated.db");
+
+        // Write a plausible entry_count (1) but no actual entry length/data
+        // bytes following the header, simulating a truncated snapshot file.
+        // This is caught by the entry-count-vs-file-size sanity check, but
+        // exercises the same "truncated file must not panic" property as a
+        // length-prefix read that runs off the end of the mapping.
+        {
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&db_path)
+                .unwrap();
+            // File is only large enough for the header; no room for the
+            // 4-byte entry length prefix that entry_count=1 promises.
+            file.set_len(8).unwrap();
+            let mut file = file;
+            file.write_all(&1usize.to_le_bytes()).unwrap();
+        }
+
+        let result = UtxoSet::new(&db_path);
+        assert!(
+            result.is_err(),
+            "loading a truncated UTXO snapshot must fail gracefully, not panic"
+        );
     }
 }

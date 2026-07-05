@@ -651,9 +651,13 @@ impl<'a> CryptoVerifier<'a> {
                 ));
             }
 
-            // Verify merkle root if transactions are present
+            // Verify merkle root if transactions are present.
+            // Use the block's own consensus merkle algorithm (single-SHA256
+            // MerkleTree) so this integrity check matches the root stored in
+            // the header; a divergent local variant would falsely flag every
+            // valid block as corrupted.
             if !block.transactions().is_empty() {
-                let computed_merkle_root = Self::calculate_merkle_root(block.transactions());
+                let computed_merkle_root = block.calculate_merkle_root();
                 let merkle_root = block.merkle_root();
 
                 if computed_merkle_root != *merkle_root {
@@ -723,46 +727,6 @@ impl<'a> CryptoVerifier<'a> {
         block.verify_proof_of_work()
     }
 
-    /// Calculate merkle root from transactions
-    fn calculate_merkle_root(transactions: &[Transaction]) -> [u8; 32] {
-        if transactions.is_empty() {
-            return [0u8; 32];
-        }
-
-        let mut hashes: Vec<[u8; 32]> = transactions.iter().map(|tx| tx.hash()).collect();
-
-        while hashes.len() > 1 {
-            let mut new_hashes = Vec::new();
-
-            for chunk in hashes.chunks(2) {
-                let mut hasher = Sha256::new();
-                hasher.update(chunk[0]);
-
-                // If odd number of hashes, duplicate the last one
-                if chunk.len() == 2 {
-                    hasher.update(chunk[1]);
-                } else {
-                    hasher.update(chunk[0]);
-                }
-
-                let hash_result = hasher.finalize();
-
-                // Double SHA-256
-                let mut hasher = Sha256::new();
-                hasher.update(hash_result);
-                let result = hasher.finalize();
-
-                let mut hash = [0u8; 32];
-                hash.copy_from_slice(&result);
-                new_hashes.push(hash);
-            }
-
-            hashes = new_hashes;
-        }
-
-        hashes[0]
-    }
-
     /// Calculate transaction hash
     fn calculate_tx_hash(tx: &Transaction) -> [u8; 32] {
         let serialized = bincode::serialize(tx).unwrap_or_default();
@@ -779,5 +743,85 @@ impl<'a> CryptoVerifier<'a> {
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
         hash
+    }
+}
+
+#[cfg(test)]
+mod merkle_alignment_tests {
+    use super::*;
+    use supernova_core::types::block::BlockHeader;
+    use supernova_core::types::transaction::TransactionOutput;
+
+    fn tx(amount: u64) -> Transaction {
+        Transaction::new(
+            1,
+            vec![],
+            vec![TransactionOutput::new(amount, vec![amount as u8])],
+            0,
+        )
+    }
+
+    /// Reproduction of the previous divergent local merkle algorithm
+    /// (raw-txid leaves, double-SHA256 pair combine, odd-duplicate) that
+    /// falsely flagged valid blocks as corrupted before this fix.
+    fn legacy_local_merkle(transactions: &[Transaction]) -> [u8; 32] {
+        if transactions.is_empty() {
+            return [0u8; 32];
+        }
+        let mut hashes: Vec<[u8; 32]> = transactions.iter().map(|t| t.hash()).collect();
+        while hashes.len() > 1 {
+            let mut next = Vec::new();
+            for chunk in hashes.chunks(2) {
+                let mut h = Sha256::new();
+                h.update(chunk[0]);
+                if chunk.len() == 2 {
+                    h.update(chunk[1]);
+                } else {
+                    h.update(chunk[0]);
+                }
+                let r = h.finalize();
+                let mut h2 = Sha256::new();
+                h2.update(r);
+                let r2 = h2.finalize();
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&r2);
+                next.push(out);
+            }
+            hashes = next;
+        }
+        hashes[0]
+    }
+
+    /// Build a well-formed block whose header merkle root equals the
+    /// consensus root of its transactions.
+    fn build_valid_block(txs: Vec<Transaction>) -> Block {
+        let placeholder = BlockHeader::new(1, [0u8; 32], [0u8; 32], 0, 0x207f_ffff, 0);
+        let tmp = Block::new(placeholder, txs);
+        let root = tmp.calculate_merkle_root();
+        let header = BlockHeader::new(1, [0u8; 32], root, 0, 0x207f_ffff, 0);
+        Block::new(header, tmp.transactions().to_vec())
+    }
+
+    #[test]
+    fn verifier_merkle_matches_consensus_root_multi_tx() {
+        let block = build_valid_block(vec![tx(1), tx(2), tx(3)]);
+        // The integrity verifier now delegates to block.calculate_merkle_root(),
+        // which must equal the stored header root for a valid block (no false
+        // corruption report).
+        assert_eq!(block.calculate_merkle_root(), *block.merkle_root());
+        assert!(block.verify_merkle_root());
+        // The old local variant diverges — this is what caused the bogus
+        // corruption-recovery on healthy databases.
+        assert_ne!(legacy_local_merkle(block.transactions()), *block.merkle_root());
+    }
+
+    #[test]
+    fn verifier_merkle_matches_consensus_root_single_tx() {
+        let block = build_valid_block(vec![tx(42)]);
+        assert_eq!(block.calculate_merkle_root(), *block.merkle_root());
+        assert!(block.verify_merkle_root());
+        // Even a single-tx block diverged under the old algorithm
+        // (raw txid vs SHA256(txid)).
+        assert_ne!(legacy_local_merkle(block.transactions()), *block.merkle_root());
     }
 }
