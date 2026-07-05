@@ -260,20 +260,25 @@ impl MempoolManager {
             });
         }
 
-        // Check memory limit
+        // Check memory limit.
+        //
+        // IMPORTANT: `evict_for_memory` acquires `self.memory_usage.write()` on its
+        // own. tokio's RwLock is NOT reentrant, so we must NOT hold a guard across
+        // that call or the task self-deadlocks. Read the usage under a short-lived
+        // guard, drop it before eviction, then re-acquire to commit the increment.
         {
-            let mut mem_usage = self.memory_usage.write().await;
-            if *mem_usage + size > self.max_memory_bytes {
-                // Try to evict low-fee transactions
-                if !self.evict_for_memory(size).await {
-                    return Err(MempoolError::MemoryLimitExceeded {
-                        current: *mem_usage,
-                        max: self.max_memory_bytes,
-                        tx_size: size,
-                    });
-                }
+            let over_limit = {
+                let mem_usage = self.memory_usage.read().await;
+                *mem_usage + size > self.max_memory_bytes
+            };
+            if over_limit && !self.evict_for_memory(size).await {
+                return Err(MempoolError::MemoryLimitExceeded {
+                    current: *self.memory_usage.read().await,
+                    max: self.max_memory_bytes,
+                    tx_size: size,
+                });
             }
-            *mem_usage += size;
+            *self.memory_usage.write().await += size;
         }
 
         // Check if transaction is orphan (missing inputs)
@@ -556,15 +561,21 @@ impl MempoolManager {
             });
         }
 
-        // Remove conflicting transactions
+        // Remove conflicting transactions, reclaiming their memory accounting.
         let mut removed = None;
+        let mut reclaimed = 0usize;
         for hash in &conflicting {
             if let Some((_, entry)) = self.transactions.remove(hash) {
+                reclaimed += entry.size;
                 if removed.is_none() {
                     removed = Some((*entry.transaction).clone());
                 }
                 self.priority_queue.remove_transaction(hash).await;
             }
+        }
+        if reclaimed > 0 {
+            let mut mem_usage = self.memory_usage.write().await;
+            *mem_usage = mem_usage.saturating_sub(reclaimed);
         }
 
         // Add new transaction
@@ -646,13 +657,25 @@ impl MempoolManager {
     pub async fn remove_expired(&self) -> usize {
         let mut removed = 0;
         
-        // Collect expired transaction hashes
-        let mut expired = Vec::new();
-        for entry in self.transactions.iter() {
-            if self.is_expired(entry.value()).await {
-                expired.push(*entry.key());
-            }
-        }
+        // Snapshot (hash, timestamp) pairs first so no DashMap shard guard is held
+        // across an `.await`. SystemTime is Copy, so this releases every Ref before
+        // we evaluate expiry.
+        let candidates: Vec<([u8; 32], SystemTime)> = self
+            .transactions
+            .iter()
+            .map(|entry| (*entry.key(), entry.value().timestamp))
+            .collect();
+
+        let expired: Vec<[u8; 32]> = candidates
+            .into_iter()
+            .filter(|(_, timestamp)| {
+                timestamp
+                    .elapsed()
+                    .map(|d| d > self.expiration_time)
+                    .unwrap_or(false)
+            })
+            .map(|(hash, _)| hash)
+            .collect();
 
         let mut mem_usage = self.memory_usage.write().await;
         for hash in expired {
@@ -871,6 +894,36 @@ mod tests {
         if let Err(e) = result {
             assert!(e.to_string().contains("No conflicting transactions"));
         }
+    }
+
+    /// Regression test for the reentrant-RwLock self-deadlock in add_transaction.
+    ///
+    /// Previously add_transaction held a `memory_usage` write guard across the
+    /// `evict_for_memory` call, which re-acquires the same (non-reentrant) tokio
+    /// RwLock, hanging the task forever. This test drives the exact over-limit
+    /// path and asserts the call returns promptly instead of deadlocking.
+    #[tokio::test]
+    async fn test_add_transaction_over_limit_does_not_deadlock() {
+        let mut manager = MempoolManager::new(MempoolConfig::default());
+        // Force every add to exceed the memory limit so the eviction path runs.
+        manager.max_memory_bytes = 1;
+
+        let tx = create_test_transaction([7u8; 32], 100_000_000);
+
+        // If the deadlock regressed, this future never completes and the timeout
+        // fires, failing the test deterministically instead of hanging forever.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            manager.add_transaction(tx, 10_000, 50, false),
+        )
+        .await;
+
+        assert!(result.is_ok(), "add_transaction deadlocked on memory limit");
+        // Empty pool: nothing to evict, so it must surface a memory-limit error.
+        assert!(matches!(
+            result.unwrap(),
+            Err(MempoolError::MemoryLimitExceeded { .. })
+        ));
     }
 }
 

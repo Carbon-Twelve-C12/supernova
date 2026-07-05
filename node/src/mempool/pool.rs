@@ -7,6 +7,7 @@ use crate::mempool::rate_limiter::MempoolRateLimiter;
 use supernova_core::types::transaction::Transaction;
 use dashmap::DashMap;
 use hex;
+use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::debug;
@@ -68,6 +69,15 @@ struct MempoolEntry {
 pub struct TransactionPool {
     /// Main storage using DashMap for thread-safety
     transactions: DashMap<[u8; 32], MempoolEntry>,
+    /// SECURITY (R3-53): Index of spent outputs `(prev_tx_hash, prev_output_index)`
+    /// -> spending tx hash, used to atomically reject conflicting double-spends at
+    /// the mempool admission boundary. Kept consistent with `transactions` on every
+    /// insert/remove/evict/expire/replace, all serialized by `modification_lock`.
+    spent_outputs: DashMap<([u8; 32], u32), [u8; 32]>,
+    /// SECURITY (R3-53): Serializes the check-then-act admission critical section so
+    /// two concurrent adds spending the SAME UTXO cannot both pass the conflict check
+    /// and both be inserted (TOCTOU double-spend). Held only around mempool mutations.
+    modification_lock: Mutex<()>,
     /// Configuration settings
     config: MempoolConfig,
     /// DoS protection rate limiter (SECURITY FIX P1-003)
@@ -79,9 +89,21 @@ impl TransactionPool {
     pub fn new(config: MempoolConfig) -> Self {
         Self {
             transactions: DashMap::new(),
+            spent_outputs: DashMap::new(),
+            modification_lock: Mutex::new(()),
             config,
             rate_limiter: Arc::new(MempoolRateLimiter::new()),
         }
+    }
+
+    /// Extract the `(prev_tx_hash, prev_output_index)` references a transaction
+    /// spends. Used to maintain the `spent_outputs` double-spend index.
+    fn input_refs(transaction: &Transaction) -> Vec<([u8; 32], u32)> {
+        transaction
+            .inputs()
+            .iter()
+            .map(|input| (input.prev_tx_hash(), input.prev_output_index()))
+            .collect()
     }
 
     /// Add a transaction to the pool
@@ -113,6 +135,15 @@ impl TransactionPool {
         fee_rate: u64,
         peer_id: Option<&str>,
     ) -> Result<(), MempoolError> {
+        // SECURITY (R3-53): Serialize the entire admission critical section
+        // (conflict check -> eviction -> insert) so it is atomic. Without this,
+        // two concurrent tasks admitting different-hash transactions that spend
+        // the SAME UTXO could both pass the double-spend check and both insert,
+        // leaving conflicting double-spends in the pool and enabling invalid block
+        // templates / mempool-poisoning DoS. This is mempool admission policy only;
+        // it changes no consensus rule, block validity, or wire/disk format.
+        let _guard = self.modification_lock.lock();
+
         let tx_hash = transaction.hash();
 
         // Check if transaction already exists
@@ -145,6 +176,38 @@ impl TransactionPool {
             });
         }
 
+        // SECURITY (R3-12): Verify the transaction's cryptographic (post-quantum)
+        // signature BEFORE accepting it into the pool or re-gossiping it.
+        //
+        // Without this, the relay boundary accepted transactions carrying a
+        // missing / malformed / forged PQC signature and re-broadcast them
+        // network-wide; they were only rejected at block-inclusion time. That
+        // both violated full-stack PQC verification at the relay boundary and
+        // enabled a cheap DoS / mempool-pollution vector.
+        //
+        // This is a strict subset of consensus authorization: it checks the
+        // signature over the canonical sighash (fail-closed) but NOT the
+        // key-to-output binding, which requires UTXO/prevout access unavailable
+        // here. Full authorization is still enforced by block validation. This
+        // is relay/mempool policy only and changes no consensus rule, block
+        // validity, or wire/disk format. Ordered after the cheap rate-limit and
+        // fee checks so an attacker is throttled before we spend CPU on crypto.
+        transaction
+            .verify_signature_only()
+            .map_err(|e| MempoolError::InvalidTransaction(e.to_string()))?;
+
+        // SECURITY (R3-53): Atomic double-spend rejection. Under `modification_lock`,
+        // check whether ANY input this transaction spends is already spent by another
+        // transaction in the pool. Because the lock is held across this check and the
+        // subsequent insert, two conflicting different-hash transactions cannot race
+        // past each other. O(inputs) via the `spent_outputs` index, not an O(n) scan.
+        let input_refs = Self::input_refs(&transaction);
+        for input_ref in &input_refs {
+            if let Some(existing) = self.spent_outputs.get(input_ref) {
+                return Err(MempoolError::DoubleSpend(hex::encode(*existing.value())));
+            }
+        }
+
         // Check pool size limit
         if self.transactions.len() >= self.config.max_size {
             // Try to evict lower-fee transaction if this one pays more
@@ -156,6 +219,13 @@ impl TransactionPool {
             }
         }
 
+        // SECURITY (R3-53): Register every spent output BEFORE (or atomically with)
+        // the insert so the double-spend index stays consistent with `transactions`.
+        // Still under `modification_lock`, so no concurrent add observes a partial state.
+        for input_ref in &input_refs {
+            self.spent_outputs.insert(*input_ref, tx_hash);
+        }
+
         // Create and insert new entry
         let entry = MempoolEntry {
             transaction,
@@ -165,10 +235,10 @@ impl TransactionPool {
         };
 
         self.transactions.insert(tx_hash, entry);
-        
+
         // Record addition for memory tracking
         self.rate_limiter.record_addition(tx_size);
-        
+
         Ok(())
     }
     
@@ -181,7 +251,7 @@ impl TransactionPool {
     /// * `Ok(true)` - Evicted a transaction, room available
     /// * `Ok(false)` - No suitable transaction to evict
     /// * `Err(MempoolError)` - Error during eviction
-    fn try_evict_for_better_fee(&self, new_fee_rate: u64, new_size: usize) -> Result<bool, MempoolError> {
+    fn try_evict_for_better_fee(&self, new_fee_rate: u64, _new_size: usize) -> Result<bool, MempoolError> {
         // Find lowest fee transaction
         let mut lowest_fee_entry: Option<([u8; 32], u64, usize)> = None;
         
@@ -204,7 +274,14 @@ impl TransactionPool {
         if let Some((evict_hash, evict_fee, evict_size)) = lowest_fee_entry {
             // Require new fee to be at least 2x the lowest fee
             if new_fee_rate >= evict_fee * 2 {
-                self.transactions.remove(&evict_hash);
+                // SECURITY (R3-53): Keep the double-spend index consistent by
+                // deregistering the evicted transaction's spent outputs. Runs under
+                // the caller's `modification_lock`, so no lock is acquired here.
+                if let Some((_, evicted)) = self.transactions.remove(&evict_hash) {
+                    for input_ref in Self::input_refs(&evicted.transaction) {
+                        self.spent_outputs.remove(&input_ref);
+                    }
+                }
                 self.rate_limiter.record_removal(evict_size);
                 
                 debug!(
@@ -223,8 +300,15 @@ impl TransactionPool {
 
     /// Remove a transaction from the pool
     pub fn remove_transaction(&self, tx_hash: &[u8; 32]) -> Option<Transaction> {
+        // SECURITY (R3-53): Serialize with the admission critical section so the
+        // spent-output index and the transaction map are never observed inconsistent.
+        let _guard = self.modification_lock.lock();
         match self.transactions.remove(tx_hash) {
             Some((_, entry)) => {
+                // Deregister this transaction's spent outputs from the index.
+                for input_ref in Self::input_refs(&entry.transaction) {
+                    self.spent_outputs.remove(&input_ref);
+                }
                 // Update memory tracking
                 self.rate_limiter.record_removal(entry.size);
                 Some(entry.transaction)
@@ -240,8 +324,22 @@ impl TransactionPool {
             .map(|entry| entry.transaction.clone())
     }
 
+    /// Get the absolute fee (in novas) the pool tracks for a transaction.
+    ///
+    /// Computed as `fee_rate * size` from the pool entry, matching the value
+    /// surfaced by verbose mempool RPC responses. Returns `None` when the
+    /// transaction is not in the pool.
+    pub fn get_transaction_fee(&self, tx_hash: &[u8; 32]) -> Option<u64> {
+        self.transactions
+            .get(tx_hash)
+            .map(|entry| entry.fee_rate.saturating_mul(entry.size as u64))
+    }
+
     /// Clear expired transactions from the pool
     pub fn clear_expired(&self) -> usize {
+        // SECURITY (R3-53): Serialize with admission so the spent-output index stays
+        // consistent while entries are pruned.
+        let _guard = self.modification_lock.lock();
         let now = SystemTime::now();
         let max_age = Duration::from_secs(self.config.max_age);
         let mut removed = 0;
@@ -251,6 +349,10 @@ impl TransactionPool {
                 .duration_since(entry.timestamp)
                 .unwrap_or(Duration::ZERO);
             if age > max_age {
+                // Deregister the expired transaction's spent outputs.
+                for input_ref in Self::input_refs(&entry.transaction) {
+                    self.spent_outputs.remove(&input_ref);
+                }
                 removed += 1;
                 false
             } else {
@@ -306,7 +408,10 @@ impl TransactionPool {
 
     /// Clear all transactions from the pool
     pub fn clear_all(&self) -> Result<(), MempoolError> {
+        // SECURITY (R3-53): Clear both maps under the lock so they stay consistent.
+        let _guard = self.modification_lock.lock();
         self.transactions.clear();
+        self.spent_outputs.clear();
         Ok(())
     }
 
@@ -322,6 +427,11 @@ impl TransactionPool {
                 "Replace-By-Fee is disabled".to_string(),
             ));
         }
+
+        // SECURITY (R3-53): Serialize RBF with the admission critical section so the
+        // conflict discovery, removals, and insert are atomic and the spent-output
+        // index cannot be observed inconsistent by a concurrent add.
+        let _guard = self.modification_lock.lock();
 
         let tx_hash = new_transaction.hash();
 
@@ -373,8 +483,18 @@ impl TransactionPool {
         let mut removed_txs = Vec::new();
         for (hash, _entry) in conflicting_txs {
             if let Some((_, entry)) = self.transactions.remove(&hash) {
+                // SECURITY (R3-53): Deregister the replaced transaction's spent outputs
+                // so the index reflects only live transactions.
+                for input_ref in Self::input_refs(&entry.transaction) {
+                    self.spent_outputs.remove(&input_ref);
+                }
                 removed_txs.push(entry.transaction);
             }
+        }
+
+        // SECURITY (R3-53): Register the replacement transaction's spent outputs.
+        for input_ref in Self::input_refs(&new_transaction) {
+            self.spent_outputs.insert(input_ref, tx_hash);
         }
 
         // Add the new transaction
@@ -693,6 +813,32 @@ impl TransactionPool {
             .collect()
     }
 
+    /// Get all mempool entries with their real per-transaction metadata.
+    ///
+    /// Unlike [`Self::get_all_transactions`], this returns the fee, fee rate and
+    /// entry timestamp actually tracked by the pool, suitable for verbose
+    /// mempool RPC responses. No pagination or sorting is applied.
+    pub fn get_all_transaction_entries(&self) -> Vec<MempoolTransaction> {
+        self.transactions
+            .iter()
+            .map(|entry| {
+                let tx_hash = *entry.key();
+                let entry_val = entry.value();
+                MempoolTransaction {
+                    txid: hex::encode(tx_hash),
+                    size: entry_val.size,
+                    fee: entry_val.fee_rate.saturating_mul(entry_val.size as u64),
+                    fee_rate: entry_val.fee_rate,
+                    time: entry_val
+                        .timestamp
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                }
+            })
+            .collect()
+    }
+
     /// Get all transactions for a given block
     pub fn get_transactions_for_block(
         &self,
@@ -741,15 +887,41 @@ impl TransactionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use supernova_core::types::transaction::{TransactionInput, TransactionOutput};
+    use supernova_core::crypto::quantum::{QuantumKeyPair, QuantumParameters, QuantumScheme};
+    use supernova_core::types::transaction::{
+        SignatureSchemeType, TransactionInput, TransactionOutput,
+    };
 
-    fn create_test_transaction(prev_hash: [u8; 32], value: u64) -> Transaction {
+    /// Build an UNSIGNED transaction. The mempool now rejects these at the relay
+    /// boundary (R3-12), so this is only used to exercise that rejection path.
+    fn create_unsigned_transaction(prev_hash: [u8; 32], value: u64) -> Transaction {
         Transaction::new(
             1,
             vec![TransactionInput::new(prev_hash, 0, vec![], 0xffffffff)],
             vec![TransactionOutput::new(value, vec![])],
             0,
         )
+    }
+
+    /// Build a transaction carrying a VALID post-quantum (Dilithium) signature so
+    /// it passes the mempool's relay-boundary signature check (R3-12). Each call
+    /// uses a fresh keypair; the tests here only depend on the signature being
+    /// cryptographically valid, not on which key signed it.
+    fn create_test_transaction(prev_hash: [u8; 32], value: u64) -> Transaction {
+        let mut tx = create_unsigned_transaction(prev_hash, value);
+        let params = QuantumParameters {
+            scheme: QuantumScheme::Dilithium,
+            security_level: 2, // maps to SecurityLevel::Low (Dilithium2)
+        };
+        let keypair = QuantumKeyPair::generate(params).expect("keypair generation");
+        tx.sign(
+            &keypair.secret_key,
+            &keypair.public_key,
+            SignatureSchemeType::Dilithium,
+            2,
+        )
+        .expect("transaction signing");
+        tx
     }
 
     #[test]
@@ -769,6 +941,61 @@ mod tests {
     }
 
     #[test]
+    fn test_get_all_transaction_entries_reports_real_metadata() {
+        let config = MempoolConfig::default();
+        let pool = TransactionPool::new(config);
+
+        let tx = create_test_transaction([7u8; 32], 50_000_000);
+        let tx_hash = tx.hash();
+        let fee_rate = 2000u64;
+        let tx_size = bincode::serialize(&tx).unwrap().len();
+
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert!(pool.add_transaction(tx, fee_rate).is_ok());
+
+        let entries = pool.get_all_transaction_entries();
+        assert_eq!(entries.len(), 1);
+        let entry = &entries[0];
+
+        // txid and size are the real values.
+        assert_eq!(entry.txid, hex::encode(tx_hash));
+        assert_eq!(entry.size, tx_size);
+
+        // Fee and fee rate are real, not the old placeholder of 1000.
+        assert_eq!(entry.fee_rate, fee_rate);
+        assert_eq!(entry.fee, fee_rate * tx_size as u64);
+
+        // Timestamp is a real entry time, not the old placeholder of 0.
+        assert!(entry.time >= before);
+        assert!(entry.time != 0);
+    }
+
+    #[test]
+    fn test_get_transaction_fee_reports_real_fee() {
+        let config = MempoolConfig::default();
+        let pool = TransactionPool::new(config);
+
+        let tx = create_test_transaction([11u8; 32], 50_000_000);
+        let tx_hash = tx.hash();
+        let fee_rate = 2000u64;
+        let tx_size = bincode::serialize(&tx).unwrap().len();
+
+        assert!(pool.add_transaction(tx, fee_rate).is_ok());
+
+        // Real fee is fee_rate * size, not the old hardcoded placeholder of 1000.
+        assert_eq!(
+            pool.get_transaction_fee(&tx_hash),
+            Some(fee_rate * tx_size as u64)
+        );
+
+        // Unknown transactions return None (handler falls back to 0).
+        assert_eq!(pool.get_transaction_fee(&[0xabu8; 32]), None);
+    }
+
+    #[test]
     fn test_double_spend_detection() {
         let config = MempoolConfig::default();
         let pool = TransactionPool::new(config);
@@ -780,6 +1007,60 @@ mod tests {
         // Try to add second transaction spending same output
         let tx2 = create_test_transaction([1u8; 32], 40_000_000);
         assert!(pool.check_double_spend(&tx2));
+    }
+
+    /// SECURITY (R3-53): The admission path itself (not just the separate
+    /// `check_double_spend` scan) must reject a second, different-hash transaction
+    /// that spends an output already spent by a transaction in the pool. This is the
+    /// TOCTOU double-spend guard: conflicting transactions must never coexist.
+    #[test]
+    fn test_add_rejects_conflicting_double_spend() {
+        let pool = TransactionPool::new(MempoolConfig::default());
+
+        // tx1 and tx2 spend the SAME input ([1u8;32], 0) but have different outputs,
+        // hence different tx hashes.
+        let tx1 = create_test_transaction([1u8; 32], 50_000_000);
+        let tx2 = create_test_transaction([1u8; 32], 40_000_000);
+        assert_ne!(tx1.hash(), tx2.hash(), "test setup: hashes must differ");
+        let tx2_hash = tx2.hash();
+
+        // First admission succeeds.
+        assert!(pool.add_transaction(tx1, 2000).is_ok());
+
+        // Second, conflicting admission must be rejected at the add boundary.
+        let result = pool.add_transaction(tx2, 2000);
+        assert!(
+            matches!(result, Err(MempoolError::DoubleSpend(_))),
+            "conflicting double-spend must be rejected by add path, got: {:?}",
+            result
+        );
+        // And it must NOT have been inserted.
+        assert!(pool.get_transaction(&tx2_hash).is_none());
+        assert_eq!(pool.size(), 1);
+    }
+
+    /// SECURITY (R3-53): Removing a transaction must free its spent outputs so a later
+    /// transaction spending the same UTXO can be admitted (index stays consistent).
+    #[test]
+    fn test_spent_output_index_freed_on_remove() {
+        let pool = TransactionPool::new(MempoolConfig::default());
+
+        let tx1 = create_test_transaction([2u8; 32], 50_000_000);
+        let tx1_hash = tx1.hash();
+        assert!(pool.add_transaction(tx1, 2000).is_ok());
+
+        // Conflicting tx is rejected while tx1 is present.
+        let tx2 = create_test_transaction([2u8; 32], 40_000_000);
+        assert!(matches!(
+            pool.add_transaction(tx2.clone(), 2000),
+            Err(MempoolError::DoubleSpend(_))
+        ));
+
+        // After removing tx1, the same UTXO is free again.
+        assert!(pool.remove_transaction(&tx1_hash).is_some());
+        let tx2_hash = tx2.hash();
+        assert!(pool.add_transaction(tx2, 2000).is_ok());
+        assert!(pool.get_transaction(&tx2_hash).is_some());
     }
 
     #[test]
@@ -880,5 +1161,64 @@ mod tests {
 
         // 60% increase (16000) should work
         assert!(pool.replace_transaction(tx3, 16000).is_ok());
+    }
+
+    /// R3-12: the mempool must reject a transaction that carries NO signature
+    /// before it is accepted or re-gossiped, closing the relay-pollution / DoS
+    /// vector. Consensus already rejects it at block-inclusion time; this closes
+    /// the earlier relay boundary too.
+    #[test]
+    fn test_rejects_unsigned_transaction() {
+        let pool = TransactionPool::new(MempoolConfig::default());
+
+        let tx = create_unsigned_transaction([7u8; 32], 50_000_000);
+        let tx_hash = tx.hash();
+
+        let result = pool.add_transaction(tx, 2000);
+        assert!(
+            matches!(result, Err(MempoolError::InvalidTransaction(_))),
+            "unsigned tx must be rejected, got: {:?}",
+            result
+        );
+        // And it must NOT have been inserted (so it cannot be re-gossiped).
+        assert!(pool.get_transaction(&tx_hash).is_none());
+    }
+
+    /// R3-12: a transaction whose signature bytes have been tampered with must be
+    /// rejected at the relay boundary (fail-closed crypto verification).
+    #[test]
+    fn test_rejects_forged_signature() {
+        let pool = TransactionPool::new(MempoolConfig::default());
+
+        // Start from a validly signed tx, then corrupt the signature payload.
+        let mut tx = create_test_transaction([9u8; 32], 50_000_000);
+        let mut sig = tx
+            .signature_data()
+            .expect("signed tx has signature data")
+            .clone();
+        // Flip a bit in the signature so cryptographic verification fails.
+        sig.data[0] ^= 0xFF;
+        tx.set_signature_data(sig);
+        let tx_hash = tx.hash();
+
+        let result = pool.add_transaction(tx, 2000);
+        assert!(
+            matches!(result, Err(MempoolError::InvalidTransaction(_))),
+            "forged-signature tx must be rejected, got: {:?}",
+            result
+        );
+        assert!(pool.get_transaction(&tx_hash).is_none());
+    }
+
+    /// R3-12 regression guard: a validly signed transaction is still accepted.
+    #[test]
+    fn test_accepts_validly_signed_transaction() {
+        let pool = TransactionPool::new(MempoolConfig::default());
+
+        let tx = create_test_transaction([3u8; 32], 50_000_000);
+        let tx_hash = tx.hash();
+
+        assert!(pool.add_transaction(tx, 2000).is_ok());
+        assert!(pool.get_transaction(&tx_hash).is_some());
     }
 }

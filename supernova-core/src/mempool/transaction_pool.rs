@@ -552,9 +552,16 @@ impl TransactionPool {
             });
         }
 
-        // Remove conflicting transactions
+        // Remove conflicting transactions. Propagate any error so that a failed
+        // eviction (e.g. lock poisoning or internal-accounting drift) aborts the
+        // replacement instead of proceeding as if eviction fully succeeded. A
+        // benign `NotFound` (the conflict was already removed concurrently) is
+        // tolerated.
         for tx_hash in conflicts {
-            let _ = self.remove_transaction(&tx_hash);
+            match self.remove_transaction(&tx_hash) {
+                Ok(_) | Err(MempoolError::NotFound) => {}
+                Err(e) => return Err(e),
+            }
         }
 
         Ok(())
@@ -708,7 +715,20 @@ impl TransactionPool {
 
         // Actually remove the transactions
         for tx_hash in to_remove {
-            let _ = self.remove_transaction(&tx_hash);
+            match self.remove_transaction(&tx_hash) {
+                Ok(_) => {}
+                // Benign: the entry was already gone (e.g. concurrent removal).
+                Err(MempoolError::NotFound) => {}
+                // A poisoned lock leaves size accounting un-decremented and must
+                // not be silently swallowed. Surface it; the post-eviction size
+                // re-check below still governs the success/failure return value.
+                Err(e) => {
+                    log::error!(
+                        "Failed to evict mempool transaction during make_room: {}",
+                        e
+                    );
+                }
+            }
         }
 
         // Check if we made enough room
@@ -854,6 +874,22 @@ mod tests {
     }
 
     #[test]
+    fn test_remove_missing_transaction_returns_not_found() {
+        // make_room() distinguishes the benign MempoolError::NotFound (entry
+        // already gone) from a poisoned-lock error that must be surfaced. This
+        // pins the contract that removing an absent tx yields NotFound, so the
+        // benign arm of make_room's error match stays correct.
+        let get_utxo =
+            |_tx_hash: &[u8; 32], _index: u32| -> Option<TransactionOutput> { None };
+        let config = TransactionPoolConfig::default();
+        let mempool = TransactionPool::new(config, get_utxo);
+
+        let missing = [7u8; 32];
+        let result = mempool.remove_transaction(&missing);
+        assert!(matches!(result, Err(MempoolError::NotFound)));
+    }
+
+    #[test]
     #[ignore] // Fee validation implementation pending
     fn test_fee_too_low() {
         let get_utxo = |tx_hash: &[u8; 32], index: u32| {
@@ -915,6 +951,84 @@ mod tests {
         // Verify tx1 was replaced with tx2
         assert!(mempool.get_transaction(&tx1.hash()).is_none());
         assert!(mempool.get_transaction(&tx2.hash()).is_some());
+    }
+
+    // Helper: manually insert a conflicting entry into the pool without going
+    // through add_transaction's validation, so we can exercise check_conflicts
+    // directly.
+    fn insert_raw_entry(mempool: &TransactionPool, tx: &Transaction, fee: u64, size: usize) {
+        let fee_rate = fee / size as u64;
+        let entry = MempoolEntry {
+            transaction: tx.clone(),
+            time_added: Instant::now(),
+            fee,
+            fee_rate,
+            size,
+            ancestor_size: size,
+            ancestor_fee: fee,
+            ancestor_fee_rate: fee_rate,
+        };
+        mempool.transactions.insert(tx.hash(), entry);
+        *mempool.size_bytes.write().unwrap() += size;
+    }
+
+    #[test]
+    fn test_check_conflicts_evicts_and_returns_ok() {
+        let get_utxo = |_tx_hash: &[u8; 32], _index: u32| -> Option<TransactionOutput> { None };
+
+        let mut config = TransactionPoolConfig::default();
+        config.enable_replace_by_fee = true;
+        config.rbf_min_fee_increment = 10;
+        config.min_fee_rate = 1;
+
+        let mempool = TransactionPool::new(config, get_utxo);
+
+        // Existing transaction spending input ([1..], 0), fee_rate = 10.
+        let tx1 = create_test_tx(vec![(vec![1], 0)], 90_000);
+        insert_raw_entry(&mempool, &tx1, 1_000, 100);
+        assert!(mempool.get_transaction(&tx1.hash()).is_some());
+
+        // Replacement transaction spending the SAME input with a much higher fee.
+        let tx2 = create_test_tx(vec![(vec![1], 0)], 80_000);
+
+        // check_conflicts must fully evict the conflict and return Ok.
+        let result = mempool.check_conflicts(&tx2, 100);
+        assert!(result.is_ok(), "expected Ok, got {:?}", result);
+
+        // The conflicting transaction must actually be gone, and size accounting
+        // must be decremented back to zero.
+        assert!(mempool.get_transaction(&tx1.hash()).is_none());
+        assert_eq!(*mempool.size_bytes.read().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_check_conflicts_no_conflict_is_ok() {
+        let get_utxo = |_tx_hash: &[u8; 32], _index: u32| -> Option<TransactionOutput> { None };
+        let config = TransactionPoolConfig::default();
+        let mempool = TransactionPool::new(config, get_utxo);
+
+        // Empty pool -> no conflicts.
+        let tx = create_test_tx(vec![(vec![7], 0)], 90_000);
+        assert!(mempool.check_conflicts(&tx, 100).is_ok());
+    }
+
+    #[test]
+    fn test_check_conflicts_rbf_disabled_rejects() {
+        let get_utxo = |_tx_hash: &[u8; 32], _index: u32| -> Option<TransactionOutput> { None };
+        let mut config = TransactionPoolConfig::default();
+        config.enable_replace_by_fee = false;
+        let mempool = TransactionPool::new(config, get_utxo);
+
+        let tx1 = create_test_tx(vec![(vec![1], 0)], 90_000);
+        insert_raw_entry(&mempool, &tx1, 1_000, 100);
+
+        let tx2 = create_test_tx(vec![(vec![1], 0)], 80_000);
+        assert!(matches!(
+            mempool.check_conflicts(&tx2, 100),
+            Err(MempoolError::Conflict)
+        ));
+        // Original must remain untouched when RBF is disabled.
+        assert!(mempool.get_transaction(&tx1.hash()).is_some());
     }
 
     #[test]
