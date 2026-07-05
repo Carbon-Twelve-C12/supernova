@@ -1,4 +1,4 @@
-use super::reward::{calculate_mining_reward, EnvironmentalProfile};
+use super::reward::EnvironmentalProfile;
 use async_trait::async_trait;
 use supernova_core::config::NetworkType;
 use supernova_core::governance::{
@@ -71,13 +71,27 @@ impl BlockTemplate {
         environmental_profile: Option<&EnvironmentalProfile>, // Add environmental profile
         network: NetworkType,
     ) -> Self {
-        // Calculate reward based on block height and environmental profile
-        let env_profile = environmental_profile.cloned().unwrap_or_default();
-        let mining_reward = calculate_mining_reward(block_height, &env_profile);
+        // CONSENSUS ALIGNMENT (R5-68): fund the coinbase from the authoritative
+        // consensus subsidy, NOT from `calculate_mining_reward().total_reward`.
+        //
+        // The consensus validator caps a block's coinbase at
+        // `block_subsidy(height) + fees` (`supernova_core::types::block_subsidy`,
+        // enforced by `persistence.rs::check_block_value`). The miner-side
+        // environmental bonus (base reward times up to 1.75x) is therefore NOT
+        // consensus-payable: emitting `base + bonus` would push the coinbase over
+        // the cap and cause the block to be permanently rejected — punishing
+        // verified-green miners, the inverse of the incentive's intent. The
+        // `environmental_profile` argument is retained for telemetry/verification
+        // but does not change the payable coinbase amount.
+        let coinbase_reward = supernova_core::types::block_subsidy(block_height);
 
-        // Create coinbase transaction with calculated reward
+        // Retained for telemetry/verification; intentionally does not affect the
+        // payable coinbase amount (see consensus-alignment note above).
+        let _ = environmental_profile;
+
+        // Create coinbase transaction with the consensus-capped reward
         let coinbase = Self::create_coinbase_transaction(
-            mining_reward.total_reward,
+            coinbase_reward,
             reward_address.clone(),
             network,
         );
@@ -204,7 +218,8 @@ impl BlockTemplate {
     /// - TODO: Production must validate treasury address via governance
     ///
     /// # Arguments
-    /// * `reward` - Total block reward (base + fees + environmental bonus)
+    /// * `reward` - Consensus-capped block reward (`block_subsidy(height)`; the
+    ///   environmental bonus is NOT consensus-payable and is excluded here)
     /// * `reward_address` - Miner's reward address
     ///
     /// # Returns
@@ -436,6 +451,54 @@ mod tests {
         assert_eq!(
             block.transactions()[0].outputs()[0].amount(),
             expected_miner_payout
+        );
+    }
+
+    #[tokio::test]
+    async fn test_coinbase_respects_consensus_cap_with_env_bonus() {
+        // R5-68 regression: a fully-verified maximum-bonus environmental profile
+        // must NOT inflate the coinbase past the consensus cap
+        // (`block_subsidy(height) + fees`). Previously the template funded the
+        // coinbase from base * up to 1.75x, producing permanently-invalid blocks.
+        use supernova_core::types::block_subsidy;
+
+        let mempool = MockMempool;
+        let height = 1u64;
+        let max_profile = EnvironmentalProfile {
+            renewable_percentage: 1.0,
+            efficiency_score: 1.0,
+            verified: true,
+            rec_coverage: 1.0,
+        };
+
+        let template = BlockTemplate::new(
+            1,
+            [0u8; 32],
+            u32::MAX,
+            vec![1, 2, 3, 4],
+            &mempool,
+            height,
+            Some(&max_profile),
+            NetworkType::Regtest,
+        )
+        .await;
+
+        let block = template.create_block();
+        let coinbase = &block.transactions()[0];
+        let total_coinbase: u64 = coinbase.outputs().iter().map(|o| o.amount()).sum();
+
+        // The template does not add transaction fees to the coinbase, so the
+        // payable amount must equal — and never exceed — the consensus subsidy.
+        let cap = block_subsidy(height);
+        assert!(
+            total_coinbase <= cap,
+            "coinbase {} exceeds consensus cap {}",
+            total_coinbase,
+            cap
+        );
+        assert_eq!(
+            total_coinbase, cap,
+            "coinbase should equal the consensus subsidy regardless of env bonus"
         );
     }
 

@@ -10,7 +10,6 @@ use tokio::sync::RwLock;
 use crate::mempool::TransactionPool;
 use crate::storage::ChainState;
 use supernova_core::types::{Block, BlockHeader, Transaction};
-use sha2::{Digest, Sha256};
 
 pub struct BlockProducer {
     mempool: Arc<TransactionPool>,
@@ -45,12 +44,12 @@ impl BlockProducer {
         let mut transactions = vec![coinbase];
         transactions.extend(mempool_txs);
 
-        let merkle_root = self.calculate_merkle_root(&transactions);
-
         let header = BlockHeader {
             version: 1,
             prev_block_hash: best_hash,
-            merkle_root,
+            // Placeholder; the authoritative Merkle root is computed below via the
+            // consensus `Block::calculate_merkle_root` so producer and validator agree.
+            merkle_root: [0u8; 32],
             // A wall-clock that predates UNIX_EPOCH would indicate a misconfigured
             // host; the miner's median-time-past check still rejects the block, so
             // `Duration::ZERO` is a safe fallback that keeps us from panicking.
@@ -63,41 +62,14 @@ impl BlockProducer {
             height,
         };
 
-        Ok(Block::new(header, transactions))
-    }
+        let mut block = Block::new(header, transactions);
 
-    fn calculate_merkle_root(&self, transactions: &[Transaction]) -> [u8; 32] {
-        if transactions.is_empty() {
-            return [0u8; 32];
-        }
+        // Use the consensus Merkle implementation so the template's merkle_root
+        // matches what `Block::verify_merkle_root` (and peers) expect.
+        let merkle_root = block.calculate_merkle_root();
+        block.header.merkle_root = merkle_root;
 
-        let tx_hashes: Vec<_> = transactions.iter().map(|tx| tx.hash()).collect();
-        let mut level = tx_hashes;
-
-        while level.len() > 1 {
-            let mut next_level = Vec::new();
-            for chunk in level.chunks(2) {
-                let mut hasher = Sha256::new();
-                hasher.update(chunk[0]);
-                if let Some(second) = chunk.get(1) {
-                    hasher.update(second);
-                } else {
-                    hasher.update(chunk[0]); // Duplicate last hash if odd number
-                }
-                let result = hasher.finalize();
-
-                // Double SHA-256
-                let mut hasher = Sha256::new();
-                hasher.update(result);
-                let double_hash = hasher.finalize();
-
-                let mut hash = [0u8; 32];
-                hash.copy_from_slice(&double_hash);
-                next_level.push(hash);
-            }
-            level = next_level;
-        }
-        level[0]
+        Ok(block)
     }
 
     // TODO: Implement this method to take a wallet reference
@@ -105,5 +77,51 @@ impl BlockProducer {
     fn create_coinbase_transaction(&self, height: u64) -> Transaction {
         // Placeholder implementation
         Transaction::new(1, vec![], vec![], 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A template's merkle root must be produced by the consensus
+    /// `Block::calculate_merkle_root` so it survives `verify_merkle_root`
+    /// (and peer validation). This mirrors how `create_block_template`
+    /// assembles the block, without needing a live `ChainState`/mempool.
+    #[test]
+    fn template_merkle_root_matches_consensus() {
+        let build = |txs: Vec<Transaction>| {
+            let header = BlockHeader {
+                version: 1,
+                prev_block_hash: [0u8; 32],
+                merkle_root: [0u8; 32],
+                timestamp: 0,
+                bits: 0x207fffff,
+                nonce: 0,
+                height: 1,
+            };
+            let mut block = Block::new(header, txs);
+            let merkle_root = block.calculate_merkle_root();
+            block.header.merkle_root = merkle_root;
+            block
+        };
+
+        // Single (coinbase-only) transaction.
+        let single = build(vec![Transaction::new(1, vec![], vec![], 0)]);
+        assert!(
+            single.verify_merkle_root(),
+            "coinbase-only template must pass consensus merkle verification"
+        );
+
+        // Multiple transactions, including an odd count to exercise odd-promotion.
+        let many = build(vec![
+            Transaction::new(1, vec![], vec![], 0),
+            Transaction::new(2, vec![], vec![], 1),
+            Transaction::new(3, vec![], vec![], 2),
+        ]);
+        assert!(
+            many.verify_merkle_root(),
+            "multi-tx template must pass consensus merkle verification"
+        );
     }
 }

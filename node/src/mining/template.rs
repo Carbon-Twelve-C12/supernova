@@ -9,8 +9,8 @@ use thiserror::Error;
 
 use crate::mempool::TransactionPool;
 use crate::storage::ChainState;
-use super::merkle::calculate_merkle_root;
 use super::coinbase::build_coinbase_transaction;
+use supernova_core::util::merkle::MerkleTree;
 use wallet::quantum_wallet::Address;
 
 #[derive(Error, Debug)]
@@ -107,13 +107,19 @@ impl BlockTemplate {
         let mut all_transactions = vec![coinbase.clone()];
         all_transactions.extend(selected_txs);
         
-        // Calculate merkle root
-        let txids: Vec<[u8; 32]> = all_transactions.iter()
+        // Calculate merkle root using the EXACT algorithm consensus validation
+        // uses (supernova_core MerkleTree: SHA-256, re-hashed leaves, promote-odd),
+        // which is also what `to_block` -> `Block::new_with_params` recomputes into
+        // the block header. The mining-local SHA3-512 merkle (super::merkle) produced
+        // a different root for every block, so any block an external miner built from
+        // this template's advertised `merkle_root` was rejected by
+        // `Block::verify_merkle_root` in submit_block. Matching the consensus tree
+        // here keeps getblocktemplate honest and unblocks external mining.
+        let tx_hashes: Vec<[u8; 32]> = all_transactions.iter()
             .map(|tx| tx.hash())
             .collect();
-        
-        let merkle_root = calculate_merkle_root(&txids)
-            .map_err(|e| TemplateError::MerkleError(e.to_string()))?;
+
+        let merkle_root = MerkleTree::new(&tx_hashes).root_hash();
         
         // Get current timestamp
         let timestamp = std::time::SystemTime::now()
@@ -156,8 +162,53 @@ impl BlockTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    // Tests require full blockchain context
-    // Will be tested via integration tests
+    use supernova_core::types::transaction::{Transaction, TransactionInput, TransactionOutput};
+
+    fn sample_txs(n: usize) -> Vec<Transaction> {
+        (0..n)
+            .map(|i| {
+                Transaction::new(
+                    1,
+                    vec![TransactionInput::new([i as u8; 32], i as u32, vec![], 0xffffffff)],
+                    vec![TransactionOutput::new(50_000_000 + i as u64, vec![i as u8])],
+                    0,
+                )
+            })
+            .collect()
+    }
+
+    /// Regression test for R5-30: the merkle root advertised by the mining
+    /// template MUST equal the consensus merkle root that `to_block` /
+    /// `Block::validate` recompute, otherwise every externally mined block is
+    /// rejected by `Block::verify_merkle_root`. The template uses the
+    /// supernova_core `MerkleTree`; the block header is filled by
+    /// `Block::new_with_params`, which uses the same tree.
+    #[test]
+    fn template_merkle_root_matches_consensus() {
+        for count in [1usize, 2, 3, 5, 8] {
+            let txs = sample_txs(count);
+
+            // Root computed the way BlockTemplate::generate now computes it.
+            let tx_hashes: Vec<[u8; 32]> = txs.iter().map(|tx| tx.hash()).collect();
+            let template_root = MerkleTree::new(&tx_hashes).root_hash();
+
+            // Root the actual block will carry / consensus will enforce.
+            let block = Block::new_with_params(1, [0u8; 32], txs.clone(), 0x1e0fffff);
+            let consensus_root = block.calculate_merkle_root();
+
+            assert_eq!(
+                template_root, consensus_root,
+                "template merkle root diverged from consensus for {count} txs"
+            );
+            assert_eq!(
+                template_root, block.header.merkle_root,
+                "template merkle root diverged from block header for {count} txs"
+            );
+            assert!(
+                block.verify_merkle_root(),
+                "block built from template failed verify_merkle_root for {count} txs"
+            );
+        }
+    }
 }
 
