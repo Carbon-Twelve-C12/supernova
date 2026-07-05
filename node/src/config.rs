@@ -36,6 +36,16 @@ pub struct NodeConfig {
     pub checkpoint: CheckpointConfig,
     pub api: ApiConfig,
     pub testnet: TestnetConfig,
+
+    /// Filesystem path this configuration was actually loaded from.
+    ///
+    /// Recorded by `load()` so that `reload()` and `watch_config()` operate on
+    /// the operator's real config file rather than re-running the legacy
+    /// multi-path search (which could silently swap in a different file or
+    /// freshly-generated defaults). `#[serde(skip)]` keeps it off-disk, so the
+    /// on-disk TOML shape is unchanged; it is populated at load time only.
+    #[serde(skip)]
+    pub source_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -675,6 +685,10 @@ impl NodeConfig {
         let mut config = Config::builder();
         config = config.add_source(Config::try_from(&Self::default())?);
 
+        // Remember the file we actually loaded from so `reload()` /
+        // `watch_config()` can operate on it instead of re-searching.
+        let resolved_source: Option<PathBuf>;
+
         if let Some(path) = explicit_path {
             let pb = PathBuf::from(path);
             if !pb.exists() {
@@ -693,6 +707,7 @@ impl NodeConfig {
             // the historical search behavior below).
             let stem = path.trim_end_matches(".toml");
             config = config.add_source(File::with_name(stem));
+            resolved_source = Some(pb);
         } else {
             // Try multiple config file locations
             let config_paths = vec![
@@ -701,33 +716,53 @@ impl NodeConfig {
                 PathBuf::from(".supernova/node.toml"),  // User directory
             ];
 
-            let mut config_loaded = false;
+            let mut config_loaded = None;
             for config_path in &config_paths {
                 if config_path.exists() {
                     info!("Loading configuration from: {:?}", config_path);
                     if let Some(config_str) = config_path.to_str() {
                         config = config.add_source(File::with_name(config_str.trim_end_matches(".toml")));
-                        config_loaded = true;
+                        config_loaded = Some(config_path.clone());
                         break;
                     }
                 }
             }
 
-            if !config_loaded {
+            if config_loaded.is_none() {
                 warn!("No configuration file found, using defaults");
-                if let Err(e) = Self::create_default_config(&PathBuf::from("config.toml")) {
+                let default_path = PathBuf::from("config.toml");
+                if let Err(e) = Self::create_default_config(&default_path) {
                     warn!("Failed to create default config file: {}", e);
                 }
             }
+            resolved_source = config_loaded;
         }
 
+        // Environment overrides.
+        //
+        // Every top-level `NodeConfig` field is a nested struct, and the leaf
+        // field names themselves contain underscores (`max_peers`,
+        // `listen_addr`, `db_path`, `bootstrap_nodes`, ...). A single `_`
+        // separator therefore cannot both strip the `SUPERNOVA` prefix AND
+        // address a nested leaf: `SUPERNOVA_NETWORK_MAX_PEERS` would split into
+        // the non-existent path `network.max.peers` and be silently discarded.
+        //
+        // Use a distinct nested separator so the two roles never collide:
+        //   * `prefix_separator("_")` strips the `SUPERNOVA_` prefix.
+        //   * `separator("__")` delimits nested path segments.
+        // Thus `SUPERNOVA_NETWORK__MAX_PEERS` maps to `network.max_peers` and
+        // `SUPERNOVA_STORAGE__DB_PATH` maps to `storage.db_path`.
         config = config.add_source(
             Environment::with_prefix("SUPERNOVA")
-                .separator("_")
+                .prefix_separator("_")
+                .separator("__")
                 .try_parsing(true),
         );
 
-        let config: NodeConfig = config.build()?.try_deserialize()?;
+        let mut config: NodeConfig = config.build()?.try_deserialize()?;
+        // `source_path` is `#[serde(skip)]`, so it is always `None` after
+        // deserialization; record the file we resolved above.
+        config.source_path = resolved_source;
         Self::ensure_directories(&config)?;
         if let Err(e) = config.validate() {
             return Err(ConfigError::Message(format!("Configuration validation error: {e}")));
@@ -746,11 +781,24 @@ impl NodeConfig {
 
     pub async fn reload(&mut self) -> Result<(), ConfigError> {
         info!("Reloading configuration");
-        // NOTE: reload re-runs the legacy search rather than remembering the
-        // path the operator started with. If you migrate to an explicit-path
-        // workflow, restart the node instead of relying on hot-reload, or
-        // extend `NodeConfig` to remember the source path.
-        match Self::load(None) {
+        // Reload from the exact file this config was loaded from, rather than
+        // re-running the legacy multi-path search (which could silently swap in
+        // a different file or freshly-generated defaults). If we never recorded
+        // a source path (e.g. the process started from pure defaults with no
+        // config file on disk), refuse to guess.
+        let source = self.source_path.clone().ok_or_else(|| {
+            ConfigError::Message(
+                "Cannot reload configuration: no source file path was recorded at load time \
+                 (node was started without a config file). Restart the node to change config."
+                    .to_string(),
+            )
+        })?;
+        let source_str = source.to_str().ok_or_else(|| {
+            ConfigError::Message(format!(
+                "Cannot reload configuration: source path {source:?} is not valid UTF-8"
+            ))
+        })?;
+        match Self::load(Some(source_str)) {
             Ok(new_config) => {
                 if let Err(e) = new_config.validate() {
                     error!("Invalid configuration: {}", e);
@@ -770,8 +818,18 @@ impl NodeConfig {
         }
     }
 
-    pub async fn watch_config() -> Result<tokio::sync::mpsc::Receiver<()>, ConfigError> {
-        let config_path = Self::config_path();
+    pub async fn watch_config(&self) -> Result<tokio::sync::mpsc::Receiver<()>, ConfigError> {
+        // Watch the file this config was actually loaded from, not a hardcoded
+        // legacy location. Without a recorded source path there is nothing
+        // meaningful to watch, so surface an error rather than silently
+        // watching the wrong file.
+        let config_path = self.source_path.clone().ok_or_else(|| {
+            ConfigError::Message(
+                "Cannot watch configuration: no source file path was recorded at load time \
+                 (node was started without a config file)."
+                    .to_string(),
+            )
+        })?;
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
         let watcher_result = RecommendedWatcher::new(
@@ -867,6 +925,25 @@ impl NodeConfig {
             )));
         }
 
+        // Defense-in-depth: when metrics are served, the metrics port must not
+        // collide with either the API port or the P2P listen port, otherwise the
+        // metrics server would fail to bind at runtime instead of at config time.
+        if self.node.metrics_enabled {
+            let metrics_port = self.node.metrics_port;
+            if metrics_port == self.api.port {
+                return Err(NodeConfigValidationError::PortConflict(format!(
+                    "node.metrics_port ({metrics_port}) must differ from api.port ({})",
+                    self.api.port
+                )));
+            }
+            if metrics_port == p2p_port {
+                return Err(NodeConfigValidationError::PortConflict(format!(
+                    "node.metrics_port ({metrics_port}) must differ from \
+                     network.listen_addr TCP port ({p2p_port})"
+                )));
+            }
+        }
+
         // Security: refuse to start with default API key in non-development environments.
         // This prevents accidental deployment with insecure credentials.
         let is_non_dev = matches!(
@@ -895,11 +972,6 @@ impl NodeConfig {
         }
 
         Ok(())
-    }
-
-    /// Get the path to the configuration file
-    fn config_path() -> PathBuf {
-        PathBuf::from("config/node.toml")
     }
 }
 
@@ -956,5 +1028,240 @@ impl std::fmt::Display for NotifyError {
 impl std::error::Error for NotifyError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod env_override_tests {
+    use super::*;
+    use config::{Config, Environment, File, FileFormat, Source};
+
+    fn env_source() -> Environment {
+        Environment::with_prefix("SUPERNOVA")
+            .prefix_separator("_")
+            .separator("__")
+            .try_parsing(true)
+    }
+
+    /// Regression test for the env-override separator collision.
+    ///
+    /// Every top-level `NodeConfig` field is a nested struct whose leaf names
+    /// contain underscores, so the old single-`_` separator turned
+    /// `SUPERNOVA_NETWORK_MAX_PEERS` into the non-existent path
+    /// `network.max.peers` and silently discarded it. This asserts that the
+    /// `prefix_separator("_")` + `separator("__")` scheme both (a) maps env
+    /// vars to the correct dotted leaf paths and (b) that those overrides
+    /// actually reach the typed `NodeConfig` when merged over defaults —
+    /// mirroring the production `File` + `Environment` layering in `load`.
+    ///
+    /// The two env vars are unique to this test, and the assertions run in a
+    /// single test so there is no cross-test race on the process-global
+    /// environment.
+    #[test]
+    fn nested_env_override_maps_and_applies() {
+        std::env::set_var("SUPERNOVA_NETWORK__MAX_PEERS", "123");
+        std::env::set_var("SUPERNOVA_STORAGE__DB_PATH", "/tmp/supernova-env-test-db");
+
+        // (a) The env source collapses to the correct dotted leaf paths, and
+        // NOT the broken `network.max.peers` the single-`_` separator produced.
+        let collected = env_source().collect().expect("collect env");
+        assert!(
+            collected.contains_key("network.max_peers"),
+            "expected key network.max_peers, got: {:?}",
+            collected.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            collected.contains_key("storage.db_path"),
+            "expected key storage.db_path, got: {:?}",
+            collected.keys().collect::<Vec<_>>()
+        );
+        assert!(!collected.contains_key("network.max.peers"));
+
+        // (b) End-to-end: the override reaches the typed leaf after merging
+        // over the serialized defaults (same TOML the node writes/reads).
+        let defaults_toml = toml::to_string_pretty(&NodeConfig::default())
+            .expect("serialize default config to toml");
+        let built = Config::builder()
+            .add_source(File::from_str(&defaults_toml, FileFormat::Toml))
+            .add_source(env_source())
+            .build()
+            .expect("build config");
+        let cfg: NodeConfig = built.try_deserialize().expect("deserialize NodeConfig");
+
+        std::env::remove_var("SUPERNOVA_NETWORK__MAX_PEERS");
+        std::env::remove_var("SUPERNOVA_STORAGE__DB_PATH");
+
+        assert_eq!(cfg.network.max_peers, 123);
+        assert_eq!(
+            cfg.storage.db_path,
+            std::path::PathBuf::from("/tmp/supernova-env-test-db")
+        );
+    }
+}
+
+#[cfg(test)]
+mod source_path_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// Build a unique temp directory for a single test, isolated so directory
+    /// creation side-effects from `ensure_directories` stay out of the repo.
+    fn unique_tmp_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "supernova-cfg-{tag}-{}-{nanos}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    /// A full config TOML (the same shape the node itself writes) built from
+    /// defaults with only the asserted field overridden, and storage/backup
+    /// dirs pointed into the temp dir so load()'s directory creation stays
+    /// contained.
+    fn config_toml(dir: &std::path::Path, max_peers: usize) -> String {
+        let mut cfg = NodeConfig::default();
+        cfg.network.max_peers = max_peers;
+        cfg.storage.db_path = dir.join("db");
+        cfg.backup.backup_dir = dir.join("backup");
+        toml::to_string_pretty(&cfg).expect("serialize config to toml")
+    }
+
+    /// Default config records no source path, so it cannot reload — the guard
+    /// must refuse to guess rather than fall back to the legacy search.
+    #[tokio::test]
+    async fn reload_without_source_path_errors() {
+        let mut cfg = NodeConfig::default();
+        assert!(cfg.source_path.is_none());
+        let err = cfg.reload().await.expect_err("reload must error without a source path");
+        assert!(
+            err.to_string().contains("no source file path"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Same guard for the file watcher: no recorded path -> explicit error, not
+    /// a hardcoded legacy location.
+    #[tokio::test]
+    async fn watch_without_source_path_errors() {
+        let cfg = NodeConfig::default();
+        let err = cfg
+            .watch_config()
+            .await
+            .expect_err("watch_config must error without a source path");
+        assert!(
+            err.to_string().contains("no source file path"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// `source_path` is `#[serde(skip)]`: it must never appear in the on-disk
+    /// TOML, keeping the persisted config shape unchanged.
+    #[test]
+    fn source_path_is_not_serialized() {
+        let mut cfg = NodeConfig::default();
+        cfg.source_path = Some(PathBuf::from("/etc/supernova/prod.toml"));
+        let toml = toml::to_string_pretty(&cfg).expect("serialize");
+        assert!(
+            !toml.contains("source_path") && !toml.contains("prod.toml"),
+            "source_path leaked into serialized toml:\n{toml}"
+        );
+    }
+
+    /// End-to-end: `load(Some(path))` records that exact path, and a subsequent
+    /// `reload()` re-reads the same file (picking up an edit) instead of the
+    /// legacy search. This is the core of the fix.
+    #[tokio::test]
+    async fn load_records_path_and_reload_rereads_same_file() {
+        let dir = unique_tmp_dir("reload");
+        let cfg_file = dir.join("prod.toml");
+        fs::write(&cfg_file, config_toml(&dir, 128)).expect("write config");
+        let path_str = cfg_file.to_str().unwrap().to_string();
+
+        let mut cfg = NodeConfig::load(Some(&path_str)).expect("initial load");
+        assert_eq!(cfg.source_path.as_deref(), Some(cfg_file.as_path()));
+        assert_eq!(cfg.network.max_peers, 128);
+
+        // Mutate the very file we loaded from; reload must observe the change.
+        fs::write(&cfg_file, config_toml(&dir, 200)).expect("rewrite config");
+        cfg.reload().await.expect("reload from recorded path");
+        assert_eq!(cfg.network.max_peers, 200);
+        // The recorded source path survives the reload.
+        assert_eq!(cfg.source_path.as_deref(), Some(cfg_file.as_path()));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod port_conflict_tests {
+    use super::*;
+
+    /// Build a `NodeConfig` whose cross-field validation is reachable without
+    /// filesystem side effects: checkpoints disabled (no dir creation) and the
+    /// default `Development` environment (so the API-key guard is inert).
+    fn base_config() -> NodeConfig {
+        let mut cfg = NodeConfig::default();
+        cfg.checkpoint.checkpoints_enabled = false;
+        // The default network caps (inbound 128 / outbound 32) exceed the
+        // default max_peers (50), which fails an unrelated network check before
+        // cross-field port validation is reached. Raise max_peers so these
+        // tests exercise the port logic, not the peer-cap logic.
+        cfg.network.max_peers = 200;
+        cfg
+    }
+
+    /// Baseline sanity: the default distinct ports (p2p 8000, api 8080,
+    /// metrics 9000) validate cleanly.
+    #[test]
+    fn distinct_ports_validate() {
+        base_config().validate().expect("distinct ports must validate");
+    }
+
+    /// When metrics are enabled, a metrics port equal to the API port is a
+    /// cross-field conflict caught at config time, not left to fail at bind.
+    #[test]
+    fn metrics_port_equal_to_api_port_is_rejected() {
+        let mut cfg = base_config();
+        cfg.node.metrics_enabled = true;
+        cfg.node.metrics_port = cfg.api.port;
+        let err = cfg
+            .validate()
+            .expect_err("metrics_port == api.port must be rejected");
+        assert!(
+            matches!(err, NodeConfigValidationError::PortConflict(_)),
+            "unexpected error variant: {err:?}"
+        );
+    }
+
+    /// Same guard against colliding with the P2P listen port.
+    #[test]
+    fn metrics_port_equal_to_p2p_port_is_rejected() {
+        let mut cfg = base_config();
+        let p2p_port = parse_libp2p_listen_port(&cfg.network.listen_addr).unwrap();
+        cfg.node.metrics_enabled = true;
+        cfg.node.metrics_port = p2p_port;
+        let err = cfg
+            .validate()
+            .expect_err("metrics_port == p2p_port must be rejected");
+        assert!(
+            matches!(err, NodeConfigValidationError::PortConflict(_)),
+            "unexpected error variant: {err:?}"
+        );
+    }
+
+    /// The metrics cross-field check is gated on `metrics_enabled`: a disabled
+    /// metrics server may nominally share a port without failing validation.
+    #[test]
+    fn metrics_port_collision_ignored_when_disabled() {
+        let mut cfg = base_config();
+        cfg.node.metrics_enabled = false;
+        cfg.node.metrics_port = cfg.api.port;
+        cfg.validate()
+            .expect("disabled metrics must not trigger a port conflict");
     }
 }

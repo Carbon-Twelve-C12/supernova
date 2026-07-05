@@ -23,7 +23,6 @@ tokio = { version = "1.28", features = ["full"] }
 
 # HTTP client for RPC
 reqwest = { version = "0.11", features = ["json"] }
-jsonrpc-client-transports = "18.0"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

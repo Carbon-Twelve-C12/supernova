@@ -254,27 +254,42 @@ impl ShutdownCoordinator {
         })
         .await?;
 
-        // Phase 3: Flush mempool to disk
-        info!("Phase 3: Flushing mempool");
+        // Phase 3: Mempool.
+        //
+        // NOTE: the mempool is deliberately NOT persisted to disk on shutdown.
+        // Unconfirmed transactions are volatile network state and are rebuilt
+        // from peers (mempool gossip) after restart, matching Bitcoin Core's
+        // behaviour. This phase is therefore an intentional no-op; it exists
+        // only to keep the shutdown sequence's phase ordering explicit. Do not
+        // log it as "flushing" — nothing is written.
+        info!("Phase 3: Mempool (in-memory, not persisted — rebuilt from peers on restart)");
         self.shutdown_component("mempool", || async {
-            // Mempool state is typically in-memory, but we can ensure
-            // any pending transactions are handled
+            // Intentional no-op: mempool is volatile, rebuilt from peers.
             Ok(())
         })
         .await?;
 
-        // Phase 4: Close Lightning channels gracefully
-        info!("Phase 4: Closing Lightning channels");
+        // Phase 4: Lightning channels.
+        //
+        // NOTE: graceful cooperative channel close is NOT performed here — it
+        // depends on a LightningManager close/checkpoint API that is not yet
+        // wired (see round-1 hard-stop catalogue). Channel state that matters
+        // for recovery lives in the Lightning channel database and is persisted
+        // independently; abandoning the connection without a cooperative close
+        // is safe (the counterparty / watchtower path handles it). This phase
+        // currently only confirms the manager lock is reachable, so it is
+        // logged as a skip rather than an asserted graceful close.
+        info!("Phase 4: Lightning channels (no graceful close — recovery via channel db)");
         let lightning_manager_opt = self.node.lightning();
         self.shutdown_component("lightning", move || {
             async move {
                 if let Some(lightning_manager) = lightning_manager_opt {
-                    // Lightning channels should be closed gracefully
-                    // Use blocking task for std::sync::RwLock
+                    // Use blocking task for std::sync::RwLock.
                     tokio::task::spawn_blocking(move || {
                         let _manager = lightning_manager.read()
                             .map_err(|_| "Lightning manager lock poisoned".to_string())?;
-                        // Placeholder - actual implementation depends on LightningManager API
+                        // Intentional no-op: no cooperative-close API wired yet;
+                        // channel recovery state is persisted in the channel db.
                         Ok::<(), String>(())
                     }).await.map_err(|e| format!("Task join error: {}", e))??;
                 }
@@ -283,10 +298,16 @@ impl ShutdownCoordinator {
         })
         .await?;
 
-        // Phase 5: Save UTXO set state
-        info!("Phase 5: Saving UTXO set state");
+        // Phase 5: UTXO set.
+        //
+        // NOTE: the UTXO set is NOT saved by this phase. It is owned by
+        // ChainState and is durably flushed as part of the database flush in
+        // Phase 6, which is the authoritative durability guarantee for
+        // on-disk chain state. This phase is an intentional no-op kept for
+        // explicit phase ordering; the real work happens in Phase 6.
+        info!("Phase 5: UTXO set (no-op — durably flushed with database in Phase 6)");
         self.shutdown_component("utxo_set", || async {
-            // UTXO set is managed by ChainState which will be flushed with database
+            // Intentional no-op: UTXO set is flushed with the database (Phase 6).
             Ok(())
         })
         .await?;
@@ -351,11 +372,14 @@ impl ShutdownCoordinator {
             }
         }
 
-        // Phase 8: Save final metrics
-        info!("Phase 8: Saving metrics");
+        // Phase 8: Metrics.
+        //
+        // NOTE: runtime metrics are held in-memory and are exported live over
+        // the metrics endpoint; they are NOT snapshotted to disk on shutdown.
+        // This phase is an intentional no-op — do not log it as "saving".
+        info!("Phase 8: Metrics (in-memory, not persisted)");
         self.shutdown_component("metrics", || async {
-            // Metrics are typically collected in-memory
-            // Save any critical metrics if needed
+            // Intentional no-op: metrics are in-memory / scraped live.
             Ok(())
         })
         .await?;
@@ -733,6 +757,54 @@ mod tests {
         // Verify components were shut down in order
         let status = coordinator.get_status().await;
         assert!(!status.completed_components.is_empty());
+    }
+
+    /// The mempool, lightning, and utxo_set phases are intentional no-ops:
+    /// none of them persists state (mempool is rebuilt from peers, the UTXO
+    /// set is flushed with the database in Phase 6, Lightning recovery state
+    /// lives in the channel db). Their log lines are worded as skips rather
+    /// than asserted flushes/closes. This test locks in that these phases
+    /// still run and are tracked to completion — they precede the database
+    /// phase, so they complete regardless of whether later phases succeed in
+    /// the test environment — so that a future change which removes or
+    /// reorders them (and thereby desyncs the honest logging) is caught.
+    #[tokio::test]
+    async fn test_noop_phases_run_to_completion_without_persistence() {
+        // Build a node from a *valid* config directly rather than via
+        // `create_test_node()`, whose `NodeConfig::default()` currently fails
+        // validation (`max_inbound_connections` exceeds `max_peers`) — a
+        // pre-existing config-default issue, unrelated to this test.
+        let mut node_config = NodeConfig::default();
+        node_config.network.max_inbound_connections =
+            node_config.network.max_peers.min(node_config.network.max_inbound_connections);
+        let node = Arc::new(
+            Node::new(node_config)
+                .await
+                .expect("Failed to create test node"),
+        );
+        let config = ShutdownConfig {
+            max_shutdown_time: Duration::from_secs(10),
+            component_timeout: Duration::from_secs(2),
+            persist_state: false,
+            ..Default::default()
+        };
+
+        let coordinator = ShutdownCoordinator::new(node, config);
+        coordinator.request_shutdown(ShutdownSignal::User).await;
+        let _ = coordinator.shutdown(ShutdownSignal::User).await;
+
+        // These no-op phases execute before the load-bearing database/network
+        // phases, so they must have completed regardless of the test-env
+        // outcome of those later phases.
+        let status = coordinator.get_status().await;
+        for component in ["mempool", "lightning", "utxo_set"] {
+            assert!(
+                status.completed_components.iter().any(|c| c == component),
+                "no-op phase '{}' should still run to completion; completed = {:?}",
+                component,
+                status.completed_components,
+            );
+        }
     }
 
     #[tokio::test]

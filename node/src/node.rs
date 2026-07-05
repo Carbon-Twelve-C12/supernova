@@ -676,15 +676,31 @@ impl Node {
             return Err(NodeError::General("Block validation failed".to_string()));
         }
 
-        // Add to chain state
-        {
-            let mut chain = self.chain_state
-                .write()
-                .map_err(|_| NodeError::General("Chain state lock poisoned".to_string()))?;
-            
-            chain.add_block(&block).await
-                .map_err(NodeError::StorageError)?;
-        }
+        // Add to chain state using spawn_blocking to avoid holding the
+        // std::sync::RwLock write guard across the `.await`. The guard is
+        // !Send and holding it across storage I/O would block all
+        // chain_state readers/writers (same safe pattern used above at the
+        // NewBlock network-event handler).
+        let chain_clone = Arc::clone(&self.chain_state);
+        let block_for_add = block.clone();
+        // The write guard is held only inside a dedicated blocking thread's
+        // isolated runtime, so it never blocks the async executor. Clippy's
+        // await_holding_lock lint cannot see through spawn_blocking.
+        #[allow(clippy::await_holding_lock)]
+        let add_result = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                match chain_clone.write() {
+                    Ok(mut chain) => chain.add_block(&block_for_add).await,
+                    Err(e) => Err(crate::storage::StorageError::DatabaseError(
+                        format!("Lock poisoned: {}", e),
+                    )),
+                }
+            })
+        })
+        .await;
+        add_result
+            .map_err(|e| NodeError::General(format!("Task join error adding block: {}", e)))?
+            .map_err(NodeError::StorageError)?;
 
         // Scan block for wallet transactions (NEW: Blockchain Integration)
         if let Some(wallet_manager) = &self.wallet_manager {

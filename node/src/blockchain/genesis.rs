@@ -125,90 +125,11 @@ pub fn create_testnet_genesis_block() -> Result<Block, String> {
     Ok(block)
 }
 
-/// Mine the testnet genesis block (used only for initial setup)
-/// This function is called if no hardcoded genesis exists yet
-fn mine_testnet_genesis() -> Result<Block, String> {
-    tracing::info!("=== Mining Testnet Genesis Block ===");
-    tracing::info!("Timestamp: {} (October 27, 2025 16:00:00 UTC)", TESTNET_GENESIS_TIMESTAMP);
-    tracing::info!("Difficulty: 0x{:08x}", TESTNET_GENESIS_DIFFICULTY_BITS);
-    
-    // Create coinbase transaction
-    let coinbase_script = b"Genesis block for Supernova supernova-testnet".to_vec();
-    let coinbase_input = TransactionInput::new_coinbase(coinbase_script);
-    let genesis_output = TransactionOutput::new(TESTNET_GENESIS_REWARD, vec![]);
-    let coinbase_tx = Transaction::new(2, vec![coinbase_input], vec![genesis_output], 0);
-    
-    tracing::info!("Coinbase TX Hash: {}", hex::encode(&coinbase_tx.hash()));
-    
-    // Create genesis block header
-    let genesis_header = BlockHeader::new(
-        TESTNET_GENESIS_VERSION,
-        [0u8; 32],
-        [0u8; 32], // merkle_root will be calculated
-        TESTNET_GENESIS_TIMESTAMP,
-        TESTNET_GENESIS_DIFFICULTY_BITS,
-        0, // nonce will be found
-    );
-    
-    // Create the block
-    let mut block = Block::new(genesis_header, vec![coinbase_tx]);
-    
-    // Calculate and set merkle root
-    let merkle_root = block.calculate_merkle_root();
-    block.header.merkle_root = merkle_root;
-    
-    tracing::info!("Merkle Root: {}", hex::encode(&merkle_root));
-    tracing::info!("Target: {}", hex::encode(&block.header.target()));
-    tracing::info!("Mining...");
-    
-    let start_time = std::time::Instant::now();
-    let mut nonce = 0u32;
-    let mut attempts = 0u64;
-    
-    loop {
-        block.header.nonce = nonce;
-        
-        if block.header.meets_target() {
-            let elapsed = start_time.elapsed();
-            let hash = block.header.hash();
-            
-            tracing::info!("=== GENESIS BLOCK FOUND ===");
-            tracing::info!("Nonce: {}", nonce);
-            tracing::info!("Hash: {}", hex::encode(&hash));
-            tracing::info!("Attempts: {}", attempts);
-            tracing::info!("Time: {:.2}s", elapsed.as_secs_f64());
-            
-            // Print constants to hardcode
-            tracing::warn!("=== COPY THESE VALUES TO node/src/blockchain/genesis.rs ===");
-            tracing::warn!("pub const TESTNET_GENESIS_NONCE: u32 = {};", nonce);
-            tracing::warn!("pub const TESTNET_GENESIS_MERKLE_ROOT: [u8; 32] = {};", format_array(&merkle_root));
-            tracing::warn!("pub const TESTNET_GENESIS_HASH: [u8; 32] = {};", format_array(&hash));
-            
-            return Ok(block);
-        }
-        
-        nonce = nonce.wrapping_add(1);
-        attempts += 1;
-        
-        if attempts % 100_000 == 0 && attempts > 0 {
-            tracing::debug!("Attempts: {} (nonce: {})", attempts, nonce);
-        }
-        
-        if attempts > 10_000_000 {
-            return Err("Genesis block mining exceeded 10M attempts. Check difficulty settings.".to_string());
-        }
-    }
-}
-
-fn format_array(bytes: &[u8; 32]) -> String {
-    let hex_values: Vec<String> = bytes.iter()
-        .map(|b| format!("0x{:02x}", b))
-        .collect();
-    format!("[\n    {}\n]", hex_values.chunks(8)
-        .map(|chunk| chunk.join(", "))
-        .collect::<Vec<_>>()
-        .join(",\n    "))
-}
+// NOTE: Runtime genesis mining was intentionally removed. The genesis block is
+// pre-mined and hardcoded above (see `create_testnet_genesis_block`). Mining
+// genesis at node startup would cause network fragmentation. To regenerate the
+// constants when the coinbase shape or hashing codec changes, use the
+// `#[ignore]`'d `diagnose_genesis_values` test below (or the `mine_genesis` bin).
 
 #[cfg(test)]
 mod tests {

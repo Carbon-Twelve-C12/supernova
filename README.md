@@ -17,20 +17,20 @@ Supernova is a PoW blockchain written in Rust, built to address three critical c
 ## Key Features
 
 ### Quantum Resistance
-- **ML-DSA (Dilithium)** for transaction signatures
-- **SPHINCS+** for stateless wallet recovery
-- **ML-KEM (Kyber)** for P2P key exchange
+- **ML-DSA (Dilithium)** for transaction signatures and wallet keys
+- **SPHINCS+** stateless-signature support for wallet recovery
+- **ML-KEM (Kyber)** key-encapsulation primitive implemented 
 - **SHA3-512** hashing throughout
 
 ### Carbon-Negative Mining
-- Real-time emissions tracking on-chain
-- Block reward bonuses for verified renewable energy
-- Automated environmental treasury allocation
+- On-chain emissions calculation and energy-source classification
+- Block reward bonuses for renewable energy
+- Environmental treasury accounting logic
 
-### Lightning Network
-- Quantum-secure channel operations
-- SHA3-512 HTLCs
-- Post-quantum onion routing
+### Lightning Network (In Progress)
+- Quantum-secure channel state machine
+- SHA3-512 HTLC data structures
+- Post-quantum onion routing (planned)
 
 ## Quick Start
 
@@ -77,9 +77,9 @@ supernova/
 | Component | Status |
 |-----------|--------|
 | Core Protocol | Testnet Ready |
-| Quantum Cryptography | Complete |
-| Lightning Network | Complete |
-| P2P Networking | Complete |
+| Quantum Cryptography | ML-DSA complete; ML-KEM primitive implemented but not yet wired into P2P; SPHINCS+/Hybrid signing planned; bulletproof range-proof verifier fail-closed (see ADR-0008) |
+| Lightning Network | In Progress (architectural foundation) |
+| P2P Networking | In Progress (ML-KEM key exchange not yet wired into transport) |
 | Security Hardening | Complete |
 | Test Coverage | 98%+ |
 

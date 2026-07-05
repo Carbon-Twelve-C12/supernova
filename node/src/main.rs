@@ -133,6 +133,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
+    // Install the Prometheus metrics recorder and scrape endpoint when the
+    // operator has enabled metrics. Without this, every counter!/gauge!/
+    // histogram! call across the node routes to the metrics crate's no-op
+    // default recorder and nothing is recorded or exported. Bind on all
+    // interfaces (matching the exporter's own default) at the configured
+    // metrics port so an external Prometheus can scrape it.
+    if config.node.metrics_enabled {
+        let metrics_addr = std::net::SocketAddr::new(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+            config.node.metrics_port,
+        );
+        match node::metrics::init_metrics_with_endpoint(metrics_addr) {
+            Ok(()) => info!("Prometheus metrics endpoint listening on {}", metrics_addr),
+            Err(e) => error!("Failed to start Prometheus metrics endpoint: {}", e),
+        }
+    } else {
+        info!("Metrics disabled (node.metrics_enabled = false)");
+    }
+
     // Check if this is a testnet deployment
     let is_testnet =
         config.node.network_name.to_lowercase().contains("test") || config.testnet.enabled;

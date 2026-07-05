@@ -112,6 +112,7 @@ mod testnet_integration_tests {
                     EnvironmentalProfile::default(),
                     vec![cert],
                     audit,
+                    100.0,
                 )
                 .await;
 

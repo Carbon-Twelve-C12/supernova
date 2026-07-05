@@ -168,6 +168,28 @@ pub fn init_metrics() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// Install the global Prometheus recorder and bind an HTTP scrape endpoint.
+///
+/// This is the production entry point for observability. Until this runs, the
+/// `metrics` crate routes every `counter!`/`gauge!`/`histogram!` call across
+/// the node to its default no-op recorder, so nothing is recorded or exported.
+/// Installing the recorder makes all instrumentation live, and the HTTP
+/// listener serves the metrics in Prometheus text format on `bind_addr` for an
+/// external Prometheus to scrape.
+///
+/// Must be called from within a Tokio runtime (the exporter spawns onto the
+/// current runtime when one is present). Installing more than once in a process
+/// returns an error, since the global recorder can only be set a single time.
+pub fn init_metrics_with_endpoint(
+    bind_addr: std::net::SocketAddr,
+) -> Result<(), Box<dyn std::error::Error>> {
+    PrometheusBuilder::new()
+        .with_http_listener(bind_addr)
+        .install()?;
+
+    Ok(())
+}
 /// API metrics for tracking API performance
 #[derive(Clone)]
 pub struct ApiMetrics {
@@ -301,6 +323,31 @@ mod tests {
     fn test_init_metrics() {
         let result = init_metrics();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_prometheus_endpoint_renders_registered_counter() {
+        use metrics::{Key, Recorder};
+        use metrics_exporter_prometheus::PrometheusBuilder;
+
+        // Build a Prometheus recorder + handle WITHOUT installing it globally
+        // (another test installs the global recorder, and the global recorder
+        // can only be set once per process). This exercises the exact export
+        // path init_metrics_with_endpoint relies on: a PrometheusBuilder
+        // recorder records instrumentation and its handle renders it in the
+        // Prometheus text format that the HTTP scrape endpoint serves.
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+
+        let key = Key::from_name("supernova_test_scrape_counter");
+        let counter = recorder.register_counter(&key);
+        counter.increment(7);
+
+        let rendered = handle.render();
+        assert!(
+            rendered.contains("supernova_test_scrape_counter"),
+            "Prometheus render must expose the registered counter, got:\n{rendered}"
+        );
     }
 
     #[test]
