@@ -3,7 +3,6 @@
 //! This module provides a complete replacement for classical ECDSA-based wallets.
 //! Every operation is designed to be quantum-resistant from the ground up.
 
-use crate::crypto::hash256;
 use crate::crypto::quantum::{
     sign_quantum, QuantumError, QuantumKeyPair, QuantumParameters, QuantumScheme,
 };
@@ -11,7 +10,6 @@ use crate::types::transaction::{SignatureSchemeType, Transaction, TransactionSig
 use bip39::{Language, Mnemonic};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha3::Digest as Sha3Digest;
 use std::collections::HashMap;
 
 /// Quantum-safe HD wallet
@@ -155,30 +153,38 @@ impl QuantumWallet {
             Argon2,
         };
 
-        // Use mnemonic entropy as base
-        let entropy = mnemonic.to_entropy();
+        // Derive the seed from the mnemonic entropy AND the optional
+        // passphrase, BIP39-style: the passphrase must contribute to the
+        // resulting key material so that two different passphrases produce
+        // two different seeds (and therefore different quantum keys). The
+        // previous implementation discarded the passphrase entirely and
+        // selected between two fixed salts, so every non-empty passphrase
+        // yielded identical keys — defeating the passphrase protection the
+        // API implies.
+        //
+        // Both inputs are secret and deterministic, so recovery from the
+        // mnemonic + passphrase alone remains reproducible. The passphrase
+        // is folded into the KDF *input* (the per-wallet secret is the
+        // mnemonic entropy), while the salt is a fixed domain-separation
+        // constant — this mirrors BIP39, where the salt is a deterministic
+        // function of the passphrase rather than a random value.
+        let mut kdf_input = mnemonic.to_entropy();
+        kdf_input.extend_from_slice(password.as_bytes());
 
-        // Create salt from password (or use default)
-        let salt_str = if password.is_empty() {
-            "quantumsupernova"
-        } else {
-            // Create a temporary binding for the encoded password
-            let encoded = base64::encode(password);
-            // We need to leak this to get a &'static str, or use a different approach
-            // For now, let's use a fixed salt when password is provided
-            "quantumsupernova_pw"
-        };
-        // Salt strings are compile-time constants and valid base64, so
-        // `from_b64` should not fail — but propagate the error rather than
-        // panicking. A panic here on a future invalid-salt edit would
-        // crash the wallet construction with no diagnostic; the typed
-        // error surfaces the misconfiguration to callers.
-        let salt = Salt::from_b64(salt_str).map_err(|_| WalletError::SeedDerivationFailed)?;
+        // Fixed, deterministic salt for domain separation. A random salt
+        // would break deterministic recovery; the secret entropy comes from
+        // the mnemonic, not the salt. Salt strings are compile-time
+        // constants and valid base64, so `from_b64` should not fail — but
+        // propagate the error rather than panicking. A panic here on a
+        // future invalid-salt edit would crash wallet construction with no
+        // diagnostic; the typed error surfaces the misconfiguration to
+        // callers.
+        let salt = Salt::from_b64("quantumsupernova").map_err(|_| WalletError::SeedDerivationFailed)?;
 
         // Use Argon2id for quantum-resistant key derivation
         let argon2 = Argon2::default();
         let hash = argon2
-            .hash_password(&entropy, salt)
+            .hash_password(&kdf_input, salt)
             .map_err(|_| WalletError::SeedDerivationFailed)?;
 
         // Extract 64 bytes for seed
@@ -293,8 +299,19 @@ impl QuantumWallet {
         // Create witness program
         let mut program = vec![version];
 
-        // For quantum addresses, we use hash of public key
-        let pubkey_hash = hash256(pubkey);
+        // For quantum addresses, commit to the public key with SHA3-512
+        // (Grover-resistant), taking the first 32 bytes. This mirrors the
+        // consensus spend-binding commitment in
+        // `types::transaction::pubkey_commitment` (SHA3-512(pubkey)[..32]);
+        // the previous double-SHA256 (`hash256`) produced a classical hash
+        // that could never match the SHA3-512 commitment presented at spend
+        // time, making any output locked to such an address unspendable.
+        let pubkey_hash = {
+            use sha3::{Digest, Sha3_512};
+            let mut hasher = Sha3_512::new();
+            hasher.update(pubkey);
+            hasher.finalize()[..32].to_vec()
+        };
         program.extend_from_slice(&pubkey_hash);
 
         // Encode with bech32m
@@ -674,5 +691,87 @@ mod tests {
         assert_eq!(stealth_addr.address_type, QuantumAddressType::Stealth);
         assert!(stealth_addr.ownership_proof.is_some());
         assert!(stealth_addr.address.starts_with("supernova"));
+    }
+
+    #[test]
+    fn test_seed_derivation_depends_on_password() {
+        let mnemonic_str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let mnemonic = Mnemonic::parse_in(Language::English, mnemonic_str).unwrap();
+
+        let seed_empty = QuantumWallet::quantum_safe_seed_derivation(&mnemonic, "").unwrap();
+        let seed_pw1 =
+            QuantumWallet::quantum_safe_seed_derivation(&mnemonic, "correct horse").unwrap();
+        let seed_pw2 =
+            QuantumWallet::quantum_safe_seed_derivation(&mnemonic, "battery staple").unwrap();
+
+        // A passphrase must actually change the derived seed.
+        assert_ne!(
+            seed_empty, seed_pw1,
+            "empty and non-empty passphrases must derive different seeds"
+        );
+        // Two distinct passphrases must derive distinct seeds (the prior
+        // implementation collapsed all non-empty passphrases to one seed).
+        assert_ne!(
+            seed_pw1, seed_pw2,
+            "distinct passphrases must derive distinct seeds"
+        );
+
+        // Derivation must remain deterministic for recovery.
+        let seed_pw1_again =
+            QuantumWallet::quantum_safe_seed_derivation(&mnemonic, "correct horse").unwrap();
+        assert_eq!(
+            seed_pw1, seed_pw1_again,
+            "same mnemonic + passphrase must derive the same seed"
+        );
+    }
+
+    #[test]
+    fn test_address_commits_to_sha3_512_not_double_sha256() {
+        use bech32::FromBase32;
+
+        let wallet = QuantumWallet::from_mnemonic(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            "",
+            "testnet",
+            QuantumScheme::Dilithium,
+            3,
+        )
+        .unwrap();
+
+        let pubkey: &[u8] = b"quantum-public-key-material-for-address-commitment";
+
+        let address = wallet
+            .encode_quantum_address(pubkey, QuantumAddressType::PureQuantum)
+            .unwrap();
+
+        // Decode the bech32m address back into its witness program.
+        let (_hrp, data, _variant) = bech32::decode(&address).unwrap();
+        let program = Vec::<u8>::from_base32(&data).unwrap();
+
+        // program = [version_byte] ++ 32-byte pubkey commitment.
+        assert_eq!(program.len(), 33, "program must be version byte + 32-byte hash");
+        let commitment = &program[1..];
+
+        // The committed hash must be SHA3-512(pubkey)[..32] — the same scheme
+        // consensus spend-binding uses — so outputs locked to this address are
+        // spendable. It must NOT be the classical double-SHA256 the code used
+        // before this fix.
+        let expected_sha3 = {
+            use sha3::{Digest, Sha3_512};
+            let mut hasher = Sha3_512::new();
+            hasher.update(pubkey);
+            hasher.finalize()[..32].to_vec()
+        };
+        assert_eq!(
+            commitment, expected_sha3.as_slice(),
+            "address must commit to SHA3-512(pubkey)[..32]"
+        );
+
+        let double_sha256 = crate::crypto::hash256(pubkey);
+        assert_ne!(
+            commitment,
+            double_sha256.as_slice(),
+            "address must not commit to classical double-SHA256"
+        );
     }
 }

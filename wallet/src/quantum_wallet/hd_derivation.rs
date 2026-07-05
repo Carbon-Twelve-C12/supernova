@@ -9,7 +9,7 @@
 //! Security Features:
 //! - SHA3-512 quantum-resistant hashing
 //! - Multi-round key stretching (SHA3 + SHA2)
-//! - Additional system entropy mixing
+//! - Deterministic derivation (pure function of seed + index) for backup/recovery
 //! - Zeroization of sensitive material
 //! - Forward secrecy protection
 
@@ -17,8 +17,6 @@ use sha3::{Digest, Sha3_256, Sha3_512};
 use sha2::{Sha256, Sha512};
 use zeroize::Zeroize;
 use thiserror::Error;
-use rand::rngs::OsRng;
-use rand::RngCore;
 
 // ============================================================================
 // Quantum HD Derivation with Enhanced Entropy
@@ -131,19 +129,33 @@ pub fn validate_entropy_quality(entropy: &[u8]) -> Result<(), HDDerivationError>
 /// # Derivation Process
 /// 1. Start with master seed (256-bit minimum)
 /// 2. Mix with derivation index using SHA3-512
-/// 3. Add fresh system entropy for unpredictability
-/// 4. Apply multi-round hashing for key stretching
-/// 5. Use derived material as seed for quantum keypair generation
+/// 3. Apply multi-round hashing (SHA3 + SHA2) for key stretching
+/// 4. Use derived material as seed for quantum keypair generation
 ///
 /// # Security Properties
 /// - Forward secrecy: compromising one child key doesn't reveal others
 /// - Deterministic: same seed + index = same key (for backup/recovery)
 /// - Unpredictable: attackers can't predict future keys from past keys
 /// - High entropy: 256-bit minimum throughout derivation chain
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct QuantumHDDerivation {
     /// Master seed (32+ bytes)
     master_seed: Vec<u8>,
+}
+
+// Manual Debug impl: never expose the raw master seed bytes. A derived Debug
+// would print `master_seed: Vec<u8>` verbatim, leaking the wallet master seed
+// through any direct or transitive Debug-formatting (logs, error contexts,
+// panic messages, etc.). Mirrors the redacting impl on keystore::KeyPair.
+impl std::fmt::Debug for QuantumHDDerivation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QuantumHDDerivation")
+            .field(
+                "master_seed",
+                &format_args!("<redacted {} bytes>", self.master_seed.len()),
+            )
+            .finish()
+    }
 }
 
 impl QuantumHDDerivation {
@@ -180,7 +192,7 @@ impl QuantumHDDerivation {
     ///
     /// # Security Design
     /// - Uses SHA3-512 (quantum-resistant hashing)
-    /// - Mixes master seed + index + system entropy
+    /// - Pure function of master seed + index + domain-separation tags
     /// - Multiple rounds of hashing for key stretching
     /// - Produces 64 bytes of key material (256-bit entropy × 2 for safety margin)
     ///
@@ -201,49 +213,49 @@ impl QuantumHDDerivation {
         }
         
         // Step 1: Create base material with SHA3-512 (quantum-resistant)
+        // Derivation is a pure function of (master_seed, index, domain tag) so that
+        // the same seed + index always reproduces the same key. This is REQUIRED for
+        // seed-phrase backup/recovery — mixing fresh system entropy here would make the
+        // "deterministic" contract impossible to honor.
         let mut hasher = Sha3_512::new();
         hasher.update(&self.master_seed);
         hasher.update(&index.to_le_bytes());
         hasher.update(b"supernova-quantum-hd-derivation-v1");
-        
-        // Step 2: CRITICAL - Add fresh system entropy
-        // This prevents predictability even if master seed is compromised
-        // SECURITY FIX (P0-006): Use OsRng instead of thread_rng for cryptographic entropy
-        let mut system_entropy = [0u8; 32];
-        OsRng.fill_bytes(&mut system_entropy);
-        hasher.update(&system_entropy);
-        
-        let base_hash = hasher.finalize();
-        
-        // Step 3: Key stretching with multiple rounds of SHA3
+        let mut base_hash = hasher.finalize();
+
+        // Step 2: Key stretching with multiple rounds of SHA3
         // Mix with master seed again for forward secrecy
         let mut round1 = Sha3_512::new();
         round1.update(&base_hash);
         round1.update(&self.master_seed);
         round1.update(&index.to_le_bytes());
-        let round1_output = round1.finalize();
-        
-        // Step 4: Additional mixing round with SHA2 for defense-in-depth
+        let mut round1_output = round1.finalize();
+
+        // Step 3: Additional mixing round with SHA2 for defense-in-depth
         let mut round2 = Sha512::new();
         round2.update(&round1_output);
-        round2.update(&system_entropy);
         round2.update(&self.master_seed);
-        let round2_output = round2.finalize();
-        
-        // Step 5: Final SHA3 round for output
+        round2.update(&index.to_le_bytes());
+        let mut round2_output = round2.finalize();
+
+        // Step 4: Final SHA3 round for output
         let mut final_hasher = Sha3_512::new();
         final_hasher.update(&round2_output);
         final_hasher.update(&index.to_le_bytes());
         final_hasher.update(b"final-quantum-key-material");
-        let final_hash = final_hasher.finalize();
-        
-        // Step 6: Produce 64 bytes of key material
+        let mut final_hash = final_hasher.finalize();
+
+        // Step 5: Produce 64 bytes of key material
         let mut output = [0u8; 64];
         output.copy_from_slice(&final_hash[..64]);
-        
-        // Zeroize sensitive intermediate values
-        system_entropy.zeroize();
-        
+
+        // Zeroize intermediate secret-derived digests before return so they do
+        // not linger on the stack. Only `output` (the caller's key material) survives.
+        base_hash.as_mut_slice().zeroize();
+        round1_output.as_mut_slice().zeroize();
+        round2_output.as_mut_slice().zeroize();
+        final_hash.as_mut_slice().zeroize();
+
         Ok(output)
     }
     
@@ -308,7 +320,9 @@ impl Drop for QuantumHDDerivation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+
     /// Generate a valid seed for testing (varied bytes)
     fn valid_test_seed() -> Vec<u8> {
         (0..32).map(|i| (i * 7 + 13) as u8).collect()
@@ -352,17 +366,18 @@ mod tests {
     
     #[test]
     fn test_derivation_deterministic() {
-        // Same seed + index should produce same key
+        // Same seed + index MUST produce the same key (backup/recovery contract).
         let seed = valid_test_seed();
         let hd1 = QuantumHDDerivation::from_seed(seed.clone()).unwrap();
         let hd2 = QuantumHDDerivation::from_seed(seed).unwrap();
-        
-        let _key1 = hd1.derive_child_key(0).unwrap();
-        let _key2 = hd2.derive_child_key(0).unwrap();
-        
-        // Note: Due to system entropy mixing, keys may differ
-        // This is actually a FEATURE for forward secrecy
-        // For true deterministic HD, remove system entropy in production mode
+
+        let key1 = hd1.derive_child_key(0).unwrap();
+        let key2 = hd2.derive_child_key(0).unwrap();
+        assert_eq!(key1, key2, "same seed + index must reproduce the same key");
+
+        // Repeated calls on the same instance must also be stable.
+        let key1_again = hd1.derive_child_key(0).unwrap();
+        assert_eq!(key1, key1_again, "derivation must be a pure function of seed + index");
     }
     
     #[test]
@@ -380,6 +395,20 @@ mod tests {
         assert_ne!(key0, key2);
     }
     
+    #[test]
+    fn test_debug_redacts_master_seed() {
+        // Debug formatting MUST NOT leak the raw master seed bytes.
+        let seed = valid_test_seed();
+        let hd = QuantumHDDerivation::from_seed(seed.clone()).unwrap();
+
+        let dbg = format!("{:?}", hd);
+        assert!(dbg.contains("redacted"), "Debug output must mark the seed as redacted: {dbg}");
+
+        // A derived Debug of `master_seed: Vec<u8>` would print the byte-array
+        // literal `[13, 20, 27, ...]`; the redacting impl must not.
+        assert!(!dbg.contains(", 20, 27"), "Debug output leaked raw seed bytes: {dbg}");
+    }
+
     #[test]
     fn test_osrng_entropy_generation() {
         // Verify OsRng generates valid entropy

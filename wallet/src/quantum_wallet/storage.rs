@@ -5,7 +5,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
 };
-use argon2::{Argon2, PasswordHasher};
+use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version};
 use argon2::password_hash::SaltString;
 use serde::{Deserialize, Serialize};
 use sled::Db;
@@ -97,8 +97,23 @@ impl WalletStorage {
     
     /// Initialize encryption with passphrase
     pub fn unlock(&mut self, passphrase: &str) -> Result<(), StorageError> {
-        // Derive encryption key from passphrase using Argon2
-        let argon2 = Argon2::default();
+        // Derive encryption key from passphrase using Argon2id with the
+        // project-wide OWASP-aligned parameters (64 MiB, t=3, p=4) rather than
+        // library defaults (m=19 MiB, t=2, p=1). This matches hdwallet.rs and
+        // the QuantumHDConfig ARGON2_* constants so the on-disk keypair database
+        // is no easier to brute-force than the documented standard.
+        //
+        // NOTE: Argon2 parameters are not persisted alongside the stored salt,
+        // so wallet databases created with the previous (weaker) parameters will
+        // no longer decrypt. This is acceptable pre-testnet where no durable
+        // wallet data exists; a stored KDF-params version would be required if
+        // that assumption ever changes.
+        let argon2 = Argon2::new(
+            Algorithm::Argon2id,
+            Version::V0x13,
+            Params::new(65536, 3, 4, None)
+                .map_err(|e| StorageError::KeyDerivationError(e.to_string()))?,
+        );
         
         let salt = SaltString::from_b64(&String::from_utf8_lossy(&self.salt))
             .map_err(|e| StorageError::KeyDerivationError(e.to_string()))?;
@@ -291,7 +306,16 @@ impl WalletStorage {
         let cipher = self.cipher.as_ref()
             .ok_or_else(|| StorageError::DecryptionError("Cipher not initialized".to_string()))?;
         
-        // Reconstruct nonce
+        // Reconstruct nonce. The nonce is bincode-deserialized straight from the
+        // on-disk sled database, so a corrupted or hand-edited record can carry a
+        // Vec<u8> of any length. AES-256-GCM requires a 96-bit (12-byte) nonce and
+        // Nonce::from_slice panics on any other length; guard explicitly so
+        // malformed input yields a DecryptionError instead of crashing the process.
+        if encrypted.nonce.len() != 12 {
+            return Err(StorageError::DecryptionError(
+                "invalid nonce length".to_string(),
+            ));
+        }
         let nonce = Nonce::from_slice(&encrypted.nonce);
         
         // Decrypt
@@ -450,6 +474,60 @@ mod tests {
             high_bytes_ever_nonzero,
             "high 32 bits of the nonce never set: nonce has only 64-bit entropy"
         );
+    }
+
+    /// The at-rest KDF must be deterministic across process restarts: the salt
+    /// is persisted and the Argon2 parameters are fixed (64 MiB / t=3 / p=4,
+    /// the project-wide OWASP-aligned standard), so a keypair stored in one
+    /// session decrypts after reopening and unlocking with the same passphrase.
+    #[test]
+    fn kdf_is_deterministic_across_reopen() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("wallet.db");
+
+        let keypair = KeyPair::generate(Some("persist".to_string())).unwrap();
+        let address = keypair.address.to_string();
+
+        {
+            let mut storage = WalletStorage::open(&db_path).unwrap();
+            storage.unlock("strong_passphrase").unwrap();
+            storage.store_keypair(&address, &keypair).unwrap();
+            storage.flush().unwrap();
+        }
+
+        // Reopen the same database in a fresh instance and unlock with the same
+        // passphrase; the strengthened, fixed-parameter KDF must reproduce the
+        // identical AES key so the stored secret keypair decrypts.
+        let mut reopened = WalletStorage::open(&db_path).unwrap();
+        reopened.unlock("strong_passphrase").unwrap();
+        let loaded = reopened.load_keypair(&address).unwrap();
+        assert_eq!(loaded.secret_key, keypair.secret_key);
+        assert_eq!(loaded.public_key, keypair.public_key);
+    }
+
+    /// A malformed keystore record whose nonce is not exactly 12 bytes must
+    /// return DecryptionError, not panic. bincode::deserialize will happily
+    /// produce an EncryptedData with any nonce length from corrupted or
+    /// hand-edited on-disk data, and Nonce::from_slice panics on len != 12.
+    #[test]
+    fn decrypt_rejects_malformed_nonce_length() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut storage = WalletStorage::open(temp_dir.path().join("wallet.db")).unwrap();
+        storage.unlock("test_password").unwrap();
+
+        for bad_len in [0usize, 4, 11, 13, 16] {
+            let bad = EncryptedData {
+                nonce: vec![0u8; bad_len],
+                ciphertext: vec![0u8; 32],
+            };
+            let result = storage.decrypt_data(&bad);
+            assert!(
+                matches!(result, Err(StorageError::DecryptionError(_))),
+                "nonce length {} must yield DecryptionError, got {:?}",
+                bad_len,
+                result
+            );
+        }
     }
 
     /// Encrypt/decrypt round-trips correctly with the full-width nonce.

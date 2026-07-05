@@ -3,7 +3,7 @@
 
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
+    Algorithm, Argon2, Params, Version,
 };
 use pqcrypto_dilithium::dilithium5;
 use pqcrypto_traits::sign::{
@@ -17,6 +17,26 @@ use thiserror::Error;
 use zeroize::Zeroize;
 
 use super::address::Address;
+use super::hd_derivation::QuantumHDConfig;
+
+/// Construct an Argon2id hasher with the project-wide OWASP-aligned parameters
+/// (64 MiB, t=3, p=4) drawn from `QuantumHDConfig`, rather than the library
+/// defaults (m=19 MiB, t=2, p=1). This keeps the keystore passphrase barrier
+/// consistent with `hdwallet.rs`, `storage.rs`, and the documented standard.
+///
+/// The full PHC string is stored on hashing, so verification reads the
+/// parameters back from that string and remains compatible with hashes
+/// produced under any parameters.
+fn keystore_argon2<'a>() -> Result<Argon2<'a>, KeystoreError> {
+    let params = Params::new(
+        QuantumHDConfig::ARGON2_MEMORY_KB,
+        QuantumHDConfig::ARGON2_ITERATIONS,
+        QuantumHDConfig::ARGON2_PARALLELISM,
+        None,
+    )
+    .map_err(|e| KeystoreError::EncryptionError(format!("Argon2 params invalid: {}", e)))?;
+    Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
+}
 
 #[derive(Error, Debug)]
 pub enum KeystoreError {
@@ -40,7 +60,7 @@ pub enum KeystoreError {
 }
 
 /// Quantum-resistant keypair
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct KeyPair {
     /// ML-DSA public key (~1952 bytes for Dilithium5)
     pub public_key: Vec<u8>,
@@ -52,6 +72,24 @@ pub struct KeyPair {
     pub label: Option<String>,
     /// Creation timestamp
     pub created_at: u64,
+}
+
+// Manual Debug impl: never expose the raw secret key bytes. A derived Debug
+// would print `secret_key: Vec<u8>` verbatim, leaking the ML-DSA secret through
+// any direct or transitive Debug-formatting (logs, error contexts, etc.).
+impl std::fmt::Debug for KeyPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyPair")
+            .field("public_key", &self.public_key)
+            .field(
+                "secret_key",
+                &format_args!("<redacted {} bytes>", self.secret_key.len()),
+            )
+            .field("address", &self.address)
+            .field("label", &self.label)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 impl KeyPair {
@@ -119,11 +157,33 @@ impl Drop for KeyPair {
     }
 }
 
+impl Keystore {
+    /// Zero out sensitive material so the passphrase hash does not linger in
+    /// freed heap memory (Security Review Checklist: "Key zeroization after use").
+    fn zeroize_secrets(&mut self) {
+        if let Some(hash) = self.passphrase_hash.as_mut() {
+            hash.zeroize();
+        }
+    }
+}
+
+impl Drop for Keystore {
+    fn drop(&mut self) {
+        self.zeroize_secrets();
+    }
+}
+
 /// Secure keystore for managing quantum keypairs
+///
+/// NOTE: This keystore is NOT hierarchical-deterministic. Each address is an
+/// independent ML-DSA keypair generated from fresh OS entropy (see
+/// `generate_address` / `KeyPair::generate`). There is no master seed from
+/// which keys can be re-derived: pqcrypto-dilithium exposes no seeded keygen,
+/// so `QuantumHDDerivation` cannot be wired in without a key-generation-model
+/// change. Recovery therefore depends entirely on the encrypted, persisted
+/// keypairs (see `storage.rs`) — there is no seed phrase that reconstructs
+/// funds, and operators must back up the keystore itself.
 pub struct Keystore {
-    /// Master seed for HD wallet (32 bytes, encrypted at rest)
-    master_seed: Option<Vec<u8>>,
-    
     /// Active keypairs indexed by address
     keypairs: Arc<RwLock<HashMap<String, KeyPair>>>,
     
@@ -148,7 +208,6 @@ impl Keystore {
     /// Create a new empty keystore
     pub fn new() -> Self {
         Self {
-            master_seed: None,
             keypairs: Arc::new(RwLock::new(HashMap::new())),
             watch_addresses: Arc::new(RwLock::new(HashMap::new())),
             locked: Arc::new(RwLock::new(true)), // Locked by default
@@ -160,20 +219,13 @@ impl Keystore {
     pub fn initialize(&mut self, passphrase: &str) -> Result<(), KeystoreError> {
         // Hash passphrase using Argon2id (memory-hard, resistant to GPU/ASIC attacks)
         let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
+        let argon2 = keystore_argon2()?;
         let password_hash = argon2
             .hash_password(passphrase.as_bytes(), &salt)
             .map_err(|e| KeystoreError::EncryptionError(format!("Password hashing failed: {}", e)))?;
 
         // Store the full PHC string (includes algorithm, params, salt, and hash)
         self.passphrase_hash = Some(password_hash.to_string().into_bytes());
-
-        // Generate master seed
-        // SECURITY FIX (P0-006): Use OsRng instead of thread_rng for cryptographic entropy
-        use rand::RngCore;
-        let mut seed = vec![0u8; 64];
-        OsRng.fill_bytes(&mut seed);
-        self.master_seed = Some(seed);
 
         // Unlock keystore
         *self.locked.write().map_err(|_|
@@ -206,8 +258,11 @@ impl Keystore {
         let password_hash = PasswordHash::new(&hash_str)
             .map_err(|_| KeystoreError::InvalidPassphrase)?;
 
-        // Verify passphrase using Argon2
-        let argon2 = Argon2::default();
+        // Verify passphrase using Argon2. Parameters are read from the stored
+        // PHC string, so this remains compatible regardless of which parameters
+        // produced the hash; we still construct the hasher with the project
+        // standard for consistency.
+        let argon2 = keystore_argon2()?;
         if argon2.verify_password(passphrase.as_bytes(), &password_hash).is_ok() {
             *self.locked.write().map_err(|_|
                 KeystoreError::EncryptionError("Lock poisoned".to_string())
@@ -328,6 +383,30 @@ mod tests {
     }
     
     #[test]
+    fn test_debug_redacts_secret_key() {
+        let keypair = KeyPair::generate(Some("test".to_string())).unwrap();
+        let debug_output = format!("{:?}", keypair);
+
+        // The redaction marker must be present.
+        assert!(
+            debug_output.contains("<redacted"),
+            "Debug output must redact the secret key"
+        );
+
+        // The raw secret key bytes must never appear in Debug output. The first
+        // few bytes of the secret key, rendered as a Vec<u8> would, must be absent.
+        let leaked_prefix = format!("{:?}", &keypair.secret_key[..8]);
+        assert!(
+            !debug_output.contains(&leaked_prefix),
+            "Debug output must not contain raw secret key bytes"
+        );
+
+        // Non-secret fields should still be visible.
+        assert!(debug_output.contains("public_key"));
+        assert!(debug_output.contains("created_at"));
+    }
+
+    #[test]
     fn test_signature_verification() {
         let keypair = KeyPair::generate(None).unwrap();
         let message = b"Test message for signing";
@@ -371,6 +450,34 @@ mod tests {
     }
     
     #[test]
+    fn test_passphrase_hash_uses_project_argon2_params() {
+        // Regression guard (R5-94): the keystore passphrase hash must use the
+        // project-wide OWASP-aligned Argon2id parameters (64 MiB, t=3, p=4),
+        // not the library defaults (19 MiB, t=2, p=1). The full PHC string is
+        // stored, so the parameters are recoverable and must match the standard.
+        let mut keystore = Keystore::new();
+        keystore.initialize("test_passphrase").unwrap();
+
+        let hash_bytes = keystore.passphrase_hash.as_ref().unwrap();
+        let hash_str = String::from_utf8(hash_bytes.clone()).unwrap();
+        let parsed = PasswordHash::new(&hash_str).unwrap();
+
+        // Algorithm must be Argon2id.
+        assert_eq!(parsed.algorithm.as_str(), "argon2id");
+
+        // Parameters embedded in the PHC string must match the standard.
+        let params = Params::try_from(&parsed).unwrap();
+        assert_eq!(params.m_cost(), QuantumHDConfig::ARGON2_MEMORY_KB);
+        assert_eq!(params.t_cost(), QuantumHDConfig::ARGON2_ITERATIONS);
+        assert_eq!(params.p_cost(), QuantumHDConfig::ARGON2_PARALLELISM);
+
+        // And a round-trip unlock must still succeed with these parameters.
+        keystore.lock().unwrap();
+        keystore.unlock("test_passphrase").unwrap();
+        assert!(!keystore.is_locked());
+    }
+
+    #[test]
     fn test_address_generation_when_locked() {
         let keystore = Keystore::new();
         
@@ -398,6 +505,49 @@ mod tests {
         assert_eq!(keypair.label, Some("test".to_string()));
     }
     
+    #[test]
+    fn test_zeroize_secrets_clears_sensitive_material() {
+        let mut keystore = Keystore::new();
+        keystore.initialize("test_passphrase").unwrap();
+
+        // Sanity: initialization populated the secret material.
+        assert!(keystore
+            .passphrase_hash
+            .as_ref()
+            .is_some_and(|h| !h.is_empty()));
+
+        // Exercise the same routine the Drop impl runs.
+        keystore.zeroize_secrets();
+
+        // Buffer still exists but is fully zeroed.
+        assert!(keystore
+            .passphrase_hash
+            .as_ref()
+            .is_some_and(|h| h.iter().all(|&b| b == 0)));
+    }
+
+    #[test]
+    fn test_keystore_has_no_master_seed_field() {
+        // Regression guard (R5-36): the keystore is deliberately NOT
+        // hierarchical-deterministic. Each address is an independent ML-DSA
+        // keypair from fresh OS entropy, so two addresses generated from the
+        // same initialized keystore must have unrelated public keys — there is
+        // no seed that ties them together or that could reconstruct funds.
+        let mut keystore = Keystore::new();
+        keystore.initialize("test_passphrase").unwrap();
+
+        let addr1 = keystore.generate_address(None).unwrap();
+        let addr2 = keystore.generate_address(None).unwrap();
+        assert_ne!(addr1, addr2, "each generated address must be distinct");
+
+        let kp1 = keystore.get_keypair(&addr1.to_string()).unwrap();
+        let kp2 = keystore.get_keypair(&addr2.to_string()).unwrap();
+        assert_ne!(
+            kp1.public_key, kp2.public_key,
+            "independently generated keypairs must not share key material"
+        );
+    }
+
     #[test]
     fn test_watch_only_addresses() {
         let keystore = Keystore::new();

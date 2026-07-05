@@ -15,6 +15,36 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+/// Write wallet material to `path` with owner-only (0o600) permissions.
+///
+/// SECURITY (R5-97): The default `std::fs::write` honors the process umask,
+/// which typically yields world-readable (0o644) files. This wallet file holds
+/// the secp256k1 private key as a cleartext WIF, so any local user could steal
+/// funds by reading it. On Unix we create/truncate with mode 0o600 and reset
+/// the permissions in case the file pre-existed with looser bits. On non-Unix
+/// platforms this falls back to a plain write.
+fn write_wallet_file_secure(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        file.write_all(contents)?;
+        file.flush()?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, contents)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum WalletError {
     #[error("Compatibility error")]
@@ -43,6 +73,17 @@ pub enum WalletError {
     NetworkError(String),
 }
 
+/// Legacy Bitcoin-compatible single-key wallet.
+///
+/// **DEPRECATED — DO NOT USE FOR PRODUCTION.** This wallet persists its
+/// secp256k1 private key as a cleartext WIF string via [`Wallet::save`],
+/// providing no encryption at rest. Use [`crate::HDWallet::save_encrypted`]
+/// (Argon2id + AES-256-GCM) instead. This type is retained only for backward
+/// compatibility and existing on-disk wallet files.
+#[deprecated(
+    since = "1.0.0",
+    note = "Legacy plaintext wallet; use HDWallet with save_encrypted() for security"
+)]
 #[derive(Debug)]
 pub struct Wallet {
     private_key: PrivateKey,
@@ -332,10 +373,21 @@ impl Wallet {
         }
     }
 
-    /// Save wallet to file
+    /// Save wallet to file.
+    ///
+    /// **SECURITY WARNING:** This writes the secp256k1 private key as a
+    /// cleartext WIF string with no encryption at rest. Anyone with read
+    /// access to the wallet file can recover the private key and steal funds.
+    /// Use [`crate::HDWallet::save_encrypted`] (Argon2id + AES-256-GCM) for
+    /// any wallet holding real value.
+    #[deprecated(
+        since = "1.0.0",
+        note = "Writes private key as plaintext WIF; use HDWallet::save_encrypted() instead"
+    )]
     pub fn save(&self) -> Result<(), WalletError> {
         let json = serde_json::to_string_pretty(&self)?;
-        std::fs::write(&self.wallet_path, json)?;
+        // Owner-only perms (R5-97): file contains a cleartext WIF private key.
+        write_wallet_file_secure(&self.wallet_path, json.as_bytes())?;
         Ok(())
     }
 }
