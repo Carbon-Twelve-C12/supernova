@@ -1076,15 +1076,26 @@ impl Channel {
     }
 
     /// Complete cooperative channel close
-    pub fn complete_close(&mut self, _closing_tx: Transaction) -> ChannelResult<()> {
+    pub fn complete_close(&mut self, closing_tx: Transaction) -> ChannelResult<()> {
         if self.state != ChannelState::ClosingNegotiation {
             return Err(ChannelError::InvalidState(
                 "Channel must be in closing negotiation state".to_string(),
             ));
         }
 
-        // In a real implementation, we would verify the closing transaction
-        // and ensure it matches our expectations
+        // SECURITY FIX [R5-28]: Verify the submitted closing transaction matches
+        // the canonical cooperative-close transaction derived from this channel's
+        // agreed final balances and funding outpoint. This cooperative-close path
+        // carries no separate counterparty signature message, so we fail closed on
+        // any structural divergence instead of blindly transitioning to Closed on
+        // whatever transaction a peer supplies. This prevents a malicious peer from
+        // driving the close to an unagreed transaction.
+        let expected_closing_tx = self.create_closing_transaction()?;
+        if closing_tx.hash() != expected_closing_tx.hash() {
+            return Err(ChannelError::InvalidState(
+                "Closing transaction does not match the agreed channel close".to_string(),
+            ));
+        }
 
         // SECURITY FIX [P1-005]: Update state with validation
         self.transition_state(ChannelState::Closed)?;
@@ -1545,6 +1556,39 @@ mod tests {
         
         // Complete close
         channel.complete_close(closing_tx).unwrap();
+        assert_eq!(channel.state, ChannelState::Closed);
+    }
+
+    /// SECURITY FIX [R5-28]: complete_close must reject a closing transaction
+    /// that does not match the channel's agreed cooperative-close transaction,
+    /// and must leave the channel in ClosingNegotiation (fail closed).
+    #[test]
+    fn test_complete_close_rejects_mismatched_tx() {
+        let mut channel = create_test_channel();
+
+        // Drive to ClosingNegotiation via the honest path.
+        channel
+            .create_funding_transaction(vec![], None, 1000)
+            .unwrap();
+        channel.sign_funding().unwrap();
+        channel.activate().unwrap();
+        let agreed_closing_tx = channel.initiate_close().unwrap();
+        assert_eq!(channel.state, ChannelState::ClosingNegotiation);
+
+        // An unagreed closing transaction must be rejected.
+        let unagreed_closing_tx = Transaction::new(2, vec![], vec![], 0);
+        assert!(
+            channel.complete_close(unagreed_closing_tx).is_err(),
+            "mismatched closing tx must be rejected"
+        );
+        assert_eq!(
+            channel.state,
+            ChannelState::ClosingNegotiation,
+            "state must not change on rejected close"
+        );
+
+        // The honestly agreed closing transaction is still accepted.
+        channel.complete_close(agreed_closing_tx).unwrap();
         assert_eq!(channel.state, ChannelState::Closed);
     }
 

@@ -472,17 +472,31 @@ impl Invoice {
         self.signature.is_some()
     }
 
-    /// Verify the invoice signature
+    /// Verify the invoice signature.
+    ///
+    /// **Security note (fail-closed):** cryptographic verification of the
+    /// invoice signature is not yet implemented. A signed invoice would need
+    /// to carry the destination's post-quantum public key (the `destination`
+    /// field is currently only an opaque node-id string) and a matching
+    /// invoice-signing counterpart. Until that exists, this method MUST NOT
+    /// report an unverified byte string as authentic: the mere presence of
+    /// bytes in the `signature` field proves nothing. It therefore always
+    /// fails closed rather than returning `Ok(true)`, so no caller can mistake
+    /// presence-of-bytes for a valid signature.
     pub fn verify_signature(&self) -> Result<bool, InvoiceError> {
-        // In a real implementation, this would verify the signature
-        // For simplicity, we'll just return Ok if a signature exists
-        if self.signature.is_some() {
-            Ok(true)
-        } else {
-            Err(InvoiceError::InvalidSignature(
+        if self.signature.is_none() {
+            return Err(InvoiceError::InvalidSignature(
                 "Invoice has no signature".to_string(),
-            ))
+            ));
         }
+
+        // Fail closed: real PQC verification against the destination's public
+        // key is not implemented, so a present signature cannot be trusted.
+        Err(InvoiceError::InvalidSignature(
+            "Invoice signature verification is not implemented; \
+             refusing to treat unverified signature bytes as authentic"
+                .to_string(),
+        ))
     }
 
     /// Encode the invoice as a string.
@@ -1100,5 +1114,29 @@ mod invoice_lifecycle_tests {
             preimage2,
         );
         assert!(!public_invoice.is_private());
+    }
+
+    #[test]
+    fn verify_signature_fails_closed_for_missing_signature() {
+        let invoice = sample_invoice();
+        assert!(!invoice.has_signature());
+        assert!(matches!(
+            invoice.verify_signature(),
+            Err(InvoiceError::InvalidSignature(_))
+        ));
+    }
+
+    #[test]
+    fn verify_signature_never_accepts_unverified_bytes() {
+        let mut invoice = sample_invoice();
+        // Attacker-supplied arbitrary bytes must NOT be treated as authentic:
+        // presence of a signature must never yield Ok(true) while real
+        // cryptographic verification is unimplemented (fail closed).
+        invoice.set_signature(vec![0xde, 0xad, 0xbe, 0xef]);
+        assert!(invoice.has_signature());
+        assert!(matches!(
+            invoice.verify_signature(),
+            Err(InvoiceError::InvalidSignature(_))
+        ));
     }
 }
