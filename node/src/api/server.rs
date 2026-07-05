@@ -18,6 +18,7 @@ use super::middleware::auth::ApiAuth;
 use super::middleware::auth_rate_limiter::{AuthRateLimiter, AuthRateLimiterConfig};
 use super::middleware::rate_limiting;
 use super::routes;
+use crate::api::rate_limiter::ApiRateLimiter;
 use crate::api_facade::ApiFacade;
 use crate::metrics::ApiMetrics;
 use crate::node::Node;
@@ -323,6 +324,15 @@ impl ApiServer {
         let auth_rate_limiter =
             Arc::new(AuthRateLimiter::new(AuthRateLimiterConfig::default()));
 
+        // A single shared JSON-RPC rate limiter across all workers, for the
+        // same reason as `auth_rate_limiter` above: the factory closure runs
+        // once per worker, and a per-worker limiter would multiply every
+        // per-IP / per-endpoint / concurrency ceiling by the worker count.
+        // The `handle_jsonrpc` / `handle_jsonrpc_batch` handlers extract this
+        // as `web::Data<Arc<ApiRateLimiter>>`; without registering it here,
+        // actix data extraction fails and every POST to `/` returns 500.
+        let api_rate_limiter = web::Data::new(Arc::new(ApiRateLimiter::new()));
+
         // Set up the HTTP server. The factory closure is invoked per worker;
         // middleware values must be freshly constructed each call because
         // actix-cors' `Cors` and our `ApiAuth` are not `Clone`. The
@@ -341,6 +351,7 @@ impl ApiServer {
             let app = App::new()
                 .app_data(node_data.clone())
                 .app_data(metrics_data.clone())
+                .app_data(api_rate_limiter.clone())
                 // Configure JSON extractor limits
                 .app_data(web::JsonConfig::default().limit(4096))
                 .wrap(middleware::Compress::default())

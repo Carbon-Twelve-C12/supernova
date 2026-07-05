@@ -11,18 +11,15 @@ use utoipa::{IntoParams, ToSchema};
 
 /// Configure mining API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/mining")
-            .route("/info", web::get().to(get_mining_info))
-            .route("/template", web::get().to(get_mining_template))
-            .route("/submit", web::post().to(submit_block))
-            .route("/stats", web::get().to(get_mining_stats))
-            .route("/status", web::get().to(get_mining_status))
-            .route("/start", web::post().to(start_mining))
-            .route("/stop", web::post().to(stop_mining))
-            .route("/config", web::get().to(get_mining_config))
-            .route("/config", web::put().to(update_mining_config)),
-    );
+    cfg.route("/info", web::get().to(get_mining_info))
+        .route("/template", web::get().to(get_mining_template))
+        .route("/submit", web::post().to(submit_block))
+        .route("/stats", web::get().to(get_mining_stats))
+        .route("/status", web::get().to(get_mining_status))
+        .route("/start", web::post().to(start_mining))
+        .route("/stop", web::post().to(stop_mining))
+        .route("/config", web::get().to(get_mining_config))
+        .route("/config", web::put().to(update_mining_config));
 }
 
 /// Get mining information

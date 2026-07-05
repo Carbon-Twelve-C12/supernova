@@ -8,21 +8,18 @@ use utoipa::IntoParams;
 
 /// Configure lightning API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/lightning")
-            .route("/info", web::get().to(get_lightning_info))
-            .route("/channels", web::get().to(get_channels))
-            .route("/channel/{channel_id}", web::get().to(get_channel))
-            .route("/channel", web::post().to(open_channel))
-            .route("/channel", web::delete().to(close_channel))
-            .route("/payments", web::get().to(get_payments))
-            .route("/pay", web::post().to(send_payment))
-            .route("/invoices", web::get().to(get_invoices))
-            .route("/invoice", web::post().to(create_invoice))
-            .route("/nodes", web::get().to(get_network_nodes))
-            .route("/node/{node_id}", web::get().to(get_node_info))
-            .route("/routes", web::get().to(find_route)),
-    );
+    cfg.route("/info", web::get().to(get_lightning_info))
+        .route("/channels", web::get().to(get_channels))
+        .route("/channel/{channel_id}", web::get().to(get_channel))
+        .route("/channel", web::post().to(open_channel))
+        .route("/channel", web::delete().to(close_channel))
+        .route("/payments", web::get().to(get_payments))
+        .route("/pay", web::post().to(send_payment))
+        .route("/invoices", web::get().to(get_invoices))
+        .route("/invoice", web::post().to(create_invoice))
+        .route("/nodes", web::get().to(get_network_nodes))
+        .route("/node/{node_id}", web::get().to(get_node_info))
+        .route("/routes", web::get().to(find_route));
 }
 
 /// Placeholder handler for Lightning Network endpoints

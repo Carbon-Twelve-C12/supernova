@@ -8,15 +8,12 @@ use utoipa::IntoParams;
 
 /// Configure environmental API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/environmental")
-            .route("/impact", web::get().to(get_environmental_impact))
-            .route("/energy", web::get().to(get_energy_usage))
-            .route("/carbon", web::get().to(get_carbon_footprint))
-            .route("/resources", web::get().to(get_resource_utilization))
-            .route("/settings", web::get().to(get_environmental_settings))
-            .route("/settings", web::put().to(update_environmental_settings)),
-    );
+    cfg.route("/impact", web::get().to(get_environmental_impact))
+        .route("/energy", web::get().to(get_energy_usage))
+        .route("/carbon", web::get().to(get_carbon_footprint))
+        .route("/resources", web::get().to(get_resource_utilization))
+        .route("/settings", web::get().to(get_environmental_settings))
+        .route("/settings", web::put().to(update_environmental_settings));
 }
 
 /// Get environmental impact data

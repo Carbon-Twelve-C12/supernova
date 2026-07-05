@@ -13,16 +13,13 @@ use utoipa::IntoParams;
 
 /// Configure network API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/network")
-            .route("/info", web::get().to(get_network_info))
-            .route("/connection_count", web::get().to(get_connection_count))
-            .route("/peers", web::get().to(get_peers))
-            .route("/peers/{peer_id}", web::get().to(get_peer))
-            .route("/peers", web::post().to(add_peer))
-            .route("/peers/{peer_id}", web::delete().to(remove_peer))
-            .route("/bandwidth", web::get().to(get_bandwidth_usage)),
-    );
+    cfg.route("/info", web::get().to(get_network_info))
+        .route("/connection_count", web::get().to(get_connection_count))
+        .route("/peers", web::get().to(get_peers))
+        .route("/peers/{peer_id}", web::get().to(get_peer))
+        .route("/peers", web::post().to(add_peer))
+        .route("/peers/{peer_id}", web::delete().to(remove_peer))
+        .route("/bandwidth", web::get().to(get_bandwidth_usage));
 }
 
 /// Get network information

@@ -4,6 +4,7 @@
 //! shared across threads in the API server.
 
 use crate::api::types::*;
+use crate::environmental::EnvironmentalMonitor;
 use crate::mempool::TransactionPool;
 use crate::network::NetworkProxy;
 use crate::node::{Node, NodeError};
@@ -34,6 +35,8 @@ pub struct ApiFacade {
     lightning_manager: Option<Arc<StdRwLock<supernova_core::lightning::LightningManager>>>,
     /// Wallet manager (quantum-resistant wallet)
     wallet_manager: Arc<StdRwLock<WalletManager>>,
+    /// Environmental monitor providing real energy/carbon telemetry
+    environmental: Arc<EnvironmentalMonitor>,
 }
 
 // Ensure ApiFacade is Send + Sync. If this fails to compile, a newly added
@@ -95,6 +98,7 @@ impl ApiFacade {
             start_time: node.start_time,
             lightning_manager: node.lightning(),
             wallet_manager,
+            environmental: Arc::new(EnvironmentalMonitor::new()),
         })
     }
 
@@ -128,6 +132,11 @@ impl ApiFacade {
         Arc::clone(&self.wallet_manager)
     }
 
+    /// Get environmental monitor (real energy/carbon telemetry)
+    pub fn environmental(&self) -> Arc<EnvironmentalMonitor> {
+        Arc::clone(&self.environmental)
+    }
+
     /// Get node info
     pub fn get_node_info(&self) -> Result<NodeInfo, NodeError> {
         let chain_state = self
@@ -138,12 +147,17 @@ impl ApiFacade {
         let best_block_hash = chain_state.get_best_block_hash();
         let connections = self.network.peer_count_sync() as u32;
         let synced = !self.network.is_syncing();
+        let network_id = self
+            .config
+            .read()
+            .map(|config| config.network.network_id.clone())
+            .map_err(|e| NodeError::General(format!("Config lock poisoned: {}", e)))?;
 
         Ok(NodeInfo {
             node_id: self.peer_id.to_string(),
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             protocol_version: 1,
-            network: "supernova-testnet".to_string(),
+            network: network_id,
             height: chain_height,
             best_block_hash: hex::encode(best_block_hash),
             connections,
@@ -252,7 +266,12 @@ impl ApiFacade {
         })
     }
 
-    /// Get metrics
+    /// Get metrics.
+    ///
+    /// Returns a point-in-time snapshot of node metrics. The `_period`
+    /// argument is reserved for future windowed/aggregated metrics and is
+    /// intentionally not yet consumed; callers receive current instantaneous
+    /// values regardless of the requested period.
     pub fn get_metrics(&self, _period: u64) -> Result<NodeMetrics, NodeError> {
         use sysinfo::{Disks, System};
         let mut sys = System::new_all();
@@ -281,7 +300,7 @@ impl ApiFacade {
                 .unwrap_or(0),
             mempool_size: self.mempool.size(),
             mempool_bytes: self.mempool.get_memory_usage() as usize,
-            sync_progress: if self.network.is_syncing() { 0.5 } else { 1.0 },
+            sync_progress: self.network.get_sync_progress(),
             network_bytes_sent: network_stats.bytes_sent,
             network_bytes_received: network_stats.bytes_received,
             cpu_usage,
@@ -325,10 +344,23 @@ impl ApiFacade {
         &self,
         destination: Option<&str>,
         include_wallet: bool,
-        _encrypt: bool,
+        encrypt: bool,
     ) -> Result<BackupInfo, NodeError> {
         use crate::storage::backup::BackupManager;
         use std::time::Duration;
+
+        // BackupManager performs a plaintext copy of the on-disk database and does
+        // not yet support at-rest encryption. Rather than silently honoring the
+        // `encrypt` flag and shipping an UNENCRYPTED backup (potentially including
+        // wallet key material when `include_wallet` is set) while reporting success,
+        // fail loudly so the caller is never given false assurance.
+        if encrypt {
+            return Err(NodeError::General(
+                "backup encryption not yet supported: refusing to create an \
+                 unencrypted backup while encrypt=true was requested"
+                    .to_string(),
+            ));
+        }
 
         let backup_dir = std::path::PathBuf::from(destination.unwrap_or("/tmp/supernova_backup"));
         let backup_manager = BackupManager::new(
@@ -359,8 +391,15 @@ impl ApiFacade {
     }
 
     /// Get backup info
+    ///
+    /// Enumerates the default backup directory used by [`create_backup`] when
+    /// no destination is supplied (`/tmp/supernova_backup`). Each backup is a
+    /// directory named `supernova_backup_{unix_timestamp}.db` (see
+    /// [`crate::storage::backup::BackupManager::create_backup`]). Backups
+    /// written to a custom per-call destination are not tracked here, so this
+    /// enumeration is best-effort over the default location.
     pub fn get_backup_info(&self) -> Result<Vec<BackupInfo>, NodeError> {
-        Ok(Vec::new())
+        enumerate_backups(&std::path::PathBuf::from("/tmp/supernova_backup"))
     }
 
     /// Restart node
@@ -491,5 +530,127 @@ impl ApiFacade {
 
         // Broadcast to network
         self.network.broadcast_transaction(tx);
+    }
+}
+
+/// Enumerate the backups present in `backup_dir`.
+///
+/// Backups are the directories written by
+/// [`crate::storage::backup::BackupManager::create_backup`], named
+/// `supernova_backup_{unix_timestamp}.db`. A missing directory is treated as
+/// "no backups" rather than an error. Results are sorted most-recent first.
+fn enumerate_backups(backup_dir: &std::path::Path) -> Result<Vec<BackupInfo>, NodeError> {
+    let entries = match std::fs::read_dir(backup_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(NodeError::IoError(e)),
+    };
+
+    let mut backups = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(NodeError::IoError)?;
+        let path = entry.path();
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+
+        // Only surface entries produced by create_backup.
+        if !file_name.starts_with("supernova_backup_") {
+            continue;
+        }
+
+        let metadata = match std::fs::metadata(&path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        // Prefer the timestamp embedded in the backup name; fall back to
+        // the filesystem modification time.
+        let timestamp = file_name
+            .strip_prefix("supernova_backup_")
+            .and_then(|rest| rest.strip_suffix(".db").or(Some(rest)))
+            .and_then(|ts| ts.parse::<u64>().ok())
+            .or_else(|| {
+                metadata
+                    .modified()
+                    .ok()
+                    .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+            })
+            .unwrap_or(0);
+
+        // Backups are directories; sum the sizes of the contained files.
+        let size = if metadata.is_dir() {
+            std::fs::read_dir(&path)
+                .map(|inner| {
+                    inner
+                        .flatten()
+                        .filter_map(|e| e.metadata().ok())
+                        .filter(|m| m.is_file())
+                        .map(|m| m.len())
+                        .sum()
+                })
+                .unwrap_or(0)
+        } else {
+            metadata.len()
+        };
+
+        backups.push(BackupInfo {
+            id: file_name.clone(),
+            timestamp,
+            size,
+            backup_type: "blockchain".to_string(),
+            status: "completed".to_string(),
+            file_path: path.to_string_lossy().to_string(),
+            verified: true,
+        });
+    }
+
+    // Most recent first.
+    backups.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    Ok(backups)
+}
+
+#[cfg(test)]
+mod backup_enumeration_tests {
+    use super::enumerate_backups;
+
+    #[test]
+    fn missing_directory_returns_empty() {
+        let dir = std::env::temp_dir().join(format!("sn_backup_missing_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let result = enumerate_backups(&dir).expect("missing dir is not an error");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn enumerates_created_backups_sorted() {
+        let dir = std::env::temp_dir().join(format!("sn_backup_enum_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Two backup directories with embedded timestamps, plus an unrelated
+        // file that must be ignored.
+        let older = dir.join("supernova_backup_1000.db");
+        let newer = dir.join("supernova_backup_2000.db");
+        std::fs::create_dir_all(&older).unwrap();
+        std::fs::create_dir_all(&newer).unwrap();
+        std::fs::write(older.join("data.bin"), vec![0u8; 8]).unwrap();
+        std::fs::write(newer.join("data.bin"), vec![0u8; 16]).unwrap();
+        std::fs::write(dir.join("unrelated.txt"), b"ignore me").unwrap();
+
+        let result = enumerate_backups(&dir).expect("enumeration succeeds");
+        assert_eq!(result.len(), 2, "only the two backups should be listed");
+
+        // Most recent first.
+        assert_eq!(result[0].timestamp, 2000);
+        assert_eq!(result[1].timestamp, 1000);
+        assert_eq!(result[0].size, 16);
+        assert_eq!(result[1].size, 8);
+        assert_eq!(result[0].status, "completed");
+        assert!(result[0].verified);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -76,12 +76,9 @@ pub struct RecentTransactionsResponse {
 
 /// Configure faucet API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/faucet")
-            .route("/status", web::get().to(get_faucet_status))
-            .route("/send", web::post().to(request_tokens))
-            .route("/transactions", web::get().to(get_recent_transactions)),
-    );
+    cfg.route("/status", web::get().to(get_faucet_status))
+        .route("/send", web::post().to(request_tokens))
+        .route("/transactions", web::get().to(get_recent_transactions));
 }
 
 /// Get faucet status

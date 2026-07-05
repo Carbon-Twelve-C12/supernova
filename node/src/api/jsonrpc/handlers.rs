@@ -107,7 +107,7 @@ async fn get_info(
     };
 
     let chain_work = format!("0x{:x}", (difficulty * height as f64) as u128);
-    let verification_progress = 1.0;
+    let verification_progress = node.network().get_sync_progress();
 
     // Get network info
     let connections = node.network().peer_count_sync() as u32;
@@ -116,7 +116,7 @@ async fn get_info(
     let mempool_size = node.mempool().size();
     let mempool_bytes = node.mempool().size_in_bytes();
     let mempool_usage = node.mempool().get_memory_usage() as u64;
-    let min_fee_rate = 1000u64; // Default min fee rate
+    let min_fee_rate = node.mempool().get_info().min_fee_rate;
 
     // Combine into a single response
     Ok(json!({
@@ -136,7 +136,7 @@ async fn get_info(
             })?
             .network.network_id.clone(),
         "warnings": "",
-        "networkhashps": calculate_network_hashrate(difficulty),
+        "networkhashps": calculate_hashrate(difficulty, 150), // 2.5 minute block time
         "connections": connections,
         "mempool": {
             "size": mempool_size,
@@ -193,8 +193,8 @@ async fn get_blockchain_info(
     };
 
     let chain_work = format!("0x{:x}", (difficulty * height as f64) as u128);
-    let verification_progress = 1.0;
-    let size_on_disk = 0u64; // Placeholder
+    let verification_progress = node.network().get_sync_progress();
+    let size_on_disk = directory_size_on_disk(storage.path());
 
     Ok(json!({
         "chain": node.config().read()
@@ -651,17 +651,67 @@ async fn get_raw_transaction_rpc(
 }
 
 /// Send raw transaction
+///
+/// Accepts a hex-encoded, bincode-serialized transaction, submits it to the
+/// mempool via the existing mempool-acceptance validation path, and on
+/// success broadcasts it to the P2P network. Mirrors the REST
+/// `/mempool/submit` handler in `node/src/api/routes/mempool.rs`.
 async fn send_raw_transaction(
     params: Value,
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Implement send raw transaction here
-    // This is a placeholder implementation
-    Err(JsonRpcError {
-        code: ErrorCode::MethodNotFound as i32,
-        message: "Method not yet implemented".to_string(),
+    // Parse raw transaction hex parameter
+    let raw_tx_hex = match params {
+        Value::Array(ref arr) if !arr.is_empty() => arr
+            .get(0)
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Missing or invalid raw transaction parameter".to_string(),
+                data: None,
+            })?,
+        _ => {
+            return Err(JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Missing raw transaction parameter".to_string(),
+                data: None,
+            });
+        }
+    };
+
+    // Decode hex
+    let tx_bytes = hex::decode(raw_tx_hex).map_err(|_| JsonRpcError {
+        code: ErrorCode::InvalidParams as i32,
+        message: "Invalid raw transaction hex encoding".to_string(),
         data: None,
-    })
+    })?;
+
+    // Deserialize transaction
+    let transaction =
+        bincode::deserialize::<supernova_core::types::transaction::Transaction>(&tx_bytes)
+            .map_err(|_| JsonRpcError {
+                code: ErrorCode::InvalidParams as i32,
+                message: "Invalid raw transaction format".to_string(),
+                data: None,
+            })?;
+
+    let txid = hex::encode(transaction.hash());
+
+    // Submit to mempool via the existing mempool-acceptance validation path
+    match node.mempool().add_transaction(transaction.clone(), 1000) {
+        Ok(()) => {
+            // Broadcast to the P2P network directly (avoids re-adding to the
+            // mempool, which `ApiFacade::broadcast_transaction` would do and
+            // which would short-circuit on `TransactionExists`).
+            node.network().broadcast_transaction(&transaction);
+            Ok(Value::String(txid))
+        }
+        Err(e) => Err(JsonRpcError {
+            code: ErrorCode::InvalidParams as i32,
+            message: format!("Transaction rejected: {}", e),
+            data: None,
+        }),
+    }
 }
 
 /// Get mempool information
@@ -673,7 +723,7 @@ async fn get_mempool_info(
     let tx_count = mempool.size();
     let size = mempool.size_in_bytes();
     let memory_usage = mempool.get_memory_usage() as u64;
-    let min_fee_rate = 1000u64; // Default min fee rate
+    let min_fee_rate = mempool.get_info().min_fee_rate;
 
     Ok(json!({
         "size": tx_count,
@@ -708,33 +758,40 @@ async fn get_raw_mempool(
     };
 
     let mempool = node.mempool();
-    let txs = mempool.get_all_transactions();
 
     if verbose {
         let mut result = serde_json::Map::new();
 
-        for tx in txs {
-            let txid = hex::encode(tx.hash());
-            let tx_size = bincode::serialize(&tx).unwrap_or_default().len();
+        // Real chain height; verbose mempool entries report the height at which
+        // they are being considered for inclusion (the current best height).
+        let height = node.storage().get_height().unwrap_or(0);
+
+        for entry in mempool.get_all_transaction_entries() {
+            // The pool tracks no in-mempool ancestry graph, so each entry is its
+            // own (and only) ancestor/descendant. Fee, fee rate and entry time
+            // are the real values recorded by the mempool.
             let tx_info = json!({
-                "size": tx_size,
-                "fee": 1000, // Placeholder fee
-                "time": 0, // Placeholder timestamp
-                "height": 0, // Not yet in a block
-                "descendantcount": 1, // Placeholder
-                "descendantsize": tx_size,
-                "descendantfees": 1000,
-                "ancestorcount": 1, // Placeholder
-                "ancestorsize": tx_size,
-                "ancestorfees": 1000,
+                "size": entry.size,
+                "fee": entry.fee,
+                "fee_rate": entry.fee_rate,
+                "time": entry.time,
+                "height": height,
+                "descendantcount": 1,
+                "descendantsize": entry.size,
+                "descendantfees": entry.fee,
+                "ancestorcount": 1,
+                "ancestorsize": entry.size,
+                "ancestorfees": entry.fee,
             });
 
-            result.insert(txid, tx_info);
+            result.insert(entry.txid, tx_info);
         }
 
         Ok(Value::Object(result))
     } else {
-        let txids: Vec<Value> = txs.iter()
+        let txids: Vec<Value> = mempool
+            .get_all_transactions()
+            .iter()
             .map(|tx| Value::String(hex::encode(tx.hash())))
             .collect();
 
@@ -824,6 +881,30 @@ async fn get_local_peer_id(
     Ok(Value::String(peer_id.to_string()))
 }
 
+/// Derive the candidate-block weight and transaction count a miner would build
+/// next, given the serialized sizes of the mempool transactions available for
+/// selection.
+///
+/// Mirrors `mining::template::BlockTemplate::generate`, which assembles a
+/// coinbase plus up to `TEMPLATE_MAX_TXS` mempool transactions (`take(100)`).
+/// Returns `(currentblockweight, currentblocktx)` where weight is BIP141 units
+/// (serialized size * 4) over the selected transactions and the count includes
+/// the coinbase every block carries. This reports real state instead of the old
+/// hardcoded `4000`/`10` placeholders; the weight omits the not-yet-assembled
+/// coinbase but fabricates nothing.
+fn current_block_stats(mempool_tx_sizes: &[usize]) -> (u64, u64) {
+    const TEMPLATE_MAX_TXS: usize = 100;
+    let selected_count = mempool_tx_sizes.len().min(TEMPLATE_MAX_TXS);
+    let weight: u64 = mempool_tx_sizes
+        .iter()
+        .take(TEMPLATE_MAX_TXS)
+        .map(|&size| size as u64)
+        .sum::<u64>()
+        .saturating_mul(4);
+    // +1 for the coinbase transaction every block includes.
+    (weight, selected_count as u64 + 1)
+}
+
 /// Get mining information
 async fn get_mining_info(
     _params: Value,
@@ -852,10 +933,21 @@ async fn get_mining_info(
 
     let network_hashrate = calculate_hashrate(difficulty, 150); // 2.5 minute block time
 
+    // `currentblockweight`/`currentblocktx` describe the candidate block a miner
+    // would build next. Derive them from real mempool state instead of hardcoded
+    // placeholders (see `current_block_stats`).
+    let mempool_tx_sizes: Vec<usize> = node
+        .mempool()
+        .get_all_transaction_entries()
+        .iter()
+        .map(|e| e.size)
+        .collect();
+    let (current_block_weight, current_block_tx) = current_block_stats(&mempool_tx_sizes);
+
     Ok(json!({
         "blocks": height,
-        "currentblockweight": 4000, // Placeholder
-        "currentblocktx": 10, // Placeholder
+        "currentblockweight": current_block_weight,
+        "currentblocktx": current_block_tx,
         "difficulty": difficulty,
         "networkhashps": network_hashrate,
         "pooledtx": node.mempool().size(),
@@ -930,13 +1022,19 @@ async fn get_block_template(
     })?;
     
     // Format as JSON-RPC response
+    let mempool = node.mempool();
     let transactions_json: Vec<Value> = template.transactions.iter().skip(1) // Skip coinbase
         .map(|tx| {
+        let txid = tx.hash();
+        // Report the real per-transaction fee the mempool tracks (fee_rate * size).
+        // External miners select/order by this field (BIP22); a hardcoded placeholder
+        // misleads them. Fall back to 0 when the tx is not (or no longer) in the pool.
+        let fee = mempool.get_transaction_fee(&txid).unwrap_or(0);
         json!({
             "data": hex::encode(bincode::serialize(tx).unwrap_or_default()),
-            "txid": hex::encode(tx.hash()),
-            "hash": hex::encode(tx.hash()),
-                "fee": 1000, // Placeholder fee
+            "txid": hex::encode(txid),
+            "hash": hex::encode(txid),
+                "fee": fee,
         })
     }).collect();
 
@@ -1016,25 +1114,39 @@ async fn submit_block(
         });
     }
     
-    // Get chain state and process block
+    // Get chain state and process block.
+    // Use spawn_blocking so the std::sync::RwLock write guard is never held
+    // across the .await inside add_block on the async actix worker thread
+    // (mirrors the discipline in node.rs / network/mod.rs).
     let chain_state = node.chain_state();
-    {
-        let mut chain = chain_state.write()
-            .map_err(|_| JsonRpcError {
-                code: -1,
-                message: "Chain state lock poisoned".to_string(),
-        data: None,
-    })?;
+    let block_for_add = block.clone();
+    // The guard is intentionally held across the await inside a dedicated
+    // spawn_blocking thread, so it cannot stall an actix worker's executor.
+    #[allow(clippy::await_holding_lock)]
+    let add_result = tokio::task::spawn_blocking(move || {
+        tokio::runtime::Handle::current().block_on(async move {
+            match chain_state.write() {
+                Ok(mut chain) => chain.add_block(&block_for_add).await,
+                Err(e) => Err(crate::storage::StorageError::DatabaseError(format!(
+                    "Chain state lock poisoned: {}",
+                    e
+                ))),
+            }
+        })
+    })
+    .await;
+    add_result
+        .map_err(|e| JsonRpcError {
+            code: -1,
+            message: format!("Block processing task failed: {}", e),
+            data: None,
+        })?
+        .map_err(|e| JsonRpcError {
+            code: -25,
+            message: format!("Failed to add block: {}", e),
+            data: None,
+        })?;
 
-        // Add block to chain
-        chain.add_block(&block).await
-            .map_err(|e| JsonRpcError {
-                code: -25,
-                message: format!("Failed to add block: {}", e),
-                data: None,
-            })?;
-    } // Release lock before wallet scan
-    
     // Scan block for wallet transactions
     let wallet_manager = node.wallet_manager();
     if let Ok(wallet) = wallet_manager.write() {
@@ -1065,6 +1177,11 @@ async fn submit_block(
 
 /// Generate blocks using CPU mining (testnet only)
 #[cfg(feature = "testnet")]
+// The `wallet` read guard is explicitly dropped before the spawn_blocking
+// await, and the chain-state write guard lives entirely on the dedicated
+// spawn_blocking thread; clippy's await_holding_lock ignores explicit drops
+// and cannot see the thread boundary, so both are false positives here.
+#[allow(clippy::await_holding_lock)]
 async fn generate_blocks(
     params: Value,
     node: web::Data<Arc<ApiFacade>>,
@@ -1117,7 +1234,10 @@ async fn generate_blocks(
     for i in 0..num_blocks {
         tracing::debug!("Mining block {} of {}", i + 1, num_blocks);
 
-        // Get wallet manager for addresses
+        // Get wallet manager for addresses.
+        // `wallet` is explicitly dropped (see drop(wallet) below) before the
+        // later spawn_blocking await (fn-level allow covers the clippy false
+        // positive from await_holding_lock ignoring the explicit drop).
         let wallet_manager = node.wallet_manager();
         let wallet = wallet_manager.read()
             .map_err(|_| JsonRpcError {
@@ -1200,23 +1320,37 @@ async fn generate_blocks(
             hex::encode(&block_hash[..8])
         );
 
-        // Add block to chain state
+        // Add block to chain state.
+        // Use spawn_blocking so the std::sync::RwLock write guard is never held
+        // across the .await inside add_block on the async actix worker thread
+        // (mirrors the discipline in node.rs / network/mod.rs).
         let chain_state = node.chain_state();
-        {
-            let mut chain = chain_state.write()
-                .map_err(|_| JsonRpcError {
-                    code: -1,
-                    message: "Chain state lock poisoned".to_string(),
-                    data: None,
-                })?;
-            
-            chain.add_block(&mined_block).await
-                .map_err(|e| JsonRpcError {
-                    code: -25,
-                    message: format!("Failed to add block to chain: {}", e),
-                    data: None,
-                })?;
-        }
+        let block_for_add = mined_block.clone();
+        // The guard is intentionally held across the await inside a dedicated
+        // spawn_blocking thread, so it cannot stall an actix worker's executor.
+        let add_result = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                match chain_state.write() {
+                    Ok(mut chain) => chain.add_block(&block_for_add).await,
+                    Err(e) => Err(crate::storage::StorageError::DatabaseError(format!(
+                        "Chain state lock poisoned: {}",
+                        e
+                    ))),
+                }
+            })
+        })
+        .await;
+        add_result
+            .map_err(|e| JsonRpcError {
+                code: -1,
+                message: format!("Block processing task failed: {}", e),
+                data: None,
+            })?
+            .map_err(|e| JsonRpcError {
+                code: -25,
+                message: format!("Failed to add block to chain: {}", e),
+                data: None,
+            })?;
 
         // Scan block for wallet transactions
         let wallet_manager = node.wallet_manager();
@@ -1301,11 +1435,37 @@ async fn get_next_block_hash(
     }
 }
 
-/// Helper function to calculate network hashrate from difficulty
-fn calculate_network_hashrate(difficulty: f64) -> f64 {
-    // Network hashrate = difficulty * 2^32 / block_time_seconds
-    // For 10 minute blocks (600 seconds) - Supernova target
-    difficulty * 4_294_967_296.0 / 600.0
+/// Best-effort total on-disk size (in bytes) of the storage directory tree.
+///
+/// Walks the database directory recursively and sums regular-file lengths.
+/// Any entry that cannot be read (permissions, races with compaction) is
+/// skipped rather than failing the RPC, so the returned value is a lower
+/// bound rather than an error.
+fn directory_size_on_disk(path: &std::path::Path) -> u64 {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(_) => return 0,
+    };
+
+    if metadata.is_file() {
+        return metadata.len();
+    }
+
+    if !metadata.is_dir() {
+        // Skip symlinks and special files to avoid cycles / double counting.
+        return 0;
+    }
+
+    let entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+
+    let mut total: u64 = 0;
+    for entry in entries.flatten() {
+        total = total.saturating_add(directory_size_on_disk(&entry.path()));
+    }
+    total
 }
 
 /// Get environmental metrics
@@ -1313,16 +1473,45 @@ async fn get_environmental_metrics(
     _params: Value,
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Placeholder - environmental data not yet available from ApiFacade
+    environmental_metrics_json(&node.environmental())
+}
+
+/// Build the environmental-metrics JSON payload from real monitor telemetry.
+///
+/// Mirrors `environmental_info_json`: sourced from the deadlock-free
+/// `get_carbon_footprint` path over a 1-hour window so `totalEmissions`,
+/// `carbonOffsets` (gross minus net), `netCarbon`, `renewablePercentage`, and
+/// `isCarbonNegative` reflect the node's measured resource usage rather than
+/// hardcoded zeros. `treasuryBalance` and `greenMiners` have no telemetry
+/// source wired into `ApiFacade` yet, so they are reported as JSON `null`
+/// (unknown) instead of a fabricated `0`, keeping the endpoint honest for a
+/// carbon-negative-branded chain.
+fn environmental_metrics_json(
+    monitor: &crate::environmental::EnvironmentalMonitor,
+) -> Result<Value, JsonRpcError> {
+    const PERIOD_SECS: u64 = 3600;
+
+    let carbon = monitor
+        .get_carbon_footprint(PERIOD_SECS, true)
+        .map_err(|e| JsonRpcError {
+            code: ErrorCode::InternalError as i32,
+            message: format!("Failed to get environmental metrics: {}", e),
+            data: None,
+        })?;
+
+    let total_emissions = carbon.total_emissions_g;
+    let net_emissions = carbon.net_emissions_g;
+    let total_offsets = (total_emissions - net_emissions).max(0.0);
+
     Ok(json!({
-        "totalEmissions": 0.0,
-        "carbonOffsets": 0.0,
-        "netCarbon": 0.0,
-        "renewablePercentage": 0.0,
-        "treasuryBalance": 0,
-        "isCarbonNegative": false,
-        "greenMiners": 0,
-        "lastUpdated": 0,
+        "totalEmissions": total_emissions,
+        "carbonOffsets": total_offsets,
+        "netCarbon": net_emissions,
+        "renewablePercentage": carbon.renewable_percentage,
+        "treasuryBalance": Value::Null,
+        "isCarbonNegative": net_emissions < 0.0,
+        "greenMiners": Value::Null,
+        "lastUpdated": carbon.timestamp,
     }))
 }
 
@@ -1331,14 +1520,58 @@ async fn get_environmental_info(
     _params: Value,
     node: web::Data<Arc<ApiFacade>>,
 ) -> Result<Value, JsonRpcError> {
-    // Placeholder - environmental data not yet available from ApiFacade
+    environmental_info_json(&node.environmental())
+}
+
+/// Build the environmental-info JSON payload from real monitor telemetry.
+///
+/// Reports over a 1-hour window so `carbonIntensity` (g CO2e/kWh),
+/// `totalEmissions`/`netEmissions` (grams), `totalOffsets` (grams, the
+/// difference between gross and net), `greenMining` (renewable-mining bonus
+/// %), and `carbonNegative` all reflect the node's measured resource usage
+/// rather than hardcoded zeros. Split out from the async handler so the pure
+/// mapping is unit-testable without standing up a full node.
+///
+/// Deliberately sourced from `get_carbon_footprint` (energy + emissions) rather
+/// than `get_environmental_impact`: the latter also invokes
+/// `get_resource_utilization`, whose `calculate_network_usage` helper re-locks
+/// the monitor's `system` mutex while it is already held and self-deadlocks.
+/// The carbon footprint already carries every field this endpoint returns, so
+/// this path stays deadlock-free for the API worker thread.
+fn environmental_info_json(
+    monitor: &crate::environmental::EnvironmentalMonitor,
+) -> Result<Value, JsonRpcError> {
+    const PERIOD_SECS: u64 = 3600;
+
+    let carbon = monitor
+        .get_carbon_footprint(PERIOD_SECS, true)
+        .map_err(|e| JsonRpcError {
+            code: ErrorCode::InternalError as i32,
+            message: format!("Failed to get environmental info: {}", e),
+            data: None,
+        })?;
+
+    let total_emissions = carbon.total_emissions_g;
+    let net_emissions = carbon.net_emissions_g;
+    let total_offsets = (total_emissions - net_emissions).max(0.0);
+
+    // Green-mining bonus mirrors EnvironmentalMonitor::calculate_green_mining_bonus:
+    // renewable-share thresholds map to a percentage mining incentive.
+    let green_mining = if carbon.renewable_percentage >= 75.0 {
+        10.0
+    } else if carbon.renewable_percentage >= 50.0 {
+        5.0
+    } else {
+        0.0
+    };
+
     Ok(json!({
-        "carbonIntensity": 0.0,
-        "greenMining": 0.0,
-        "carbonNegative": false,
-        "totalEmissions": 0.0,
-        "totalOffsets": 0.0,
-        "netEmissions": 0.0,
+        "carbonIntensity": carbon.intensity,
+        "greenMining": green_mining,
+        "carbonNegative": net_emissions < 0.0,
+        "totalEmissions": total_emissions,
+        "totalOffsets": total_offsets,
+        "netEmissions": net_emissions,
     }))
 }
 
@@ -1372,23 +1605,84 @@ async fn get_network_stats(
     let connections = node.network().peer_count_sync() as u32;
     let mempool_size = node.mempool().size();
 
-    Ok(json!({
+    // Source carbon intensity and renewable-mining share from the environmental
+    // monitor's measured 1-hour footprint. `None` (rendered as JSON null) when
+    // telemetry is unavailable, never a fabricated 0.0. Uses get_carbon_footprint
+    // (not get_environmental_impact, which self-deadlocks the monitor mutex).
+    let carbon = node
+        .environmental()
+        .get_carbon_footprint(3600, true)
+        .ok()
+        .map(|c| (c.intensity, c.renewable_percentage));
+
+    // Read node config once for both the network id and the real quantum-security
+    // state, so quantumSecurityLevel reflects actual configuration rather than a
+    // hardcoded constant.
+    let config_handle = node.config();
+    let config = config_handle.read().map_err(|e| JsonRpcError {
+        code: ErrorCode::InternalError as i32,
+        message: format!("Failed to read config: {}", e),
+        data: None,
+    })?;
+    let network_id = config.network.network_id.clone();
+    let enable_quantum_security = config.node.enable_quantum_security;
+    drop(config);
+
+    Ok(network_stats_json(
+        height,
+        network_hashrate,
+        difficulty,
+        connections,
+        mempool_size,
+        carbon,
+        enable_quantum_security,
+        &network_id,
+    ))
+}
+
+/// Assemble the `getnetworkstats` JSON payload from already-resolved inputs.
+///
+/// Split out from the async handler so the honest field mapping is unit-testable
+/// without standing up a node. Truthfulness guarantees enforced here:
+/// - `mempoolSize` is the current mempool size, accurately labelled (the old
+///   payload mislabelled this as `transactions24h`).
+/// - `carbonIntensity` / `greenMiningPercentage` are the monitor's measured
+///   values, or JSON `null` when telemetry is unavailable — never a fabricated
+///   `0.0`.
+/// - `quantumSecurityLevel` reflects the real `enable_quantum_security` config
+///   flag instead of a hardcoded constant.
+#[allow(clippy::too_many_arguments)]
+fn network_stats_json(
+    height: u64,
+    network_hashrate: u64,
+    difficulty: f64,
+    connections: u32,
+    mempool_size: usize,
+    carbon: Option<(f64, f64)>,
+    enable_quantum_security: bool,
+    network_id: &str,
+) -> Value {
+    let (carbon_intensity, green_mining_percentage) = match carbon {
+        Some((intensity, renewable)) => (json!(intensity), json!(renewable)),
+        None => (Value::Null, Value::Null),
+    };
+    let quantum_security_level = if enable_quantum_security {
+        "HIGH"
+    } else {
+        "NONE"
+    };
+
+    json!({
         "blockHeight": height,
         "hashrate": network_hashrate.to_string(),
         "difficulty": difficulty.to_string(),
         "nodes": connections,
-        "transactions24h": mempool_size, // Placeholder - needs actual 24h count
-        "carbonIntensity": 0.0,
-        "greenMiningPercentage": 0.0,
-        "quantumSecurityLevel": "HIGH", // Hardcoded for now
-        "networkId": node.config().read()
-            .map_err(|e| JsonRpcError {
-                code: ErrorCode::InternalError as i32,
-                message: format!("Failed to read config: {}", e),
-                data: None,
-            })?
-            .network.network_id.clone(),
-    }))
+        "mempoolSize": mempool_size,
+        "carbonIntensity": carbon_intensity,
+        "greenMiningPercentage": green_mining_percentage,
+        "quantumSecurityLevel": quantum_security_level,
+        "networkId": network_id,
+    })
 }
 
 // ============================================================================
@@ -1836,4 +2130,297 @@ async fn add_node(
         "success": true,
         "message": format!("Dialing peer: {}", multiaddr_str)
     }))
+}
+
+#[cfg(test)]
+mod send_raw_transaction_tests {
+    use super::*;
+    use crate::config::NodeConfig;
+    use crate::node::Node;
+
+    async fn create_test_facade() -> web::Data<Arc<ApiFacade>> {
+        let mut config = NodeConfig::default();
+        // NodeConfig::default()'s network settings are internally
+        // inconsistent (max_inbound_connections > max_peers), which trips
+        // NodeConfig::validate() during Node::new(). This is pre-existing,
+        // unrelated to this handler; normalize it here so this test
+        // exercises send_raw_transaction rather than an unrelated default
+        // config bug.
+        config.network.max_peers = config
+            .network
+            .max_peers
+            .max(config.network.max_inbound_connections)
+            .max(config.network.max_outbound_connections);
+        // NodeConfig::default() points storage at the fixed relative path
+        // "./data", which causes sled lock contention when multiple tests
+        // in this module run concurrently. Give each test its own on-disk
+        // temp directory instead.
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        config.storage.db_path = temp_dir.path().join("data");
+        let node = Node::new(config)
+            .await
+            .expect("Failed to create test node");
+        // Keep the temp dir alive for the lifetime of the node/facade by
+        // leaking it; test processes are short-lived so this is fine.
+        std::mem::forget(temp_dir);
+        let facade = ApiFacade::new(&node).expect("Failed to create ApiFacade");
+        web::Data::new(Arc::new(facade))
+    }
+
+    // All assertions share a single node/facade. `create_test_facade` starts a
+    // real `Node`, which binds a fixed P2P TCP port; running several such tests
+    // in parallel (or leaving leaked nodes holding the port) would collide on
+    // that port. Exercising every case against one facade keeps full coverage
+    // of `send_raw_transaction` while binding the port exactly once.
+    #[tokio::test]
+    async fn send_raw_transaction_behaviour() {
+        let facade = create_test_facade().await;
+
+        // Garbage hex decodes fine as bytes but fails transaction
+        // deserialization; either way the handler must no longer return
+        // the old placeholder MethodNotFound error.
+        let params = json!(["deadbeef"]);
+        let result = send_raw_transaction(params, facade.clone()).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_ne!(
+            err.code,
+            ErrorCode::MethodNotFound as i32,
+            "send_raw_transaction must be implemented, not a MethodNotFound stub"
+        );
+        assert_eq!(err.code, ErrorCode::InvalidParams as i32);
+
+        // Non-hex input is rejected at the hex-decode stage.
+        let params = json!(["not-valid-hex!!"]);
+        let result = send_raw_transaction(params, facade.clone()).await;
+        let err = result.unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidParams as i32);
+        assert!(err.message.to_lowercase().contains("hex"));
+
+        // Missing params are rejected before any decoding.
+        let result = send_raw_transaction(Value::Null, facade).await;
+        let err = result.unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidParams as i32);
+    }
+}
+
+#[cfg(test)]
+mod directory_size_tests {
+    use super::directory_size_on_disk;
+    use std::fs;
+    use std::io::Write;
+
+    #[test]
+    fn sums_nested_file_sizes_and_ignores_missing_paths() {
+        // A path that does not exist reports zero rather than erroring.
+        let missing = std::path::Path::new("/definitely/not/a/real/path/for/supernova");
+        assert_eq!(directory_size_on_disk(missing), 0);
+
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let root = temp_dir.path();
+
+        // Top-level file: 10 bytes.
+        let mut f1 = fs::File::create(root.join("a.dat")).unwrap();
+        f1.write_all(&[0u8; 10]).unwrap();
+
+        // Nested directory with a 25-byte file.
+        let nested = root.join("sub/deeper");
+        fs::create_dir_all(&nested).unwrap();
+        let mut f2 = fs::File::create(nested.join("b.dat")).unwrap();
+        f2.write_all(&[0u8; 25]).unwrap();
+
+        // Empty directory contributes nothing.
+        fs::create_dir_all(root.join("empty")).unwrap();
+
+        assert_eq!(directory_size_on_disk(root), 35);
+
+        // A single regular file reports its own length.
+        assert_eq!(directory_size_on_disk(&root.join("a.dat")), 10);
+    }
+}
+
+#[cfg(test)]
+mod environmental_info_tests {
+    use super::*;
+    use crate::environmental::EnvironmentalMonitor;
+
+    // getenvironmentalinfo must surface real monitor telemetry, not the old
+    // hardcoded all-zero placeholder. A real monitor measures nonzero energy
+    // use, so emissions and carbon intensity must both be positive.
+    #[test]
+    fn environmental_info_returns_real_data() {
+        let monitor = EnvironmentalMonitor::new();
+        let value = environmental_info_json(&monitor).expect("should produce info");
+
+        let carbon_intensity = value["carbonIntensity"]
+            .as_f64()
+            .expect("carbonIntensity present");
+        let total_emissions = value["totalEmissions"]
+            .as_f64()
+            .expect("totalEmissions present");
+        let net_emissions = value["netEmissions"]
+            .as_f64()
+            .expect("netEmissions present");
+        let total_offsets = value["totalOffsets"]
+            .as_f64()
+            .expect("totalOffsets present");
+
+        // Real telemetry, not the stubbed zeros.
+        assert!(
+            carbon_intensity > 0.0,
+            "carbonIntensity must reflect real emission factor, got {carbon_intensity}"
+        );
+        assert!(
+            total_emissions > 0.0,
+            "totalEmissions must be measured from real energy use, got {total_emissions}"
+        );
+        // Offsets are the nonnegative gap between gross and net emissions.
+        assert!(total_offsets >= 0.0, "totalOffsets must be nonnegative");
+        assert!(
+            (total_emissions - net_emissions - total_offsets).abs() < 1e-6,
+            "totalOffsets must equal gross minus net emissions"
+        );
+        // greenMining and carbonNegative fields must be present and typed.
+        assert!(value["greenMining"].is_number(), "greenMining present");
+        assert!(value["carbonNegative"].is_boolean(), "carbonNegative present");
+    }
+
+    // getenvironmentalmetrics must surface real monitor telemetry, not the old
+    // hardcoded all-zero placeholder. A real monitor measures nonzero energy
+    // use, so total emissions must be positive; fields with no telemetry source
+    // (treasuryBalance/greenMiners) must be null rather than a fabricated zero.
+    #[test]
+    fn environmental_metrics_returns_real_data() {
+        let monitor = EnvironmentalMonitor::new();
+        let value = environmental_metrics_json(&monitor).expect("should produce metrics");
+
+        let total_emissions = value["totalEmissions"]
+            .as_f64()
+            .expect("totalEmissions present");
+        let net_carbon = value["netCarbon"].as_f64().expect("netCarbon present");
+        let carbon_offsets = value["carbonOffsets"]
+            .as_f64()
+            .expect("carbonOffsets present");
+
+        // Real telemetry, not the stubbed zeros.
+        assert!(
+            total_emissions > 0.0,
+            "totalEmissions must be measured from real energy use, got {total_emissions}"
+        );
+        assert!(carbon_offsets >= 0.0, "carbonOffsets must be nonnegative");
+        assert!(
+            (total_emissions - net_carbon - carbon_offsets).abs() < 1e-6,
+            "carbonOffsets must equal gross minus net emissions"
+        );
+        assert!(
+            value["renewablePercentage"].is_number(),
+            "renewablePercentage present"
+        );
+        assert!(
+            value["isCarbonNegative"].is_boolean(),
+            "isCarbonNegative present"
+        );
+        // No telemetry source is wired for these yet: honest null, not a fake 0.
+        assert!(
+            value["treasuryBalance"].is_null(),
+            "treasuryBalance must be null when unavailable"
+        );
+        assert!(
+            value["greenMiners"].is_null(),
+            "greenMiners must be null when unavailable"
+        );
+        // lastUpdated must be a real timestamp, not the stubbed 0.
+        assert!(
+            value["lastUpdated"].as_u64().expect("lastUpdated present") > 0,
+            "lastUpdated must reflect a real measurement time"
+        );
+    }
+}
+
+#[cfg(test)]
+mod network_stats_tests {
+    use super::*;
+
+    // getnetworkstats must not fabricate values. When environmental telemetry is
+    // available the carbon fields carry the measured numbers; the mempool count is
+    // labelled honestly; and quantumSecurityLevel reflects the real config flag.
+    #[test]
+    fn network_stats_reports_real_values_when_available() {
+        let value = network_stats_json(
+            42,             // height
+            123_456,        // hashrate
+            2.5,            // difficulty
+            7,              // connections
+            9,              // mempool size
+            Some((480.0, 65.0)), // carbon intensity, renewable %
+            true,           // quantum security enabled
+            "testnet",
+        );
+
+        assert_eq!(value["blockHeight"], json!(42));
+        assert_eq!(value["nodes"], json!(7));
+        // Accurately labelled mempool size, and no fabricated 24h field.
+        assert_eq!(value["mempoolSize"], json!(9));
+        assert!(
+            value.get("transactions24h").is_none(),
+            "must not expose a fabricated 24h transaction count"
+        );
+        // Carbon fields are the measured monitor values, not hardcoded zeros.
+        assert_eq!(value["carbonIntensity"], json!(480.0));
+        assert_eq!(value["greenMiningPercentage"], json!(65.0));
+        assert_eq!(value["quantumSecurityLevel"], json!("HIGH"));
+        assert_eq!(value["networkId"], json!("testnet"));
+    }
+
+    // When telemetry is unavailable the carbon fields must be null (unknown),
+    // never a fabricated 0.0; quantumSecurityLevel tracks the disabled flag.
+    #[test]
+    fn network_stats_nulls_carbon_when_telemetry_missing() {
+        let value = network_stats_json(0, 0, 1.0, 0, 0, None, false, "dev");
+
+        assert!(
+            value["carbonIntensity"].is_null(),
+            "carbonIntensity must be null when unknown, not fabricated"
+        );
+        assert!(
+            value["greenMiningPercentage"].is_null(),
+            "greenMiningPercentage must be null when unknown, not fabricated"
+        );
+        assert_eq!(value["quantumSecurityLevel"], json!("NONE"));
+    }
+}
+
+#[cfg(test)]
+mod mining_info_tests {
+    use super::*;
+
+    // getmininginfo must not serve the old hardcoded `4000`/`10` placeholders.
+    // With an empty mempool the next block is just the coinbase: zero tx weight
+    // and a transaction count of 1.
+    #[test]
+    fn current_block_stats_empty_mempool_is_coinbase_only() {
+        let (weight, tx_count) = current_block_stats(&[]);
+        assert_eq!(weight, 0, "no mempool txs means zero selected-tx weight");
+        assert_eq!(tx_count, 1, "empty mempool still yields a coinbase-only block");
+    }
+
+    // Weight is BIP141 units (serialized size * 4) summed over selected txs, and
+    // the count includes the coinbase (+1). Values come from real sizes, not a
+    // fixed placeholder.
+    #[test]
+    fn current_block_stats_derives_from_real_sizes() {
+        let (weight, tx_count) = current_block_stats(&[250, 500]);
+        assert_eq!(weight, (250 + 500) * 4, "weight = total serialized size * 4");
+        assert_eq!(tx_count, 3, "two mempool txs plus the coinbase");
+    }
+
+    // Selection mirrors the template's `take(100)` policy: at most 100 mempool
+    // transactions contribute, so both weight and count are capped accordingly.
+    #[test]
+    fn current_block_stats_caps_at_template_limit() {
+        let sizes = vec![10usize; 150];
+        let (weight, tx_count) = current_block_stats(&sizes);
+        assert_eq!(weight, 100 * 10 * 4, "only the first 100 txs count toward weight");
+        assert_eq!(tx_count, 101, "100 selected mempool txs plus the coinbase");
+    }
 }

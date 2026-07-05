@@ -1530,7 +1530,7 @@ pub struct AddressResponse {
 /// Backup response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct BackupResponse {
-    /// Backup data (encrypted)
+    /// On-disk location (handle) of the created backup file
     pub backup_data: String,
     /// Backup timestamp
     pub timestamp: u64,

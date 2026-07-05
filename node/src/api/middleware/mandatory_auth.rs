@@ -8,6 +8,7 @@ use std::{
     future::{ready, Ready},
     rc::Rc,
 };
+use subtle::ConstantTimeEq;
 
 /// List of public endpoints that don't require authentication
 const PUBLIC_ENDPOINTS: &[&str] = &[
@@ -107,11 +108,11 @@ where
 
 fn validate_auth_header(header_value: &HeaderValue, expected_key: &str) -> bool {
     if let Ok(auth_str) = header_value.to_str() {
-        // Support both "Bearer <token>" and direct token
-        if auth_str.starts_with("Bearer ") {
-            return &auth_str[7..] == expected_key;
-        }
-        return auth_str == expected_key;
+        // Support both "Bearer <token>" and direct token.
+        let presented = auth_str.strip_prefix("Bearer ").unwrap_or(auth_str);
+        // SECURITY: constant-time comparison avoids a prefix-length timing
+        // oracle that a byte-by-byte `==` would leak for key recovery.
+        return bool::from(presented.as_bytes().ct_eq(expected_key.as_bytes()));
     }
     false
 }

@@ -9,18 +9,15 @@ use utoipa::{IntoParams, ToSchema};
 
 /// Configure mempool API routes
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/mempool")
-            .route("/info", web::get().to(get_mempool_info))
-            .route("/transactions", web::get().to(get_mempool_transactions))
-            .route(
-                "/transaction/{txid}",
-                web::get().to(get_mempool_transaction),
-            )
-            .route("/submit", web::post().to(submit_transaction))
-            .route("/validate", web::post().to(validate_transaction))
-            .route("/fees", web::get().to(get_fee_estimates)),
-    );
+    cfg.route("/info", web::get().to(get_mempool_info))
+        .route("/transactions", web::get().to(get_mempool_transactions))
+        .route(
+            "/transaction/{txid}",
+            web::get().to(get_mempool_transaction),
+        )
+        .route("/submit", web::post().to(submit_transaction))
+        .route("/validate", web::post().to(validate_transaction))
+        .route("/fees", web::get().to(get_fee_estimates));
 }
 
 /// Request for submitting a transaction

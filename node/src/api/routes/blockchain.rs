@@ -526,13 +526,11 @@ pub async fn get_blockchain_stats(node: NodeData) -> ApiResult<BlockchainStats> 
     // Get UTXO set size
     let utxo_set_size = storage.get_utxo_count().unwrap_or(0);
 
-    // Calculate chain size (simplified - count blocks * average size)
-    let avg_block_size = 1_000_000; // 1MB average
-    let chain_size_bytes = (height + 1) * avg_block_size;
+    // Actual on-disk database size in bytes (real measurement, not an estimate)
+    let chain_size_bytes = storage.get_chain_size_bytes().unwrap_or(0);
 
-    // Count total transactions (simplified - estimate based on blocks)
-    let avg_txs_per_block = 2000;
-    let total_transactions = (height + 1) * avg_txs_per_block;
+    // Actual number of transactions stored (real count, not an estimate)
+    let total_transactions = storage.get_transaction_count().unwrap_or(0);
 
     let stats = BlockchainStats {
         height,

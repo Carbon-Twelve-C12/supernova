@@ -13,6 +13,7 @@ use actix_web::{
 use std::future::{ready, Ready};
 use std::rc::Rc;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tracing::{error, warn};
 
 use super::auth_rate_limiter::{AuthBlockedError, AuthRateLimiter, AuthRateLimiterConfig};
@@ -122,6 +123,26 @@ fn is_public_path(path: &str) -> bool {
     PUBLIC_PATH_PREFIXES
         .iter()
         .any(|prefix| path == *prefix || path.starts_with(&format!("{}/", prefix)))
+}
+
+/// Constant-time check that `presented` matches one of the configured API
+/// keys.
+///
+/// # Security
+/// Uses `subtle::ConstantTimeEq` and folds every key's comparison with
+/// bitwise-OR so that neither the per-byte match length nor the index of the
+/// matching key leaks through timing / early-exit behaviour. A plain
+/// `Vec<String>::contains` (`String ==`) short-circuits on the first differing
+/// byte, giving an attacker a prefix-length timing oracle for incremental key
+/// recovery; this function does not.
+fn api_key_matches(keys: &[String], presented: &str) -> bool {
+    let presented_bytes = presented.as_bytes();
+    // Start false; OR in each key's constant-time equality without early exit.
+    let mut matched = subtle::Choice::from(0u8);
+    for key in keys {
+        matched |= key.as_bytes().ct_eq(presented_bytes);
+    }
+    matched.into()
 }
 
 impl<S, B> Transform<S, ServiceRequest> for ApiAuth
@@ -243,8 +264,9 @@ where
                         auth_str
                     };
 
-                    // SECURITY: Authentication is mandatory - no bypass allowed
-                    self.api_keys.contains(&api_key.to_string())
+                    // SECURITY: Authentication is mandatory - no bypass allowed.
+                    // Constant-time comparison across all keys (no timing oracle).
+                    api_key_matches(&self.api_keys, api_key)
                 } else {
                     false
                 }
@@ -359,6 +381,24 @@ mod tests {
         // Test that whitespace keys are rejected
         let result = ApiAuth::new(vec!["   ".to_string()]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_api_key_matches_constant_time_helper() {
+        let keys = vec!["alpha-key".to_string(), "beta-key".to_string()];
+
+        // Exact match against any configured key.
+        assert!(api_key_matches(&keys, "alpha-key"));
+        assert!(api_key_matches(&keys, "beta-key"));
+
+        // Non-matches: wrong value, a prefix, and an extension of a key.
+        assert!(!api_key_matches(&keys, "gamma-key"));
+        assert!(!api_key_matches(&keys, "alpha")); // prefix must not match
+        assert!(!api_key_matches(&keys, "alpha-key-extra"));
+        assert!(!api_key_matches(&keys, ""));
+
+        // Empty key set never authorizes.
+        assert!(!api_key_matches(&[], "alpha-key"));
     }
 
     #[actix_web::test]

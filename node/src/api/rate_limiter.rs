@@ -251,18 +251,57 @@ impl ApiRateLimiter {
     }
     
     /// Clean up expired rate limit entries
+    ///
+    /// SECURITY: `check_rate_limit` inserts a new entry per unseen IP and per
+    /// unseen "IP:endpoint" key, and `complete_request` only decrements a
+    /// counter — it never removes entries. Without periodic eviction the
+    /// `ip_limits` and `endpoint_limits` maps grow without bound as distinct
+    /// source IPs / endpoint strings are seen, enabling a memory-exhaustion
+    /// DoS. Call this periodically (see [`spawn_cleanup_task`]).
     pub fn cleanup_expired(&self) {
+        // Entries idle for more than 10 windows are considered stale. Using a
+        // multiple of the window (rather than exactly one) avoids evicting an
+        // IP that is still actively rate-limited within its current window.
+        self.cleanup_idle_entries(ApiRateLimitConfig::RATE_LIMIT_WINDOW * 10);
+    }
+
+    /// Evict entries whose last activity is older than `max_idle`.
+    ///
+    /// Split out from [`cleanup_expired`] so the eviction predicate can be
+    /// exercised deterministically in tests (e.g. with `Duration::ZERO`).
+    fn cleanup_idle_entries(&self, max_idle: Duration) {
         let now = Instant::now();
-        
+
         // Clean up IP limits that haven't been used recently
-        self.ip_limits.retain(|_, limit| {
-            now.duration_since(limit.last_refill) < ApiRateLimitConfig::RATE_LIMIT_WINDOW * 10
-        });
-        
+        self.ip_limits
+            .retain(|_, limit| now.duration_since(limit.last_refill) < max_idle);
+
         // Clean up endpoint limits
-        self.endpoint_limits.retain(|_, limit| {
-            now.duration_since(limit.window_start) < ApiRateLimitConfig::RATE_LIMIT_WINDOW * 10
-        });
+        self.endpoint_limits
+            .retain(|_, limit| now.duration_since(limit.window_start) < max_idle);
+    }
+
+    /// Spawn a background task that periodically evicts stale rate-limit
+    /// entries, bounding the memory used by the internal maps.
+    ///
+    /// SECURITY: This is the scheduler that makes [`cleanup_expired`] actually
+    /// run. Without it the DoS defense's own bookkeeping becomes a DoS vector.
+    /// The returned [`tokio::task::JoinHandle`] must be retained by the caller
+    /// (e.g. the API server) for the lifetime of the limiter; dropping it does
+    /// not abort the task, but holding it allows graceful shutdown.
+    pub fn spawn_cleanup_task(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let limiter = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(ApiRateLimitConfig::RATE_LIMIT_WINDOW);
+            // The first tick completes immediately; skip it so we don't run a
+            // no-op sweep the instant the limiter is created.
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                limiter.cleanup_expired();
+            }
+        })
     }
 }
 
@@ -279,8 +318,75 @@ pub struct ApiRateLimitStats {
 pub fn is_expensive_endpoint(method: &str) -> bool {
     matches!(
         method,
-        "generate" | "generatetoaddress" | "getblocktemplate" | 
+        "generate" | "generatetoaddress" | "getblocktemplate" |
         "submitblock" | "sendrawtransaction" | "sendfrom"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    fn populate(limiter: &ApiRateLimiter, last_octet: u8) {
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, last_octet));
+        limiter
+            .check_rate_limit(ip, "getblockcount", false)
+            .expect("first request from a fresh IP must be allowed");
+    }
+
+    #[test]
+    fn maps_grow_one_entry_per_distinct_ip() {
+        let limiter = ApiRateLimiter::new();
+        for octet in 1..=5 {
+            populate(&limiter, octet);
+        }
+        let stats = limiter.get_stats();
+        assert_eq!(stats.active_ip_limits, 5);
+        assert_eq!(stats.active_endpoint_limits, 5);
+    }
+
+    #[test]
+    fn cleanup_evicts_all_entries_when_fully_idle() {
+        let limiter = ApiRateLimiter::new();
+        for octet in 1..=5 {
+            populate(&limiter, octet);
+        }
+        assert_eq!(limiter.get_stats().active_ip_limits, 5);
+
+        // With a zero idle threshold every entry counts as stale and must be
+        // evicted, proving the eviction predicate actually removes entries.
+        limiter.cleanup_idle_entries(Duration::ZERO);
+
+        let stats = limiter.get_stats();
+        assert_eq!(stats.active_ip_limits, 0);
+        assert_eq!(stats.active_endpoint_limits, 0);
+    }
+
+    #[test]
+    fn cleanup_retains_fresh_entries() {
+        let limiter = ApiRateLimiter::new();
+        populate(&limiter, 1);
+
+        // Freshly-inserted entries are well within the default idle window, so
+        // the real cleanup routine must keep them.
+        limiter.cleanup_expired();
+
+        let stats = limiter.get_stats();
+        assert_eq!(stats.active_ip_limits, 1);
+        assert_eq!(stats.active_endpoint_limits, 1);
+    }
+
+    #[tokio::test]
+    async fn spawn_cleanup_task_returns_running_handle() {
+        let limiter = Arc::new(ApiRateLimiter::new());
+        populate(&limiter, 1);
+
+        let handle = limiter.spawn_cleanup_task();
+        // The task loops forever on an interval; it must not have completed or
+        // panicked immediately after spawning.
+        assert!(!handle.is_finished());
+        handle.abort();
+    }
 }
 
