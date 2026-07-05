@@ -6,6 +6,7 @@ members = [
     "miner",
     "wallet",
     "quantum_validation",
+    "green-verification",
 ]
 resolver = "2"
 

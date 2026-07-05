@@ -1,0 +1,25 @@
+[package]
+name = "green-verification"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "EXPERIMENTAL / UNAUDITED / TESTNET-ONLY prototype of ADR-0002 (verifiable green mining). NOT wired into consensus."
+
+# PROTOTYPE FOUNDATION — UNAUDITED, TESTNET-ONLY.
+# Pure functions + tests. NOT wired into consensus / coinbase / money-supply.
+
+[dependencies]
+# ML-DSA (Dilithium) source of truth — no new signature primitives here.
+supernova-core = { path = "../supernova-core" }
+# SHA3-512 canonical digest (no SHA3 helper exists in supernova-core::crypto::hash).
+sha3 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+rand = "0.8"
+hex = "0.4"
+
+[dev-dependencies]
+# Property test: rebate distribution never exceeds treasury balance and never mints.
+proptest = "1"
