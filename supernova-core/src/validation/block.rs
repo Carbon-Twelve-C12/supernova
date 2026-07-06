@@ -685,8 +685,8 @@ impl BlockValidator {
 
     /// Calculate block subsidy for a given height
     fn calculate_block_subsidy(&self, height: u64) -> u64 {
-        // Supernova halving schedule: every 210,000 blocks
-        let halvings = height / 210_000;
+        // Supernova halving schedule: every 420,000 blocks (50 NOVA start -> 42M total)
+        let halvings = height / 420_000;
 
         if halvings >= 64 {
             return 0;

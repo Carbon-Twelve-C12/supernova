@@ -427,7 +427,7 @@ impl UnifiedBlockValidator {
     pub fn calculate_block_subsidy(&self, height: u64) -> u64 {
         // Supernova emission schedule - Nakamoto-inspired
         const INITIAL_SUBSIDY: u64 = 50_000_000_000; // 50 NOVA in nanoNOVAs (smallest unit)
-        const HALVING_INTERVAL: u64 = 210_000; // Halve every 210,000 blocks
+        const HALVING_INTERVAL: u64 = 420_000; // Halve every 420,000 blocks (-> 42M total)
         const MAX_HALVINGS: u64 = 64; // After 64 halvings, subsidy becomes 0
 
         let halvings = height / HALVING_INTERVAL;
@@ -444,13 +444,13 @@ impl UnifiedBlockValidator {
 
     /// Get the halving epoch for a given height
     pub fn get_halving_epoch(&self, height: u64) -> u64 {
-        const HALVING_INTERVAL: u64 = 210_000;
+        const HALVING_INTERVAL: u64 = 420_000;
         height / HALVING_INTERVAL
     }
 
     /// Check if a height is at a halving boundary
     pub fn is_halving_height(&self, height: u64) -> bool {
-        const HALVING_INTERVAL: u64 = 210_000;
+        const HALVING_INTERVAL: u64 = 420_000;
         height > 0 && height % HALVING_INTERVAL == 0
     }
 

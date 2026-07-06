@@ -37,16 +37,16 @@ pub const NOVAS_PER_NOVA: u64 = 100_000_000; // 10^8
 /// cap (audit Critical #3): a block's coinbase output may not exceed
 /// `block_subsidy(height) + total transaction fees`.
 ///
-/// Initial subsidy = 50 NOVA; halves every 210,000 blocks; reaches 0 after 64
-/// halvings. The 210,000-block interval and 50-NOVA (5e9 nova-unit) start match
-/// the schedule the node's own coinbase builder emits
+/// Initial subsidy = 50 NOVA; halves every 420,000 blocks; reaches 0 after 64
+/// halvings. Total issuance converges to 42,000,000 NOVA (50 x 420,000 x 2),
+/// the canonical NOVA supply. The 420,000-block interval and 50-NOVA (5e9
+/// nova-unit) start match the schedule the node's own coinbase builder emits
 /// (`node/src/mining/coinbase.rs`), so honest blocks satisfy this cap exactly.
 ///
-/// NOTE: several other subsidy implementations exist across the codebase and
-/// disagree on interval/scaling; collapsing them onto this one is tracked as
-/// follow-up reconciliation work. This is the authoritative consensus value.
+/// This is the authoritative consensus value; every other subsidy implementation
+/// in the codebase is reconciled onto this same 50-NOVA / 420,000-block curve.
 pub fn block_subsidy(height: u64) -> u64 {
-    const HALVING_INTERVAL: u64 = 210_000;
+    const HALVING_INTERVAL: u64 = 420_000;
     const MAX_HALVINGS: u64 = 64;
     let halvings = height / HALVING_INTERVAL;
     if halvings >= MAX_HALVINGS {

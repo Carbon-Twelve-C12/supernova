@@ -23,7 +23,7 @@ pub enum CoinbaseError {
 /// Block reward schedule for Supernova
 /// Similar to Bitcoin's halving schedule
 const INITIAL_BLOCK_REWARD: u64 = 50_00000000; // 50 NOVA (in attonovas)
-const HALVING_INTERVAL: u64 = 210_000; // Blocks between halvings
+const HALVING_INTERVAL: u64 = 420_000; // Blocks between halvings (50 NOVA start -> 42M total)
 
 /// Environmental treasury allocation percentage
 const TREASURY_PERCENTAGE: f64 = 0.025; // 2.5% of block reward to treasury
@@ -170,19 +170,19 @@ mod tests {
     
     #[test]
     fn test_first_halving() {
-        let reward = calculate_block_reward(210_000);
+        let reward = calculate_block_reward(420_000);
         assert_eq!(reward, 25_00000000); // 25 NOVA
     }
-    
+
     #[test]
     fn test_second_halving() {
-        let reward = calculate_block_reward(420_000);
+        let reward = calculate_block_reward(840_000);
         assert_eq!(reward, 12_50000000); // 12.5 NOVA
     }
-    
+
     #[test]
     fn test_reward_after_64_halvings() {
-        let reward = calculate_block_reward(64 * 210_000);
+        let reward = calculate_block_reward(64 * 420_000);
         assert_eq!(reward, 0); // Subsidy exhausted
     }
     

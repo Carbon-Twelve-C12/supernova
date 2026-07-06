@@ -1220,7 +1220,7 @@ impl MiningManager {
     fn calculate_base_reward(&self, height: u64) -> u64 {
         // Supernova initial reward: 50 NOVA (50 * 10^8 nova units)
         let initial_reward = 50_00000000u64;
-        let halving_interval = 840_000u64; // Approximately 4 years at 2.5-minute blocks
+        let halving_interval = 420_000u64; // Canonical: 50 NOVA start -> 42M total (~2 years @150s)
 
         // Calculate number of halvings
         let halvings = height / halving_interval;

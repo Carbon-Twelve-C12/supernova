@@ -224,16 +224,16 @@ mod tests {
 
         // Test heights around halving boundaries
         let test_cases = vec![
-            (0, 50_000_000_000),       // Genesis: 50 NOVA
-            (1, 50_000_000_000),       // Block 1: 50 NOVA
-            (209_999, 50_000_000_000), // Just before first halving: 50 NOVA
-            (210_000, 25_000_000_000), // First halving: 25 NOVA
-            (210_001, 25_000_000_000), // Just after first halving: 25 NOVA
-            (419_999, 25_000_000_000), // Just before second halving: 25 NOVA
-            (420_000, 12_500_000_000), // Second halving: 12.5 NOVA
-            (630_000, 6_250_000_000),  // Third halving: 6.25 NOVA
-            (840_000, 3_125_000_000),  // Fourth halving: 3.125 NOVA
-            (13_440_000, 0),           // After 64 halvings: 0 NOVA
+            (0, 50_000_000_000),         // Genesis: 50 NOVA
+            (1, 50_000_000_000),         // Block 1: 50 NOVA
+            (419_999, 50_000_000_000),   // Just before first halving: 50 NOVA
+            (420_000, 25_000_000_000),   // First halving: 25 NOVA
+            (420_001, 25_000_000_000),   // Just after first halving: 25 NOVA
+            (839_999, 25_000_000_000),   // Just before second halving: 25 NOVA
+            (840_000, 12_500_000_000),   // Second halving: 12.5 NOVA
+            (1_260_000, 6_250_000_000),  // Third halving: 6.25 NOVA
+            (1_680_000, 3_125_000_000),  // Fourth halving: 3.125 NOVA
+            (26_880_000, 0),             // After 64 halvings (64 x 420,000): 0 NOVA
         ];
 
         for (height, expected_subsidy) in test_cases {
